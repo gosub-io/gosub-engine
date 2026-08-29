@@ -244,7 +244,6 @@ enum Performed {
 
 /// The fetcher's side of a streamed body, as the pump needs it.
 struct BodyPump {
-    shared: Arc<gosub_sonar::net::shared_body::SharedBody>,
     /// Subscribed the moment the response arrived: the body has no replay,
     /// so a later subscription would miss its first chunks.
     chunks: BodyChunks,
@@ -266,17 +265,13 @@ const PUMP_QUEUE: usize = 1024;
 /// error from the fetcher, or a consumer that stopped draining, abandons the
 /// stream: the producer drops unfinished and the consumer sees an abort.
 ///
-/// A subscriber the body dropped for falling behind sees the same end as a
-/// finished body. So the end is only trusted when the byte count matches
-/// `Content-Length`, or - without one - when the body is closed by the time
-/// the stream ends: a truncated body must abort, never look complete.
+/// A subscriber the body dropped for falling behind gets an error (sonar
+/// 0.4), which ends the pump without `finish`; the byte count against
+/// `Content-Length` is the second check: a truncated body must abort, never
+/// look complete.
 async fn pump(mut producer: gosub_ipc::ring::RingProducer, body: BodyPump) {
-    use futures_util::{FutureExt as _, StreamExt as _};
-    let BodyPump {
-        shared,
-        mut chunks,
-        expected,
-    } = body;
+    use futures_util::StreamExt as _;
+    let BodyPump { mut chunks, expected } = body;
     let mut pumped = 0u64;
     while let Some(chunk) = chunks.next().await {
         let Ok(chunk) = chunk else {
@@ -287,13 +282,7 @@ async fn pump(mut producer: gosub_ipc::ring::RingProducer, body: BodyPump) {
             return;
         }
     }
-    let complete = match expected {
-        Some(expected) => pumped == expected,
-        // A fresh subscription on a closed body ends at once; on a live one
-        // it is pending - which means this pump was dropped, not finished.
-        None => matches!(shared.subscribe_with_cap(1).next().now_or_never(), Some(None)),
-    };
-    if !complete {
+    if expected.is_some_and(|expected| pumped != expected) {
         eprintln!("[net] body stream fell behind the fetcher ({pumped} bytes pumped); aborting it");
         return;
     }
@@ -481,11 +470,7 @@ async fn perform(
                 },
                 ring,
                 producer,
-                body: BodyPump {
-                    shared,
-                    chunks,
-                    expected,
-                },
+                body: BodyPump { chunks, expected },
             }
         }
         Ok(FetchResult::Error(e)) => done(FetchOutcome::Error(e.to_string())),
@@ -512,7 +497,6 @@ mod tests {
 
     fn body(shared: &Arc<SharedBody>, cap: usize, expected: Option<u64>) -> BodyPump {
         BodyPump {
-            shared: Arc::clone(shared),
             chunks: shared.subscribe_with_cap(cap),
             expected,
         }
@@ -545,6 +529,24 @@ mod tests {
         assert!(
             drained.join().unwrap().is_err(),
             "a truncated body must not read as EOF"
+        );
+    }
+
+    /// A chunked body (no Content-Length) that finishes right after dropping
+    /// the pump: only sonar's lag error tells this from a complete body.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_body_that_finishes_after_dropping_the_pump_aborts_the_ring() {
+        let shared = Arc::new(SharedBody::new(1));
+        let pump_body = body(&shared, 1, None);
+        let (producer, ring) = gosub_ipc::ring::RingProducer::create(1 << 16).unwrap();
+        let drained = std::thread::spawn(move || drain(ring));
+        shared.push(bytes::Bytes::from_static(b"abc"));
+        shared.push(bytes::Bytes::from_static(b"def"));
+        shared.finish();
+        pump(producer, pump_body).await;
+        assert!(
+            drained.join().unwrap().is_err(),
+            "a body finished after the drop must not read as EOF"
         );
     }
 
