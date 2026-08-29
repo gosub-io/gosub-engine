@@ -30,6 +30,19 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// nothing (the abandoned link reads as EOF in the child).
 const RESIDENT_REPLY_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Bounds on one render exchange, so a renderer cannot hold the tab thread
+/// or fill the broker's memory by talking forever. Generous: a heavy page
+/// stays far below every one of them.
+const MAX_EXCHANGE_MESSAGES: usize = 50_000;
+const MAX_EXCHANGE_RESOURCES: usize = 2_000;
+const MAX_EXCHANGE_TILE_BYTES: usize = 512 * 1024 * 1024;
+const EXCHANGE_DEADLINE: Duration = Duration::from_secs(600);
+/// Longest `link`/`image` string kept from a hit region, and longest title.
+const MAX_HIT_TEXT: usize = 2048;
+const MAX_TITLE: usize = 1024;
+const MAX_LAYER_ORDER: usize = 100_000;
+const MAX_TIMINGS: usize = 64;
+
 /// What answers a renderer's subresource requests during an exchange: the
 /// broker's loader, plus - for a tab - a cache that lets an image request be
 /// answered at once and fetched in the background.
@@ -64,14 +77,54 @@ impl RenderResources for TabResources {
     }
 }
 
+/// Encoded bytes this cache keeps per tab; past it the oldest entries go and
+/// the renderer asks for them again.
+const MEDIA_CACHE_BUDGET: usize = 64 * 1024 * 1024;
+/// Fetch threads per tab. The rest queue; the renderer re-asks after every
+/// completion anyway.
+const MAX_MEDIA_FETCHERS: usize = 6;
+
+type MediaLoader = std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>;
+
+#[derive(Default)]
+struct MediaEntries {
+    by_url: std::collections::HashMap<String, Result<LoadedResource, String>>,
+    /// Insertion order, for eviction.
+    order: std::collections::VecDeque<String>,
+    bytes: usize,
+}
+
+impl MediaEntries {
+    fn insert(&mut self, key: String, fetched: Result<LoadedResource, String>) {
+        self.bytes += fetched.as_ref().map_or(0, |r| r.body.len());
+        self.order.push_back(key.clone());
+        self.by_url.insert(key, fetched);
+        while self.bytes > MEDIA_CACHE_BUDGET {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(Ok(gone)) = self.by_url.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(gone.body.len());
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct MediaQueue {
+    waiting: std::collections::VecDeque<(url::Url, MediaLoader)>,
+    fetchers: usize,
+}
+
 /// Images a renderer asked for on a tab's behalf: what has arrived, and what
-/// is still on its way. A miss starts the fetch on a thread and answers
-/// [`LoadError::Pending`]; when the bytes land, `completed` rises and the tab
-/// renders again, this time finding them here.
+/// is still on its way. A miss queues the fetch (a few threads work the
+/// queue) and answers [`LoadError::Pending`]; when the bytes land, `completed`
+/// rises and the tab renders again, this time finding them here.
 #[derive(Default)]
 pub struct RemoteMediaCache {
-    entries: parking_lot::Mutex<std::collections::HashMap<String, Result<LoadedResource, String>>>,
+    entries: parking_lot::Mutex<MediaEntries>,
     in_flight: parking_lot::Mutex<std::collections::HashSet<String>>,
+    queue: parking_lot::Mutex<MediaQueue>,
     completed: std::sync::atomic::AtomicBool,
 }
 
@@ -79,29 +132,52 @@ impl RemoteMediaCache {
     pub fn lookup_or_fetch(
         self: &std::sync::Arc<Self>,
         url: &url::Url,
-        loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+        loader: MediaLoader,
     ) -> Result<LoadedResource, LoadError> {
         let key = url.to_string();
-        if let Some(entry) = self.entries.lock().get(&key) {
+        if let Some(entry) = self.entries.lock().by_url.get(&key) {
             return entry.clone().map_err(LoadError::Failed);
         }
-        if self.in_flight.lock().insert(key.clone()) {
-            let cache = std::sync::Arc::clone(self);
-            let url = url.clone();
-            let spawned = std::thread::Builder::new()
-                .name("gosub-remote-media".into())
-                .spawn(move || {
-                    let fetched = loader.load(&url).map_err(|e| e.to_string());
-                    cache.entries.lock().insert(url.to_string(), fetched);
-                    cache.in_flight.lock().remove(url.as_str());
-                    cache.completed.store(true, std::sync::atomic::Ordering::Release);
-                });
-            if spawned.is_err() {
-                self.in_flight.lock().remove(&key);
-                return Err(LoadError::Failed("could not start the image fetch".into()));
-            }
+        if !self.in_flight.lock().insert(key.clone()) {
+            return Err(LoadError::Pending);
+        }
+        // Start a fetcher or queue for one, decided under the queue lock so a
+        // fetcher finishing right now cannot miss what was just queued.
+        let mut queue = self.queue.lock();
+        if queue.fetchers >= MAX_MEDIA_FETCHERS {
+            queue.waiting.push_back((url.clone(), loader));
+            return Err(LoadError::Pending);
+        }
+        queue.fetchers += 1;
+        drop(queue);
+        let cache = std::sync::Arc::clone(self);
+        let first = (url.clone(), loader);
+        let spawned = std::thread::Builder::new()
+            .name("gosub-remote-media".into())
+            .spawn(move || cache.work(first));
+        if spawned.is_err() {
+            self.queue.lock().fetchers -= 1;
+            self.in_flight.lock().remove(&key);
+            return Err(LoadError::Failed("could not start the image fetch".into()));
         }
         Err(LoadError::Pending)
+    }
+
+    /// One fetcher thread: the job it was started for, then the queue until
+    /// it is empty.
+    fn work(&self, first: (url::Url, MediaLoader)) {
+        let mut next = Some(first);
+        while let Some((url, loader)) = next.take() {
+            let fetched = loader.load(&url).map_err(|e| e.to_string());
+            self.entries.lock().insert(url.to_string(), fetched);
+            self.in_flight.lock().remove(url.as_str());
+            self.completed.store(true, std::sync::atomic::Ordering::Release);
+            let mut queue = self.queue.lock();
+            next = queue.waiting.pop_front();
+            if next.is_none() {
+                queue.fetchers -= 1;
+            }
+        }
     }
 
     /// Whether an image landed since the last call - the tab should render
@@ -110,10 +186,12 @@ impl RemoteMediaCache {
         self.completed.swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
-    /// Forget everything (a new document).
+    /// Forget everything (a new document). Fetches already running finish
+    /// into the new page's cache, which is harmless.
     pub fn clear(&self) {
-        self.entries.lock().clear();
+        *self.entries.lock() = MediaEntries::default();
         self.in_flight.lock().clear();
+        self.queue.lock().waiting.clear();
         self.completed.store(false, std::sync::atomic::Ordering::Release);
     }
 }
@@ -189,10 +267,28 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
 ) -> anyhow::Result<RenderedPage> {
     let mut received = Vec::new();
     let mut evicted = Vec::new();
+    let started = std::time::Instant::now();
+    let (mut messages, mut resources, mut tile_bytes) = (0usize, 0usize, 0usize);
     loop {
+        messages += 1;
+        if messages > MAX_EXCHANGE_MESSAGES {
+            anyhow::bail!("renderer sent more than {MAX_EXCHANGE_MESSAGES} messages in one render");
+        }
+        if started.elapsed() > EXCHANGE_DEADLINE {
+            anyhow::bail!("render did not finish within {EXCHANGE_DEADLINE:?}");
+        }
         match link.recv::<M>()?.into_event()? {
-            RenderEvent::Evict(hashes) => evicted.extend(hashes),
+            RenderEvent::Evict(hashes) => {
+                evicted.extend(hashes);
+                if evicted.len() > MAX_EXCHANGE_MESSAGES {
+                    anyhow::bail!("renderer evicted more than {MAX_EXCHANGE_MESSAGES} tiles in one render");
+                }
+            }
             RenderEvent::NeedResource { url, deferred } => {
+                resources += 1;
+                if resources > MAX_EXCHANGE_RESOURCES {
+                    anyhow::bail!("renderer asked for more than {MAX_EXCHANGE_RESOURCES} resources in one render");
+                }
                 let asked = std::time::Instant::now();
                 let reply = match url::Url::parse(&url) {
                     Ok(parsed) => {
@@ -235,6 +331,10 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
             RenderEvent::Tile(header) => {
                 let fd = link.rx.recv_fd()?;
                 let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
+                tile_bytes += mapping.as_slice().len();
+                if tile_bytes > MAX_EXCHANGE_TILE_BYTES {
+                    anyhow::bail!("renderer sent more than {MAX_EXCHANGE_TILE_BYTES} bytes of tiles in one render");
+                }
                 received.push(PageTile::Fresh { header, mapping });
             }
             // The renderer skipped this one because we said we had it. If we
@@ -247,15 +347,56 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                 };
                 received.push(PageTile::Reused { header, kept });
             }
-            RenderEvent::Rendered { summary, hit_regions } => {
+            RenderEvent::Rendered {
+                mut summary,
+                mut hit_regions,
+            } => {
+                bound_summary(&mut summary);
+                bound_hit_regions(&mut hit_regions);
                 return Ok(RenderedPage {
                     summary,
                     tiles: received,
                     hit_regions,
                     evicted,
-                })
+                });
             }
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
+        }
+    }
+}
+
+/// Cut a renderer-supplied string to `max` characters.
+fn bound_text(text: &mut String, max: usize) {
+    if text.len() > max {
+        *text = text.chars().take(max).collect();
+    }
+}
+
+/// The renderer's summary, sized as this side is willing to keep and forward it.
+fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
+    if let Some(title) = summary.title.as_mut() {
+        bound_text(title, MAX_TITLE);
+    }
+    if let Some(favicon) = summary.favicon.as_mut() {
+        bound_text(favicon, MAX_HIT_TEXT);
+    }
+    summary.layer_order.truncate(MAX_LAYER_ORDER);
+    summary.timings_us.truncate(MAX_TIMINGS);
+    for (name, _) in summary.timings_us.iter_mut() {
+        bound_text(name, MAX_TIMINGS);
+    }
+}
+
+/// [`MAX_HIT_REGIONS`](crate::fork_server::protocol::MAX_HIT_REGIONS) is the
+/// producer's promise; this is the consumer's.
+fn bound_hit_regions(regions: &mut Vec<crate::fork_server::protocol::HitRegion>) {
+    regions.truncate(crate::fork_server::protocol::MAX_HIT_REGIONS);
+    for region in regions.iter_mut() {
+        if let Some(link) = region.link.as_mut() {
+            bound_text(link, MAX_HIT_TEXT);
+        }
+        if let Some(image) = region.image.as_mut() {
+            bound_text(image, MAX_HIT_TEXT);
         }
     }
 }
@@ -425,7 +566,9 @@ impl TileMemory {
     /// within a layer - tiles of one layer never overlap, so that order is
     /// only for determinism.
     pub fn baked_tiles(&self, layer_order: &[u64]) -> Vec<gosub_render_pipeline::rasterizer::BakedTile> {
-        let rank = |layer: u64| layer_order.iter().position(|&l| l == layer).unwrap_or(usize::MAX);
+        let ranks: std::collections::HashMap<u64, usize> =
+            layer_order.iter().enumerate().map(|(i, &l)| (l, i)).collect();
+        let rank = |layer: u64| ranks.get(&layer).copied().unwrap_or(usize::MAX);
         let mut tiles: Vec<&KeptTile> = self.tiles.values().collect();
         tiles.sort_by(|a, b| {
             rank(a.layer_id)
