@@ -23,11 +23,7 @@ const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     // A vault that stops answering must cost one request its cookies, not
     // wedge every request behind the mutex.
-    let vault: Option<Arc<Mutex<VaultLink>>> = vault.map(|mut ep| {
-        let _ = ep.rx.set_read_timeout(Some(VAULT_TIMEOUT));
-        let _ = ep.tx.set_write_timeout(Some(VAULT_TIMEOUT));
-        Arc::new(Mutex::new(VaultLink { link: ep, next_tag: 1 }))
-    });
+    let vault: Arc<Mutex<Option<VaultLink>>> = Arc::new(Mutex::new(vault.map(VaultLink::new)));
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
 
@@ -119,6 +115,19 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     token.cancel();
                 }
             }
+            // The vault was respawned: its new line follows as an fd.
+            // The vault was respawned: its new line follows as an fd, twice
+            // (one per half; this process may not `dup`).
+            ToNet::VaultLine => match (link_rx.recv_fd(), link_rx.recv_fd()) {
+                (Ok(tx_fd), Ok(rx_fd)) => {
+                    let endpoint = Endpoint::from_halves(
+                        std::os::unix::net::UnixStream::from(tx_fd),
+                        std::os::unix::net::UnixStream::from(rx_fd),
+                    );
+                    *vault.lock() = Some(VaultLink::new(endpoint));
+                }
+                (Err(e), _) | (_, Err(e)) => eprintln!("[net] the new vault line did not arrive: {e}"),
+            },
             ToNet::Fetch(fetch) => {
                 let tag = fetch.tag;
                 let token = CancellationToken::new();
@@ -132,7 +141,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let cancels = cancels.clone();
                 let vault = vault.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token, vault.as_deref()).await;
+                    let performed = perform(&fetcher, fetch, token, &vault).await;
                     cancels.lock().remove(&tag);
                     // A write error means the broker went away; the recv loop
                     // notices the same and ends the process.
@@ -301,6 +310,12 @@ struct VaultLink {
 }
 
 impl VaultLink {
+    fn new(mut link: Endpoint) -> Self {
+        let _ = link.rx.set_read_timeout(Some(VAULT_TIMEOUT));
+        let _ = link.tx.set_write_timeout(Some(VAULT_TIMEOUT));
+        Self { link, next_tag: 1 }
+    }
+
     /// One tagged exchange. Any failure - timeout, a reply for another tag -
     /// is `None`; replies for an earlier, timed-out request are skipped.
     fn exchange(&mut self, build: impl FnOnce(u64) -> ToVault) -> Option<FromVault> {
@@ -325,11 +340,11 @@ impl VaultLink {
 
 /// The `Cookie` header for a request, from the vault; any failure is "no cookies".
 fn vault_cookies(
-    vault: &Mutex<VaultLink>,
+    vault: &Mutex<Option<VaultLink>>,
     scope: &crate::net::process::protocol::CookieScope,
     url: &str,
 ) -> Option<String> {
-    match vault.lock().exchange(|tag| ToVault::Get {
+    match vault.lock().as_mut()?.exchange(|tag| ToVault::Get {
         tag,
         scope: scope.clone(),
         url: url.to_string(),
@@ -342,7 +357,7 @@ fn vault_cookies(
 
 /// Hand a response's `Set-Cookie` headers to the vault.
 fn vault_store(
-    vault: &Mutex<VaultLink>,
+    vault: &Mutex<Option<VaultLink>>,
     scope: &crate::net::process::protocol::CookieScope,
     meta: &gosub_sonar::net::types::FetchResultMeta,
 ) {
@@ -356,7 +371,13 @@ fn vault_store(
         return;
     }
     // Waited for: the reply to the broker must not overtake the store.
-    let _ = vault.lock().exchange(|tag| ToVault::Store {
+    let Some(mut guard) = Some(vault.lock()) else {
+        return;
+    };
+    let Some(link) = guard.as_mut() else {
+        return;
+    };
+    let _ = link.exchange(|tag| ToVault::Store {
         tag,
         scope: scope.clone(),
         url: meta.final_url.to_string(),
@@ -369,7 +390,7 @@ async fn perform(
     fetcher: &Arc<Fetcher>,
     fetch: NetFetch,
     cancel: CancellationToken,
-    vault: Option<&Mutex<VaultLink>>,
+    vault: &Mutex<Option<VaultLink>>,
 ) -> Performed {
     // A ring fd can only travel where the link carries fds.
     let streaming = fetch.streaming && cfg!(target_os = "linux");
@@ -377,9 +398,9 @@ async fn perform(
     // Cookies come from the vault, never from the broker, when this process
     // has its own line to it. The scope is the broker's word on whose they are.
     let scope = fetch.cookies.clone();
-    let cookie_header = match (vault, &scope) {
-        (Some(vault), Some(scope)) => tokio::task::block_in_place(|| vault_cookies(vault, scope, &fetch.url)),
-        _ => None,
+    let cookie_header = match &scope {
+        Some(scope) => tokio::task::block_in_place(|| vault_cookies(vault, scope, &fetch.url)),
+        None => None,
     };
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
@@ -426,8 +447,8 @@ async fn perform(
             .collect()
     };
     // `Set-Cookie` goes to the vault from here; the broker never sees it.
-    if let (Some(vault), Some(scope), Some(meta)) = (vault, &scope, result.as_ref().ok().and_then(|r| r.meta())) {
-        vault_store(vault, scope, meta);
+    if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
+        tokio::task::block_in_place(|| vault_store(vault, scope, meta));
     }
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {

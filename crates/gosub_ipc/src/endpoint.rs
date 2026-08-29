@@ -224,6 +224,16 @@ impl Endpoint {
         (self.tx, self.rx)
     }
 
+    /// An endpoint over two descriptors of the same socket, for a confined
+    /// process that may not `dup` (the sender passed the fd twice).
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    pub fn from_halves(tx: std::os::unix::net::UnixStream, rx: std::os::unix::net::UnixStream) -> Endpoint {
+        Endpoint {
+            tx: EndpointTx::Socket(tx),
+            rx: EndpointRx::Socket(rx),
+        }
+    }
+
     /// The descriptors behind this link, for a forked child that must close
     /// them; empty for an in-process channel.
     #[cfg(all(feature = "multi-process", target_os = "linux"))]

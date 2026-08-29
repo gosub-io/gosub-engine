@@ -16,12 +16,19 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
-/// One link, request/reply, serialized by the mutex.
+/// One link, request/reply, serialized by the mutex. A process that died
+/// (its state is all on disk) is respawned on the next request, which is
+/// then retried once.
 pub struct StorageProcess {
     link: Mutex<Endpoint>,
     next_tag: AtomicU64,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
+    dir: PathBuf,
+    last_respawn: Mutex<Option<std::time::Instant>>,
+    closed: std::sync::atomic::AtomicBool,
 }
+
+const RESPAWN_COOLDOWN: Duration = Duration::from_secs(5);
 
 impl std::fmt::Debug for StorageProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,6 +39,25 @@ impl std::fmt::Debug for StorageProcess {
 impl StorageProcess {
     /// `dir` must exist: the service cannot create it.
     pub fn spawn(dir: &Path) -> Result<Self> {
+        let dir = std::fs::canonicalize(dir)?;
+        let (link, child) = Self::launch(&dir)?;
+        Ok(Self {
+            link: Mutex::new(link),
+            next_tag: AtomicU64::new(1),
+            child: Mutex::new(Some(child)),
+            dir,
+            last_respawn: Mutex::new(None),
+            closed: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// The service process's pid, while it has one.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.lock().as_ref().map(gosub_sandbox::spawn::Child::id)
+    }
+
+    /// Re-exec this binary as the service on `dir` and confirm it answers.
+    fn launch(dir: &Path) -> Result<(Endpoint, gosub_sandbox::spawn::Child)> {
         if crate::child_process::is_child_process() {
             anyhow::bail!(
                 "this process was started as an engine child role but is running embedder startup, \
@@ -39,7 +65,6 @@ impl StorageProcess {
                  main(); refusing to spawn further processes"
             );
         }
-        let dir = std::fs::canonicalize(dir)?;
         let Some(dir_arg) = dir.to_str() else {
             anyhow::bail!("storage directory is not valid UTF-8: {}", dir.display());
         };
@@ -54,7 +79,7 @@ impl StorageProcess {
             gosub_sandbox::spawn::ContainerProfile {
                 name: "gosub-storage",
                 internet: false,
-                fs_grant: Some((dir.as_path(), true)),
+                fs_grant: Some((dir, true)),
                 data_limit: None,
                 extra_fds: &[],
                 max_tasks: 64,
@@ -79,21 +104,56 @@ impl StorageProcess {
             }
         }
         let _ = link.rx.set_read_timeout(Some(REPLY_TIMEOUT));
-        Ok(Self {
-            link: Mutex::new(link),
-            next_tag: AtomicU64::new(1),
-            child: Mutex::new(Some(child)),
-        })
+        Ok((link, child))
+    }
+
+    /// A dead service comes back for the next request, at most once per
+    /// cooldown; `false` when it could not.
+    fn respawn(&self, link: &mut Endpoint) -> bool {
+        if self.closed.load(Ordering::Acquire) {
+            return false;
+        }
+        let mut last = self.last_respawn.lock();
+        if last.is_some_and(|at| at.elapsed() < RESPAWN_COOLDOWN) {
+            return false;
+        }
+        *last = Some(std::time::Instant::now());
+        log::warn!("the storage service died; respawning it");
+        if let Some(mut child) = self.child.lock().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        match Self::launch(&self.dir) {
+            Ok((fresh, child)) => {
+                *link = fresh;
+                *self.child.lock() = Some(child);
+                log::info!("the storage service is back");
+                true
+            }
+            Err(e) => {
+                log::error!("the storage service could not be respawned ({e}); localStorage requests fail");
+                false
+            }
+        }
     }
 
     fn ask(&self, build: impl FnOnce(Tag) -> ToStorage) -> Result<FromStorage> {
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
+        let msg = build(tag);
         let mut link = self.link.lock();
-        link.send(&build(tag))
-            .map_err(|e| anyhow!("the storage service is unreachable: {e}"))?;
-        let reply = link
-            .recv::<FromStorage>()
-            .map_err(|e| anyhow!("the storage service did not answer: {e}"))?;
+        let exchange = |link: &mut Endpoint| -> Result<FromStorage> {
+            link.send(&msg)
+                .map_err(|e| anyhow!("the storage service is unreachable: {e}"))?;
+            link.recv::<FromStorage>()
+                .map_err(|e| anyhow!("the storage service did not answer: {e}"))
+        };
+        let reply = match exchange(&mut link) {
+            Ok(reply) => reply,
+            // Once more through a fresh process; a timeout of a live one is
+            // not that (the link is intact and the process still there).
+            Err(e) if !link.rx.peer_alive() && self.respawn(&mut link) => exchange(&mut link).map_err(|_| e)?,
+            Err(e) => return Err(e),
+        };
         // One request in flight at a time: a mismatched tag is a broken child.
         let echoed = match &reply {
             FromStorage::Value { tag, .. }
@@ -117,6 +177,7 @@ impl StorageProcess {
     }
 
     pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
         let _ = self.link.lock().send(&ToStorage::Shutdown);
         let Some(mut child) = self.child.lock().take() else {
             return;
@@ -184,6 +245,14 @@ impl ServiceLocalStore {
         })
     }
 
+    /// The service process's pid, when one serves the areas.
+    pub fn pid(&self) -> Option<u32> {
+        match self.backend.get() {
+            Some(Backend::Remote(process)) => process.pid(),
+            _ => None,
+        }
+    }
+
     /// Areas handed out before fail on their next request.
     pub fn shutdown(&self) {
         if let Some(Backend::Remote(process)) = self.backend.get() {
@@ -195,6 +264,10 @@ impl ServiceLocalStore {
 impl LocalStore for ServiceLocalStore {
     fn service_directory(&self) -> Option<PathBuf> {
         Some(self.dir.clone())
+    }
+
+    fn service_pid(&self) -> Option<u32> {
+        self.pid()
     }
 
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {

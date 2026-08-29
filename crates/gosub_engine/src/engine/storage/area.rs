@@ -41,6 +41,11 @@ pub trait LocalStore: Send + Sync {
     fn service_directory(&self) -> Option<std::path::PathBuf> {
         None
     }
+
+    /// The pid of the process serving the areas, when there is one.
+    fn service_pid(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// Store for sessionStorage-like areas (isolated per (zone, tab, partition, origin)).

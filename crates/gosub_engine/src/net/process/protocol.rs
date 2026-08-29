@@ -19,6 +19,9 @@ pub enum ToNet {
     /// Finish in-flight work and exit. The broker still waits for the process to
     /// go away and kills it if it does not.
     Shutdown,
+    /// A new line to the cookie vault follows as a file descriptor (the vault
+    /// was respawned); it replaces the one inherited at spawn.
+    VaultLine,
 }
 
 /// One request, flattened to what actually has to travel.

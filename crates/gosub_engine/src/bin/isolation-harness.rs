@@ -3505,6 +3505,27 @@ fn engine_storage_service() -> i32 {
                 return 1;
             }
             println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+
+            // Kill it: the next request brings a new one, reading the same files.
+            let Some(pid) = storage.local_store().service_pid() else {
+                eprintln!("the routed store has no service pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("the value did not survive the storage service dying");
+                return 1;
+            }
+            match storage.local_store().service_pid() {
+                Some(new_pid) if new_pid != pid => println!("storage service respawned: pid {pid} -> {new_pid}"),
+                other => {
+                    eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
+                    return 1;
+                }
+            }
             let _ = engine.shutdown().await;
             0
         });
@@ -3862,7 +3883,11 @@ fn engine_cookie_vault() -> i32 {
     use gosub_render_pipeline::render::DefaultCompositor;
     use parking_lot::Mutex;
 
-    let in_process = std::env::args().nth(2).as_deref() == Some("in-process");
+    let modes: Vec<String> = std::env::args().skip(2).collect();
+    let in_process = modes.iter().any(|m| m == "in-process");
+    // `respawn`: kill the vault after the first flow; the cookie must still
+    // reach the next request, from the store the respawned vault reopens.
+    let respawn = modes.iter().any(|m| m == "respawn");
     let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
     let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
         eprintln!("could not start the test server");
@@ -3877,6 +3902,9 @@ fn engine_cookie_vault() -> i32 {
         }
     };
     let seen_after = Arc::clone(&seen);
+    // Requests recorded from this index on came after the vault was killed.
+    let after_kill = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let after_kill_seen = Arc::clone(&after_kill);
     let code = runtime.block_on(async move {
         let mut engine: GosubEngine = GosubEngine::new(
             None,
@@ -3906,12 +3934,30 @@ fn engine_cookie_vault() -> i32 {
             return 1;
         }
 
+        // A real store when the vault is to be killed: what comes back must
+        // come from disk, not from the process that died.
+        let cookie_store = if respawn {
+            let dir = std::env::temp_dir().join(format!("gosub-vault-respawn-{}", std::process::id()));
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                eprintln!("no temp dir: {e}");
+                return 1;
+            }
+            match gosub_engine::cookies::SqliteCookieStore::new(dir.join("cookies.db")) {
+                Ok(store) => Some(gosub_engine::cookies::CookieStoreHandle::from(store)),
+                Err(e) => {
+                    eprintln!("could not open the sqlite store: {e}");
+                    return 1;
+                }
+            }
+        } else {
+            None
+        };
         let services = ZoneServices {
             storage: Arc::new(StorageService::new(
                 Arc::new(InMemoryLocalStore::new()),
                 Arc::new(InMemorySessionStore::new()),
             )),
-            cookie_store: None,
+            cookie_store,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
@@ -3933,13 +3979,74 @@ fn engine_cookie_vault() -> i32 {
         }
 
         // Two requests: the page, then its stylesheet.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
-        while seen.lock().len() < 2 {
-            if tokio::time::Instant::now() > deadline {
-                eprintln!("timed out waiting for the stylesheet request; seen {:?}", seen.lock());
+        let wait_for = |n: usize| {
+            let seen = Arc::clone(&seen);
+            async move {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+                while seen.lock().len() < n {
+                    if tokio::time::Instant::now() > deadline {
+                        eprintln!("timed out waiting for request {n}; seen {:?}", seen.lock());
+                        return false;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                true
+            }
+        };
+        if !wait_for(2).await {
+            return 1;
+        }
+
+        if respawn {
+            // Let the first navigation's trailing requests (favicon, a
+            // repeated stylesheet) land before counting from here.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            let after_kill_from = seen.lock().len();
+            after_kill_seen.store(after_kill_from, std::sync::atomic::Ordering::Relaxed);
+            let Some(vault) = engine.cookie_vault() else {
+                eprintln!("no vault to kill");
+                return 1;
+            };
+            let Some(pid) = vault.pid() else {
+                eprintln!("the vault has no pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while vault.is_alive() {
+                if tokio::time::Instant::now() > deadline {
+                    eprintln!("the broker never noticed the vault dying");
+                    return 1;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            // Straight to the stylesheet: nothing sets the cookie again, so it
+            // has to come out of the store through the respawned vault.
+            if tab
+                .navigate(format!("http://127.0.0.1:{port}/style.css"))
+                .await
+                .is_err()
+            {
+                eprintln!("second navigate failed");
                 return 1;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if !wait_for(after_kill_from + 1).await {
+                return 1;
+            }
+            let Some(new_pid) = vault.pid() else {
+                eprintln!("no vault after the respawn");
+                return 1;
+            };
+            if new_pid == pid || !vault.is_alive() {
+                eprintln!(
+                    "the vault was not respawned (pid {pid} -> {new_pid}, alive {})",
+                    vault.is_alive()
+                );
+                return 1;
+            }
+            println!("vault respawned: pid {pid} -> {new_pid}");
         }
         let _ = engine.shutdown().await;
         0
@@ -3947,6 +4054,7 @@ fn engine_cookie_vault() -> i32 {
     if code != 0 {
         return code;
     }
+    let after_kill_from = after_kill.load(std::sync::atomic::Ordering::Relaxed);
     let seen = seen_after.lock().clone();
     println!("requests: {seen:?}");
     let first_clean = seen.first().is_some_and(|(_, cookie)| cookie.is_none());
@@ -3957,13 +4065,25 @@ fn engine_cookie_vault() -> i32 {
         eprintln!("the stylesheet request must carry the cookie the page set, and the page request must not");
         return 1;
     }
+    if respawn {
+        let third_has = seen.get(after_kill_from..).is_some_and(|later| {
+            later
+                .iter()
+                .any(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")))
+        });
+        if !third_has {
+            eprintln!("after the vault died, the next request must still carry the cookie (from the store)");
+            return 1;
+        }
+    }
     println!(
-        "cookie set by the page reached the next request through the vault{}",
+        "cookie set by the page reached the next request through the vault{}{}",
         if in_process {
             " (in-process fetch)"
         } else {
             " and the network process"
-        }
+        },
+        if respawn { ", across a vault respawn" } else { "" }
     );
     0
 }

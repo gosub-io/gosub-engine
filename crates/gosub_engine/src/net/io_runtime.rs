@@ -281,7 +281,16 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
     match crate::net::process::client::NetProcess::spawn(vault_line) {
         Ok(net) => {
             log::info!("network stack running in a separate, sandboxed process");
-            Some(Arc::new(net))
+            let net = Arc::new(net);
+            // A respawned vault hands this process a new line through here.
+            #[cfg(target_os = "linux")]
+            if let (Some(vault), true) = (engine_ctx.cookie_vault.get(), net.vault_linked()) {
+                let relinked = Arc::clone(&net);
+                vault.on_relink(Box::new(move |line| {
+                    relinked.relink_vault(crate::net::process::client::VaultLine(line.0));
+                }));
+            }
+            Some(net)
         }
         Err(e) => {
             log::error!(

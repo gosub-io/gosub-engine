@@ -79,7 +79,10 @@ engine then falls back in-process and says so.
   Persistence is brokered: the vault sends a snapshot of a zone's jar after
   every change and the broker writes it through the zone's cookie store, so
   the vault never opens a file and any embedder-supplied store works. An
-  embedder-supplied *jar* stays where the embedder put it.
+  embedder-supplied *jar* stays where the embedder put it. A vault that dies
+  is respawned on the next cookie operation: every open zone is reopened from
+  its store's last snapshot (a zone without a store loses its session
+  cookies) and the network process is handed a fresh line over its own link.
 - **gosub-storage** serves `localStorage` from one JSON file per
   `(zone, partition, origin)` area, under the service profile (baseline plus
   `openat`, Landlock-scoped to its directory). A zone whose `StorageService`
@@ -87,7 +90,8 @@ engine then falls back in-process and says so.
   (`security.storage_service`, one process per directory); other store kinds
   stay in-process. Area names are stamped by the broker,
   page keys stay inside the file, values and areas are capped. Session
-  storage stays in the broker.
+  storage stays in the broker. A service that dies is respawned on the next
+  request, which is retried once; its state was on disk all along.
 - **gosub-decoder** is spawned per image, fed bytes, and exits with pixels (or
   an intrinsic size, when only that was asked). SVG is rasterized there at its
   intrinsic size, without fonts — a parsed tree never leaves the process — so

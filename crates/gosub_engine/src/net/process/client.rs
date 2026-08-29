@@ -251,6 +251,18 @@ impl NetProcess {
         self.vault_linked
     }
 
+    /// Hand the child a new line to a respawned vault, over its own link. The
+    /// fd goes twice: the child may not `dup`, and an endpoint is two halves.
+    #[cfg(target_os = "linux")]
+    pub fn relink_vault(&self, line: VaultLine) {
+        let mut tx = self.tx.lock();
+        if tx.send(&ToNet::VaultLine).is_err() || tx.send_fd(line.0.raw()).is_err() || tx.send_fd(line.0.raw()).is_err()
+        {
+            log::warn!("could not hand the network process its new vault line");
+        }
+        // `line` drops here: the child holds its duplicates.
+    }
+
     /// Send a request and wait for the network process to answer. Bounded by
     /// [`MAX_INFLIGHT`]; a caller past the bound waits for a slot. Cancelling
     /// `cancel` abandons the wait and tells the child to drop the request.

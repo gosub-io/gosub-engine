@@ -478,6 +478,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// and the fork server started: one process per (zone, site), listable
     /// for diagnostics.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    /// The cookie vault, when one runs (tools and tests).
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn cookie_vault(&self) -> Option<&Arc<crate::cookie_vault::client::CookieVault>> {
+        self.context.cookie_vault.get()
+    }
+
     pub fn renderer_pool(&self) -> Option<&Arc<crate::fork_server::pool::RendererPool>> {
         self.context.renderer_pool.get()
     }
