@@ -31,8 +31,6 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
     CssLoaded(DummyStylesheet),
     /// A script has been loaded and executed.
     ScriptExecuted(DummyJsDocument),
-    /// An image has been decoded.
-    ImageDecoded(image::DynamicImage),
     /// A font has been loaded.
     FontLoaded(DummyFont),
 
@@ -70,6 +68,11 @@ fn text_document_html(body: &[u8]) -> String {
     )
 }
 
+/// Beyond these the viewer shows escaped text instead: it is a convenience,
+/// not a reason to hold a large parse tree in the broker.
+const JSON_VIEWER_MAX_BYTES: usize = 8 * 1024 * 1024;
+const JSON_VIEWER_MAX_DEPTH: usize = 64;
+
 // JSON viewer palette (GitHub-light-ish).
 const JSON_KEY_COLOR: &str = "#6f42c1";
 const JSON_STR_COLOR: &str = "#22863a";
@@ -93,6 +96,11 @@ fn json_lines(v: &serde_json::Value, depth: usize, key: Option<&str>, trail: &st
     let prefix = key
         .map(|k| format!("<span style=\"color:{JSON_KEY_COLOR}\">\"{}\"</span>: ", html_escape(k)))
         .unwrap_or_default();
+    // Past this the subtree is shown compact: the recursion runs on a task stack.
+    if depth > JSON_VIEWER_MAX_DEPTH && !v.is_null() && (v.is_object() || v.is_array()) {
+        out.push((depth, format!("{prefix}{}{trail}", html_escape(&v.to_string()))));
+        return;
+    }
     match v {
         serde_json::Value::Object(map) if map.is_empty() => out.push((depth, format!("{prefix}{{}}{trail}"))),
         serde_json::Value::Array(arr) if arr.is_empty() => out.push((depth, format!("{prefix}[]{trail}"))),
@@ -213,7 +221,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 let body = body_content.to_bytes(peek_buf).await?;
                 // JSON gets the highlighted viewer; anything unparseable (and
                 // text/plain) falls back to escaped plain text.
-                let html = if outcome.class == ResponseClass::Json {
+                let html = if outcome.class == ResponseClass::Json && body.len() <= JSON_VIEWER_MAX_BYTES {
                     match serde_json::from_slice::<serde_json::Value>(&body) {
                         Ok(value) => json_document_html(&value),
                         Err(_) => text_document_html(&body),
@@ -255,12 +263,10 @@ pub async fn route_response_for<C: RenderConfiguration>(
             };
             Ok(RoutedOutcome::ScriptExecuted(script))
         }
-        (RequestDestination::Image, HandlingDecision::Render(RenderTarget::ImageDecoder), body_content) => {
-            let image = match body_content {
-                BodyContent::Stream { shared } => hooks.images.parse_stream(meta, peek_buf, shared).await?,
-                BodyContent::Buffered { body } => hooks.images.parse_bytes(meta, body.as_ref()).await?,
-            };
-            Ok(RoutedOutcome::ImageDecoded(image))
+        // Images are decoded where they are painted (a renderer, or the media
+        // store through the decoder process), never by this router.
+        (RequestDestination::Image, HandlingDecision::Render(RenderTarget::ImageDecoder), _) => {
+            Err(anyhow::anyhow!("images are not decoded by the resource router"))
         }
         (RequestDestination::Font, HandlingDecision::Render(RenderTarget::FontLoader), body_content) => {
             let font = match body_content {

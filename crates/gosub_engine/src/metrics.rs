@@ -49,7 +49,8 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
         return;
     }
 
-    let (code, phrase, body) = if first_line.starts_with("GET /metrics/reset") {
+    // A mutation on a GET is a `<img>` tag away; POST only.
+    let (code, phrase, body) = if first_line.starts_with("POST /metrics/reset") {
         gosub_shared::timing::reset_stats();
         (200u16, "OK", r#"{"status":"reset"}"#.to_string())
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
@@ -69,7 +70,7 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
         body.as_str()
     };
     let response = format!(
-        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{payload}",
+        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
@@ -83,7 +84,8 @@ async fn stream_events(mut stream: TcpStream) {
     use tokio::sync::broadcast::error::RecvError;
 
     let mut events = crate::telemetry::subscribe();
-    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
+    let head =
+        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
     if stream.write_all(head.as_bytes()).await.is_err() {
         return;
     }

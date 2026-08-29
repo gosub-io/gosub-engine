@@ -244,7 +244,7 @@
 
   // ── render ──
   const fmtMs = (us) => us >= 10_000_000 ? (us / 1e6).toFixed(1) + ' s' : (us / 1000).toFixed(us >= 100000 ? 0 : 1) + ' ms';
-  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const tip = $('tip');
   function showTip(e, text) { tip.style.display = 'block'; tip.textContent = text; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; }
   function hideTip() { tip.style.display = 'none'; }
@@ -327,7 +327,7 @@
     const tbody = $('pass-table').querySelector('tbody');
     tbody.innerHTML = passes.slice().reverse().slice(0, 40).map(p => {
       const r = STAGES.filter(([k]) => k !== 'transport').reduce((a, [k]) => a + (p.stages[k] || 0), 0);
-      return `<tr><td class="l">${new Date(p.ts / 1000).toLocaleTimeString()}</td><td class="l">${p.kind.replace('remote.', '')}</td><td>${Math.round(p.scroll_y || 0)}</td><td>${(p.exchange_us / 1000).toFixed(1)}</td><td>${p.fresh}</td><td>${p.reused}</td><td>${p.evicted}</td><td>${(p.bytes / 1024 | 0)}</td><td>${(r / 1000).toFixed(1)}</td></tr>`;
+      return `<tr><td class="l">${new Date(p.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(p.kind.replace('remote.', ''))}</td><td>${Math.round(p.scroll_y || 0)}</td><td>${(p.exchange_us / 1000).toFixed(1)}</td><td>${p.fresh}</td><td>${p.reused}</td><td>${p.evicted}</td><td>${(p.bytes / 1024 | 0)}</td><td>${(r / 1000).toFixed(1)}</td></tr>`;
     }).join('');
   }
 
@@ -357,7 +357,7 @@
     const tbody = $('loads').querySelector('tbody');
     tbody.innerHTML = loads.slice().reverse().slice(0, 60).map(l => {
       const url = l.url.length > 70 ? l.url.slice(0, 67) + '…' : l.url;
-      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${l.kind}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${l.mode}</td><td class="l">${esc(l.outcome)}</td><td>${l.status}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
+      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(l.kind)}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${esc(l.mode)}</td><td class="l">${esc(l.outcome)}</td><td>${l.status}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
     }).join('');
   }
 

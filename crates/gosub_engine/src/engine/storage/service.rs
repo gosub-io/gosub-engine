@@ -136,7 +136,10 @@ impl StorageArea for NotifyingArea {
         self.inner.get_item(key)
     }
     fn set_item(&self, key: &str, value: &str) -> Result<()> {
-        let old = self.inner.get_item(key);
+        // The old value is only for the event; with a remote store it is a round trip.
+        let old = (self.bus.tx.receiver_count() > 0)
+            .then(|| self.inner.get_item(key))
+            .flatten();
         self.inner.set_item(key, value)?;
         self.bus.publish(StorageEvent {
             zone: self.zone,

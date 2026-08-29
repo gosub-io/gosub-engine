@@ -780,6 +780,16 @@ const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_open,
 ];
 
+/// What a service that *writes* needs on top: replacing a file atomically.
+/// Landlock still decides where; with a read-only grant these fail with EACCES.
+#[cfg(feature = "multi-process")]
+const FS_WRITE_EXTRA: &[libc::c_long] = &[
+    libc::SYS_renameat,
+    libc::SYS_renameat2,
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    libc::SYS_rename,
+];
+
 /// Landlock: path-based filesystem access control (which seccomp cannot do).
 #[cfg(feature = "multi-process")]
 mod landlock {
@@ -1391,6 +1401,7 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
     let mut allowed = BASELINE.to_vec();
     if filesystem {
         allowed.extend_from_slice(FS_EXTRA);
+        allowed.extend_from_slice(FS_WRITE_EXTRA);
     }
     if device {
         allowed.extend_from_slice(DEVICE_EXTRA);

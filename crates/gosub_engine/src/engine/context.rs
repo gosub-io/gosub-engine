@@ -6,6 +6,10 @@
 //! context via `set_document`, after which the context rebuilds whichever render
 //! representation the active backend consumes.
 
+/// How long a landed image waits for the next before the page re-renders.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+const REMOTE_MEDIA_SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
 use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
@@ -256,6 +260,11 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// proceeds without them and runs again when they land.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_media: std::sync::Arc<crate::fork_server::client::RemoteMediaCache>,
+    /// When the first image of the current batch landed; the re-render waits
+    /// a little for the rest, so a page of photographs costs a few renders,
+    /// not one per photograph.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_media_landed: Option<std::time::Instant>,
 }
 
 /// A scroll or hover exchange the tab is waiting on.
@@ -359,6 +368,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_failure: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_media: Default::default(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_media_landed: None,
         }
     }
 
@@ -940,8 +951,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         use std::sync::mpsc::TryRecvError;
 
         let mut changed = false;
-        // An image the renderer went without has arrived: render again.
+        // An image the renderer went without has arrived: render again, once
+        // the ones landing right behind it have had a moment to land too.
         if self.remote_media.take_completed() {
+            self.remote_media_landed.get_or_insert_with(std::time::Instant::now);
+        }
+        if self
+            .remote_media_landed
+            .is_some_and(|since| since.elapsed() >= REMOTE_MEDIA_SETTLE)
+        {
+            self.remote_media_landed = None;
             self.note_invalidate("remote-media");
             self.render_dirty = true;
             changed = true;

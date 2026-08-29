@@ -196,6 +196,11 @@ pub trait CookieJar: Send + Sync {
     fn purge_expired(&mut self);
 }
 
+/// RFC 6265bis limits: a cookie line over this is ignored, an origin keeps
+/// at most this many.
+const MAX_COOKIE_BYTES: usize = 4096;
+const MAX_COOKIES_PER_ORIGIN: usize = 180;
+
 /// Default cookie jar: in-memory only, no persistence. Cookies are stored per
 /// origin (`scheme://host:port`) and matched to requests via basic domain/path
 /// rules; `third_party_policy` governs cross-site behavior when `top_level` is
@@ -266,6 +271,10 @@ impl CookieJar for DefaultCookieJar {
             let Ok(header_str) = std::str::from_utf8(header.as_bytes()) else {
                 continue;
             };
+            // RFC 6265bis §5.6: a cookie past 4 KiB is ignored, not truncated.
+            if header_str.len() > MAX_COOKIE_BYTES {
+                continue;
+            }
             let Some((name, rest)) = header_str.split_once('=') else {
                 continue;
             };
@@ -417,6 +426,17 @@ impl CookieJar for DefaultCookieJar {
                 *existing = cookie;
                 existing.created_at = original_created_at;
             } else {
+                // Per-origin cap: the oldest cookie makes room, as browsers do.
+                if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
+                    if let Some(oldest) = bucket
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, c)| c.created_at)
+                        .map(|(i, _)| i)
+                    {
+                        bucket.remove(oldest);
+                    }
+                }
                 cookie.created_at = Utc::now().timestamp_millis();
                 bucket.push(cookie);
             }

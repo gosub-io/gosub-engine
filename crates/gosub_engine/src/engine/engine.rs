@@ -98,10 +98,13 @@ pub struct EngineContext {
     /// Storage service processes, one per directory, shared by the zones
     /// whose local store lives there.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    pub storage_services: Arc<
-        Mutex<std::collections::HashMap<std::path::PathBuf, Arc<crate::storage_service::client::ServiceLocalStore>>>,
-    >,
+    pub storage_services: Arc<Mutex<StorageServices>>,
 }
+
+/// Storage service per directory, with how many open zones use it.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub type StorageServices =
+    std::collections::HashMap<std::path::PathBuf, (Arc<crate::storage_service::client::ServiceLocalStore>, usize)>;
 
 impl Default for EngineContext {
     fn default() -> Self {
@@ -216,7 +219,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
         #[cfg(feature = "metrics")]
-        crate::metrics::start(9090, Arc::clone(&self.context));
+        if self.context.config_store.get_bool("telemetry.metrics_enabled") {
+            crate::metrics::start(9090, Arc::clone(&self.context));
+        }
 
         // Spawn the renderer fork server if asked to. Blocks briefly (spawn
         // plus font warm-up, ~200 ms typical) - acceptable at startup, and
@@ -570,7 +575,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 log::trace!("signal: shutting down the cookie vault");
                 vault.shutdown();
             }
-            for store in self.context.storage_services.lock().values() {
+            for (store, _) in self.context.storage_services.lock().values() {
                 store.shutdown();
             }
         }
@@ -664,12 +669,15 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return;
         };
         let mut processes = self.context.storage_services.lock();
-        let store = match processes.get(&dir) {
-            Some(store) => Arc::clone(store),
+        let store = match processes.get_mut(&dir) {
+            Some((store, zones)) => {
+                *zones += 1;
+                Arc::clone(store)
+            }
             None => match ServiceLocalStore::new(&dir) {
                 Ok(store) => {
                     let store = Arc::new(store);
-                    processes.insert(dir, Arc::clone(&store));
+                    processes.insert(dir, (Arc::clone(&store), 1));
                     store
                 }
                 Err(e) => {
@@ -731,6 +739,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
     pub async fn close_zone(&mut self, zone: Zone<C>) {
         let zone_id = zone.id;
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let storage_dir = zone.context.services.storage.local_store().service_directory();
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
@@ -754,6 +764,24 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Final cookie snapshot + cache eviction; durable data stays on disk.
         if let Some(store) = self.cookie_stores.remove(&zone_id) {
             store.release_zone(zone_id);
+        }
+
+        // The storage service outlives its last zone by nothing.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(dir) = storage_dir {
+            let mut processes = self.context.storage_services.lock();
+            let last = match processes.get_mut(&dir) {
+                Some((_, zones)) => {
+                    *zones = zones.saturating_sub(1);
+                    *zones == 0
+                }
+                None => false,
+            };
+            if last {
+                if let Some((store, _)) = processes.remove(&dir) {
+                    store.shutdown();
+                }
+            }
         }
 
         self.zones.remove(&zone_id);

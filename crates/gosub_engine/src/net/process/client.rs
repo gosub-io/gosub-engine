@@ -493,13 +493,21 @@ fn drain_ring(ring: std::os::fd::OwnedFd) -> Arc<gosub_sonar::net::shared_body::
                     }
                 };
                 let mut buf = vec![0u8; 64 * 1024];
+                let mut total: u64 = 0;
                 loop {
                     match consumer.read(&mut buf) {
                         Ok(0) => {
                             sink.finish();
                             return;
                         }
-                        Ok(n) => sink.push(bytes::Bytes::copy_from_slice(&buf[..n])),
+                        Ok(n) => {
+                            total += n as u64;
+                            if total > gosub_ipc::ring::MAX_BODY_LEN {
+                                sink.error(net_error("body stream exceeded the size cap"));
+                                return;
+                            }
+                            sink.push(bytes::Bytes::copy_from_slice(&buf[..n]));
+                        }
                         Err(e) => {
                             sink.error(net_error(format!("body stream failed: {e}")));
                             return;

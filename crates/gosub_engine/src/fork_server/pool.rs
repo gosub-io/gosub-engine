@@ -128,14 +128,25 @@ impl RendererPool {
         let renderer = match state.renderers.get(&key) {
             Some(renderer) => Arc::clone(renderer),
             None => {
+                // Spawning is a round trip to the fork server: other tabs'
+                // lookups must not wait on it, so the pool lock is let go and
+                // retaken. Two tabs racing for one new site both spawn; the
+                // loser's renderer is dropped unused.
+                drop(state);
                 // The `ps` name wants the host, not the scheme.
                 let label = site.rsplit("://").next().unwrap_or(site);
                 let spawned = self.fork_server.lock().spawn_renderer(label)?;
-                state.pids.insert(key.clone(), spawned.pid());
-                state.dead_flags.insert(key.clone(), spawned.dead_flag());
-                let renderer = Arc::new(Mutex::new(spawned));
-                state.renderers.insert(key.clone(), Arc::clone(&renderer));
-                renderer
+                state = self.state.lock();
+                match state.renderers.get(&key) {
+                    Some(renderer) => Arc::clone(renderer),
+                    None => {
+                        state.pids.insert(key.clone(), spawned.pid());
+                        state.dead_flags.insert(key.clone(), spawned.dead_flag());
+                        let renderer = Arc::new(Mutex::new(spawned));
+                        state.renderers.insert(key.clone(), Arc::clone(&renderer));
+                        renderer
+                    }
+                }
             }
         };
         if state.placement.get(&tab) != Some(&key) {
@@ -265,17 +276,29 @@ impl RendererPool {
 
     /// Every running renderer and how many tabs it hosts.
     pub fn snapshot(&self) -> Vec<RendererStatus> {
-        let state = self.state.lock();
-        let mut out: Vec<RendererStatus> = state
-            .renderers
-            .keys()
-            .map(|key| {
-                let pid = state.pids.get(key).copied().unwrap_or(0);
+        // The `/proc` reads happen after the lock is released.
+        let listed: Vec<(RendererKey, i32, usize)> = {
+            let state = self.state.lock();
+            state
+                .renderers
+                .keys()
+                .map(|key| {
+                    (
+                        key.clone(),
+                        state.pids.get(key).copied().unwrap_or(0),
+                        state.tabs.get(key).map_or(0, HashSet::len),
+                    )
+                })
+                .collect()
+        };
+        let mut out: Vec<RendererStatus> = listed
+            .into_iter()
+            .map(|(key, pid, tabs)| {
                 let memory = memory_of(pid);
                 RendererStatus {
-                    key: key.clone(),
+                    key,
                     pid,
-                    tabs: state.tabs.get(key).map_or(0, HashSet::len),
+                    tabs,
                     rss_kb: memory.map(|m| m.0),
                     data_kb: memory.map(|m| m.1),
                 }

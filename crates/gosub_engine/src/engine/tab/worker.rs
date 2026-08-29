@@ -68,8 +68,15 @@ fn suggested_filename(meta: &FetchResultMeta) -> String {
             })
     });
     let name = name.unwrap_or_default();
-    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
-    if name.is_empty() {
+    let name: String = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let name = name.trim().to_string();
+    if name.is_empty() || name == "." || name == ".." {
         "download".to_string()
     } else {
         name
@@ -1564,12 +1571,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 // Subresource outcomes need no main-frame navigation handling.
-                Ok(
-                    RoutedOutcome::CssLoaded(_)
-                    | RoutedOutcome::ScriptExecuted(_)
-                    | RoutedOutcome::ImageDecoded(_)
-                    | RoutedOutcome::FontLoaded(_),
-                ) => {
+                Ok(RoutedOutcome::CssLoaded(_) | RoutedOutcome::ScriptExecuted(_) | RoutedOutcome::FontLoaded(_)) => {
                     log::trace!("Tab[{:?}] subresource outcome; nothing to do for navigation", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {

@@ -111,11 +111,13 @@ impl FileArea {
         }
     }
 
-    /// In place: no `rename` under the service's filter. A crash mid-write
-    /// costs this area's last change.
+    /// Written beside the area and renamed over it, so a crash mid-write
+    /// leaves the previous state, never a truncated file.
     fn persist(&self, items: &HashMap<String, String>) -> Result<()> {
         let bytes = serde_json::to_vec(items)?;
-        std::fs::write(&self.path, bytes)?;
+        let staged = self.path.with_extension("json.new");
+        std::fs::write(&staged, bytes)?;
+        std::fs::rename(&staged, &self.path)?;
         Ok(())
     }
 
