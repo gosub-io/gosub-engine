@@ -54,6 +54,7 @@ bytes = { workspace = true }
 dashmap = { workspace = true }
 once_cell = { workspace = true }
 psl = "2"
+sha2 = "0.11.0"
 parking_lot = { workspace = true }
 mime = "0.3.17"
 chrono = { workspace = true }
