@@ -154,6 +154,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start I/O thread, building the fetcher config from the settings store.
         let io_cfg = fetcher_config_from(&self.context.config_store);
+        // Isolation needs the embedder's cooperation and a platform that has
+        // it; decided before the I/O thread, which spawns the network process.
+        #[cfg(feature = "process-isolation")]
+        self.resolve_isolation_settings();
+
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
         // Set once; `start()` already refuses to run twice, so this never races or overwrites.
         let _ = self.context.io_tx.set(io_handle.subscribe());
@@ -183,6 +188,73 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// The engine's settings store, for reading or overriding settings (e.g.
     /// `net.user_agent`). Network settings are read once when [`start`](Self::start)
     /// builds the I/O runtime, so overrides must land before then.
+    /// Whether `key` still holds its schema default, i.e. the embedder never
+    /// chose it. A default that cannot apply here is dropped quietly; an
+    /// explicit choice that cannot apply gets a warning.
+    #[cfg(feature = "process-isolation")]
+    fn setting_at_default(&self, key: &str) -> bool {
+        let store = &self.context.config_store;
+        match (store.get_info(key), store.get(key)) {
+            (Some(info), Ok(Some(value))) => info.default == value,
+            _ => false,
+        }
+    }
+
+    #[cfg(feature = "process-isolation")]
+    fn turn_off(&self, key: &str) {
+        let _ = self
+            .context
+            .config_store
+            .set(key, gosub_config::settings::Setting::Bool(false));
+    }
+
+    /// The `security.*` process settings default to on; here the defaults meet
+    /// this process and platform. Without the embedder's
+    /// `child_process::dispatch()` nothing may spawn (a child is this binary
+    /// re-exec'd, and would run the embedder's own `main()` - for a GUI
+    /// embedder, a phantom window per spawn); the network process is on by
+    /// default on Linux only, until the macOS and Windows backends have run
+    /// in CI.
+    #[cfg(feature = "process-isolation")]
+    fn resolve_isolation_settings(&self) {
+        const PROCESS_SETTINGS: [&str; 1] = ["security.network_process"];
+        let store = &self.context.config_store;
+
+        if !crate::child_process::was_dispatched() {
+            let requested: Vec<&str> = PROCESS_SETTINGS.into_iter().filter(|key| store.get_bool(key)).collect();
+            if requested.is_empty() {
+                return;
+            }
+            if requested.iter().any(|key| !self.setting_at_default(key)) {
+                log::warn!(
+                    "{} requested, but gosub_engine::child_process::dispatch() was not called at the \
+                     top of main(); running without process isolation",
+                    requested.join(", ")
+                );
+            } else {
+                log::info!(
+                    "process isolation is off: this embedder does not call \
+                     gosub_engine::child_process::dispatch() at the top of main()"
+                );
+            }
+            for key in requested {
+                self.turn_off(key);
+            }
+            return;
+        }
+
+        if !cfg!(target_os = "linux") {
+            for key in PROCESS_SETTINGS {
+                if store.get_bool(key) && self.setting_at_default(key) {
+                    self.turn_off(key);
+                }
+            }
+            if PROCESS_SETTINGS.iter().any(|key| store.get_bool(key)) {
+                log::info!("process isolation was requested explicitly on a platform where it is not on by default");
+            }
+        }
+    }
+
     pub fn settings(&self) -> &Config {
         &self.context.config_store
     }

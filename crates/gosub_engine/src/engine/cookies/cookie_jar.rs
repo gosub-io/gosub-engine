@@ -103,7 +103,7 @@ fn parse_http_date(s: &str) -> Option<i64> {
 /// Uses the compile-time embedded Mozilla Public Suffix List (`psl` crate) for
 /// accurate comparison. Falls back to exact hostname equality for IP addresses,
 /// `localhost`, and other labels not present in the PSL.
-fn same_site(host_a: &str, host_b: &str) -> bool {
+pub(crate) fn same_site(host_a: &str, host_b: &str) -> bool {
     let registrable = |host: &str| -> Option<String> {
         let d = psl::List.domain(host.as_bytes())?;
         std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned)

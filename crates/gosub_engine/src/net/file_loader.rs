@@ -115,6 +115,7 @@ pub async fn serve(req: &FetchRequest, enabled: bool, observer: Arc<dyn NetObser
                     content_length: Some(len),
                     content_type: Some(content_type.to_string()),
                     has_body: len > 0,
+                    tainting: gosub_sonar::ResponseTainting::Basic,
                 },
                 body,
             }
