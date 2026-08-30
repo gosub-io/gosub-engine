@@ -3,6 +3,7 @@ use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguratio
 use crate::net::req_ref_tracker::REF_REGISTRY;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
+use crate::tab::TabId;
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
@@ -79,6 +80,9 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
 pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     io_tx: IoChannel,
     zone_id: ZoneId,
+    /// The tab these subresources belong to, so the I/O side can attach its
+    /// cookies. Subresources previously carried none at all.
+    tab_id: TabId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
@@ -90,6 +94,7 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
 impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     pub fn new(
         zone_id: ZoneId,
+        tab_id: TabId,
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
@@ -98,6 +103,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         Self {
             io_tx,
             zone_id,
+            tab_id,
             accept_language,
             max_document_bytes,
             font_system,
@@ -142,6 +148,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
 
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
+        let tab_id = self.tab_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
 
@@ -240,7 +247,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             }
 
             let join_handle = spawn_named("html-sub-resource", async move {
-                match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
+                match submit_to_io(zone_id, Some(tab_id), sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
@@ -270,6 +277,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             bodies: sheet_bodies.clone(),
             runtime: tokio::runtime::Handle::current(),
             zone_id,
+            tab_id,
             io_tx: io_tx.clone(),
             parent_ref,
             parent_cancel: parent_cancel.clone(),
@@ -297,6 +305,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             Ok(mut doc) => {
                 let sheets = SubFetch {
                     zone_id,
+                    tab_id,
                     io_tx: &io_tx,
                     parent_ref,
                     parent_cancel: &parent_cancel,
@@ -378,6 +387,7 @@ struct ParseSheetGate {
     bodies: SheetBodies,
     runtime: tokio::runtime::Handle,
     zone_id: ZoneId,
+    tab_id: TabId,
     io_tx: IoChannel,
     parent_ref: gosub_sonar::RequestReference,
     parent_cancel: tokio_util::sync::CancellationToken,
@@ -402,6 +412,7 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
                             crate::net::types::ResourceKind::Stylesheet,
                             &SubFetch {
                                 zone_id: self.zone_id,
+                                tab_id: self.tab_id,
                                 io_tx: &self.io_tx,
                                 parent_ref: self.parent_ref,
                                 parent_cancel: &self.parent_cancel,
@@ -422,6 +433,7 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
 /// What the post-parse stages need to fetch something the document scan missed.
 pub(crate) struct SubFetch<'a> {
     pub(crate) zone_id: ZoneId,
+    pub(crate) tab_id: TabId,
     pub(crate) io_tx: &'a IoChannel,
     pub(crate) parent_ref: gosub_sonar::RequestReference,
     pub(crate) parent_cancel: &'a tokio_util::sync::CancellationToken,
@@ -533,6 +545,7 @@ pub(crate) async fn fetch_subresource(
 
     let (_handle, rx) = submit_to_io(
         fetch.zone_id,
+        Some(fetch.tab_id),
         req,
         fetch.io_tx.clone(),
         Some(fetch.parent_cancel.clone()),
@@ -610,6 +623,7 @@ mod tests {
                 match cmd {
                     IoCommand::Fetch {
                         zone_id: _,
+                        tab_id: _,
                         req: _,
                         handle,
                         reply_tx,
@@ -637,6 +651,7 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,
@@ -675,6 +690,7 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,
@@ -713,6 +729,7 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,

@@ -10,6 +10,7 @@ use crate::engine::types::{IoChannel, RequestId};
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::submit_to_io;
 use crate::net::types::{FetchRequest, FetchResult, Initiator, Priority, ResourceKind};
+use crate::tab::TabId;
 use crate::zone::ZoneId;
 use gosub_render_pipeline::common::media::MediaSource;
 use http::Method;
@@ -20,6 +21,8 @@ use url::Url;
 /// A media source bound to one tab: its zone's fetcher, and whatever document it is showing.
 pub struct EngineMediaSource {
     zone_id: ZoneId,
+    /// The tab the requests are for, so the I/O side attaches its cookies.
+    tab_id: TabId,
     io_tx: IoChannel,
     runtime: Handle,
     /// The document the request is for, and the navigation it belongs to. The URL decides
@@ -33,9 +36,16 @@ pub struct EngineMediaSource {
 }
 
 impl EngineMediaSource {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, runtime: Handle, accept_language: Option<String>) -> Self {
+    pub fn new(
+        zone_id: ZoneId,
+        tab_id: TabId,
+        io_tx: IoChannel,
+        runtime: Handle,
+        accept_language: Option<String>,
+    ) -> Self {
         Self {
             zone_id,
+            tab_id,
             io_tx,
             runtime,
             document: RwLock::new(None),
@@ -116,13 +126,14 @@ impl EngineMediaSource {
         let req = builder.build();
 
         let zone_id = self.zone_id;
+        let tab_id = self.tab_id;
         let io_tx = self.io_tx.clone();
         let url = url.to_string();
         // Spawned onto the runtime by handle, not with `spawn_named`: the caller is a plain
         // thread waiting on the handoff, with no runtime of its own, and `tokio::spawn`
         // panics when there is no runtime in context.
         self.runtime.spawn(async move {
-            let delivered = match submit_to_io(zone_id, req, io_tx, None).await {
+            let delivered = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
                 Ok((_handle, rx)) => match rx.await {
                     Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
                         Some((meta.content_type.clone(), body.to_vec()))
@@ -184,7 +195,7 @@ mod tests {
 
     fn source(document: Option<&str>, navigation: NavigationId) -> EngineMediaSource {
         let (io_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let source = EngineMediaSource::new(ZoneId::new(), io_tx, Handle::current(), None);
+        let source = EngineMediaSource::new(ZoneId::new(), TabId::new(), io_tx, Handle::current(), None);
         source.set_document(
             document.and_then(|d| Url::parse(d).ok()),
             RequestReference::Navigation(navigation),
