@@ -9,34 +9,36 @@
 //! | GET    | `/metrics`        | JSON snapshot of all timing namespaces               |
 //! | GET    | `/metrics/reset`  | Clear all timing counters                            |
 //! | GET    | `/events`         | The telemetry firehose, streamed as NDJSON           |
-//! | GET    | `/renderers`      | Renderer processes (none yet; reserved for the viewer)  |
+//! | GET    | `/renderers`      | Resident renderer processes and their tabs           |
 //! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)                   |
 
+use crate::engine::EngineContext;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Spawn the metrics HTTP server on `127.0.0.1:{port}` in a background Tokio task.
 ///
 /// The function returns immediately; the server runs until the process exits.
-pub fn start(port: u16) {
+pub fn start(port: u16, context: Arc<EngineContext>) {
     tokio::spawn(async move {
-        if let Err(e) = serve(port).await {
+        if let Err(e) = serve(port, context).await {
             log::error!("[metrics] server stopped: {e}");
         }
     });
     log::info!("[metrics] server starting on http://127.0.0.1:{port}/metrics");
 }
 
-async fn serve(port: u16) -> std::io::Result<()> {
+async fn serve(port: u16, context: Arc<EngineContext>) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("127.0.0.1:{port}")).await?;
     log::info!("[metrics] listening on http://127.0.0.1:{port}");
     loop {
         let (stream, _addr) = listener.accept().await?;
-        tokio::spawn(handle(stream));
+        tokio::spawn(handle(stream, Arc::clone(&context)));
     }
 }
 
-async fn handle(mut stream: TcpStream) {
+async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
     let mut buf = vec![0u8; 2048];
     let n = stream.read(&mut buf).await.unwrap_or(0);
     let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
@@ -54,7 +56,7 @@ async fn handle(mut stream: TcpStream) {
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
         (200, "OK", build_metrics_json())
     } else if first_line.starts_with("GET /renderers") {
-        (200, "OK", r#"{"renderers":[]}"#.to_string())
+        (200, "OK", build_renderers_json(&context))
     } else if first_line.starts_with("GET /health") {
         (200, "OK", r#"{"status":"ok"}"#.to_string())
     } else {
@@ -99,6 +101,39 @@ async fn stream_events(mut stream: TcpStream) {
             return;
         }
     }
+}
+
+/// The resident renderer pool: one entry per process, with its tab count.
+fn build_renderers_json(context: &EngineContext) -> String {
+    use serde_json::json;
+
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    let renderers: Vec<serde_json::Value> = context
+        .renderer_pool
+        .get()
+        .map(|pool| {
+            pool.snapshot()
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "pid": r.pid,
+                        "zone": r.key.zone.to_string(),
+                        "site": r.key.site,
+                        "tabs": r.tabs,
+                        "rss_kb": r.rss_kb,
+                        "data_kb": r.data_kb,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+    let renderers: Vec<serde_json::Value> = {
+        let _ = context;
+        Vec::new()
+    };
+
+    serde_json::to_string_pretty(&json!({ "renderers": renderers })).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn build_metrics_json() -> String {

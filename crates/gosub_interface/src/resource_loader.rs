@@ -1,6 +1,4 @@
 //! How a subsystem asks for bytes it cannot fetch itself.
-//!
-//! ## Why blocking
 
 use std::fmt;
 use url::Url;
@@ -33,6 +31,10 @@ pub enum LoadError {
     /// because it usually means the broker is starved rather than the resource
     /// being unavailable.
     TimedOut,
+    /// The resource is being fetched but is not here yet; ask again later.
+    /// A loader that answers this never blocks on the network, and the
+    /// caller must not treat it as a failure (in particular, not cache it).
+    Pending,
 }
 
 impl fmt::Display for LoadError {
@@ -41,6 +43,7 @@ impl fmt::Display for LoadError {
             LoadError::UnsupportedUrl(url) => write!(f, "unsupported url: {url}"),
             LoadError::Failed(why) => write!(f, "load failed: {why}"),
             LoadError::TimedOut => write!(f, "load timed out"),
+            LoadError::Pending => write!(f, "load pending"),
         }
     }
 }

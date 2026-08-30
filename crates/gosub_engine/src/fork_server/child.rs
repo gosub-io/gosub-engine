@@ -5,10 +5,8 @@
 //! copy-on-write, whichever confinement tier applies.
 
 use crate::fork_server::loader::ForkedResourceLoader;
-use crate::fork_server::protocol::{
-    ConfinementTier, FromForkServer, FromRenderer, HitRegion, PageSummary, ProofReply, TileHeader, ToForkServer,
-};
-use crate::fork_server::renderer::{self, RenderedTile};
+use crate::fork_server::protocol::{ConfinementTier, FromForkServer, FromRenderer, ProofReply, ToForkServer};
+use crate::fork_server::{renderer, resident};
 use crate::html::RenderConfiguration;
 use gosub_interface::font_system::{Confinement, FontSystem, TextStyle};
 use gosub_ipc::Endpoint;
@@ -62,10 +60,15 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
         eprintln!("[fork-server] system fontdb was built before it could be pinned; SVG text may fail confined");
     }
     let forked_loader = ForkedResourceLoader::disconnected();
+    // Images load deferred: a render never waits on an image download; the
+    // broker fetches it and re-renders when it has arrived.
     let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(
-        Arc::clone(&forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+        forked_loader.deferred() as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     ));
     media_store.set_synchronous_fetch(true);
+    // A renderer lives under a fixed data limit and a page may carry dozens
+    // of photographs: keep this much decoded, re-decode the rest on use.
+    media_store.set_decoded_budget(96 * 1024 * 1024);
 
     // First fork, deliberately: this process sits in a lazily-unshared PID
     // namespace, whose PID 1 is whatever forks first - and must then outlive
@@ -118,6 +121,32 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 }
                 _ => fork_and_prove(&mut fonts, font_access, &parent_only),
             },
+            ToForkServer::SpawnRenderer { label } => match &tier {
+                ConfinementTier::Unsupported(reason) => {
+                    FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
+                }
+                // Replies for itself (`RendererSpawned` + the link fd).
+                _ => {
+                    match spawn_resident::<C>(
+                        &mut link,
+                        &mut fonts,
+                        &media_store,
+                        &forked_loader,
+                        font_access,
+                        &parent_only,
+                        &label,
+                    ) {
+                        Ok(()) => continue,
+                        Err(e) => FromForkServer::Refused(e),
+                    }
+                }
+            },
+            // Resident renderers exit on their own schedule; only their parent
+            // can collect them, and it has no other occasion to.
+            ToForkServer::ReapExited => {
+                let _ = gosub_sandbox::reap_exited_children();
+                FromForkServer::Pong
+            }
             ToForkServer::RenderPage {
                 html,
                 url,
@@ -162,6 +191,54 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     }
 }
 
+/// Fork a resident renderer (see [`resident`]) and hand the broker its end of
+/// their private link: `RendererSpawned`, then the fd. The fork server keeps
+/// nothing of it but a child to reap later.
+fn spawn_resident<C: RenderConfiguration>(
+    broker: &mut Endpoint,
+    fonts: &mut Option<C::FontSystem>,
+    media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
+    forked_loader: &Arc<ForkedResourceLoader>,
+    font_access: bool,
+    parent_only: &[i32],
+    label: &str,
+) -> Result<(), String> {
+    let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
+        Ok(pair) => pair,
+        Err(e) => return Err(format!("could not create the renderer link: {e}")),
+    };
+
+    match gosub_sandbox::fork_process() {
+        Err(e) => Err(format!("fork failed: {e}")),
+        Ok(gosub_sandbox::Forked::Child) => {
+            drop(ours);
+            gosub_sandbox::close_inherited(parent_only);
+            let _ = &label;
+            gosub_sandbox::set_process_title(&resident::comm(), &resident::title());
+            let Ok(link) = Endpoint::from_channel(theirs) else {
+                gosub_sandbox::exit_now(1);
+            };
+            gosub_sandbox::lock_down_forked_renderer(font_access);
+            let Some(owned) = fonts.take() else {
+                gosub_sandbox::exit_now(1);
+            };
+            resident::serve::<C>(link, owned, Arc::clone(media_store), Arc::clone(forked_loader), label)
+        }
+        Ok(gosub_sandbox::Forked::Parent { pid }) => {
+            drop(theirs);
+            broker
+                .send(&FromForkServer::RendererSpawned { pid })
+                .map_err(|e| format!("broker unreachable: {e}"))?;
+            broker
+                .tx
+                .send_fd(ours.raw())
+                .map_err(|e| format!("could not hand the renderer link to the broker: {e}"))?;
+            // `ours` drops here: the broker holds the only copy that matters.
+            Ok(())
+        }
+    }
+}
+
 /// A tier with no use for a zygote: report the answer so the broker can act on
 /// it, refuse to fork, and idle confined.
 fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
@@ -193,9 +270,11 @@ fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
         let reply = match request {
             ToForkServer::Ping => FromForkServer::Pong,
             ToForkServer::Shutdown => return 0,
-            ToForkServer::ForkProof | ToForkServer::RenderPage { .. } | ToForkServer::Resource(_) => {
-                FromForkServer::Refused(refusal.clone())
-            }
+            ToForkServer::ReapExited => FromForkServer::Pong,
+            ToForkServer::ForkProof
+            | ToForkServer::RenderPage { .. }
+            | ToForkServer::SpawnRenderer { .. }
+            | ToForkServer::Resource(_) => FromForkServer::Refused(refusal.clone()),
         };
         if link.send(&reply).is_err() {
             return 1;
@@ -323,7 +402,7 @@ fn fork_and_render<C: RenderConfiguration>(
             gosub_sandbox::close_inherited(parent_only);
             // Fork keeps the parent's name; say who this really is.
             let _ = (&tab, &page_url);
-            gosub_sandbox::set_process_title(&comm(), &title());
+            gosub_sandbox::set_process_title(&resident::comm(), &resident::title());
             let Ok(link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };
@@ -353,7 +432,7 @@ fn fork_and_render<C: RenderConfiguration>(
                 Arc::clone(forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
             );
 
-            let ok = stream_rendered(&mut link.lock(), &tiles, summary, hit_regions);
+            let ok = resident::stream_rendered(&mut link.lock(), &tiles, &[], summary, hit_regions);
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
@@ -367,9 +446,9 @@ fn fork_and_render<C: RenderConfiguration>(
                 let mut link = Endpoint::from_channel(ours)?;
                 loop {
                     match link.recv::<FromRenderer>()? {
-                        FromRenderer::NeedResource { url } => {
+                        FromRenderer::NeedResource { url, deferred } => {
                             broker
-                                .send(&FromForkServer::NeedResource { url })
+                                .send(&FromForkServer::NeedResource { url, deferred })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             match broker
                                 .recv::<ToForkServer>()
@@ -405,6 +484,11 @@ fn fork_and_render<C: RenderConfiguration>(
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             return Ok(());
                         }
+                        // A one-shot renderer retains nothing and so never
+                        // lets go of anything.
+                        FromRenderer::Evict { .. } => {
+                            return Err(std::io::Error::other("a one-shot renderer sent an eviction"));
+                        }
                     }
                 }
             })();
@@ -415,97 +499,5 @@ fn fork_and_render<C: RenderConfiguration>(
                 (_, Err(e)) => Err(format!("forked renderer could not be reaped: {e}")),
             }
         }
-    }
-}
-
-/// This renderer's `ps` name: `renderer-<6 hex>`, drawn once per process.
-/// Deliberately not the site or tab: the process list is visible to every
-/// user on the machine, and what a renderer renders is not their business.
-fn comm() -> String {
-    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    ID.get_or_init(|| {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("renderer-{}", &id[..6])
-    })
-    .clone()
-}
-
-/// The cmdline to go with [`comm`].
-fn title() -> String {
-    format!("gosub: {}", comm())
-}
-
-/// Stream a render out over `link`: every CPU tile sealed into an immutable
-/// memfd and sent as header + fd, one at a time (so this process never holds
-/// more than one tile fd regardless of page height), then the summary. All
-/// of it - memfd_create, ftruncate, mmap, the seals - is in the renderer
-/// baseline precisely so a confined renderer can hand off pixels. `false`
-/// means the link is gone and the caller should exit.
-fn stream_rendered(
-    link: &mut Endpoint,
-    tiles: &[RenderedTile],
-    summary: PageSummary,
-    hit_regions: Vec<HitRegion>,
-) -> bool {
-    for tile in tiles {
-        let sent = match tile {
-            RenderedTile::Unchanged {
-                page_x,
-                page_y,
-                layer_id,
-                hash,
-            } => link
-                .send(&FromRenderer::TileUnchanged(unchanged_header(
-                    *page_x, *page_y, *layer_id, *hash,
-                )))
-                .is_ok(),
-            RenderedTile::Fresh { tile, hash } => {
-                let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
-                    // GPU handles are process-local and cannot cross; a
-                    // forked rasterizer should never produce one.
-                    continue;
-                };
-                let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
-                    let n = buf.len().min(bytes.len());
-                    buf[..n].copy_from_slice(&bytes[..n]);
-                }) else {
-                    return false;
-                };
-                let header = TileHeader {
-                    page_x: tile.page_x,
-                    page_y: tile.page_y,
-                    layer_id: tile.layer_id,
-                    width: tile.width,
-                    height: tile.height,
-                    format: tile.format.into(),
-                    content_hash: *hash,
-                    opacity: tile.opacity,
-                    anchor: tile.anchor.into(),
-                };
-                link.send(&FromRenderer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok()
-                // `fd` drops here: SCM_RIGHTS duplicated it onward.
-            }
-        };
-        if !sent {
-            return false;
-        }
-    }
-    link.send(&FromRenderer::Rendered { summary, hit_regions }).is_ok()
-}
-
-/// The header for a tile the broker already holds. Its physical dimensions
-/// are left at zero deliberately: nothing rasterized them here, and the
-/// broker fills them from the pixels it kept.
-fn unchanged_header(page_x: f64, page_y: f64, layer_id: u64, hash: u64) -> TileHeader {
-    TileHeader {
-        page_x,
-        page_y,
-        layer_id,
-        width: 0,
-        height: 0,
-        format: crate::fork_server::protocol::TileWireFormat::PreMulArgb32,
-        content_hash: hash,
-        opacity: 1.0,
-        anchor: crate::fork_server::protocol::TileWireAnchor::Scroll,
     }
 }

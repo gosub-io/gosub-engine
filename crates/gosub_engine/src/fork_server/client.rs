@@ -3,6 +3,7 @@
 
 use crate::fork_server::protocol::{
     ConfinementTier, FromForkServer, FromRenderer, HitRegion, PageSummary, ResourceReply, TileHeader, ToForkServer,
+    ToRenderer,
 };
 use gosub_interface::resource_loader::{LoadError, LoadedResource};
 use gosub_ipc::Endpoint;
@@ -22,6 +23,13 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a resident renderer may take to answer one request. Unlike the
+/// fork server's control replies this covers whole renders, and a heavy
+/// page's layout alone runs two-digit seconds today - the timeout is for a
+/// *wedged* renderer, and declaring a merely slow one dead kills it for
+/// nothing (the abandoned link reads as EOF in the child).
+const RESIDENT_REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Bounds on one render exchange, so a renderer cannot hold the tab thread
 /// or fill the broker's memory by talking forever. Generous: a heavy page
 /// stays far below every one of them.
@@ -36,9 +44,15 @@ const MAX_LAYER_ORDER: usize = 100_000;
 const MAX_TIMINGS: usize = 64;
 
 /// What answers a renderer's subresource requests during an exchange: the
-/// broker's loader, where identity and cookies live.
+/// broker's loader, plus - for a tab - a cache that lets an image request be
+/// answered at once and fetched in the background.
 pub trait RenderResources {
     fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError>;
+    /// A resource the render can do without for now (an image). The default
+    /// fetches it anyway - correct, just not asynchronous.
+    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        self.load(url)
+    }
 }
 
 impl<T: gosub_interface::resource_loader::ResourceLoader + ?Sized> RenderResources for T {
@@ -47,13 +61,138 @@ impl<T: gosub_interface::resource_loader::ResourceLoader + ?Sized> RenderResourc
     }
 }
 
-/// A shared loader as a render's resources (a `dyn` loader cannot be
-/// re-erased into `dyn RenderResources` directly).
-pub struct LoaderResources<'a>(pub &'a std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>);
+/// Subresources fetched on a tab's behalf, images asynchronously.
+pub struct TabResources {
+    pub loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    pub media: std::sync::Arc<RemoteMediaCache>,
+}
 
-impl RenderResources for LoaderResources<'_> {
+impl RenderResources for TabResources {
     fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
-        self.0.load(url)
+        self.loader.load(url)
+    }
+
+    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        self.media.lookup_or_fetch(url, std::sync::Arc::clone(&self.loader))
+    }
+}
+
+/// Encoded bytes this cache keeps per tab; past it the oldest entries go and
+/// the renderer asks for them again.
+const MEDIA_CACHE_BUDGET: usize = 64 * 1024 * 1024;
+/// Fetch threads per tab. The rest queue; the renderer re-asks after every
+/// completion anyway.
+const MAX_MEDIA_FETCHERS: usize = 6;
+
+type MediaLoader = std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>;
+
+#[derive(Default)]
+struct MediaEntries {
+    by_url: std::collections::HashMap<String, Result<LoadedResource, String>>,
+    /// Insertion order, for eviction.
+    order: std::collections::VecDeque<String>,
+    bytes: usize,
+}
+
+impl MediaEntries {
+    fn insert(&mut self, key: String, fetched: Result<LoadedResource, String>) {
+        self.bytes += fetched.as_ref().map_or(0, |r| r.body.len());
+        self.order.push_back(key.clone());
+        self.by_url.insert(key, fetched);
+        while self.bytes > MEDIA_CACHE_BUDGET {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(Ok(gone)) = self.by_url.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(gone.body.len());
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct MediaQueue {
+    waiting: std::collections::VecDeque<(url::Url, MediaLoader)>,
+    fetchers: usize,
+}
+
+/// Images a renderer asked for on a tab's behalf: what has arrived, and what
+/// is still on its way. A miss queues the fetch (a few threads work the
+/// queue) and answers [`LoadError::Pending`]; when the bytes land, `completed`
+/// rises and the tab renders again, this time finding them here.
+#[derive(Default)]
+pub struct RemoteMediaCache {
+    entries: parking_lot::Mutex<MediaEntries>,
+    in_flight: parking_lot::Mutex<std::collections::HashSet<String>>,
+    queue: parking_lot::Mutex<MediaQueue>,
+    completed: std::sync::atomic::AtomicBool,
+}
+
+impl RemoteMediaCache {
+    pub fn lookup_or_fetch(
+        self: &std::sync::Arc<Self>,
+        url: &url::Url,
+        loader: MediaLoader,
+    ) -> Result<LoadedResource, LoadError> {
+        let key = url.to_string();
+        if let Some(entry) = self.entries.lock().by_url.get(&key) {
+            return entry.clone().map_err(LoadError::Failed);
+        }
+        if !self.in_flight.lock().insert(key.clone()) {
+            return Err(LoadError::Pending);
+        }
+        // Start a fetcher or queue for one, decided under the queue lock so a
+        // fetcher finishing right now cannot miss what was just queued.
+        let mut queue = self.queue.lock();
+        if queue.fetchers >= MAX_MEDIA_FETCHERS {
+            queue.waiting.push_back((url.clone(), loader));
+            return Err(LoadError::Pending);
+        }
+        queue.fetchers += 1;
+        drop(queue);
+        let cache = std::sync::Arc::clone(self);
+        let first = (url.clone(), loader);
+        let spawned = std::thread::Builder::new()
+            .name("gosub-remote-media".into())
+            .spawn(move || cache.work(first));
+        if spawned.is_err() {
+            self.queue.lock().fetchers -= 1;
+            self.in_flight.lock().remove(&key);
+            return Err(LoadError::Failed("could not start the image fetch".into()));
+        }
+        Err(LoadError::Pending)
+    }
+
+    /// One fetcher thread: the job it was started for, then the queue until
+    /// it is empty.
+    fn work(&self, first: (url::Url, MediaLoader)) {
+        let mut next = Some(first);
+        while let Some((url, loader)) = next.take() {
+            let fetched = loader.load(&url).map_err(|e| e.to_string());
+            self.entries.lock().insert(url.to_string(), fetched);
+            self.in_flight.lock().remove(url.as_str());
+            self.completed.store(true, std::sync::atomic::Ordering::Release);
+            let mut queue = self.queue.lock();
+            next = queue.waiting.pop_front();
+            if next.is_none() {
+                queue.fetchers -= 1;
+            }
+        }
+    }
+
+    /// Whether an image landed since the last call - the tab should render
+    /// again to pick it up.
+    pub fn take_completed(&self) -> bool {
+        self.completed.swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    /// Forget everything (a new document). Fetches already running finish
+    /// into the new page's cache, which is harmless.
+    pub fn clear(&self) {
+        *self.entries.lock() = MediaEntries::default();
+        self.in_flight.lock().clear();
+        self.queue.lock().waiting.clear();
+        self.completed.store(false, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -61,6 +200,7 @@ impl RenderResources for LoaderResources<'_> {
 pub(crate) enum RenderEvent {
     NeedResource {
         url: String,
+        deferred: bool,
     },
     Tile(TileHeader),
     TileUnchanged(TileHeader),
@@ -68,13 +208,14 @@ pub(crate) enum RenderEvent {
         summary: PageSummary,
         hit_regions: Vec<HitRegion>,
     },
+    Evict(Vec<u64>),
     Refused(String),
 }
 
 /// A peer's render-exchange dialect: the fork server relays its forked
 /// child's stream wrapped in [`FromForkServer`] and wants resources wrapped
-/// back; a forked renderer speaks [`FromRenderer`] directly and its loader
-/// reads a bare [`ResourceReply`].
+/// back; a resident renderer (and an exec'd one) speaks [`FromRenderer`]
+/// directly and its loader reads a bare [`ResourceReply`].
 pub(crate) trait RenderStream: serde::de::DeserializeOwned + std::fmt::Debug {
     fn into_event(self) -> anyhow::Result<RenderEvent>;
     fn send_resource(link: &mut Endpoint, reply: ResourceReply) -> std::io::Result<()>;
@@ -83,7 +224,7 @@ pub(crate) trait RenderStream: serde::de::DeserializeOwned + std::fmt::Debug {
 impl RenderStream for FromForkServer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromForkServer::NeedResource { url } => RenderEvent::NeedResource { url },
+            FromForkServer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromForkServer::Tile(header) => RenderEvent::Tile(header),
             FromForkServer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
@@ -100,10 +241,11 @@ impl RenderStream for FromForkServer {
 impl RenderStream for FromRenderer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromRenderer::NeedResource { url } => RenderEvent::NeedResource { url },
+            FromRenderer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromRenderer::Tile(header) => RenderEvent::Tile(header),
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+            FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
         })
     }
 
@@ -124,6 +266,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
     known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
     let mut received = Vec::new();
+    let mut evicted = Vec::new();
     let started = std::time::Instant::now();
     let (mut messages, mut resources, mut tile_bytes) = (0usize, 0usize, 0usize);
     loop {
@@ -135,7 +278,13 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
             anyhow::bail!("render did not finish within {EXCHANGE_DEADLINE:?}");
         }
         match link.recv::<M>()?.into_event()? {
-            RenderEvent::NeedResource { url } => {
+            RenderEvent::Evict(hashes) => {
+                evicted.extend(hashes);
+                if evicted.len() > MAX_EXCHANGE_MESSAGES {
+                    anyhow::bail!("renderer evicted more than {MAX_EXCHANGE_MESSAGES} tiles in one render");
+                }
+            }
+            RenderEvent::NeedResource { url, deferred } => {
                 resources += 1;
                 if resources > MAX_EXCHANGE_RESOURCES {
                     anyhow::bail!("renderer asked for more than {MAX_EXCHANGE_RESOURCES} resources in one render");
@@ -143,16 +292,22 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                 let asked = std::time::Instant::now();
                 let reply = match url::Url::parse(&url) {
                     Ok(parsed) => {
-                        let loaded = loader.load(&parsed);
+                        let loaded = if deferred {
+                            loader.load_deferred(&parsed)
+                        } else {
+                            loader.load(&parsed)
+                        };
                         if crate::telemetry::enabled() {
                             let (outcome, bytes) = match &loaded {
                                 Ok(resource) => ("served", resource.body.len()),
+                                Err(LoadError::Pending) => ("pending", 0),
                                 Err(_) => ("failed", 0),
                             };
                             crate::telemetry::emit(
                                 "remote.resource",
                                 serde_json::json!({
                                     "url": url,
+                                    "deferred": deferred,
                                     "outcome": outcome,
                                     "bytes": bytes,
                                     "renderer_waited_us": asked.elapsed().as_micros() as u64,
@@ -165,6 +320,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                                 content_type: resource.content_type,
                                 body: resource.body.to_vec(),
                             },
+                            Err(LoadError::Pending) => ResourceReply::Pending,
                             Err(e) => ResourceReply::Failed(e.to_string()),
                         }
                     }
@@ -201,6 +357,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                     summary,
                     tiles: received,
                     hit_regions,
+                    evicted,
                 });
             }
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
@@ -252,6 +409,9 @@ pub struct RenderedPage {
     pub summary: crate::fork_server::protocol::PageSummary,
     pub tiles: Vec<PageTile>,
     pub hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
+    /// Content hashes of tiles the renderer let go of (retained pages only);
+    /// the broker drops them from its memory.
+    pub evicted: Vec<u64>,
 }
 
 /// A tile of a rendered page: either pixels that just crossed, or pixels the
@@ -392,6 +552,15 @@ impl TileMemory {
         self.tiles = tiles.into_iter().collect();
     }
 
+    /// Merge one pass of a retained page: what the renderer let go of leaves,
+    /// what it shipped arrives.
+    pub fn apply_pass(&mut self, evicted: &[u64], tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
+        for hash in evicted {
+            self.tiles.remove(hash);
+        }
+        self.tiles.extend(tiles);
+    }
+
     /// Every kept tile as compositor input, back to front: `layer_order` is
     /// the renderer's (a layer it does not name sorts last), then top-down
     /// within a layer - tiles of one layer never overlap, so that order is
@@ -458,7 +627,7 @@ impl ForkServer {
                 // and still needs room for one large image decode on top.
                 data_limit: Some(RENDERER_DATA_LIMIT),
                 extra_fds: &[],
-                // Every forked renderer lives under this one.
+                // Every resident renderer and its threads live under this one.
                 max_tasks: 4096,
                 file_size_limit: None,
             },
@@ -536,6 +705,36 @@ impl ForkServer {
         drive_render_exchange::<FromForkServer>(&mut self.link, loader, known_tiles)
     }
 
+    /// Fork a resident renderer and take over its link: from here on the
+    /// broker talks to it directly. `label` only names it in `ps`.
+    pub fn spawn_renderer(&mut self, label: &str) -> anyhow::Result<ResidentRenderer> {
+        self.link.send(&ToForkServer::SpawnRenderer {
+            label: label.to_string(),
+        })?;
+        let pid = match self.link.recv::<FromForkServer>()? {
+            FromForkServer::RendererSpawned { pid } => pid,
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected reply to SpawnRenderer: {other:?}"),
+        };
+        let fd = self.link.rx.recv_fd()?;
+        let channel = gosub_ipc::channel::Channel::from_stream(std::os::unix::net::UnixStream::from(fd));
+        let mut link = Endpoint::from_channel(channel)?;
+        let _ = link.tx.set_write_timeout(Some(REPLY_TIMEOUT));
+        let _ = link.rx.set_read_timeout(Some(RESIDENT_REPLY_TIMEOUT));
+        Ok(ResidentRenderer {
+            link,
+            pid,
+            dead: Default::default(),
+        })
+    }
+
+    /// Have the fork server collect resident renderers that have exited.
+    pub fn reap_exited(&mut self) {
+        if self.link.send(&ToForkServer::ReapExited).is_ok() {
+            let _ = self.link.recv::<FromForkServer>();
+        }
+    }
+
     /// Ask for a clean exit, then make sure of it. `&mut self` rather than
     /// consuming, so a handle shared behind a lock (the engine's) can be shut
     /// down in place; afterwards the handle is inert and Drop has nothing to
@@ -545,6 +744,165 @@ impl ForkServer {
         if let Some(mut child) = self.child.take() {
             let _ = child.wait();
         }
+    }
+}
+
+/// The broker's link to one resident renderer (see `fork_server::resident`):
+/// a forked, confined child that outlives its renders. Request/reply is
+/// strictly serial, so a handle is used from behind a lock.
+pub struct ResidentRenderer {
+    link: Endpoint,
+    pid: i32,
+    /// Set once the link failed: nothing sent afterwards can be trusted to
+    /// arrive, and the pool replaces the process on the next request.
+    /// Shared and atomic so the pool can read it without taking the lock a
+    /// failing exchange may be holding.
+    dead: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl std::fmt::Debug for ResidentRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResidentRenderer")
+            .field("pid", &self.pid)
+            .field("dead", &self.is_dead())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ResidentRenderer {
+    /// The renderer's pid as this (the broker's) pid namespace numbers it:
+    /// `fork` in the fork server returns the number its own namespace sees,
+    /// which is the broker's too. Inside the renderers' own namespace the
+    /// process has a different, small number (`NSpid` in /proc shows both).
+    pub fn pid(&self) -> i32 {
+        self.pid
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.dead.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// A handle to the dead flag, readable without this renderer's lock.
+    pub fn dead_flag(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        std::sync::Arc::clone(&self.dead)
+    }
+
+    fn mark_dead(&self) {
+        self.dead.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn send(&mut self, msg: &ToRenderer) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("renderer process is gone");
+        }
+        if let Err(e) = self.link.send(msg) {
+            self.mark_dead();
+            anyhow::bail!("renderer link failed: {e}");
+        }
+        Ok(())
+    }
+
+    pub fn open_tab(&mut self, tab: &str) -> anyhow::Result<()> {
+        self.send(&ToRenderer::OpenTab { tab: tab.to_string() })
+    }
+
+    pub fn close_tab(&mut self, tab: &str) -> anyhow::Result<()> {
+        self.send(&ToRenderer::CloseTab { tab: tab.to_string() })
+    }
+
+    /// Render `html` for `tab` - the raster window around `scroll_y` of it -
+    /// and have the renderer retain the page for later [`Self::scroll`]s.
+    /// Any failure marks the renderer dead: the exchange strictly alternates,
+    /// so a broken one leaves the link in no state a later request could
+    /// rely on.
+    #[allow(clippy::too_many_arguments)] // one wire message, spelled out
+    pub fn navigate(
+        &mut self,
+        html: &str,
+        url: &str,
+        tab: &str,
+        viewport: (f64, f64),
+        scroll_y: f64,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+        hovered_node: Option<u64>,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Navigate {
+            tab: tab.to_string(),
+            html: html.to_string(),
+            url: url.to_string(),
+            viewport_width: viewport.0,
+            viewport_height: viewport.1,
+            scroll_y,
+            known_tiles: known_tiles.hashes(),
+            hovered_node,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    /// The viewport of `tab`'s retained page moved: collect what came into
+    /// the raster window (and what the renderer let go of).
+    pub fn scroll(
+        &mut self,
+        tab: &str,
+        scroll_y: f64,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Scroll {
+            tab: tab.to_string(),
+            scroll_y,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    /// The pointer moved on `tab`'s retained page: collect the repainted tiles.
+    pub fn hover(
+        &mut self,
+        tab: &str,
+        node: Option<u64>,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Hover {
+            tab: tab.to_string(),
+            node,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    fn exchange(&mut self, loader: &dyn RenderResources, known_tiles: &TileMemory) -> anyhow::Result<RenderedPage> {
+        let result = drive_render_exchange::<FromRenderer>(&mut self.link, loader, known_tiles);
+        if result.is_err() {
+            self.mark_dead();
+        }
+        result
+    }
+
+    /// Whether the process is still there, without sending anything: a closed
+    /// link reads as end-of-file. Only meaningful between exchanges (the
+    /// caller holds the lock, so none is in flight).
+    pub fn check_alive(&mut self) -> bool {
+        if self.is_dead() {
+            return false;
+        }
+        let alive = self.link.rx.peer_alive();
+        if !alive {
+            self.mark_dead();
+        }
+        alive
+    }
+
+    /// Make the renderer die mid-life, for tests of what the broker does then.
+    pub fn crash_for_test(&mut self) {
+        let _ = self.send(&ToRenderer::CrashForTest);
+    }
+
+    /// Ask for a clean exit. The process is the fork server's child; it is
+    /// reaped there (see [`ForkServer::reap_exited`]).
+    pub fn shutdown(&mut self) {
+        let _ = self.send(&ToRenderer::Shutdown);
+        self.mark_dead();
     }
 }
 
