@@ -156,6 +156,9 @@ pub enum NavigationResult<C: RenderConfiguration> {
         final_url: Url,
         title: Option<String>,
         doc: Arc<crate::html::EngineDocument<C>>,
+        /// The document's source text, captured when this engine renders
+        /// out-of-process (the renderer re-parses it there).
+        source: Option<Arc<str>>,
     },
     Err {
         nav_id: NavigationId,
@@ -291,7 +294,35 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(config_store.clone());
+        #[allow(unused_mut)] // mut only used on the isolation-capable platform below
+        let mut context = BrowsingContext::with_loader(
+            config_store.clone(),
+            crate::net::brokered_loader::BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone())
+                .shared(),
+        );
+
+        // Install this tab's remote-render mode per the configured font
+        // system's (static) confinement tier: `Full` renders through the
+        // engine's warmed fork server, `FontPathsReadable` spawns a throwaway
+        // exec'd renderer per render, `Unsupported` stays in-process.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            use crate::engine::context::RemoteRenderer;
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {
+                    if let Some(server) = zone_context.engine_context.renderer_process.get() {
+                        context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)), tab_id.to_string());
+                    }
+                }
+                Confinement::FontPathsReadable => {
+                    if config_store.get_bool("security.renderer_process") {
+                        context.set_remote_renderer(RemoteRenderer::ExecPerRender, tab_id.to_string());
+                    }
+                }
+                Confinement::Unsupported(_) => {}
+            }
+        }
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -384,6 +415,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
         Ok(join_handle)
     }
 
+    /// One frame onto the telemetry firehose: how it was produced and what it
+    /// cost, so a viewer can see stalls as they happen.
+    fn report_frame(&self, path: &str, started: std::time::Instant) {
+        if !crate::telemetry::enabled() {
+            return;
+        }
+        crate::telemetry::emit(
+            "tab.frame",
+            serde_json::json!({
+                "tab": self.tab_id.to_string(),
+                "path": path,
+                "frame_us": started.elapsed().as_micros() as u64,
+                "scroll_y": self.context.scroll_xy().1,
+            }),
+        );
+    }
+
     // Main loop of the tab worker
     async fn run_worker(mut self) {
         self.sink.set_worker_started_now();
@@ -474,52 +522,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
-    /// Resolve the document's icon URL: the first `<link>` whose `rel` contains `icon`
-    /// (covers `icon`, `shortcut icon`, `apple-touch-icon`) with an `href`, resolved against
-    /// the document URL; else the well-known `/favicon.ico` for http(s) documents.
-    fn favicon_url(doc: &C::Document, base_url: &Url) -> Option<Url> {
-        use gosub_interface::document::Document as _;
-
-        fn walk<C: RenderConfiguration>(
-            doc: &C::Document,
-            node: gosub_shared::node::NodeId,
-            base: &Url,
-        ) -> Option<Url> {
-            for &child in doc.children(node) {
-                if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
-                    // `icon`, `shortcut icon` (space-separated tokens) and the hyphenated
-                    // `apple-touch-icon` / `apple-touch-icon-precomposed`.
-                    let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
-                        rel.split_ascii_whitespace().any(|t| {
-                            t.eq_ignore_ascii_case("icon")
-                                || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
-                        })
-                    });
-                    if is_icon {
-                        if let Some(url) = doc.attribute(child, "href").and_then(|h| base.join(h).ok()) {
-                            return Some(url);
-                        }
-                    }
-                }
-                if let Some(found) = walk::<C>(doc, child, base) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-
-        walk::<C>(doc, doc.root(), base_url).or_else(|| {
-            matches!(base_url.scheme(), "http" | "https")
-                .then(|| base_url.join("/favicon.ico").ok())
-                .flatten()
-        })
-    }
-
     /// Fetch the document's icon through the zone fetcher (so it carries the UA, cookies and
     /// shows up in resource events) and emit `FavIconChanged` with its bytes on success.
     /// Fire-and-forget: runs on its own task, cancelled with the navigation.
     fn fetch_favicon(&self, doc: &C::Document, base_url: &Url, nav_cancel: &CancellationToken) {
-        let Some(icon_url) = Self::favicon_url(doc, base_url) else {
+        let Some(icon_url) = crate::html::favicon_url::<C>(doc, base_url) else {
             return;
         };
         let req_id = RequestId::new();
@@ -575,6 +582,33 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// Whether this tab's full renders go out-of-process (fork server or
+    /// exec-per-render). Decides both the routing and whether navigation
+    /// captures the document source (the renderer re-parses it there).
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    fn remote_render_available(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            return self.context.remote_render_active() || {
+                // Before a document exists `remote_render_active` is false;
+                // what navigation needs to know is whether a mode is
+                // *installed*, which set_remote_renderer decided in `new`.
+                use gosub_interface::font_system::{Confinement, FontSystem as _};
+                match C::FontSystem::confinement() {
+                    Confinement::Full => self.zone_context.engine_context.renderer_process.get().is_some(),
+                    Confinement::FontPathsReadable => {
+                        self.zone_context.config_store.get_bool("security.renderer_process")
+                    }
+                    Confinement::Unsupported(_) => false,
+                }
+            };
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            return false;
+        }
+    }
+
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
@@ -582,6 +616,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 final_url,
                 title,
                 doc,
+                source,
             } => {
                 // Everything the pipeline records from here belongs to this navigation.
                 // Set before the document so the first rebuild is already attributed.
@@ -599,7 +634,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     Some(final_url.clone()),
                     crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
                 );
-                self.context.set_document(Arc::clone(&doc));
+                self.context.set_document(Arc::clone(&doc), source);
 
                 if let Some(cancel) = self
                     .active_nav
@@ -1494,6 +1529,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let font_system = self.zone_context.font_system.clone();
+        // Capture the document source only when a renderer process may need it
+        // (it re-parses there); otherwise skip the copy.
+        let capture_source = self.remote_render_available();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -1565,6 +1603,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 accept_language.clone(),
                 max_document_bytes,
                 font_system.clone(),
+                capture_source,
             );
 
             let outcome = route_response_for(
@@ -1578,7 +1617,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .await;
 
             match outcome {
-                Ok(RoutedOutcome::MainDocument(doc)) => {
+                Ok(RoutedOutcome::MainDocument { doc, source }) => {
                     use gosub_interface::document::Document as _;
                     let final_url = doc.url().unwrap_or_else(about_blank);
                     let title = crate::html::document_title(&doc);
@@ -1587,6 +1626,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Ok(RoutedOutcome::DownloadOffer(meta)) => {
@@ -1760,6 +1800,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let font_system = self.zone_context.font_system.clone();
+        // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
+        let capture_source = self.remote_render_available();
 
         let span = tracing::info_span!(
             "tab_load_html",
@@ -1794,11 +1836,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 accept_language.clone(),
                 max_document_bytes,
                 font_system.clone(),
+                capture_source,
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
-                Ok(doc) => {
+                Ok(parsed) => {
                     use gosub_interface::document::Document as _;
+                    let (doc, source) = parsed.into_parts();
                     let doc = Arc::new(doc);
                     let final_url = doc.url().unwrap_or(url);
                     let title = crate::html::document_title(&doc);
@@ -1807,6 +1851,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Err(e) => {
@@ -1906,8 +1951,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
         //
         // DPR comes from the backend: every backend that honours it rasterizes at physical
         // pixels on a HiDPI host. Only the null backend stays at 1.
-        if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
+        let remote_render = self.context.remote_render_active();
+        if remote_render
+            || (render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture())
+        {
             let dpr = render_backend.device_pixel_ratio();
+            let frame_started = std::time::Instant::now();
 
             // The host can change the DPR behind our back (page zoom writes the global atomic),
             // which invalidates every cached tile's pixel size. Do this before the scroll fast
@@ -1918,18 +1967,28 @@ impl<C: RenderConfiguration> TabWorker<C> {
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
                 self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.report_frame("scroll", frame_started);
                 return Ok(());
             }
 
             // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
             self.context.set_viewport(self.desired_viewport);
             self.context.rebuild_pipeline_cache_if_needed();
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            if let Some(error) = self.context.take_remote_failure() {
+                self.send_event(EngineEvent::RendererCrashed {
+                    zone_id: self.zone_id,
+                    tabs: vec![self.tab_id],
+                    error,
+                });
+            }
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
                 self.zone_context.compositor.submit_frame(self.tab_id, handle);
             }
             self.sink.inc_frame();
+            self.report_frame("rebuild", frame_started);
             return Ok(());
         }
 
@@ -2271,13 +2330,12 @@ mod tests {
 
     mod favicon_url {
         use crate::html::DefaultRenderConfig;
-        use crate::tab::worker::TabWorker;
         use url::Url;
 
         fn resolve(html: &str, base: &str) -> Option<String> {
             let doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             let base = Url::parse(base).unwrap();
-            TabWorker::<DefaultRenderConfig>::favicon_url(&doc, &base).map(|u| u.to_string())
+            crate::html::favicon_url::<DefaultRenderConfig>(&doc, &base).map(|u| u.to_string())
         }
 
         #[test]
@@ -2286,6 +2344,17 @@ mod tests {
             assert_eq!(
                 resolve(html, "https://example.com/dir/page.html").as_deref(),
                 Some("https://example.com/dir/img/fav.png")
+            );
+        }
+
+        /// A `rel` token whose 16th byte falls inside a multi-byte character is
+        /// not an icon, and must not panic the tab working that out.
+        #[test]
+        fn a_multibyte_rel_token_is_no_icon_and_no_panic() {
+            let html = r#"<html><head><link rel="apple-touch-icoé" href="/a.png"></head></html>"#;
+            assert_eq!(
+                resolve(html, "https://example.com/").as_deref(),
+                Some("https://example.com/favicon.ico")
             );
         }
 

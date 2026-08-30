@@ -375,6 +375,17 @@ pub fn reap_exited_children() -> Vec<(i32, i32)> {
     imp::reap_exited_children()
 }
 
+/// End this process with `SIGALRM` once `after` has passed, if it has not exited
+/// by then: a forked renderer's bound on itself. A page that loops layout or
+/// raster forever would otherwise hold its parent in a relay that never ends,
+/// and the parent has no business being able to `kill` anything. Resets
+/// `SIGALRM` to its default action (terminate) so nothing inherited can catch it.
+/// Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
+    imp::arm_deadline(after)
+}
+
 /// Exit immediately without running destructors or `atexit` handlers - the only
 /// correct way out of a forked child. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]

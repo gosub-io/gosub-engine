@@ -163,6 +163,9 @@ const FORK_SERVER_EXTRA: &[libc::c_long] = &[
     libc::SYS_clone,
     libc::SYS_clone3,
     libc::SYS_wait4,
+    // Each forked renderer arms its own deadline (`arm_deadline`) before its
+    // lockdown; a process's timers reach no other process.
+    libc::SYS_setitimer,
     // `prctl` is argument-filtered in `install_with` to the three commands a
     // forked renderer's own lockdown issues; `seccomp` installs its filter.
     libc::SYS_seccomp,
@@ -364,6 +367,32 @@ pub fn fork_process() -> std::io::Result<Forked> {
         0 => Ok(Forked::Child),
         p => Ok(Forked::Parent { pid: p }),
     }
+}
+
+/// End this process with `SIGALRM` after `after`; see the public wrapper.
+#[cfg(feature = "multi-process")]
+pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
+    // SAFETY: a zeroed sigaction with SIG_DFL is a valid disposition, set for a
+    // signal this process never handles itself.
+    unsafe {
+        let mut dfl: libc::sigaction = std::mem::zeroed();
+        dfl.sa_sigaction = libc::SIG_DFL;
+        if libc::sigaction(libc::SIGALRM, &dfl, std::ptr::null_mut()) < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    let timer = libc::itimerval {
+        it_interval: libc::timeval { tv_sec: 0, tv_usec: 0 },
+        it_value: libc::timeval {
+            tv_sec: after.as_secs().min(i64::MAX as u64) as libc::time_t,
+            tv_usec: after.subsec_micros() as libc::suseconds_t,
+        },
+    };
+    // SAFETY: a valid itimerval in, no old value requested.
+    if unsafe { libc::setitimer(libc::ITIMER_REAL, &timer, std::ptr::null_mut()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// Wait for a forked child and return its raw wait status.

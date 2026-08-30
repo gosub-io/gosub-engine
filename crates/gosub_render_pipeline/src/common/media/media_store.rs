@@ -63,6 +63,10 @@ pub struct MediaStore {
     /// up -- every test in this crate, and any embedder that only loads media from data it
     /// already holds -- which then simply has nothing to load.
     source: RwLock<Option<Arc<dyn MediaSource>>>,
+    /// Fetch inline on the calling thread instead of spawning `media-fetch` threads.
+    /// A sandboxed renderer cannot spawn (its seccomp filter has no `clone`; a spawn is
+    /// SIGSYS, not `Err`), and an inline fetch means one layout pass instead of fetch-then-reflow.
+    synchronous_fetch: AtomicBool,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load. `None` only
@@ -139,6 +143,7 @@ impl MediaStore {
             pending: RwLock::new(HashSet::new()),
             completed: AtomicBool::new(false),
             source: RwLock::new(None),
+            synchronous_fetch: AtomicBool::new(false),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
@@ -150,6 +155,13 @@ impl MediaStore {
     /// Wire up where the store asks for bytes it does not have. See [`MediaSource`].
     pub fn set_source(&self, source: Arc<dyn MediaSource>) {
         *self.source.write() = Some(source);
+    }
+
+    /// Fetch inline instead of spawning `media-fetch` threads (see the field). Set once,
+    /// before the store is shared with a context that cannot thread (the fork server sets
+    /// it before renderers are forked from it).
+    pub fn set_synchronous_fetch(&self, on: bool) {
+        self.synchronous_fetch.store(on, Ordering::Relaxed);
     }
 
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
@@ -166,6 +178,20 @@ impl MediaStore {
         // Register as in-flight; if another request already owns this hash, just report Pending.
         if !self.pending.write().insert(h) {
             return MediaRequest::Pending;
+        }
+
+        // Synchronous mode: fetch on the calling thread. `load_media` caches even
+        // failures (as the placeholder), so the lookup below normally succeeds.
+        if self.synchronous_fetch.load(Ordering::Relaxed) {
+            let loaded = self.load_media(src);
+            self.pending.write().remove(&h);
+            if loaded.is_ok() {
+                self.completed.store(true, Ordering::Relaxed);
+            }
+            return match self.cache.read().get(&h) {
+                Some(media_id) => MediaRequest::Ready(*media_id),
+                None => MediaRequest::Pending,
+            };
         }
 
         let store = Arc::clone(self);

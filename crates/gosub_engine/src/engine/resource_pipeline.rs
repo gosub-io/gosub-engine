@@ -49,6 +49,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         accept_language: Option<String>,
         max_document_bytes: usize,
         font_system: Arc<Mutex<C::FontSystem>>,
+        capture_source: bool,
     ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
@@ -58,6 +59,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
                 accept_language,
                 max_document_bytes,
                 font_system,
+                capture_source,
             )),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),

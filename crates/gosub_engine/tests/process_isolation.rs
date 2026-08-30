@@ -206,6 +206,114 @@ fn a_web_font_can_be_registered_under_the_font_readable_lockdown() {
     );
 }
 
+/// The fork server consumes the confinement answer end to end: for a
+/// `Full`-tier font system it warms once, confines itself, and forks a
+/// renderer that shapes under the strictest sandbox using only inherited,
+/// copy-on-write font state.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fork_server_forks_a_confined_renderer_for_a_full_tier_font_system() {
+    let out = run("fork-server");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the fork-server roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("tier: Full"),
+        "expected the default font system to announce the Full tier:\n{stdout}"
+    );
+}
+
+/// The same roundtrip for the other always-compiled font system, whose warmed
+/// state is the per-face override - a forked renderer shaping proves the
+/// override's work really crosses the fork.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fork_server_forks_a_confined_renderer_with_cosmic_text() {
+    let out = run_with_backend("fork-server", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the cosmic fork-server roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The render pipeline - parse, style, layout, layering, tiling, paint -
+/// under the strictest renderer sandbox, in-process (no fork machinery), so a
+/// pipeline-vs-sandbox regression is directly attributable.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_render_pipeline_runs_under_the_renderer_lockdown() {
+    let out = run("render-under-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the pipeline under the renderer lockdown failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The engine-side wiring: with `security.renderer_process` on, `start()`
+/// spawns the fork server, announces its tier, renders through the
+/// engine-held handle, and `shutdown()` tears it down cleanly.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_engine_spawns_the_renderer_fork_server_behind_its_setting() {
+    let out = run("engine-renderer-process");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the engine's renderer-process wiring failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("tier: Full"),
+        "expected the default font system to announce the Full tier through the engine:\n{stdout}"
+    );
+}
+
+/// The exec-fresh renderer: one throwaway, font-readable-confined process
+/// renders one page - the `FontPathsReadable` tier's whole render path,
+/// driven directly. Runs with the default (Full-tier) font system here,
+/// which the weaker profile also serves; the tier-2 backends exercise the
+/// same path behind their features.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exec_fresh_renderer_renders_one_page_confined() {
+    let out = run("exec-renderer");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the exec'd renderer roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The wiring: an ordinary navigation with `security.network_process` on resolves
 /// through the child rather than an in-process fetcher.
 #[test]

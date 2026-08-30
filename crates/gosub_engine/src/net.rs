@@ -55,6 +55,7 @@ mod decision;
 mod decision_hub;
 pub(crate) mod emitter;
 pub use data_url::decode as decode_data_url;
+pub mod brokered_loader;
 pub mod events;
 mod fetcher;
 mod file_loader;
@@ -63,6 +64,7 @@ mod io_runtime;
 #[cfg(feature = "process-isolation")]
 pub mod process;
 pub mod req_ref_tracker;
+pub mod resource_loader;
 mod router;
 mod shared_body;
 pub mod tab_identity;
