@@ -1,8 +1,9 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{
-    DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+    DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
 };
 use bytes::Bytes;
+use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -73,6 +74,9 @@ pub struct MediaStore {
     /// [`MediaStore::default_svg`].
     default_image: Option<Arc<Media>>,
     decoders: MediaDecoderRegistry,
+    /// Where raster decoding happens. `None` decodes in this process, which is
+    /// the default; the engine installs one to move it out.
+    decoder: Option<Arc<dyn ImageDecoder>>,
 }
 
 impl Default for MediaStore {
@@ -87,6 +91,12 @@ impl MediaStore {
     }
 
     pub fn new() -> MediaStore {
+        Self::with_decoder(None)
+    }
+
+    /// A store that decodes raster images through `decoder` rather than in this
+    /// process. See [`ImageDecoder`].
+    pub fn with_decoder(decoder: Option<Arc<dyn ImageDecoder>>) -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
         let default_svg = match decoders.decode(Some("image/svg+xml"), DEFAULT_SVG_DATA) {
@@ -133,6 +143,7 @@ impl MediaStore {
             default_svg,
             default_image,
             decoders,
+            decoder,
         }
     }
 
@@ -181,11 +192,36 @@ impl MediaStore {
         self.completed.swap(false, Ordering::Relaxed)
     }
 
-    /// Shared by the data, source and inline decode paths.
+    /// Shared by the data, source and inline decode paths. With a decoder
+    /// installed the bytes are never decoded here: a failure - including one
+    /// the decoder could not even start on - is the image's failure, not a
+    /// reason to decode locally after all.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         // Pure CPU: the bytes are already in hand, whether they came from the network,
         // a data: URI or inline markup. Fetching is timed separately as net.fetch.image.
         let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, src);
+
+        if let Some(decoder) = &self.decoder {
+            return match decoder.decode(mime, data) {
+                Ok(BrokeredDecode::Raster(raster)) => {
+                    // Length is checked against the dimensions rather than
+                    // trusted: the producer may be a compromised decoder.
+                    let image = DecodedImage::new_rgba8(raster.width, raster.height, raster.rgba.to_vec())
+                        .map_err(|e| anyhow::anyhow!("brokered decode of '{}' returned bad pixels: {}", src, e))?
+                        // The decoder may have kept fewer pixels than the image has; it
+                        // still lays out at its real size (bounded by the client).
+                        .with_intrinsic(raster.intrinsic_width, raster.intrinsic_height);
+                    Ok(Media::image(src, image))
+                }
+                Err(e) => Err(anyhow::anyhow!("brokered decode of '{}' failed: {}", src, e)),
+            };
+        }
+
+        self.decode_locally(src, mime, data)
+    }
+
+    /// Decode in this process with the registry, whatever decoder is installed.
+    fn decode_locally(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -242,7 +278,18 @@ impl MediaStore {
             MediaType::Svg => Some("image/svg+xml"),
             MediaType::Image => None,
         };
-        let media = self.decode_media("gosub://data", mime, data)?;
+        // SVG markup given here is inline `<svg>` (or the engine's own control
+        // icons): it came in with the document, which this process parsed
+        // anyway, and it must stay a vector - a brokered decode would come back
+        // as a raster, which the inline-SVG layout path cannot size, at the cost
+        // of a decoder process per element.
+        let media = match media_type {
+            MediaType::Svg => {
+                let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, "gosub://data");
+                self.decode_locally("gosub://data", mime, data)?
+            }
+            MediaType::Image => self.decode_media("gosub://data", mime, data)?,
+        };
 
         let media_id = self.allocate_media_id();
         self.entries.write().insert(media_id, Arc::new(media));
@@ -424,7 +471,7 @@ fn percent_decode(s: &str) -> Vec<u8> {
 
 /// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`x`h` px (scaling the tree's
 /// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
-fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
+pub fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
     let size = tree.size();
     let (iw, ih) = (size.width().max(1.0), size.height().max(1.0));
     let (sx, sy) = (w as f32 / iw, h as f32 / ih);
@@ -439,6 +486,58 @@ fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<
         rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
     }
     Image::new_rgba8(w, h, rgba).ok()
+}
+
+#[cfg(test)]
+mod brokered_decoder_tests {
+    use super::*;
+    use gosub_interface::media_decoder::{DecodeError, RasterImage};
+
+    /// Answers every decode with a 2x1 raster standing for a 4000x2000 image,
+    /// the way the decoder process reports a downscaled one.
+    #[derive(Debug)]
+    struct Downscaling;
+
+    impl ImageDecoder for Downscaling {
+        fn decode(&self, _mime: Option<&str>, _bytes: &[u8]) -> Result<BrokeredDecode, DecodeError> {
+            Ok(BrokeredDecode::Raster(RasterImage {
+                width: 2,
+                height: 1,
+                intrinsic_width: 4000,
+                intrinsic_height: 2000,
+                rgba: bytes::Bytes::from(vec![255u8; 2 * 4]),
+            }))
+        }
+
+        fn dimensions(&self, _mime: Option<&str>, _bytes: &[u8]) -> Result<(u32, u32), DecodeError> {
+            Ok((4000, 2000))
+        }
+    }
+
+    #[test]
+    fn a_brokered_raster_lays_out_at_its_intrinsic_size() {
+        let store = MediaStore::with_decoder(Some(Arc::new(Downscaling)));
+        let id = store
+            .load_media_from_data(MediaType::Image, b"any bytes: the fake decoder does not look")
+            .expect("decodes");
+        let image = store.get_image(id).expect("a raster");
+        assert_eq!((image.image.width(), image.image.height()), (2, 1));
+        assert_eq!(
+            (image.image.intrinsic_width(), image.image.intrinsic_height()),
+            (4000, 2000)
+        );
+    }
+
+    #[test]
+    fn inline_svg_stays_a_vector_with_a_decoder_installed() {
+        let store = MediaStore::with_decoder(Some(Arc::new(Downscaling)));
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"></svg>"#;
+        let id = store.load_media_from_data(MediaType::Svg, svg).expect("decodes");
+        assert!(
+            store.get_svg(id).is_some(),
+            "inline SVG must stay an SVG, not come back rasterized"
+        );
+    }
 }
 
 #[cfg(test)]

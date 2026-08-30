@@ -145,6 +145,10 @@ mod engine;
 /// [`child_process::dispatch`] as the first statement of its `main`.
 #[cfg(feature = "process-isolation")]
 pub mod child_process;
+
+/// Image decoding in a throwaway, sandboxed process.
+#[cfg(feature = "process-isolation")]
+pub mod decoder_process;
 pub mod net;
 
 pub mod util;

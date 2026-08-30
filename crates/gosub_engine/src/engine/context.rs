@@ -332,7 +332,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
-            media_store: std::sync::Arc::new(MediaStore::new()),
+            media_store: std::sync::Arc::new(MediaStore::with_decoder(image_decoder_from(&config_store))),
             media_source: None,
             config_store,
             tile_budget: TileBudget::new(),
@@ -2393,6 +2393,19 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
     }
 
     timing_stop!(ts7);
+}
+
+/// The image decoder this engine should use, if any.
+#[cfg(feature = "process-isolation")]
+fn image_decoder_from(config: &Config) -> Option<std::sync::Arc<dyn gosub_interface::media_decoder::ImageDecoder>> {
+    config
+        .get_bool("security.image_decoder_process")
+        .then(|| std::sync::Arc::new(crate::decoder_process::client::ProcessImageDecoder) as _)
+}
+
+#[cfg(not(feature = "process-isolation"))]
+fn image_decoder_from(_config: &Config) -> Option<std::sync::Arc<dyn gosub_interface::media_decoder::ImageDecoder>> {
+    None
 }
 
 #[cfg(test)]

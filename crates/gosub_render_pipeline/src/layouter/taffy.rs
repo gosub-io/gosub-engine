@@ -1796,7 +1796,7 @@ impl TaffyLayouter {
         match self.media_store.get(media_id, MediaType::Image).as_deref()? {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
-                natural: (mi.image.width() as f32, mi.image.height() as f32),
+                natural: (mi.image.intrinsic_width() as f32, mi.image.intrinsic_height() as f32),
                 layout,
             }),
             Media::Svg(ms) => {
