@@ -311,7 +311,7 @@ fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
     refuse_private: bool,
-    cookies: Option<crate::net::process::protocol::CookieScope>,
+    cookies: Option<CookieScope>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -375,12 +375,18 @@ fn dispatch_to_net_process(
     });
 }
 
+/// Whose cookies a request is about; nothing where no network process exists.
+#[cfg(feature = "process-isolation")]
+type CookieScope = crate::net::process::protocol::CookieScope;
+#[cfg(not(feature = "process-isolation"))]
+type CookieScope = std::convert::Infallible;
+
 #[cfg(not(feature = "process-isolation"))]
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
     _refuse_private: bool,
-    _cookies: Option<crate::net::process::protocol::CookieScope>,
+    _cookies: Option<CookieScope>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -390,11 +396,7 @@ fn dispatch_to_net_process(
 /// network process has its own line to the vault *and* this tab's jar is a
 /// vault jar (an embedder-supplied jar stays the broker's business).
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-fn cookie_scope_for(
-    router: &IoRouter,
-    identity: Option<&TabIdentity>,
-    req: &FetchRequest,
-) -> Option<crate::net::process::protocol::CookieScope> {
+fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &FetchRequest) -> Option<CookieScope> {
     let identity = identity?;
     if !router.net_process().is_some_and(|net| net.vault_linked()) {
         return None;
@@ -403,7 +405,7 @@ fn cookie_scope_for(
     let vaulted = jar
         .as_any()
         .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?;
-    Some(crate::net::process::protocol::CookieScope {
+    Some(CookieScope {
         ticket: uuid::Uuid::new_v4().as_u128(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
@@ -416,10 +418,7 @@ fn cookie_scope_for(
 type Revoke = Box<dyn FnOnce(oneshot::Sender<FetchResult>) -> oneshot::Sender<FetchResult> + Send>;
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-async fn grant_scope(
-    identity: Option<&TabIdentity>,
-    scope: crate::net::process::protocol::CookieScope,
-) -> Option<(crate::net::process::protocol::CookieScope, Revoke)> {
+async fn grant_scope(identity: Option<&TabIdentity>, scope: CookieScope) -> Option<(CookieScope, Revoke)> {
     let vault = {
         let jar = identity?.cookie_jar.read();
         Arc::clone(
@@ -450,19 +449,12 @@ async fn grant_scope(
 }
 
 #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-async fn grant_scope(
-    _identity: Option<&TabIdentity>,
-    _scope: crate::net::process::protocol::CookieScope,
-) -> Option<(crate::net::process::protocol::CookieScope, Revoke)> {
+async fn grant_scope(_identity: Option<&TabIdentity>, _scope: CookieScope) -> Option<(CookieScope, Revoke)> {
     None
 }
 
 #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-fn cookie_scope_for(
-    _router: &IoRouter,
-    _identity: Option<&TabIdentity>,
-    _req: &FetchRequest,
-) -> Option<crate::net::process::protocol::CookieScope> {
+fn cookie_scope_for(_router: &IoRouter, _identity: Option<&TabIdentity>, _req: &FetchRequest) -> Option<CookieScope> {
     None
 }
 

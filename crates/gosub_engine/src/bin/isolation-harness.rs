@@ -2459,6 +2459,7 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
 /// at the end what the renderer processes hold. Exit 1 only if a renderer
 /// crashed or a page could not be rendered out of process.
 /// The firehose names pages in normalized form (`https://example.com/`).
+#[cfg(target_os = "linux")]
 fn same_page(reported: Option<&str>, asked: &str) -> bool {
     match (
         reported.and_then(|r| url::Url::parse(r).ok()),
@@ -3997,6 +3998,7 @@ fn engine_cookie_vault() -> i32 {
             return 1;
         }
 
+        #[cfg(target_os = "linux")]
         if respawn {
             // Let the first navigation's trailing requests (favicon, a
             // repeated stylesheet) land before counting from here.
@@ -4048,6 +4050,8 @@ fn engine_cookie_vault() -> i32 {
             }
             println!("vault respawned: pid {pid} -> {new_pid}");
         }
+        #[cfg(not(target_os = "linux"))]
+        let _ = (respawn, &after_kill_seen);
         let _ = engine.shutdown().await;
         0
     });
@@ -4200,6 +4204,7 @@ fn stream() -> i32 {
             }
             #[cfg(not(target_os = "linux"))]
             {
+                let _ = (status, peek, ring);
                 let _ = ring;
                 Err("streaming is Linux-only".to_string())
             }

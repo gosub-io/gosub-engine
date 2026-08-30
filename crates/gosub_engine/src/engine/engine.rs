@@ -484,6 +484,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.context.cookie_vault.get()
     }
 
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_pool(&self) -> Option<&Arc<crate::fork_server::pool::RendererPool>> {
         self.context.renderer_pool.get()
     }

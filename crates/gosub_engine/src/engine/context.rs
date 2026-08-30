@@ -735,7 +735,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Whether the current document is one of the engine's own pages.
-    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub(crate) fn is_internal_page(&self) -> bool {
         self.document_url
             .as_ref()
@@ -1582,6 +1581,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // A remotely rendered page carries hit-test geometry instead of a layer
         // list; the layout element id is unavailable there, which costs hover
         // repaint, not hit testing (see `PipelineCache::hit_regions`).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         if let Some(regions) = self.remote_hit_regions() {
             let hit = hit_region_at(regions, vp_x, vp_y, scroll_x, scroll_y).cloned();
             return self.apply_remote_hover(hit.as_ref());
@@ -1602,6 +1602,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Hit-test geometry for a remotely rendered page, when that is how the
     /// current page was produced.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn remote_hit_regions(&self) -> Option<&[crate::fork_server::protocol::HitRegion]> {
         let cache = self.pipeline_cache.as_ref()?;
         (cache.layer_list.is_none() && !cache.hit_regions.is_empty()).then_some(cache.hit_regions.as_slice())
@@ -2151,6 +2152,7 @@ fn kept_tile(tile: crate::fork_server::client::PageTile) -> (u64, crate::fork_se
     }
 }
 
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 /// Which node a point lands on, per a remotely rendered page's geometry.
 fn hit_region_at(
     regions: &[crate::fork_server::protocol::HitRegion],

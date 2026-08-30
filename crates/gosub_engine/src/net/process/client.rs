@@ -42,12 +42,18 @@ impl Outbound {
     }
 }
 
+/// The ring's descriptor, where one can exist; nothing where it cannot.
+#[cfg(target_os = "linux")]
+type RingFd = std::os::fd::OwnedFd;
+#[cfg(not(target_os = "linux"))]
+type RingFd = std::convert::Infallible;
+
 /// A reply as the broker sees it: the wire outcome plus, for a streamed body,
 /// the ring fd that followed it on the link.
 #[derive(Debug)]
 pub struct NetReply {
     pub outcome: FetchOutcome,
-    pub ring: Option<std::os::fd::OwnedFd>,
+    pub ring: Option<RingFd>,
 }
 
 impl NetReply {
@@ -60,12 +66,12 @@ impl NetReply {
 }
 
 #[cfg(target_os = "linux")]
-fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<std::os::fd::OwnedFd> {
+fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     rx.recv_fd()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<std::os::fd::OwnedFd> {
+fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "no fd passing on this platform",
@@ -142,7 +148,10 @@ impl NetProcess {
         if let Some(spec) = vault_spec.as_deref() {
             args.push(spec);
         }
+        #[cfg(target_os = "linux")]
         let extra_fds: Vec<i32> = vault.iter().map(|line| line.0.raw()).collect();
+        #[cfg(not(target_os = "linux"))]
+        let extra_fds: Vec<i32> = Vec::new();
 
         let child = gosub_sandbox::spawn::spawn(
             &exe,
@@ -474,7 +483,7 @@ enum Body {
     /// The head arrived; the body streams through this ring.
     Ring {
         peek: Vec<u8>,
-        ring: std::os::fd::OwnedFd,
+        ring: RingFd,
     },
 }
 
@@ -488,7 +497,7 @@ const RING_BODY_QUEUE: usize = 64;
 /// ends it with an error.
 ///
 /// [`SharedBody`]: gosub_sonar::net::shared_body::SharedBody
-fn drain_ring(ring: std::os::fd::OwnedFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
+fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
     use gosub_sonar::net::shared_body::SharedBody;
     let shared = Arc::new(SharedBody::new(RING_BODY_QUEUE));
     let sink = Arc::clone(&shared);

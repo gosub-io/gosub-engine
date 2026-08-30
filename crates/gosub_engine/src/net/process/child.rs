@@ -1,6 +1,9 @@
 //! The network process: the only part of the engine that may open a socket.
+//!
+//! What only Linux can do - pass a ring fd for a streamed body, hold a direct
+//! line to the cookie vault - lives in `platform`; the same API elsewhere
+//! declines, so this file has no platform branches of its own.
 
-use crate::cookie_vault::protocol::{FromVault, ToVault};
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
@@ -10,9 +13,17 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+#[cfg(target_os = "linux")]
+#[path = "child/linux.rs"]
+mod platform;
+#[cfg(not(target_os = "linux"))]
+#[path = "child/portable.rs"]
+mod platform;
+
+use platform::{Streamed, VaultLink};
 
 /// How long a shutdown drain waits for in-flight requests before giving up.
 /// Shorter than the broker's `SHUTDOWN_GRACE`, so a draining child exits on
@@ -115,18 +126,10 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     token.cancel();
                 }
             }
-            // The vault was respawned: its new line follows as an fd.
-            // The vault was respawned: its new line follows as an fd, twice
-            // (one per half; this process may not `dup`).
-            ToNet::VaultLine => match (link_rx.recv_fd(), link_rx.recv_fd()) {
-                (Ok(tx_fd), Ok(rx_fd)) => {
-                    let endpoint = Endpoint::from_halves(
-                        std::os::unix::net::UnixStream::from(tx_fd),
-                        std::os::unix::net::UnixStream::from(rx_fd),
-                    );
-                    *vault.lock() = Some(VaultLink::new(endpoint));
-                }
-                (Err(e), _) | (_, Err(e)) => eprintln!("[net] the new vault line did not arrive: {e}"),
+            // The vault was respawned: its new line follows on the link.
+            ToNet::VaultLine => match platform::adopt_vault_line(&mut link_rx) {
+                Ok(line) => *vault.lock() = Some(line),
+                Err(e) => eprintln!("[net] the new vault line did not arrive: {e}"),
             },
             ToNet::Fetch(fetch) => {
                 let tag = fetch.tag;
@@ -149,26 +152,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                         Performed::Done(outcome) => {
                             let _ = link_tx.lock().send(&FromNet::Reply { tag, outcome });
                         }
-                        Performed::Streaming {
-                            outcome,
-                            ring,
-                            producer,
-                            body,
-                        } => {
-                            // Head and ring fd back to back, under one lock, so
-                            // nothing else on the link comes between them.
-                            {
-                                use std::os::fd::AsRawFd as _;
-                                let mut tx = link_tx.lock();
-                                if tx.send(&FromNet::Reply { tag, outcome }).is_err()
-                                    || tx.send_fd(ring.as_raw_fd()).is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            drop(ring); // the broker holds its duplicate; the mapping keeps ours
-                            pump(producer, body).await;
-                        }
+                        Performed::Streaming(streamed) => streamed.deliver(tag, &link_tx).await,
                     }
                 });
                 let mut tasks = tasks.lock();
@@ -225,153 +209,18 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
 }
 
-/// Ring window for streamed bodies. Small on purpose: a large body wraps
-/// through it many times, and neither side ever holds more than this (plus one
-/// chunk) for the transport.
-const RING_CAPACITY: u32 = 256 * 1024;
-
 /// What `perform` produced: a reply that travels whole, or a response head
-/// whose body is still arriving and will be pumped through a ring.
+/// whose body is still arriving and will follow it (see [`Streamed`]).
 enum Performed {
     Done(FetchOutcome),
-    Streaming {
-        outcome: FetchOutcome,
-        ring: std::os::fd::OwnedFd,
-        producer: gosub_ipc::ring::RingProducer,
-        body: BodyPump,
-    },
+    Streaming(Streamed),
 }
 
-/// The fetcher's side of a streamed body, as the pump needs it.
-struct BodyPump {
-    /// Subscribed the moment the response arrived: the body has no replay,
-    /// so a later subscription would miss its first chunks.
-    chunks: BodyChunks,
-    /// What `Content-Length` promises past the peek, when it says.
-    expected: Option<u64>,
-}
-
-type BodyChunks = futures_util::stream::BoxStream<'static, Result<bytes::Bytes, gosub_sonar::net::types::NetError>>;
-
-/// How many chunks the pump may fall behind the fetcher before the body drops
-/// it as a slow subscriber. The ring's backpressure stalls the pump whenever
-/// the broker is not draining; this queue absorbs that stall (16 KiB chunks:
-/// at most 16 MiB held) so backpressure costs memory here, never bytes.
-const PUMP_QUEUE: usize = 1024;
-
-/// Move a body from the fetcher into the ring as it arrives. The producer's
-/// `write_all` blocks (bounded) when the ring is full - the backpressure that
-/// keeps this process from buffering - so it runs off the async worker. An
-/// error from the fetcher, or a consumer that stopped draining, abandons the
-/// stream: the producer drops unfinished and the consumer sees an abort.
-///
-/// A subscriber the body dropped for falling behind gets an error (sonar
-/// 0.4), which ends the pump without `finish`; the byte count against
-/// `Content-Length` is the second check: a truncated body must abort, never
-/// look complete.
-async fn pump(mut producer: gosub_ipc::ring::RingProducer, body: BodyPump) {
-    use futures_util::StreamExt as _;
-    let BodyPump { mut chunks, expected } = body;
-    let mut pumped = 0u64;
-    while let Some(chunk) = chunks.next().await {
-        let Ok(chunk) = chunk else {
-            return;
-        };
-        pumped += chunk.len() as u64;
-        if tokio::task::block_in_place(|| producer.write_all(&chunk)).is_err() {
-            return;
-        }
-    }
-    if expected.is_some_and(|expected| pumped != expected) {
-        eprintln!("[net] body stream fell behind the fetcher ({pumped} bytes pumped); aborting it");
-        return;
-    }
-    producer.finish();
-}
-
-const VAULT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// The direct line to the vault: one request in flight at a time, each
-/// answer checked against the tag it was asked with.
-struct VaultLink {
-    link: Endpoint,
-    next_tag: u64,
-}
-
-impl VaultLink {
-    fn new(mut link: Endpoint) -> Self {
-        let _ = link.rx.set_read_timeout(Some(VAULT_TIMEOUT));
-        let _ = link.tx.set_write_timeout(Some(VAULT_TIMEOUT));
-        Self { link, next_tag: 1 }
-    }
-
-    /// One tagged exchange. Any failure - timeout, a reply for another tag -
-    /// is `None`; replies for an earlier, timed-out request are skipped.
-    fn exchange(&mut self, build: impl FnOnce(u64) -> ToVault) -> Option<FromVault> {
-        let tag = self.next_tag;
-        self.next_tag += 1;
-        self.link.send(&build(tag)).ok()?;
-        loop {
-            let reply = self.link.recv::<FromVault>().ok()?;
-            let got = match &reply {
-                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } => *tag,
-                _ => return None,
-            };
-            if got == tag {
-                return Some(reply);
-            }
-            if got > tag {
-                return None;
-            }
-        }
-    }
-}
-
-/// The `Cookie` header for a request, from the vault; any failure is "no cookies".
-fn vault_cookies(
-    vault: &Mutex<Option<VaultLink>>,
-    scope: &crate::net::process::protocol::CookieScope,
-    url: &str,
-) -> Option<String> {
-    match vault.lock().as_mut()?.exchange(|tag| ToVault::Get {
-        tag,
-        scope: scope.clone(),
-        url: url.to_string(),
-        visible_only: false,
-    })? {
-        FromVault::Cookies { header, .. } => header,
-        _ => None,
-    }
-}
-
-/// Hand a response's `Set-Cookie` headers to the vault.
-fn vault_store(
-    vault: &Mutex<Option<VaultLink>>,
-    scope: &crate::net::process::protocol::CookieScope,
-    meta: &gosub_sonar::net::types::FetchResultMeta,
-) {
-    let set_cookie: Vec<String> = meta
-        .headers
-        .get_all(http::header::SET_COOKIE)
+fn flat_headers(headers: &http::HeaderMap) -> Vec<(String, String)> {
+    headers
         .iter()
-        .filter_map(|v| v.to_str().ok().map(str::to_string))
-        .collect();
-    if set_cookie.is_empty() {
-        return;
-    }
-    // Waited for: the reply to the broker must not overtake the store.
-    let Some(mut guard) = Some(vault.lock()) else {
-        return;
-    };
-    let Some(link) = guard.as_mut() else {
-        return;
-    };
-    let _ = link.exchange(|tag| ToVault::Store {
-        tag,
-        scope: scope.clone(),
-        url: meta.final_url.to_string(),
-        set_cookie,
-    });
+        .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
+        .collect()
 }
 
 /// Perform one request and flatten the result to something that can travel.
@@ -381,14 +230,13 @@ async fn perform(
     cancel: CancellationToken,
     vault: &Mutex<Option<VaultLink>>,
 ) -> Performed {
-    // A ring fd can only travel where the link carries fds.
-    let streaming = fetch.streaming && cfg!(target_os = "linux");
+    let streaming = fetch.streaming && platform::STREAMING;
     let done = Performed::Done;
     // Cookies come from the vault, never from the broker, when this process
     // has its own line to it. The scope is the broker's word on whose they are.
     let scope = fetch.cookies.clone();
     let cookie_header = match &scope {
-        Some(scope) => tokio::task::block_in_place(|| vault_cookies(vault, scope, &fetch.url)),
+        Some(scope) => tokio::task::block_in_place(|| platform::vault_cookies(vault, scope, &fetch.url)),
         None => None,
     };
     let url = match Url::parse(&fetch.url) {
@@ -429,15 +277,9 @@ async fn perform(
         _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
-    let flat_headers = |headers: &http::HeaderMap| -> Vec<(String, String)> {
-        headers
-            .iter()
-            .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
-            .collect()
-    };
     // `Set-Cookie` goes to the vault from here; the broker never sees it.
     if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
-        tokio::task::block_in_place(|| vault_store(vault, scope, meta));
+        tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta));
     }
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
@@ -448,121 +290,25 @@ async fn perform(
             body: body.to_vec(),
         }),
         Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
-            // First thing, before anything can yield: the fetcher is already
-            // pushing chunks, and nobody replays them.
-            let chunks = shared.subscribe_with_cap(PUMP_QUEUE);
+            // What `Content-Length` promises past the peek, when it says.
             let expected = meta
                 .headers
                 .get(http::header::CONTENT_LENGTH)
                 .and_then(|v| v.to_str().ok()?.trim().parse::<u64>().ok())
                 .map(|len| len.saturating_sub(peek_buf.len() as u64));
-            let (producer, ring) = match gosub_ipc::ring::RingProducer::create(RING_CAPACITY) {
-                Ok(pair) => pair,
-                Err(e) => return done(FetchOutcome::Error(format!("could not set up a body stream: {e}"))),
+            let head = FetchOutcome::Streaming {
+                status: meta.status,
+                status_text: meta.status_text,
+                final_url: meta.final_url.to_string(),
+                headers: flat_headers(&meta.headers),
+                peek: peek_buf.as_ref().to_vec(),
             };
-            Performed::Streaming {
-                outcome: FetchOutcome::Streaming {
-                    status: meta.status,
-                    status_text: meta.status_text,
-                    final_url: meta.final_url.to_string(),
-                    headers: flat_headers(&meta.headers),
-                    peek: peek_buf.as_ref().to_vec(),
-                },
-                ring,
-                producer,
-                body: BodyPump { chunks, expected },
+            match platform::begin_stream(head, expected, shared) {
+                Ok(streamed) => Performed::Streaming(streamed),
+                Err(e) => done(FetchOutcome::Error(format!("could not set up a body stream: {e}"))),
             }
         }
         Ok(FetchResult::Error(e)) => done(FetchOutcome::Error(e.to_string())),
         Err(_) => done(FetchOutcome::Error("the fetcher dropped the request".into())),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gosub_sonar::net::shared_body::SharedBody;
-
-    fn drain(ring: std::os::fd::OwnedFd) -> std::io::Result<Vec<u8>> {
-        let mut consumer = gosub_ipc::ring::RingConsumer::open(ring)?;
-        let mut out = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            match consumer.read(&mut buf)? {
-                0 => return Ok(out),
-                n => out.extend_from_slice(&buf[..n]),
-            }
-        }
-    }
-
-    fn body(shared: &Arc<SharedBody>, cap: usize, expected: Option<u64>) -> BodyPump {
-        BodyPump {
-            chunks: shared.subscribe_with_cap(cap),
-            expected,
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_complete_body_finishes_the_ring() {
-        let shared = Arc::new(SharedBody::new(8));
-        let pump_body = body(&shared, 8, Some(6));
-        let (producer, ring) = gosub_ipc::ring::RingProducer::create(1 << 16).unwrap();
-        let drained = std::thread::spawn(move || drain(ring));
-        shared.push(bytes::Bytes::from_static(b"abc"));
-        shared.push(bytes::Bytes::from_static(b"def"));
-        shared.finish();
-        pump(producer, pump_body).await;
-        assert_eq!(drained.join().unwrap().unwrap(), b"abcdef");
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_body_short_of_its_content_length_aborts_the_ring() {
-        let shared = Arc::new(SharedBody::new(1));
-        // A one-slot queue nobody reads yet: the second push drops the subscriber.
-        let pump_body = body(&shared, 1, Some(6));
-        let (producer, ring) = gosub_ipc::ring::RingProducer::create(1 << 16).unwrap();
-        let drained = std::thread::spawn(move || drain(ring));
-        shared.push(bytes::Bytes::from_static(b"abc"));
-        shared.push(bytes::Bytes::from_static(b"def"));
-        shared.finish();
-        pump(producer, pump_body).await;
-        assert!(
-            drained.join().unwrap().is_err(),
-            "a truncated body must not read as EOF"
-        );
-    }
-
-    /// A chunked body (no Content-Length) that finishes right after dropping
-    /// the pump: only sonar's lag error tells this from a complete body.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_body_that_finishes_after_dropping_the_pump_aborts_the_ring() {
-        let shared = Arc::new(SharedBody::new(1));
-        let pump_body = body(&shared, 1, None);
-        let (producer, ring) = gosub_ipc::ring::RingProducer::create(1 << 16).unwrap();
-        let drained = std::thread::spawn(move || drain(ring));
-        shared.push(bytes::Bytes::from_static(b"abc"));
-        shared.push(bytes::Bytes::from_static(b"def"));
-        shared.finish();
-        pump(producer, pump_body).await;
-        assert!(
-            drained.join().unwrap().is_err(),
-            "a body finished after the drop must not read as EOF"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_dropped_subscriber_of_a_live_body_aborts_the_ring() {
-        let shared = Arc::new(SharedBody::new(1));
-        let pump_body = body(&shared, 1, None);
-        let (producer, ring) = gosub_ipc::ring::RingProducer::create(1 << 16).unwrap();
-        let drained = std::thread::spawn(move || drain(ring));
-        shared.push(bytes::Bytes::from_static(b"abc"));
-        shared.push(bytes::Bytes::from_static(b"def"));
-        // Not finished: the body is still streaming when the pump's stream ends.
-        pump(producer, pump_body).await;
-        assert!(
-            drained.join().unwrap().is_err(),
-            "a dropped subscriber must not read as EOF"
-        );
     }
 }
