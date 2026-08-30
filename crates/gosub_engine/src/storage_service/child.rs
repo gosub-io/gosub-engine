@@ -21,6 +21,7 @@ pub fn serve(mut link: Endpoint, dir: PathBuf) -> i32 {
         &[(dir.as_path(), true)],
     );
 
+    let own = vec![dir.clone()];
     let store = FileLocalStore::attach(dir);
     // An area whose file cannot be loaded reads as empty (the read calls have
     // no error to give) and refuses every write, so its file is left alone.
@@ -56,6 +57,10 @@ pub fn serve(mut link: Endpoint, dir: PathBuf) -> i32 {
             ToStorage::Len { tag, area: a } => FromStorage::Len {
                 tag,
                 len: area(&a).map(|area| area.len() as u64).unwrap_or(0),
+            },
+            ToStorage::Audit { tag } => FromStorage::Audit {
+                tag,
+                report: gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Storage, &own),
             },
         };
         if link.send(&reply).is_err() {

@@ -290,7 +290,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             for key in PROCESS_SETTINGS {
                 self.turn_off(key);
             }
-            return;
         }
 
         #[cfg(feature = "process-isolation")]
@@ -492,6 +491,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
         self.context.renderer_process.get()
+    }
+
+    /// The escape audit in the network process; `None` when networking is
+    /// in-process (tools and tests).
+    #[cfg(feature = "process-isolation")]
+    pub async fn audit_net_process(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        self.io_handle.as_ref()?.audit_net().await
     }
 
     /// The cookie vault, when one runs (tools and tests).

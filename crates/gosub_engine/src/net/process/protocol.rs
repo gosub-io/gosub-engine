@@ -52,6 +52,11 @@ pub enum ToNet {
     /// A new line to the cookie vault follows as a file descriptor (the vault
     /// was respawned); it replaces the one inherited at spawn.
     VaultLine,
+    /// Run the escape audit under the net lockdown and report it; the reply
+    /// echoes `tag`, so a late answer is never taken for a later request's.
+    Audit {
+        tag: RequestTag,
+    },
 }
 
 /// One request, flattened to what actually has to travel.
@@ -146,6 +151,11 @@ pub enum FromNet {
     Reply {
         tag: RequestTag,
         outcome: FetchOutcome,
+    },
+    /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
+    Audit {
+        tag: RequestTag,
+        report: Option<gosub_sandbox::audit::AuditReport>,
     },
 }
 

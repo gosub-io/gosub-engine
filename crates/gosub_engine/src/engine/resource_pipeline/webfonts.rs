@@ -57,14 +57,17 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
 }
 
 /// A blocking fetch: the bytes and their content type, or nothing.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 type FetchBlocking<'a> = &'a dyn Fn(&str) -> Option<(Option<String>, Vec<u8>)>;
 
 /// Hands a fetched face to the font system: `(bytes, css_family)`.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 type RegisterFont<'a> = &'a mut dyn FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError>;
 
 /// [`load_web_fonts`] for a caller with no runtime to await on: a renderer process, whose
 /// every fetch is a blocking round trip to the broker. `register` hands each face to the font
 /// system under its CSS family.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
     base_url: &Url,

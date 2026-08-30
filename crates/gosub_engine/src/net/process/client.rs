@@ -115,7 +115,14 @@ pub struct NetProcess {
     /// The child holds a direct line to the cookie vault: requests may carry a
     /// cookie scope instead of a header.
     vault_linked: bool,
+    /// Who is waiting for an audit report, if anyone.
+    audit_waiter: AuditWaiter,
 }
+
+/// Audits in flight, by tag: each call waits for its own answer, and a late one
+/// finds no waiter rather than the next caller's.
+type AuditWaiter =
+    Arc<Mutex<HashMap<RequestTag, std::sync::mpsc::SyncSender<Option<gosub_sandbox::audit::AuditReport>>>>>;
 
 impl std::fmt::Debug for NetProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -190,6 +197,8 @@ impl NetProcess {
         // A plain thread, not a task: it blocks on the link, and must keep
         // draining even when every runtime worker is busy waiting on a reply.
         let waiters = pending.clone();
+        let audit_waiter: AuditWaiter = Arc::new(Mutex::new(HashMap::new()));
+        let audit_reply = Arc::clone(&audit_waiter);
         std::thread::Builder::new()
             .name("net-process-reader".into())
             .spawn(move || {
@@ -197,6 +206,11 @@ impl NetProcess {
                     match msg {
                         FromNet::Pong => {
                             let _ = ready_tx.send(());
+                        }
+                        FromNet::Audit { tag, report } => {
+                            if let Some(waiter) = audit_reply.lock().remove(&tag) {
+                                let _ = waiter.send(report);
+                            }
                         }
                         FromNet::Reply { tag, outcome } => {
                             // A streamed head is followed by its ring fd; take it
@@ -221,6 +235,7 @@ impl NetProcess {
                 // senders wakes every waiter with a disconnect instead of leaving
                 // them to time out one by one.
                 waiters.lock().clear();
+                audit_reply.lock().clear();
             })?;
 
         let net = Self {
@@ -230,6 +245,7 @@ impl NetProcess {
             child: Mutex::new(Some(child)),
             inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
             vault_linked: !extra_fds.is_empty(),
+            audit_waiter,
         };
 
         // Confirm the child really is a network process before returning it as
@@ -260,6 +276,21 @@ impl NetProcess {
     /// Whether the child resolves cookies against the vault itself.
     pub fn vault_linked(&self) -> bool {
         self.vault_linked
+    }
+
+    /// The escape audit, run inside the network process. Blocking.
+    pub fn audit(&self) -> anyhow::Result<Option<gosub_sandbox::audit::AuditReport>> {
+        let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.audit_waiter.lock().insert(tag, tx);
+        if let Err(e) = self.tx.lock().send(&ToNet::Audit { tag }) {
+            self.audit_waiter.lock().remove(&tag);
+            return Err(e.into());
+        }
+        let answer = rx.recv_timeout(Duration::from_secs(30));
+        // Gone either way: answered, timed out, or woken by a closed link.
+        self.audit_waiter.lock().remove(&tag);
+        answer.map_err(|_| anyhow::anyhow!("the network process did not answer the audit"))
     }
 
     /// Hand the child a new line to a respawned vault, over its own link. The

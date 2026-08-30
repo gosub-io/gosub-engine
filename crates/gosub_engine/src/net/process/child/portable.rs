@@ -12,6 +12,10 @@ use std::sync::Arc;
 /// Bodies never stream: the broker asks for them buffered.
 pub(super) const STREAMING: bool = false;
 
+pub(super) fn escape_audit() -> Option<gosub_sandbox::audit::AuditReport> {
+    None
+}
+
 /// Never constructed here; the type exists so the caller has no branch.
 pub(super) enum Streamed {}
 

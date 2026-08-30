@@ -1161,6 +1161,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Whether the current document is one of the engine's own pages.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub(crate) fn is_internal_page(&self) -> bool {
         self.document_url
             .as_ref()

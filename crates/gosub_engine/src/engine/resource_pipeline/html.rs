@@ -543,6 +543,7 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
 
 /// [`resolve_pending_stylesheets`] for a caller with no runtime to await on: a renderer
 /// process, whose every fetch is a blocking round trip to the broker.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub(crate) fn resolve_pending_stylesheets_blocking<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     fetch: &dyn Fn(&str) -> SheetBody,
@@ -736,6 +737,10 @@ mod tests {
                     IoCommand::Decision { .. } | IoCommand::SetTopLevel { .. } => { /* not used here */ }
                     IoCommand::ShutdownZone { reply_tx, .. } => {
                         let _ = reply_tx.send(());
+                    }
+                    #[cfg(feature = "process-isolation")]
+                    IoCommand::AuditNet { reply_tx } => {
+                        let _ = reply_tx.send(None);
                     }
                 }
             }
