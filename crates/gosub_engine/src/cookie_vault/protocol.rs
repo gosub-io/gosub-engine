@@ -86,6 +86,10 @@ pub enum ToVault {
     PurgeExpired {
         zone: String,
     },
+    /// Broker only: run the escape audit in the vault and report it.
+    Audit {
+        tag: Tag,
+    },
     Shutdown,
 }
 
@@ -102,6 +106,10 @@ pub enum FromVault {
     },
     Stored {
         tag: Tag,
+    },
+    Audit {
+        tag: Tag,
+        report: gosub_sandbox::audit::AuditReport,
     },
     Cookies {
         tag: Tag,

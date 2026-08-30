@@ -102,6 +102,12 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
             ToVault::Revoke { ticket } => {
                 grants.lock().remove(&ticket);
             }
+            ToVault::Audit { tag } => {
+                let report = gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Vault, &[]);
+                if broker_tx.lock().send(&FromVault::Audit { tag, report }).is_err() {
+                    break;
+                }
+            }
             msg => {
                 if let Some(reply) = handle(msg, &jars, &broker_tx) {
                     if broker_tx.lock().send(&reply).is_err() {
@@ -281,7 +287,9 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             }
         }),
         ToVault::PurgeExpired { zone } => mutate(jars, snapshots, &zone, |jar| jar.purge_expired()),
-        ToVault::Ping | ToVault::Shutdown | ToVault::Grant { .. } | ToVault::Revoke { .. } => None,
+        ToVault::Ping | ToVault::Shutdown | ToVault::Grant { .. } | ToVault::Revoke { .. } | ToVault::Audit { .. } => {
+            None
+        }
     }
 }
 

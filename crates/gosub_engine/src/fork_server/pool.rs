@@ -274,6 +274,28 @@ impl RendererPool {
         count
     }
 
+    /// The escape audit in the fork server, a renderer forked for it, and
+    /// every resident renderer, labelled.
+    pub fn audit(&self) -> Vec<(String, anyhow::Result<gosub_sandbox::audit::AuditReport>)> {
+        let mut out = Vec::new();
+        {
+            let mut server = self.fork_server.lock();
+            out.push(("fork-server".to_string(), server.audit()));
+            out.push(("forked renderer".to_string(), server.audit_forked_renderer()));
+        }
+        let renderers: Vec<(RendererKey, Arc<Mutex<ResidentRenderer>>)> = self
+            .state
+            .lock()
+            .renderers
+            .iter()
+            .map(|(k, r)| (k.clone(), Arc::clone(r)))
+            .collect();
+        for (key, renderer) in renderers {
+            out.push((format!("renderer {}", key.site), renderer.lock().audit()));
+        }
+        out
+    }
+
     /// Every running renderer and how many tabs it hosts.
     pub fn snapshot(&self) -> Vec<RendererStatus> {
         // The `/proc` reads happen after the lock is released.

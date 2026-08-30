@@ -133,6 +133,11 @@ pub enum IoCommand {
         zone_id: ZoneId,
         reply_tx: oneshot::Sender<()>,
     },
+    /// Run the escape audit in the network process, when there is one.
+    #[cfg(feature = "process-isolation")]
+    AuditNet {
+        reply_tx: oneshot::Sender<Option<gosub_sandbox::audit::AuditReport>>,
+    },
 }
 
 /// Commands that can be sent to a specific tab

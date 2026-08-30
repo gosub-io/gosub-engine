@@ -126,6 +126,11 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     token.cancel();
                 }
             }
+            ToNet::Audit => {
+                if link_tx.lock().send(&FromNet::Audit(platform::escape_audit())).is_err() {
+                    break;
+                }
+            }
             // The vault was respawned: its new line follows on the link.
             ToNet::VaultLine => match platform::adopt_vault_line(&mut link_rx) {
                 Ok(line) => *vault.lock() = Some(line),

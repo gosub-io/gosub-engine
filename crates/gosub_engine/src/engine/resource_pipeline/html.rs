@@ -263,6 +263,10 @@ mod tests {
                     IoCommand::ShutdownZone { reply_tx, .. } => {
                         let _ = reply_tx.send(());
                     }
+                    #[cfg(feature = "process-isolation")]
+                    IoCommand::AuditNet { reply_tx } => {
+                        let _ = reply_tx.send(None);
+                    }
                 }
             }
         });

@@ -46,6 +46,12 @@ pub trait LocalStore: Send + Sync {
     fn service_pid(&self) -> Option<u32> {
         None
     }
+
+    /// The escape audit run inside the serving process, when there is one.
+    #[cfg(feature = "process-isolation")]
+    fn escape_audit(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        None
+    }
 }
 
 /// Store for sessionStorage-like areas (isolated per (zone, tab, partition, origin)).

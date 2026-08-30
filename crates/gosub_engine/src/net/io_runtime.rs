@@ -77,6 +77,14 @@ impl IoHandle {
     pub fn subscribe(&self) -> IoChannel {
         self.tx_submit.clone()
     }
+
+    /// The escape audit in the network process; `None` without one.
+    #[cfg(feature = "process-isolation")]
+    pub async fn audit_net(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        let (tx, rx) = oneshot::channel();
+        self.tx_submit.send(IoCommand::AuditNet { reply_tx: tx }).ok()?;
+        rx.await.ok().flatten()
+    }
 }
 
 pub struct ZoneEntry {
@@ -714,6 +722,20 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                     }
                                     (None, None) => {}
                                 }
+                            });
+                        }
+                        #[cfg(feature = "process-isolation")]
+                        Some(IoCommand::AuditNet { reply_tx }) => {
+                            let net = router.net_process();
+                            spawn_named("io-audit-net", async move {
+                                let report = match net {
+                                    Some(net) => tokio::task::spawn_blocking(move || net.audit().ok().flatten())
+                                        .await
+                                        .ok()
+                                        .flatten(),
+                                    None => None,
+                                };
+                                let _ = reply_tx.send(report);
                             });
                         }
                         Some(IoCommand::Decision { token, action }) => {

@@ -138,6 +138,7 @@ fn main() {
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
+        "escape-audit" => with_font_backend!(escape_audit),
         "storage" => storage(),
         "engine-storage-service" => engine_storage_service(),
         "vault" => vault(),
@@ -3052,6 +3053,187 @@ fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
 
 /// One route of [`serve_routes`]: path → (content type, body, delay before answering).
 type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
+
+/// Not a test - a tool: the whole engine with every isolation setting on,
+/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
+/// in turn, reporting per site what it cost and what it took to render, and
+/// at the end what the renderer processes hold. Exit 1 only if a renderer
+/// crashed or a page could not be rendered out of process.
+/// The escape audit in every process of a running engine: what an attacker
+/// holding each child could still reach, measured from inside it after the
+/// real spawn and lockdown. Exit 1 on any expectation violated or any role
+/// that gave no report.
+fn escape_audit<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::decoder_process::client::ProcessImageDecoder;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{FileLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+        use gosub_sandbox::audit::AuditReport;
+        use parking_lot::Mutex;
+
+        let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
+        let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let dir = std::env::temp_dir().join(format!("gosub-escape-audit-{}", std::process::id()));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("no temp dir: {e}");
+            return 1;
+        }
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let store_dir = dir.clone();
+        let code = runtime.block_on(async move {
+            let dir = store_dir;
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in [
+                "security.network_process",
+                "security.image_decoder_process",
+                "security.renderer_process",
+                "security.cookie_vault",
+                "security.storage_service",
+            ] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let mut events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+
+            let storage = Arc::new(StorageService::new(
+                Arc::new(FileLocalStore::attach(&dir)),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            // A page, so a resident renderer exists and the storage service ran.
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("the page never finished loading");
+                        return 1;
+                    }
+                }
+            }
+            // Touch storage so its service is spawned (it starts lazily).
+            let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map(|u| u.origin());
+            if let Ok(origin) = origin {
+                if let Ok(area) = storage.local_for(zone.id, &gosub_engine::storage::PartitionKey::None, &origin) {
+                    let _ = area.set_item("audit", "1");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            let mut reports: Vec<(String, Option<AuditReport>)> = Vec::new();
+            reports.push(("net".into(), engine.audit_net_process().await));
+            reports.push(("decoder".into(), ProcessImageDecoder.audit().ok().flatten()));
+            reports.push(("vault".into(), engine.cookie_vault().and_then(|v| v.audit())));
+            reports.push(("storage".into(), storage.local_store().escape_audit()));
+            match engine.renderer_pool() {
+                Some(pool) => {
+                    for (label, report) in pool.audit() {
+                        match report {
+                            Ok(report) => reports.push((label, Some(report))),
+                            Err(e) => {
+                                eprintln!("{label}: no report ({e})");
+                                reports.push((label, None));
+                            }
+                        }
+                    }
+                }
+                None => reports.push(("fork-server".into(), None)),
+            }
+
+            let mut failed = false;
+            let mut resident = 0;
+            for (label, report) in &reports {
+                match report {
+                    Some(report) => {
+                        if label.starts_with("renderer ") {
+                            resident += 1;
+                        }
+                        let violations = report.violations().len();
+                        println!("== {label}: {} check(s), {violations} violation(s)", report.items.len());
+                        print!("{}", report.render());
+                        if violations > 0 {
+                            failed = true;
+                        }
+                    }
+                    None => {
+                        println!("== {label}: NO REPORT");
+                        failed = true;
+                    }
+                }
+            }
+            if resident == 0 {
+                println!("no resident renderer was audited");
+                failed = true;
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(failed)
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the escape audit is Linux-only");
+        2
+    }
+}
 
 /// The follow-up question to the warm-up finding: a page can introduce a font at
 /// any moment with `@font-face`, long after the sandbox is in place. Does that

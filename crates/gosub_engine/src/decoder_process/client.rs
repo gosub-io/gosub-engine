@@ -51,6 +51,17 @@ impl ImageDecoder for ProcessImageDecoder {
 enum Answer {
     Raster(RasterImage),
     Dimensions(u32, u32),
+    Audit(Option<gosub_sandbox::audit::AuditReport>),
+}
+
+impl ProcessImageDecoder {
+    /// The escape audit, run in a throwaway decoder process under its lockdown.
+    pub fn audit(&self) -> Result<Option<gosub_sandbox::audit::AuditReport>, DecodeError> {
+        match ask_child(ToDecoder::Audit)? {
+            Answer::Audit(report) => Ok(report),
+            _ => Err(DecodeError::Failed("the decoder answered the wrong question".into())),
+        }
+    }
 }
 
 fn ask_child(request: ToDecoder) -> Result<Answer, DecodeError> {
@@ -126,6 +137,7 @@ fn exchange(channel: gosub_ipc::channel::Channel, request: ToDecoder) -> Result<
 
         match msg {
             FromDecoder::Failed(why) => return Err(DecodeError::Unsupported(why)),
+            FromDecoder::Audit(report) => return Ok(Answer::Audit(report)),
             FromDecoder::Dimensions { width, height } => {
                 if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
                     return Err(DecodeError::Failed(format!(

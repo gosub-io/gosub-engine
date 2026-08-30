@@ -21,6 +21,7 @@ pub fn serve(mut link: Endpoint, dir: PathBuf) -> i32 {
         &[(dir.as_path(), true)],
     );
 
+    let own = vec![dir.clone()];
     let store = FileLocalStore::attach(dir);
     while let Ok(msg) = link.recv::<ToStorage>() {
         let reply = match msg {
@@ -61,6 +62,10 @@ pub fn serve(mut link: Endpoint, dir: PathBuf) -> i32 {
             ToStorage::Len { tag, area } => FromStorage::Len {
                 tag,
                 len: store.area_for(&area.zone, &area.partition, &area.origin).len() as u64,
+            },
+            ToStorage::Audit { tag } => FromStorage::Audit {
+                tag,
+                report: gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Storage, &own),
             },
         };
         if link.send(&reply).is_err() {
