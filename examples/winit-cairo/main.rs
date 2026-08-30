@@ -1,6 +1,6 @@
 //! Minimal browser window: Cairo rasterizer + winit toolkit + softbuffer presentation.
 //!
-//! Usage: cargo run -p example-winit-cairo -- https://example.com
+//! Usage: cargo run --example winit-cairo -- https://example.com
 //!
 //! Cairo/Pango need GTK4 initialised for font rendering (no GTK window is created).
 //! On headless systems set GDK_BACKEND=offscreen.

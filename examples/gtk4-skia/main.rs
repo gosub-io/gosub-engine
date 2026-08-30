@@ -1,6 +1,6 @@
 //! Minimal browser window: Skia (CPU) rasterizer + GTK4 toolkit.
 //!
-//! Usage: cargo run -p example-gtk4-skia -- https://example.com
+//! Usage: cargo run --example gtk4-skia -- https://example.com
 //!
 //! GTK4 is used only for windowing; Skia handles all rasterization and fonts.
 //! No gtk4::init() needed for fonts - unlike the Cairo backend, Skia is self-contained.
