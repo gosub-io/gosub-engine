@@ -61,7 +61,8 @@ fn an_oversized_body_is_refused_without_stalling_the_link() {
 /// Resolving a real hostname inside the sandboxed network process: a
 /// reserved `.invalid` name must fail to resolve without taking the process
 /// down (the NSS `dlopen` and resolver syscalls that `127.0.0.1` never
-/// exercises), and the process must still serve afterwards.
+/// exercises), the strict fetcher must refuse loopback, and the process must
+/// still serve afterwards.
 #[test]
 fn the_network_process_survives_hostname_resolution() {
     let out = run("resolve");

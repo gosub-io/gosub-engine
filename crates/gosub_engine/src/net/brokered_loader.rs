@@ -117,7 +117,8 @@ impl BrokeredLoader {
 
         // The request a page's own fetch would have made: `Referer` (what a
         // hotlink-protected image or a `file:` load is judged by) and the
-        // tab's language preference.
+        // tab's language preference. A subresource on a page's behalf: the
+        // I/O side applies the private-network and opaque-response policies.
         let mut headers = http::HeaderMap::new();
         if let Some(langs) = &self.accept_language {
             if let Ok(value) = langs.parse() {
@@ -127,6 +128,8 @@ impl BrokeredLoader {
         let mut builder = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(RequestId::new())
             .with_headers(headers)
+            .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
+            .with_initiator(gosub_sonar::net::types::Initiator::Application)
             .with_streaming(false)
             .with_auto_decode(true);
         if let Some(doc) = document {
