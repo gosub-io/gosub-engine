@@ -1,0 +1,68 @@
+[package]
+name = "gosub_sandbox"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+description = "Gosub OS-level privilege capping: syscall filters, namespaces and child-process spawning"
+
+[features]
+default = ["multi-process"]
+# Compiles in the confinement machinery for separate processes (syscall filters,
+# namespaces, spawning). Without it only `deny_debugger_attach` remains, which a
+# single-process build still wants: it holds every secret in one address space.
+multi-process = ["gosub_ipc/multi-process"]
+
+# The probe child for tests/sandbox_probes.rs: each probe confines this process
+# and then attempts one forbidden operation, so the verdict is only observable
+# from outside. Needs the confinement machinery it exercises.
+[[bin]]
+name = "sandbox-probe"
+path = "src/bin/sandbox-probe.rs"
+required-features = ["multi-process"]
+
+[dependencies]
+gosub_ipc = { version = "0.1.0", path = "../gosub_ipc", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# seccomp filter compilation is Linux-only.
+[target.'cfg(target_os = "linux")'.dependencies]
+seccompiler = { workspace = true }
+
+# The process mitigation policies, job objects, restricted tokens and
+# AppContainer identities the Windows backend installs.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_System_JobObjects",
+    "Win32_System_SystemServices",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# The workspace forbids unsafe_code; this crate and gosub_ipc are the two
+# exceptions, and the pair is the quarantine: seccomp, Landlock, namespaces,
+# rlimits and CreateProcess are raw syscalls, so the rest of the workspace keeps
+# the forbid. The opt-out is crate-wide rather than per-site because unsafe is
+# this crate's whole substance — auditing means reading the crate, not chasing
+# allow attributes. Each block still carries a SAFETY comment.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

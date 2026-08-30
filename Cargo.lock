@@ -712,6 +712,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3238,6 +3247,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_ipc"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "libc",
+ "serde",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "gosub_jsapi"
 version = "0.1.1"
 dependencies = [
@@ -3343,6 +3362,18 @@ dependencies = [
  "pollster 1.0.1",
  "resvg",
  "vello",
+]
+
+[[package]]
+name = "gosub_sandbox"
+version = "0.1.0"
+dependencies = [
+ "gosub_ipc",
+ "libc",
+ "seccompiler",
+ "serde",
+ "tempfile",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6459,6 +6490,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "seccompiler"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "345a3e4dddf721a478089d4697b83c6c0a8f5bf16086f6c13397e4534eb6e2e5"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "security-framework"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7093,7 +7133,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
