@@ -138,6 +138,7 @@ fn main() {
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
+        "stream" => stream(),
         "engine" => engine(),
         "guard" => guard(),
         other => {
@@ -241,7 +242,7 @@ fn resolve() -> i32 {
 
     // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
     match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
-        FetchOutcome::Ok { status, .. } => {
+        FetchOutcome::Ok { status, .. } | FetchOutcome::Streaming { status, .. } => {
             eprintln!("a .invalid name must not resolve, got status {status}");
             net.shutdown();
             return 1;
@@ -251,7 +252,7 @@ fn resolve() -> i32 {
 
     // 2. The strict fetcher classifies the loopback literal at the hop.
     match fetch(format!("http://127.0.0.1:{port}/"), true) {
-        FetchOutcome::Ok { .. } => {
+        FetchOutcome::Ok { .. } | FetchOutcome::Streaming { .. } => {
             eprintln!("the strict fetcher reached loopback");
             net.shutdown();
             return 1;
@@ -3164,6 +3165,103 @@ fn decode_garbage() -> i32 {
     }
 }
 
+/// A deterministic body larger than the ring window, so a stream wraps the
+/// ring several times and every byte's position is checkable.
+fn streamed_body() -> Vec<u8> {
+    (0..(1024 * 1024 + 12345usize))
+        .map(|i| (i.wrapping_mul(131) ^ (i >> 7)) as u8)
+        .collect()
+}
+
+/// A streamed body through the network process: the head comes back in-band,
+/// the ring fd right behind it, and the bytes arrive through the ring as the
+/// child produces them - the whole body never sits in a message.
+fn stream() -> i32 {
+    use gosub_engine::net::process::client::NetProcess;
+    use gosub_engine::net::process::protocol::FetchOutcome;
+
+    let expected = streamed_body();
+    let Ok((port, server)) = serve_once_bytes(expected.clone(), "application/octet-stream") else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let net = match NetProcess::spawn() {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("could not spawn the network process: {e}");
+            return 1;
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let out = gosub_engine::net::process::client::Outbound {
+        streaming: true,
+        ..gosub_engine::net::process::client::Outbound::get(format!("http://127.0.0.1:{port}/"))
+    };
+    let reply = runtime.block_on(net.fetch(out, &cancel));
+    let result = match reply.outcome {
+        FetchOutcome::Streaming { status, peek, .. } => {
+            let Some(ring) = reply.ring else {
+                eprintln!("streamed head arrived without its ring fd");
+                net.shutdown();
+                return 1;
+            };
+            #[cfg(target_os = "linux")]
+            {
+                let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("could not open the ring: {e}");
+                        net.shutdown();
+                        return 1;
+                    }
+                };
+                let mut body = peek.clone();
+                let mut buf = [0u8; 4096];
+                loop {
+                    match consumer.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => body.extend_from_slice(&buf[..n]),
+                        Err(e) => {
+                            eprintln!("ring read failed: {e}");
+                            net.shutdown();
+                            return 1;
+                        }
+                    }
+                }
+                println!("streamed {} bytes ({} peeked), status {status}", body.len(), peek.len());
+                (status == 200 && body == expected).then_some(()).ok_or_else(|| {
+                    format!(
+                        "body did not survive the ring ({} of {} bytes)",
+                        body.len(),
+                        expected.len()
+                    )
+                })
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (status, peek, ring);
+                let _ = ring;
+                Err("streaming is Linux-only".to_string())
+            }
+        }
+        FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
+        FetchOutcome::Error(e) => Err(format!("fetch failed: {e}")),
+    };
+    net.shutdown();
+    drop(server);
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+
 /// The transport on its own: does a request survive the round trip through a
 /// separate, sandboxed process and come back intact?
 fn direct() -> i32 {
@@ -3212,6 +3310,10 @@ fn direct() -> i32 {
                 return 1;
             }
             0
+        }
+        FetchOutcome::Streaming { .. } => {
+            eprintln!("a buffered request came back streamed");
+            1
         }
         FetchOutcome::Error(e) => {
             eprintln!("fetch through the network process failed: {e}");

@@ -434,7 +434,7 @@
       "key": "network_process",
       "type": "b",
       "default": "b:true",
-      "description": "Run the network stack in a sandboxed child process. Needs the embedder to dispatch child roles; turned off at start when it cannot apply."
+      "description": "Run the network stack in a sandboxed child process. Needs the embedder to dispatch child roles; turned off at start when it cannot apply. Streamed bodies cross the process boundary through a shared-memory ring on Linux, and are buffered on other platforms."
     },
     {
       "key": "image_decoder_process",
