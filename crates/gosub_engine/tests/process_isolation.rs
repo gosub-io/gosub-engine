@@ -45,6 +45,32 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+/// A zone whose local store is a `FileLocalStore` is routed through the
+/// storage process by default.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_zones_file_local_store_is_routed_through_the_storage_service() {
+    let out = run("engine-storage-service");
+    assert!(
+        out.status.success(),
+        "engine storage service scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn local_storage_is_served_by_the_storage_service() {
+    let out = run("storage");
+    assert!(
+        out.status.success(),
+        "storage scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The cookie vault on its own: jar that forwards, HttpOnly split, zone
 /// partitioning, persistence brokered through a real SQLite store.
 #[cfg(target_os = "linux")]

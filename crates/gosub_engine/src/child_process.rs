@@ -132,6 +132,17 @@ fn run_role(role: &str, args: &[String]) -> i32 {
             Ok(endpoint) => crate::cookie_vault::child::serve(endpoint, adopt_extra(role, args)),
             Err(code) => code,
         },
+        #[cfg(target_os = "linux")]
+        crate::storage_service::protocol::STORAGE_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => match args.first().filter(|_| args.len() >= 2) {
+                Some(dir) => crate::storage_service::child::serve(endpoint, std::path::PathBuf::from(dir)),
+                None => {
+                    eprintln!("[gosub] the storage role needs its directory argument");
+                    2
+                }
+            },
+            Err(code) => code,
+        },
         other => {
             eprintln!("[gosub] unknown child role '{other}'");
             2
