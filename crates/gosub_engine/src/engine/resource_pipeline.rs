@@ -9,6 +9,7 @@ use crate::engine::resource_pipeline::image::{ImagePipeline, ImagePipelineImpl};
 use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
+use crate::tab::TabId;
 use crate::zone::ZoneId;
 
 // async_trait expands each method with a bare #[must_use], which nightly clippy
@@ -37,10 +38,17 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub fn new(
+        zone_id: ZoneId,
+        tab_id: TabId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+    ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
                 zone_id,
+                tab_id,
                 io_tx,
                 accept_language,
                 max_document_bytes,

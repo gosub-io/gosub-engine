@@ -3,6 +3,7 @@ use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguratio
 use crate::net::req_ref_tracker::REF_REGISTRY;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
+use crate::tab::TabId;
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
@@ -40,6 +41,9 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
 pub struct HtmlPipelineImpl {
     io_tx: IoChannel,
     zone_id: ZoneId,
+    /// The tab these subresources belong to, so the I/O side can attach its
+    /// cookies. Subresources previously carried none at all.
+    tab_id: TabId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
@@ -47,10 +51,17 @@ pub struct HtmlPipelineImpl {
 }
 
 impl HtmlPipelineImpl {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub fn new(
+        zone_id: ZoneId,
+        tab_id: TabId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+    ) -> Self {
         Self {
             io_tx,
             zone_id,
+            tab_id,
             accept_language,
             max_document_bytes,
         }
@@ -73,6 +84,7 @@ impl HtmlPipelineImpl {
 
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
+        let tab_id = self.tab_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
 
@@ -133,7 +145,7 @@ impl HtmlPipelineImpl {
             }
 
             let join_handle = spawn_named("html-sub-resource", async move {
-                match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
+                match submit_to_io(zone_id, Some(tab_id), sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
@@ -279,6 +291,7 @@ mod tests {
                 match cmd {
                     IoCommand::Fetch {
                         zone_id: _,
+                        tab_id: _,
                         req: _,
                         handle,
                         reply_tx,
@@ -304,7 +317,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -331,7 +344,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");
