@@ -16,10 +16,12 @@ use std::sync::Arc;
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
-    /// The main document has been parsed and is ready, with its source when
-    /// a renderer process will re-parse it.
+    /// The main document has been parsed and is ready. The second field is
+    /// the document's source text, captured when the engine renders
+    /// out-of-process (its renderer re-parses; a DOM cannot cross a fork).
     MainDocument {
-        doc: Arc<EngineDocument<C>>,
+        /// `None` when the renderer process parses instead of this one.
+        doc: Option<Arc<EngineDocument<C>>>,
         source: Option<Arc<str>>,
     },
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
@@ -29,8 +31,6 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
     CssLoaded(DummyStylesheet),
     /// A script has been loaded and executed.
     ScriptExecuted(DummyJsDocument),
-    /// An image has been decoded.
-    ImageDecoded(image::DynamicImage),
     /// A font has been loaded.
     FontLoaded(DummyFont),
 
@@ -68,6 +68,11 @@ fn text_document_html(body: &[u8]) -> String {
     )
 }
 
+/// Beyond these the viewer shows escaped text instead: it is a convenience,
+/// not a reason to hold a large parse tree in the broker.
+const JSON_VIEWER_MAX_BYTES: usize = 8 * 1024 * 1024;
+const JSON_VIEWER_MAX_DEPTH: usize = 64;
+
 // JSON viewer palette (GitHub-light-ish).
 const JSON_KEY_COLOR: &str = "#6f42c1";
 const JSON_STR_COLOR: &str = "#22863a";
@@ -91,6 +96,11 @@ fn json_lines(v: &serde_json::Value, depth: usize, key: Option<&str>, trail: &st
     let prefix = key
         .map(|k| format!("<span style=\"color:{JSON_KEY_COLOR}\">\"{}\"</span>: ", html_escape(k)))
         .unwrap_or_default();
+    // Past this the subtree is shown compact: the recursion runs on a task stack.
+    if depth > JSON_VIEWER_MAX_DEPTH && !v.is_null() && (v.is_object() || v.is_array()) {
+        out.push((depth, format!("{prefix}{}{trail}", html_escape(&v.to_string()))));
+        return;
+    }
     match v {
         serde_json::Value::Object(map) if map.is_empty() => out.push((depth, format!("{prefix}{{}}{trail}"))),
         serde_json::Value::Array(arr) if arr.is_empty() => out.push((depth, format!("{prefix}[]{trail}"))),
@@ -137,14 +147,13 @@ fn json_document_html(value: &serde_json::Value) -> String {
     )
 }
 
-/// BodyContent represents either a streaming body or a fully buffered body.
 enum BodyContent {
     Stream { shared: Arc<SharedBody> },
     Buffered { body: Bytes },
 }
 
 impl BodyContent {
-    // Convert to bytes, collecting the stream if necessary. Will take the peek buffer into account (if needed)
+    // Collect into bytes; a streamed body is re-joined with its peek buffer.
     #[allow(clippy::wrong_self_convention)]
     async fn to_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
         match self {
@@ -166,7 +175,6 @@ pub async fn route_response_for<C: RenderConfiguration>(
     policy: &UaPolicy,
     hooks: &mut ResourcePipelines<C>,
 ) -> anyhow::Result<RoutedOutcome<C>> {
-    // Fetch the metadata, peek buffer and content (type)
     let (meta, body_content, peek_buf) = match fetch_result {
         FetchResult::Stream { meta, peek_buf, shared } => (meta, BodyContent::Stream { shared }, peek_buf),
         FetchResult::Buffered { meta, body } => {
@@ -179,7 +187,6 @@ pub async fn route_response_for<C: RenderConfiguration>(
         }
     };
 
-    // Decide what we need to do with the response
     let outcome = decide_handling(&meta, dest, peek_buf.clone(), policy);
 
     match (dest, outcome.decision, body_content) {
@@ -195,7 +202,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 };
                 let (doc, source) = parsed.into_parts();
                 Ok(RoutedOutcome::MainDocument {
-                    doc: Arc::new(doc),
+                    doc: doc.map(Arc::new),
                     source,
                 })
             }
@@ -214,7 +221,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 let body = body_content.to_bytes(peek_buf).await?;
                 // JSON gets the highlighted viewer; anything unparseable (and
                 // text/plain) falls back to escaped plain text.
-                let html = if outcome.class == ResponseClass::Json {
+                let html = if outcome.class == ResponseClass::Json && body.len() <= JSON_VIEWER_MAX_BYTES {
                     match serde_json::from_slice::<serde_json::Value>(&body) {
                         Ok(value) => json_document_html(&value),
                         Err(_) => text_document_html(&body),
@@ -224,13 +231,15 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 };
                 let mut meta = meta;
                 meta.content_type = Some("text/html; charset=utf-8".into());
+                // The synthesized viewer page is a document like any other: its
+                // source travels along so a renderer process can re-parse it too.
                 let (doc, source) = hooks
                     .html
                     .parse_bytes(request, handle, meta, html.as_bytes())
                     .await?
                     .into_parts();
                 return Ok(RoutedOutcome::MainDocument {
-                    doc: Arc::new(doc),
+                    doc: doc.map(Arc::new),
                     source,
                 });
             }
@@ -254,12 +263,10 @@ pub async fn route_response_for<C: RenderConfiguration>(
             };
             Ok(RoutedOutcome::ScriptExecuted(script))
         }
-        (RequestDestination::Image, HandlingDecision::Render(RenderTarget::ImageDecoder), body_content) => {
-            let image = match body_content {
-                BodyContent::Stream { shared } => hooks.images.parse_stream(meta, peek_buf, shared).await?,
-                BodyContent::Buffered { body } => hooks.images.parse_bytes(meta, body.as_ref()).await?,
-            };
-            Ok(RoutedOutcome::ImageDecoded(image))
+        // Images are decoded where they are painted (a renderer, or the media
+        // store through the decoder process), never by this router.
+        (RequestDestination::Image, HandlingDecision::Render(RenderTarget::ImageDecoder), _) => {
+            Err(anyhow::anyhow!("images are not decoded by the resource router"))
         }
         (RequestDestination::Font, HandlingDecision::Render(RenderTarget::FontLoader), body_content) => {
             let font = match body_content {

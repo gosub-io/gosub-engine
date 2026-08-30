@@ -5,7 +5,6 @@
 use crate::engine::resource_pipeline::css::{CssPipeline, CssPipelineImpl};
 use crate::engine::resource_pipeline::font::{FontPipeline, FontPipelineImpl};
 use crate::engine::resource_pipeline::html::{HtmlPipeline, HtmlPipelineImpl};
-use crate::engine::resource_pipeline::image::{ImagePipeline, ImagePipelineImpl};
 use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
@@ -21,8 +20,6 @@ pub mod font;
 #[allow(clippy::double_must_use)]
 pub mod html;
 #[allow(clippy::double_must_use)]
-pub mod image;
-#[allow(clippy::double_must_use)]
 pub mod js;
 
 /// Resource pipeline entry points used by the router for each resource type.
@@ -30,7 +27,6 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     pub html: Box<dyn HtmlPipeline<C> + Send>,
     pub css: Box<dyn CssPipeline + Send>,
     pub js: Box<dyn JsPipeline + Send>,
-    pub images: Box<dyn ImagePipeline + Send>,
     pub fonts: Box<dyn FontPipeline + Send>,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
@@ -42,22 +38,18 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         zone_id: ZoneId,
         tab_id: TabId,
         io_tx: IoChannel,
-        accept_language: Option<String>,
         max_document_bytes: usize,
         capture_source: bool,
     ) -> Self {
+        // A renderer process that will re-parse the document is also the only
+        // process that should parse it: keep just the source here.
         Self {
-            html: Box::new(HtmlPipelineImpl::new(
-                zone_id,
-                tab_id,
-                io_tx,
-                accept_language,
-                max_document_bytes,
-                capture_source,
-            )),
+            html: Box::new(
+                HtmlPipelineImpl::new(zone_id, tab_id, io_tx, max_document_bytes, capture_source)
+                    .source_only(capture_source),
+            ),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),
-            images: Box::new(ImagePipelineImpl {}),
             fonts: Box::new(FontPipelineImpl {}),
         }
     }

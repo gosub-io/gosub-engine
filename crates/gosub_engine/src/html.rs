@@ -1,9 +1,10 @@
 //! HTML parsing entry points and the render-side configuration traits.
 mod parser;
+pub use parser::read_document_source;
 pub(crate) mod web_fonts;
 
 pub use parser::parse_main_document_stream;
-pub use parser::{DocumentError, HtmlParseConfig, ResourceHint};
+pub use parser::{DocumentError, HtmlParseConfig};
 
 use gosub_css3::system::Css3System;
 use gosub_fontmanager::ParleyFontSystem;
@@ -198,7 +199,6 @@ fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) 
             continue;
         }
 
-        // Collect text from title's children
         let mut text = String::new();
         for &t in doc.children(child) {
             if doc.node_type(t) != NodeType::TextNode {
