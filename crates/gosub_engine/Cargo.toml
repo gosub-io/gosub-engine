@@ -34,6 +34,8 @@ http = { workspace = true }
 url = { workspace = true }
 percent-encoding = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+gosub_ipc = { version = "0.1.0", path = "../gosub_ipc", optional = true }
+gosub_sandbox = { version = "0.1.0", path = "../gosub_sandbox", optional = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 tracing = { workspace = true }
@@ -63,10 +65,15 @@ allsorts = "0.17"
 tempfile = { workspace = true }
 
 [features]
-default = ["sqlite_cookie_store"]
+default = ["sqlite_cookie_store", "process-isolation"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
+# Compiles in the ability to run engine components as separate, sandboxed
+# processes. Off leaves the engine single-process, which is what wasm and any
+# platform without process isolation need. Compiling it in does not enable
+# anything: each process has its own `security.*` setting.
+process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 
 [lints]
 workspace = true
