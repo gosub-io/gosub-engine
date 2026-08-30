@@ -108,6 +108,7 @@ pub fn is_child_process() -> bool {
     std::env::args().any(|a| a == ROLE_FLAG)
 }
 
+#[cfg(feature = "process-isolation")]
 fn run_role(role: &str, args: &[String]) -> i32 {
     use crate::net::process::client::NET_ROLE;
 
@@ -150,8 +151,18 @@ fn run_role(role: &str, args: &[String]) -> i32 {
     }
 }
 
+#[cfg(not(feature = "process-isolation"))]
+fn run_role(role: &str, _args: &[String]) -> i32 {
+    // Reachable only if a broker built *with* isolation spawned a child built
+    // without it, which cannot happen through re-exec of one binary. Refuse
+    // loudly rather than silently continuing into the embedder's `main`.
+    eprintln!("[gosub] child role '{role}' requested, but this build has no process isolation");
+    2
+}
+
 /// The second inherited channel, when the spawner named one before the
 /// primary link. Failing to adopt it is reported and treated as absent.
+#[cfg(feature = "process-isolation")]
 fn adopt_extra(role: &str, args: &[String]) -> Option<gosub_ipc::Endpoint> {
     if args.len() < 2 {
         return None;
@@ -166,6 +177,7 @@ fn adopt_extra(role: &str, args: &[String]) -> Option<gosub_ipc::Endpoint> {
 }
 
 /// Take over the link this child inherited, or report why it could not.
+#[cfg(feature = "process-isolation")]
 fn adopt_link(role: &str, args: &[String]) -> Result<gosub_ipc::Endpoint, i32> {
     // `spawn` appends the primary link last; anything before it is a further
     // inherited channel the role knows what to do with.
