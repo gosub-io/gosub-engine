@@ -18,9 +18,10 @@ pub struct Outbound {
     pub method: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
-    /// Serve through the strict fetcher: a subresource of a public document
-    /// may not reach the private network (see `net::ssrf`).
+    /// Serve through the strict fetcher (see `net::ssrf`).
     pub refuse_private: bool,
+    /// Deliver the body through a ring as it arrives, where the link can carry one.
+    pub streaming: bool,
 }
 
 impl Outbound {
@@ -32,22 +33,45 @@ impl Outbound {
             headers: Vec::new(),
             body: None,
             refuse_private: false,
+            streaming: false,
         }
     }
 }
 
-/// A reply as the broker sees it: the wire outcome.
+/// The ring's descriptor, where one can exist; nothing where it cannot.
+#[cfg(target_os = "linux")]
+type RingFd = std::os::fd::OwnedFd;
+#[cfg(not(target_os = "linux"))]
+type RingFd = std::convert::Infallible;
+
+/// A reply as the broker sees it: the wire outcome plus, for a streamed body,
+/// the ring fd that followed it on the link.
 #[derive(Debug)]
 pub struct NetReply {
     pub outcome: FetchOutcome,
+    pub ring: Option<RingFd>,
 }
 
 impl NetReply {
     fn error(msg: impl Into<String>) -> Self {
         Self {
             outcome: FetchOutcome::Error(msg.into()),
+            ring: None,
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
+    rx.recv_fd()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no fd passing on this platform",
+    ))
 }
 
 /// The argv role name the broker re-execs itself with.
@@ -104,6 +128,7 @@ impl NetProcess {
 
         let exe = std::env::current_exe()?;
         let (ours, theirs) = gosub_ipc::channel::Channel::pair()?;
+
         let args: [&str; 2] = [crate::child_process::ROLE_FLAG, NET_ROLE];
 
         let child = gosub_sandbox::spawn::spawn(
@@ -123,6 +148,7 @@ impl NetProcess {
                 file_size_limit: None,
             },
         )?;
+
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {
             log::warn!("could not apply parent-side confinement to the network process: {e}");
         }
@@ -148,8 +174,20 @@ impl NetProcess {
                             let _ = ready_tx.send(());
                         }
                         FromNet::Reply { tag, outcome } => {
+                            // A streamed head is followed by its ring fd; take it
+                            // now, before the next message, whoever is waiting.
+                            let reply = match outcome {
+                                FetchOutcome::Streaming { .. } => match recv_ring(&mut rx) {
+                                    Ok(ring) => NetReply {
+                                        outcome,
+                                        ring: Some(ring),
+                                    },
+                                    Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
+                                },
+                                outcome => NetReply { outcome, ring: None },
+                            };
                             if let Some(waiter) = waiters.lock().remove(&tag) {
-                                let _ = waiter.send(NetReply { outcome });
+                                let _ = waiter.send(reply);
                             }
                         }
                     }
@@ -203,6 +241,7 @@ impl NetProcess {
             headers,
             body,
             refuse_private,
+            streaming,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -224,6 +263,7 @@ impl NetProcess {
             headers,
             body,
             refuse_private,
+            streaming,
         });
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -268,7 +308,7 @@ impl NetProcess {
     /// the child's word; only the broker following redirects itself could fix that.
     fn plausible_reply(reply: NetReply, requested: &str) -> NetReply {
         let final_url = match &reply.outcome {
-            FetchOutcome::Ok { final_url, .. } => final_url,
+            FetchOutcome::Ok { final_url, .. } | FetchOutcome::Streaming { final_url, .. } => final_url,
             FetchOutcome::Error(_) => return reply,
         };
         let Ok(parsed) = url::Url::parse(final_url) else {
@@ -334,7 +374,19 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
             final_url,
             headers,
             body,
-        } => (status, status_text, final_url, headers, body),
+        } => (status, status_text, final_url, headers, Body::Whole(body)),
+        FetchOutcome::Streaming {
+            status,
+            status_text,
+            final_url,
+            headers,
+            peek,
+        } => {
+            let Some(ring) = reply.ring else {
+                return Err(net_error("streamed reply without its ring"));
+            };
+            (status, status_text, final_url, headers, Body::Ring { peek, ring })
+        }
         FetchOutcome::Error(e) => return Err(net_error(e)),
     };
 
@@ -369,10 +421,88 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         has_body,
         tainting: gosub_sonar::ResponseTainting::Basic,
     };
-    Ok(crate::net::types::FetchResult::Buffered {
-        meta: meta(!body.is_empty()),
-        body: bytes::Bytes::from(body),
+    Ok(match body {
+        Body::Whole(body) => crate::net::types::FetchResult::Buffered {
+            meta: meta(!body.is_empty()),
+            body: bytes::Bytes::from(body),
+        },
+        Body::Ring { peek, ring } => crate::net::types::FetchResult::Stream {
+            meta: meta(true),
+            peek_buf: gosub_sonar::types::PeekBuf::from_vec(peek),
+            shared: drain_ring(ring),
+        },
     })
+}
+
+/// A reply's body as it came off the wire.
+enum Body {
+    Whole(Vec<u8>),
+    /// The head arrived; the body streams through this ring.
+    Ring {
+        peek: Vec<u8>,
+        ring: RingFd,
+    },
+}
+
+/// Per-subscriber queue for a ring-fed body, in chunks: the same order of
+/// magnitude gosub-sonar uses for its own streamed responses.
+const RING_BODY_QUEUE: usize = 64;
+
+/// Feed a [`SharedBody`] from a ring on a thread of its own: the ring's reads
+/// block (bounded by its stall timeout), so this is not runtime work. The
+/// body ends when the producer finishes; a producer that aborts or stalls
+/// ends it with an error.
+///
+/// [`SharedBody`]: gosub_sonar::net::shared_body::SharedBody
+fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
+    use gosub_sonar::net::shared_body::SharedBody;
+    let shared = Arc::new(SharedBody::new(RING_BODY_QUEUE));
+    let sink = Arc::clone(&shared);
+    let spawned = std::thread::Builder::new()
+        .name("net-ring-consumer".into())
+        .spawn(move || {
+            #[cfg(target_os = "linux")]
+            {
+                let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        sink.error(net_error(format!("body stream could not be opened: {e}")));
+                        return;
+                    }
+                };
+                let mut buf = vec![0u8; 64 * 1024];
+                let mut total: u64 = 0;
+                loop {
+                    match consumer.read(&mut buf) {
+                        Ok(0) => {
+                            sink.finish();
+                            return;
+                        }
+                        Ok(n) => {
+                            total += n as u64;
+                            if total > gosub_ipc::ring::MAX_BODY_LEN {
+                                sink.error(net_error("body stream exceeded the size cap"));
+                                return;
+                            }
+                            sink.push(bytes::Bytes::copy_from_slice(&buf[..n]));
+                        }
+                        Err(e) => {
+                            sink.error(net_error(format!("body stream failed: {e}")));
+                            return;
+                        }
+                    }
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = ring;
+                sink.error(net_error("body streams are not carried on this platform"));
+            }
+        });
+    if spawned.is_err() {
+        shared.error(net_error("could not start the body stream consumer"));
+    }
+    shared
 }
 
 /// A failure that came from (or about) the network process, as the engine's own

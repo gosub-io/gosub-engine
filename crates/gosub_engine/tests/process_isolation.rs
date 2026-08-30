@@ -45,6 +45,20 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+/// A streamed body crosses the network-process boundary through a
+/// shared-memory ring: head in-band, ring fd right behind it, bytes intact.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_body_streams_through_the_network_process() {
+    let out = run("stream");
+    assert!(
+        out.status.success(),
+        "streaming scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// Resolving a real hostname inside the sandboxed network process: a
 /// reserved `.invalid` name must fail to resolve without taking the process
 /// down (the NSS `dlopen` and resolver syscalls that `127.0.0.1` never

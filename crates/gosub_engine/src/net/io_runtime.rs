@@ -301,6 +301,7 @@ fn dispatch_to_net_process(
 
     let url = req.url.to_string();
     let method = req.method.as_str().to_string();
+    let streaming = req.streaming;
     // No in-process fetcher emits the terminal event that would drop this.
     let req_id = req.req_id;
     let mut headers: Vec<(String, String)> = req
@@ -340,6 +341,7 @@ fn dispatch_to_net_process(
             headers,
             body,
             refuse_private,
+            streaming,
         };
         let reply = net.fetch(out, &cancel).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
