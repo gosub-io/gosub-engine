@@ -1,6 +1,6 @@
 //! Browser window: Skia CPU rasterizer + GTK4 GLArea (GPU compositing).
 //!
-//! Usage: cargo run -p example-gtk4-skia-gpu -- https://example.com
+//! Usage: cargo run --example gtk4-skia-gpu -- https://example.com
 //!
 //! Architecture:
 //!   1. `SkiaBackend` rasterizes pages into CPU tile buffers (BGRA premul).

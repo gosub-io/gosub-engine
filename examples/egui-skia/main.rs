@@ -1,6 +1,6 @@
 //! Minimal browser window: Skia (CPU) rasterizer + egui toolkit.
 //!
-//! Usage: cargo run -p example-egui-skia -- https://example.com
+//! Usage: cargo run --example egui-skia -- https://example.com
 //!
 //! No GTK dependency - Skia has its own font system.
 
