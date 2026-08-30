@@ -405,19 +405,24 @@ mod tests {
         let second_request = Arc::new(Mutex::new(String::new()));
         let captured = second_request.clone();
 
+        // Serves every connection: besides the two navigations the tab may fetch its
+        // icon, and which connection comes second is not fixed. The request for
+        // `/second` is the one the test is about, wherever it lands.
         tokio::spawn(async move {
-            for i in 0..2 {
+            loop {
                 let Ok((mut stream, _)) = listener.accept().await else {
                     return;
                 };
                 let mut buf = vec![0u8; 4096];
                 let n = stream.read(&mut buf).await.unwrap_or(0);
-                if i == 1 {
-                    *captured.lock() = String::from_utf8_lossy(&buf[..n]).to_string();
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let first = request.starts_with("GET /first ");
+                if request.starts_with("GET /second ") {
+                    *captured.lock() = request;
                 }
 
                 let body = b"<html><title>hi</title></html>";
-                let set_cookie = if i == 0 {
+                let set_cookie = if first {
                     "Set-Cookie: sid=abc123; Path=/\r\n"
                 } else {
                     ""
@@ -432,7 +437,7 @@ mod tests {
         });
 
         let mut engine = engine_with_max_zones(1);
-        let _event_rx = engine.subscribe_events();
+        let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
 
         let mut zone = engine.create_zone(None, services(), None).expect("zone");
@@ -444,8 +449,20 @@ mod tests {
             .await
             .expect("first navigation");
         // The store happens on the I/O side after the response arrives, so the
-        // second navigation must not start until the first has been answered.
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // second navigation must not start until the first has been answered. The
+        // cookie is stored before the reply is forwarded, so a finished navigation
+        // is one whose cookie is already in the jar.
+        assert!(
+            wait_for(&mut events, |e| matches!(
+                e,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            ))
+            .await,
+            "the first navigation never finished"
+        );
 
         tab.navigate(format!("http://127.0.0.1:{port}/second"))
             .await

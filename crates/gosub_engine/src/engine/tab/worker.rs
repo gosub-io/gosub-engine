@@ -1447,10 +1447,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
 
         // This tab is now loading `url`, so requests it makes are attributed to
-        // that document. Set before submitting, so the navigation request itself
-        // is already attributed. Cookies are attached I/O-side from here on — see
-        // `net::tab_identity`.
-        self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+        // that document. Announced before submitting, so the navigation request
+        // itself is already attributed. Cookies are attached I/O-side from here on -
+        // see `net::tab_identity`.
+        self.announce_top_level(&url);
 
         let mut fetch_headers = HeaderMap::new();
         if let Some(langs) = &self.services.accept_language {
@@ -1667,6 +1667,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// deciding what the commit does to session history. Shared by `LoadHtml` (always a push)
     /// and `gosub://` internal pages (push, reload or traversal like any navigation). The
     /// caller has already reset scroll and cancelled the previous navigation.
+    /// Tell the I/O side which document this tab's requests now belong to. Queued
+    /// behind the fetches already submitted, so those keep the document they were
+    /// made for; set directly only when the I/O side is gone and nothing is queued.
+    fn announce_top_level(&self, url: &Url) {
+        let announced = self.zone_context.io_tx.send(IoCommand::SetTopLevel {
+            tab_id: self.tab_id,
+            url: url.clone(),
+        });
+        if announced.is_err() {
+            self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+        }
+    }
+
     fn load_html_document(&mut self, html: String, url: Url, history: HistoryIntent) {
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
@@ -1690,6 +1703,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.first_paint_marked = false;
 
         let parent_cancel = CancellationToken::new();
+        // Its subresources are this document's, not whatever the tab showed before:
+        // the same announcement a network navigation makes.
+        self.announce_top_level(&url);
+
         self.active_nav = Some(ActiveNav {
             nav_id,
             cancel: parent_cancel.clone(),

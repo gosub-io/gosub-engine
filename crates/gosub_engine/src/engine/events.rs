@@ -127,6 +127,12 @@ pub enum IoCommand {
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
+    /// The tab now shows `url`: requests it makes from here on belong to that
+    /// document. Sent through the same queue as the tab's fetches, so a request
+    /// queued before a navigation keeps the old document's cookie context and one
+    /// queued after it gets the new one - the registry is only ever read in that
+    /// order (see `net::tab_identity`).
+    SetTopLevel { tab_id: TabId, url: url::Url },
     /// Return a decision on a pending request. Tokens are process-wide unique,
     /// so no zone id is needed to route them.
     Decision { token: DecisionToken, action: Action },

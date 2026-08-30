@@ -263,7 +263,17 @@ fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteCo
     match top_level {
         // A request with no document behind it is the document load itself.
         None => SameSiteContext::SameSite,
-        Some(top) if top.host_str() == url.host_str() && top.scheme() == url.scheme() => SameSiteContext::SameSite,
+        // Same scheme and the same registrable domain (eTLD+1): `www.example.com`
+        // loading from `api.example.com` is same-site, as the jar judges it too.
+        Some(top)
+            if top.scheme() == url.scheme()
+                && match (top.host_str(), url.host_str()) {
+                    (Some(a), Some(b)) => crate::engine::cookies::same_site(a, b),
+                    (a, b) => a == b,
+                } =>
+        {
+            SameSiteContext::SameSite
+        }
         Some(_) => SameSiteContext::CrossSite,
     }
 }
@@ -378,6 +388,9 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
+                        }
+                        Some(IoCommand::SetTopLevel { tab_id, url }) => {
+                            router.tab_identities().set_top_level(tab_id, url);
                         }
                         Some(IoCommand::Decision { token, action }) => {
                             // Decisions are engine-owned (gosub-sonar has no decision hub);
@@ -496,6 +509,22 @@ mod tests {
             );
             assert_eq!(
                 same_site_context(Some(&page), &Url::parse("https://other.test/api").unwrap()),
+                SameSiteContext::CrossSite
+            );
+            // Subdomains of one registrable domain are one site; a public suffix
+            // is not a site.
+            assert_eq!(
+                same_site_context(
+                    Some(&Url::parse("https://www.example.com/").unwrap()),
+                    &Url::parse("https://api.example.com/login").unwrap()
+                ),
+                SameSiteContext::SameSite
+            );
+            assert_eq!(
+                same_site_context(
+                    Some(&Url::parse("https://alice.github.io/").unwrap()),
+                    &Url::parse("https://bob.github.io/").unwrap()
+                ),
                 SameSiteContext::CrossSite
             );
             // A scheme change is a site change: an http:// load must not receive

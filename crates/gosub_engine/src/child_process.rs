@@ -77,6 +77,8 @@ pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
 
 /// Roles that need `C` (a renderer) dispatch here; every other role behaves
 /// exactly as under [`dispatch`].
+// No role needs `C` yet: the renderer roles that do arrive with the fork server.
+#[allow(clippy::extra_unused_type_parameters)]
 fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String]) -> i32 {
     run_role(role, args)
 }
