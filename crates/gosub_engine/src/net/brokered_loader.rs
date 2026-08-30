@@ -39,8 +39,8 @@ pub struct BrokeredLoader {
     /// stylesheets and fonts would keep downloading.
     cancel: CancellationToken,
     /// The runtime this loader relays replies on, captured at construction.
-    /// Loads are issued from plain threads too, where `Handle::try_current`
-    /// finds nothing to spawn on.
+    /// Loads are issued from plain threads too (the remote media cache's fetch
+    /// threads), where `Handle::try_current` finds nothing to spawn on.
     runtime: Option<tokio::runtime::Handle>,
     /// The document the loads are made for ([`ResourceLoader::set_document`]):
     /// its `Referer`, and whether `file:` neighbours may be loaded. Shared,
@@ -134,9 +134,10 @@ impl BrokeredLoader {
         }
         let req = builder.build();
 
+        let cancel = self.cancel.child_token();
         let handle = FetchHandle {
             req_id: req.req_id,
-            cancel: self.cancel.child_token(),
+            cancel: cancel.clone(),
         };
 
         // A std channel, not a tokio one: the receiver blocks a plain thread and
@@ -172,8 +173,24 @@ impl BrokeredLoader {
             })
             .map_err(|_| LoadError::Failed("the I/O runtime has shut down".into()))?;
 
-        reply_rx.recv_timeout(BROKER_REPLY_TIMEOUT).map_err(|_| {
+        // The blocking wait must not hold this worker's scheduler core: the
+        // send above has just woken the I/O task into this worker's LIFO slot,
+        // which no other worker can steal - blocking here directly would trap
+        // the very task that produces the reply until the timeout expires.
+        // `block_in_place` hands the core (and that slot) to another thread
+        // for the duration. Outside a multi-thread runtime worker there is no
+        // core to hand over, and a plain blocking wait is correct.
+        let wait = || reply_rx.recv_timeout(BROKER_REPLY_TIMEOUT);
+        let result = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(wait)
+            }
+            _ => wait(),
+        };
+        result.map_err(|_| {
             log::warn!("brokered load of {url} produced no reply within {BROKER_REPLY_TIMEOUT:?}");
+            // Nobody is waiting anymore: free the in-flight slot and the child's work.
+            cancel.cancel();
             LoadError::TimedOut
         })
     }

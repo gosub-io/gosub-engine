@@ -11,6 +11,12 @@ pub mod child;
 pub mod client;
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod loader;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod pool;
 pub mod protocol;
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod renderer;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod resident;
+#[cfg(feature = "process-isolation")]
+pub mod site;

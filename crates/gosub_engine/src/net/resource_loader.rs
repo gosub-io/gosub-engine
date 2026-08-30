@@ -15,7 +15,7 @@
 //!
 //! [`BrokeredLoader`]: crate::net::brokered_loader::BrokeredLoader
 
-use gosub_render_pipeline::common::media::MediaSource;
+use gosub_render_pipeline::common::media::{Acquired, MediaSource};
 use gosub_shared::subresource::Scope;
 use std::fmt;
 use std::sync::Arc;
@@ -49,6 +49,10 @@ pub enum LoadError {
     /// because it usually means the broker is starved rather than the resource
     /// being unavailable.
     TimedOut,
+    /// The resource is being fetched but is not here yet; ask again later.
+    /// A loader that answers this never blocks on the network, and the
+    /// caller must not treat it as a failure (in particular, not cache it).
+    Pending,
 }
 
 impl fmt::Display for LoadError {
@@ -57,6 +61,7 @@ impl fmt::Display for LoadError {
             LoadError::UnsupportedUrl(url) => write!(f, "unsupported url: {url}"),
             LoadError::Failed(why) => write!(f, "load failed: {why}"),
             LoadError::TimedOut => write!(f, "load timed out"),
+            LoadError::Pending => write!(f, "load pending"),
         }
     }
 }
@@ -127,15 +132,27 @@ impl LoaderMediaSource {
 }
 
 impl MediaSource for LoaderMediaSource {
-    fn acquire(&self, url: &str) -> Option<Scope> {
+    fn acquire(&self, url: &str) -> Acquired {
+        let loaded = Url::parse(url)
+            .map_err(|e| LoadError::UnsupportedUrl(format!("{url}: {e}")))
+            .and_then(|parsed| self.loader.load(&parsed));
         // Always answered, one way or the other, so the store's `take` never waits out its
         // timeout on an entry nobody is going to fill.
-        match self.loader.fetch(url) {
-            Some((content_type, bytes)) => {
-                gosub_shared::subresource::complete(RENDERER_SCOPE, url, content_type, bytes)
+        match loaded {
+            Ok(resource) if resource.is_ok() && !resource.body.is_empty() => {
+                gosub_shared::subresource::complete(RENDERER_SCOPE, url, resource.content_type, resource.body.to_vec())
             }
-            None => gosub_shared::subresource::abandon(RENDERER_SCOPE, url),
+            // A deferred loader's "not yet": the broker fetches it and renders again.
+            Err(LoadError::Pending) => return Acquired::Later,
+            Ok(resource) => {
+                log::warn!("{url} returned status {}", resource.status);
+                gosub_shared::subresource::abandon(RENDERER_SCOPE, url);
+            }
+            Err(e) => {
+                log::warn!("could not load {url}: {e}");
+                gosub_shared::subresource::abandon(RENDERER_SCOPE, url);
+            }
         }
-        Some(RENDERER_SCOPE)
+        Acquired::Under(RENDERER_SCOPE)
     }
 }
