@@ -57,16 +57,23 @@ fn deliver(
     }
 }
 
-/// What the pipeline made of a document body: the parsed document, with its
-/// source when a renderer process may re-parse it.
-pub struct ParsedDocument<C: RenderConfiguration> {
-    pub doc: Box<EngineDocument<C>>,
-    pub source: Option<Arc<str>>,
+/// What the pipeline made of a document body.
+pub enum ParsedDocument<C: RenderConfiguration> {
+    /// Parsed here, with its source when a renderer process may re-parse it.
+    Parsed {
+        doc: Box<EngineDocument<C>>,
+        source: Option<Arc<str>>,
+    },
+    /// Not parsed here: the renderer process parses. Only the source is kept.
+    SourceOnly { source: Arc<str> },
 }
 
 impl<C: RenderConfiguration> ParsedDocument<C> {
-    pub fn into_parts(self) -> (EngineDocument<C>, Option<Arc<str>>) {
-        (*self.doc, self.source)
+    pub fn into_parts(self) -> (Option<EngineDocument<C>>, Option<Arc<str>>) {
+        match self {
+            Self::Parsed { doc, source } => (Some(*doc), source),
+            Self::SourceOnly { source } => (None, Some(source)),
+        }
     }
 }
 
@@ -106,9 +113,18 @@ pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
     capture_source: bool,
+    /// Keep only the source: the renderer process parses, this process never
+    /// runs the HTML parser on page content.
+    source_only: bool,
 }
 
 impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
+    /// Skip parsing here and keep the source for a renderer process.
+    pub fn source_only(mut self, on: bool) -> Self {
+        self.source_only = on;
+        self
+    }
+
     pub fn new(
         zone_id: ZoneId,
         tab_id: TabId,
@@ -126,6 +142,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             max_document_bytes,
             font_system,
             capture_source,
+            source_only: false,
         }
     }
 
@@ -139,6 +156,21 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
+        // A renderer process parses this page, so this process never does: no DOM, no
+        // prefetch, no stylesheets or fonts - the renderer asks for each of those itself.
+        if self.source_only {
+            let source = crate::html::read_document_source(
+                &meta.final_url,
+                reader,
+                handle.cancel.clone(),
+                self.max_document_bytes,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to read HTML document: {:?}", e))?;
+            handle.cancel.cancel();
+            return Ok(ParsedDocument::SourceOnly { source });
+        }
+
         // The main document's request is referenced by the navigation that started it, so its
         // timings can be attributed, and its subresources keyed, without threading a scope
         // through the fetch stack. Anything referenced some other way carries no navigation:
@@ -365,7 +397,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             }
         }
 
-        res.map(|(doc, source)| ParsedDocument {
+        res.map(|(doc, source)| ParsedDocument::Parsed {
             doc: Box::new(doc),
             source,
         })
@@ -736,6 +768,7 @@ mod tests {
             .await
             .expect("parse_bytes should succeed")
             .into_parts();
+        let doc = doc.expect("parsed in-process");
 
         // Allow spawned tasks to submit to IO and be recorded
         sleep(Duration::from_millis(10)).await;
