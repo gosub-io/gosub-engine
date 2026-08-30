@@ -20,6 +20,13 @@ fn run(scenario: &str) -> std::process::Output {
         .expect("spawn isolation-harness")
 }
 
+fn run_with_backend(scenario: &str, backend: &str) -> std::process::Output {
+    Command::new(harness())
+        .args([scenario, backend])
+        .output()
+        .expect("spawn isolation-harness")
+}
+
 /// The boundary itself: a request crosses into a separate, sandboxed process and
 /// the response comes back byte-for-byte.
 ///
@@ -73,6 +80,128 @@ fn a_malformed_image_is_refused_rather_than_decoded() {
     assert!(
         out.status.success(),
         "malformed image handling failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A renderer process must be able to lay out text, and this pins the one
+/// arrangement under which it can.
+///
+/// A renderer denies `openat` - that is most of what makes it a renderer - but
+/// font stacks read font files lazily, on first use of a family. Measurement
+/// showed the laziness is per family, not per shape: a family resolved and
+/// shaped before the sandbox is applied goes on shaping new text at new sizes
+/// afterwards, while one first touched under the sandbox dies on `SIGSYS`.
+#[test]
+fn a_warmed_font_system_can_shape_under_the_renderer_lockdown() {
+    let out = run("fonts-under-lockdown");
+
+    // Exit 2 means the host has no fonts to test with, which is a skip rather
+    // than a failure: the property is about the sandbox, not the machine.
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "a warmed font system should still shape once confined:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A font that arrives *after* the sandbox is applied still works, as long as it
+/// arrives as bytes.
+#[test]
+fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
+    let out = run("webfont-under-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font once confined should work:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The same confinement property, for the *other* always-compiled font system -
+/// because the engine is generic over font systems, the property is per
+/// implementation, not per engine.
+///
+/// cosmic-text loads face data lazily per (face, weight), and shaping consults
+/// fallback faces a family-by-family warm-up never touches; the trait's default
+/// `prepare_for_confinement` measurably left it dying on `openat` under the
+/// sandbox. This pins its override, which loads every face in the database.
+#[test]
+fn cosmic_text_can_shape_under_the_renderer_lockdown() {
+    let out = run_with_backend("fonts-under-lockdown", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "a prepared cosmic-text font system should still shape once confined:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Web fonts after lockdown, for cosmic-text - the sequence a renderer actually
+/// runs is prepare, confine, then let content register fonts, and for
+/// cosmic-text the preparation is load-bearing even for a font that arrives as
+/// bytes, because shaping it still consults fallback faces.
+#[test]
+fn a_web_font_can_be_registered_with_cosmic_text_under_the_renderer_lockdown() {
+    let out = run_with_backend("webfont-under-lockdown", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font once confined should work with cosmic-text:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The middle sandbox tier: a renderer allowed to *read font paths and nothing
+/// else* (plus one private writable scratch), for font systems that consult
+/// the filesystem while shaping and so can never satisfy full confinement.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_font_system_can_shape_under_the_font_readable_lockdown() {
+    let out = run("fonts-under-font-readable-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "shaping under the font-readable renderer profile failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Web fonts under the middle tier, including the writable-scratch arrangement
+/// some backends need (Pango stages a web font as a file; fontconfig's
+/// app-font API takes a path, not memory).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_web_font_can_be_registered_under_the_font_readable_lockdown() {
+    let out = run("webfont-under-font-readable-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font under the font-readable renderer profile failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }

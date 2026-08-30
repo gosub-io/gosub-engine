@@ -1,6 +1,7 @@
 //! Drives the network process end to end, from a binary that dispatches child
 //! roles the way a real embedder does.
 
+use gosub_interface::font_system::{Confinement, FontSystem};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -9,21 +10,65 @@ const BODY: &str = "<html><head><title>through the net process</title></head>\
 <body style=\"margin:0\"><a href=\"https://example.test/target\" \
 style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
-/// The harness's render configuration: null backend and compositor, nothing
-/// composites here.
-#[derive(Clone, Debug, PartialEq)]
-struct TileConfig;
+/// The harness's render configuration: null backend and compositor (nothing
+/// composites here), the scenario-selected font system.
+struct TileConfig<F>(std::marker::PhantomData<F>);
 
-impl gosub_interface::config::ModuleConfiguration for TileConfig {
+impl<F> Clone for TileConfig<F> {
+    fn clone(&self) -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+impl<F> std::fmt::Debug for TileConfig<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TileConfig")
+    }
+}
+impl<F> PartialEq for TileConfig<F> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<F: FontSystem + Default> gosub_interface::config::ModuleConfiguration for TileConfig<F> {
     type CssSystem = gosub_css3::system::Css3System;
     type Document = gosub_html5::document::document_impl::DocumentImpl<Self>;
     type HtmlParser = gosub_html5::parser::Html5Parser<'static, Self>;
 }
 
-impl gosub_engine::html::RenderConfiguration for TileConfig {
+impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileConfig<F> {
     type RenderBackend = gosub_render_pipeline::render::backends::null::NullBackend;
     type CompositorSink = gosub_render_pipeline::render::DefaultCompositor;
-    type FontSystem = gosub_fontmanager::ParleyFontSystem;
+    type FontSystem = F;
+}
+
+/// Run a font scenario against the font system named by argv[2].
+macro_rules! with_font_backend {
+    ($scenario:ident) => {{
+        let backend = std::env::args().nth(2).unwrap_or_else(|| "parley".into());
+        // Spawned children (the fork server) inherit this, which is how a
+        // re-exec - where type parameters cannot travel - ends up dispatching
+        // with the same font system the scenario is testing. A production
+        // embedder has no such indirection: it names its one font system in
+        // `dispatch_with` directly.
+        std::env::set_var("GOSUB_HARNESS_FONT_BACKEND", &backend);
+        match backend.as_str() {
+            "parley" => $scenario::<gosub_fontmanager::ParleyFontSystem>(),
+            "cosmic" => $scenario::<gosub_fontmanager::CosmicFontSystem>(),
+            #[cfg(feature = "pango-fonts")]
+            "pango" => $scenario::<gosub_fontmanager::PangoFontSystem>(),
+            #[cfg(feature = "skia-fonts")]
+            "skia" => $scenario::<gosub_fontmanager::SkiaFontSystem>(),
+            other => {
+                eprintln!(
+                    "font backend {other:?} is not compiled into this harness; \
+                     'parley' and 'cosmic' are always available, 'pango' and 'skia' \
+                     need the engine features 'pango-fonts' / 'skia-fonts'"
+                );
+                2
+            }
+        }
+    }};
 }
 
 fn main() {
@@ -31,7 +76,18 @@ fn main() {
     // this runs the role and exits, so nothing below executes there. Skipping it
     // is the mistake the `guard` scenario reproduces.
     if std::env::var_os("GOSUB_HARNESS_SKIP_DISPATCH").is_none() {
-        gosub_engine::child_process::dispatch_with::<TileConfig>();
+        match std::env::var("GOSUB_HARNESS_FONT_BACKEND").as_deref() {
+            Ok("cosmic") => {
+                gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::CosmicFontSystem>>()
+            }
+            #[cfg(feature = "pango-fonts")]
+            Ok("pango") => {
+                gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::PangoFontSystem>>()
+            }
+            #[cfg(feature = "skia-fonts")]
+            Ok("skia") => gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::SkiaFontSystem>>(),
+            _ => gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::ParleyFontSystem>>(),
+        }
     }
 
     let scenario = std::env::args().nth(1).unwrap_or_default();
@@ -41,10 +97,14 @@ fn main() {
         "decode" => decode(),
         "decode-garbage" => decode_garbage(),
         "decode-many" => decode_many(),
+        "fonts-under-lockdown" => with_font_backend!(fonts_under_lockdown),
+        "webfont-under-lockdown" => with_font_backend!(webfont_under_lockdown),
+        "fonts-under-font-readable-lockdown" => with_font_backend!(fonts_under_font_readable_lockdown),
+        "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
         "engine" => engine(),
         "guard" => guard(),
         other => {
-            eprintln!("unknown scenario {other:?}; expected 'direct', 'resolve', 'engine', 'guard' or 'decode[-garbage|-many]'");
+            eprintln!("unknown scenario {other:?}; see the match above for the scenario names");
             2
         }
     };
@@ -224,6 +284,258 @@ fn decode() -> i32 {
 
 /// A small SVG with a `<text>` element, so decoding it consults the fontdb.
 const SAMPLE_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><rect width="18" height="18" fill="#f60"/><text x="4" y="13" font-family="serif" font-size="10">Y</text></svg>"##;
+
+/// The open question for a renderer process: can text be laid out by a process
+/// confined the way a renderer must be?
+fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::TextStyle;
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+
+    // Warm-up. `families()` is documented to populate lazily-built databases, and
+    // resolving plus shaping forces the actual file reads that follow.
+    let families = fonts.families();
+    println!("warm-up: {} families visible before lockdown", families.len());
+    if families.is_empty() {
+        eprintln!("no font families found; this host cannot answer the question");
+        return 2;
+    }
+    // Exercise the trait hook rather than hand-rolled warm-up: this is what a
+    // renderer will call, and it is the configured font system's own answer to
+    // "get ready to be confined". Timed and measured, because the cost of that
+    // answer is part of whether the strategy is usable. This scenario tests the
+    // *full* lockdown, so any answer below `Full` ends it here - the tiered
+    // scenarios cover the rest.
+    let rss_before_mib = rss_mib();
+    let start = std::time::Instant::now();
+    match fonts.prepare_for_confinement() {
+        Confinement::Full => {}
+        other => {
+            eprintln!("this font system does not support full confinement: {other:?}");
+            return 3;
+        }
+    }
+    println!(
+        "prepare_for_confinement over {} families: {:?}, RSS {} -> {} MiB",
+        families.len(),
+        start.elapsed(),
+        rss_before_mib,
+        rss_mib()
+    );
+
+    gosub_sandbox::lock_down_renderer();
+
+    // Text and a size never used above, so any per-face lazy load still pending
+    // has to happen now - after the sandbox is in place.
+    let cold_style = TextStyle::new("serif", 31.0);
+    let (cold_w, cold_h) = fonts.measure("Text shaped only after the sandbox applied", &cold_style);
+    if cold_w <= 0.0 || cold_h <= 0.0 {
+        eprintln!("shaping under lockdown produced an empty box ({cold_w}x{cold_h})");
+        return 1;
+    }
+    println!("shaped {cold_w:.1}x{cold_h:.1} under the renderer lockdown");
+
+    // A real page runs hundreds of layouts before it first needs some face.
+    // Parley prunes its source cache every layout (entries idle for 128
+    // layouts go), so a warm-up that merely *loaded* every face is undone by
+    // the time a long page reaches a face it has not used yet - and the
+    // reload is a file read. Churn past that window, then ask for a face
+    // nothing above has touched.
+    let churn_style = TextStyle::new("sans-serif", 13.0);
+    for i in 0..300 {
+        let _ = fonts.measure(&format!("layout {i}"), &churn_style);
+    }
+    let mut late_style = TextStyle::new("serif", 27.0);
+    late_style.weight = gosub_interface::font_system::FontWeight(700);
+    late_style.style = gosub_interface::font::FontStyle::Italic;
+    let (late_w, late_h) = fonts.measure("Bold italic serif, first used after 300 layouts", &late_style);
+    if late_w <= 0.0 || late_h <= 0.0 {
+        eprintln!("shaping a late face under lockdown produced an empty box ({late_w}x{late_h})");
+        return 1;
+    }
+    println!("shaped a never-before-used face after 300 layouts under lockdown ({late_w:.1}x{late_h:.1})");
+    0
+}
+
+/// The middle tier: can a font system that *cannot* be confined outright
+/// (fontconfig consults the filesystem while shaping) run in a renderer that is
+/// allowed to read font paths and nothing else?
+fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::TextStyle;
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+
+    let families = fonts.families();
+    println!("{} families visible before lockdown", families.len());
+    if families.is_empty() {
+        eprintln!("no font families found; this host cannot answer the question");
+        return 2;
+    }
+
+    // A runtime guard rather than a cfg'd block, so the code below it is not
+    // flagged unreachable on the platforms this returns on.
+    if cfg!(not(target_os = "linux")) {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let paths = gosub_sandbox::font_filesystem_paths();
+        if paths.is_empty() {
+            eprintln!("no font paths exist on this host; the profile would test nothing");
+            return 2;
+        }
+        println!(
+            "font paths granted read-only: {}",
+            paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
+        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+    }
+
+    // Never shaped, never warmed: the match runs cold, under the profile.
+    let cold_style = TextStyle::new("serif", 31.0);
+    let (cold_w, cold_h) = fonts.measure("Text shaped only after the sandbox applied", &cold_style);
+    if cold_w <= 0.0 || cold_h <= 0.0 {
+        eprintln!("shaping under the font-readable lockdown produced an empty box ({cold_w}x{cold_h})");
+        return 1;
+    }
+    println!("shaped {cold_w:.1}x{cold_h:.1} under the font-readable renderer lockdown");
+    0
+}
+
+/// Web fonts under the middle tier - the follow-up that decides whether the
+/// tier is actually usable, because `@font-face` is everywhere.
+fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::{FontQuery, TextStyle};
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+    let _ = fonts.families();
+
+    let Ok(resolved) = fonts.resolve(&FontQuery::new(&["sans-serif"])) else {
+        eprintln!("no resolvable font on this host to use as sample bytes");
+        return 2;
+    };
+    let downloaded: Vec<u8> = resolved.blob.data.as_ref().as_ref().to_vec();
+    if downloaded.is_empty() {
+        eprintln!("resolved font carried no bytes; the control is broken");
+        return 2;
+    }
+    println!("holding {} bytes of font data before lockdown", downloaded.len());
+
+    if cfg!(not(target_os = "linux")) {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let scratch = std::env::temp_dir().join(format!("gosub-webfont-scratch-{}", std::process::id()));
+        if std::fs::create_dir_all(&scratch).is_err() {
+            eprintln!("could not create the scratch directory; cannot set the tier up");
+            return 2;
+        }
+        // Backends that stage fonts as files use the standard temp dir; point
+        // it inside the ruleset so the write is scoped, not just allowed.
+        std::env::set_var("TMPDIR", &scratch);
+
+        let paths = gosub_sandbox::font_filesystem_paths();
+        let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
+        refs.push((scratch.as_path(), true));
+        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+    }
+
+    if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {
+        eprintln!("registering a web font under the font-readable lockdown failed: {e:?}");
+        return 1;
+    }
+    let (w, h) = fonts.measure(
+        "Web font registered after the sandbox applied",
+        &TextStyle::new(resolved.family.clone(), 24.0),
+    );
+    if w <= 0.0 || h <= 0.0 {
+        eprintln!("shaping with the registered font produced an empty box ({w}x{h})");
+        return 1;
+    }
+    println!("registered and shaped {w:.1}x{h:.1} under the font-readable renderer lockdown");
+    0
+}
+
+/// The follow-up question to the warm-up finding: a page can introduce a font at
+/// any moment with `@font-face`, long after the sandbox is in place. Does that
+/// need a file, and therefore a process that can open one?
+fn webfont_under_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::{FontQuery, TextStyle};
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+    let _ = fonts.families();
+
+    // Stand in for a downloaded font: bytes in hand, nothing else.
+    let Ok(resolved) = fonts.resolve(&FontQuery::new(&["sans-serif"])) else {
+        eprintln!("no resolvable font on this host to use as sample bytes");
+        return 2;
+    };
+    let downloaded: Vec<u8> = resolved.blob.data.as_ref().as_ref().to_vec();
+    if downloaded.is_empty() {
+        eprintln!("resolved font carried no bytes; the control is broken");
+        return 2;
+    }
+    println!("holding {} bytes of font data before lockdown", downloaded.len());
+
+    // The renderer's documented sequence: prepare, confine, and only then let
+    // content introduce fonts. Skipping the preparation here would test a
+    // sequence no renderer runs - and shaping a web font still consults
+    // fallback faces, which some backends (cosmic-text) load lazily per face.
+    // Full lockdown only: backends answering a weaker tier are covered by the
+    // font-readable scenarios.
+    match fonts.prepare_for_confinement() {
+        Confinement::Full => {}
+        other => {
+            eprintln!("this font system does not support full confinement: {other:?}");
+            return 3;
+        }
+    }
+
+    gosub_sandbox::lock_down_renderer();
+
+    // Everything from here is what a renderer would do on encountering
+    // `@font-face` mid-page.
+    if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {
+        eprintln!("registering a web font under lockdown failed: {e:?}");
+        return 1;
+    }
+    let (w, h) = fonts.measure(
+        "Web font registered after the sandbox applied",
+        &TextStyle::new(resolved.family.clone(), 24.0),
+    );
+    if w <= 0.0 || h <= 0.0 {
+        eprintln!("shaping with the registered font produced an empty box ({w}x{h})");
+        return 1;
+    }
+    println!("registered and shaped {w:.1}x{h:.1} under the renderer lockdown");
+    0
+}
+
+/// Resident set size in MiB, from `/proc/self/statm` (pages), so the cost of a
+/// strategy is a number rather than an impression. 0 where unavailable.
+fn rss_mib() -> u64 {
+    let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
+        return 0;
+    };
+    let pages: u64 = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    pages * 4096 / (1024 * 1024)
+}
 
 /// Decode the sample image repeatedly and report the wall-clock cost per image,
 /// so the price of a process per decode is a measured number rather than a
