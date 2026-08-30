@@ -77,6 +77,13 @@ pub trait CssSystem: Clone + Debug + 'static {
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 
+    /// The extra user-agent rules for a document in quirks mode (HTML spec, Rendering:
+    /// tables do not inherit font and alignment there). Attached after the default sheet;
+    /// `None` when this system has no quirks rules.
+    fn load_quirks_useragent_stylesheet() -> Option<Self::Stylesheet> {
+        None
+    }
+
     /// Scan `sheets` and collect the [`HoverFingerprints`] - the element types/classes/ids that
     /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
     /// can affect styling without re-running selector matching.

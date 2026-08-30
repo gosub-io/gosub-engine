@@ -149,6 +149,20 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
 }
 
+/// The rules the HTML spec adds for documents in quirks mode; attached after the default sheet.
+#[must_use]
+pub fn load_quirks_useragent_stylesheet() -> CssStylesheet {
+    let config = ParserConfig {
+        ignore_errors: true,
+        match_values: true,
+        ..Default::default()
+    };
+    let css_data = include_str!("../resources/useragent-quirks.css");
+    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by the parser tests
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, "gosub:useragent-quirks.css")
+        .expect("Could not parse quirks useragent stylesheet")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

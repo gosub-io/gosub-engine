@@ -6,7 +6,7 @@ use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
-use crate::{load_default_useragent_stylesheet, Css3};
+use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
@@ -94,6 +94,10 @@ impl CssSystem for Css3System {
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
+    }
+
+    fn load_quirks_useragent_stylesheet() -> Option<Self::Stylesheet> {
+        Some(load_quirks_useragent_stylesheet())
     }
 
     fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints {
