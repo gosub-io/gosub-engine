@@ -88,6 +88,8 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 fn main() {
+    // First, before any thread: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<AppConfig>();
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()

@@ -21,8 +21,13 @@ use gosub_engine::{
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use std::sync::Arc;
 
-#[tokio::main]
-async fn main() -> Result<(), EngineError> {
+fn main() -> Result<(), EngineError> {
+    // First, before the runtime spawns its threads: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<DefaultRenderConfig>();
+    tokio::runtime::Runtime::new().expect("tokio runtime").block_on(run())
+}
+
+async fn run() -> Result<(), EngineError> {
     let url = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".into());
 
     // ── Step 1: Create the engine ────────────────────────────────────────────────

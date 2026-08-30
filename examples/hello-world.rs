@@ -49,8 +49,13 @@ fn short(id: &impl std::fmt::Display) -> String {
     s.chars().take(8).collect()
 }
 
-#[tokio::main]
-async fn main() -> Result<(), EngineError> {
+fn main() -> Result<(), EngineError> {
+    // First, before the runtime spawns its threads: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<DefaultRenderConfig>();
+    tokio::runtime::Runtime::new().expect("tokio runtime").block_on(run())
+}
+
+async fn run() -> Result<(), EngineError> {
     init_tracing();
 
     // Configure the engine through the engine config builder. This will set up the main runtime
