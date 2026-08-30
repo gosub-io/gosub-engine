@@ -131,10 +131,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check (isolation enabled)
         if: matrix.isolation == 'enabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }}
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }}
       - name: Check (isolation disabled)
         if: matrix.isolation == 'disabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }} --no-default-features
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }} --no-default-features --features gosub_engine/sqlite_cookie_store
 
   # The platforms whose sandbox backend can be *run*, not only type-checked:
   # the Seatbelt (macOS) and mitigation-policy (Windows) probes in
@@ -157,7 +157,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@nextest
       - name: Test
-        run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox --no-fail-fast
+        run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --no-fail-fast
 
   fmt:
     runs-on: ubuntu-24.04

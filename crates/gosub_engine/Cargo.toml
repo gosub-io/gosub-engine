@@ -79,20 +79,21 @@ default = ["sqlite_cookie_store", "process-isolation"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
-# Compiles in the ability to run engine components as separate, sandboxed
-# processes. Off leaves the engine single-process, which is what wasm and any
-# platform without process isolation need. Compiling it in does not enable
-# anything: each process has its own `security.*` setting.
+# Compiles in the ability to run the network stack as a separate, sandboxed
+# process. Off leaves the engine single-process, which is what wasm and any
+# platform without process isolation need; the fetch path is otherwise identical.
+# Compiling it in does not enable it — see the `security.network_process` setting.
 process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 # Compile the feature-gated font systems into the isolation harness, so its
-# font scenarios can be pointed at every backend the engine supports - the
+# font scenarios can be pointed at every backend the engine supports — the
 # confinement contract has to hold per font stack, not just for the default.
 # Diagnostic only; nothing in the engine itself selects these.
 pango-fonts = ["gosub_fontmanager/pango"]
 skia-fonts = ["gosub_fontmanager/skia"]
-# Stage-6 rasterization in forked renderers: the Cairo CPU rasterizer, minus
-# its GTK/Pango default features. Diagnostic in the harness; an embedder may
-# also supply its own rasterizer through `RenderConfiguration::forked_tile_rasterizer`.
+# Stage-6 rasterization in the isolation harness's forked renderers: the Cairo
+# CPU rasterizer, minus its GTK/Pango default features. Diagnostic, like the
+# font features — a real embedder supplies its own rasterizer through
+# `RenderConfiguration::forked_tile_rasterizer`.
 cairo-tiles = ["dep:gosub_renderer_cairo"]
 # Same, with Skia's CPU rasterizer (`cairo-tiles` wins when both are on).
 skia-tiles = ["dep:gosub_renderer_skia"]
