@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples
 
 all: help
 
@@ -85,3 +85,83 @@ help: ## Display available commands
 	echo "Available make commands:"
 	echo
 	grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	echo
+	printf 'To run an example: \033[36mmake examples\033[0m lists them all with a ready-to-paste command.\n'
+
+# ---------------------------------------------------------------------------
+# Examples
+#
+# One table drives both the menu and the run-% rule. Columns: name, group,
+# description. Adding a row here is all a new example needs; anything found on
+# disk but missing from the table still shows up under "Undocumented".
+# ---------------------------------------------------------------------------
+define EXAMPLES_TABLE
+hello-world     engine  Single tab navigating a URL, streaming every engine event to stdout
+tutorial        engine  Minimal Engine -> Zone -> Tab -> Navigate lifecycle (see docs/tutorial.md)
+multi-tab       engine  25 tabs navigating at once, with live per-tab progress bars
+multi-process   engine  Browser-shaped embedder running the engine with process isolation
+html5-parser    engine  Parse an HTML document with gosub_html5 directly and print the DOM
+pipeline-test   engine  End-to-end smoke test against a tiny local HTTP server
+config-store    engine  View and modify the configuration store (list, search, set, ...)
+metrics-cli     engine  Timing stats from a running engine (--watch, --json, --reset)
+winit-vello     gui     winit window, Vello/wgpu GPU rendering
+winit-skia      gui     winit window, Skia CPU rendering
+winit-skia-gpu  gui     winit window, Skia GPU (OpenGL) rendering
+winit-cairo     gui     winit window, Cairo CPU rendering
+gtk4-cairo      gui     GTK4 window, Cairo CPU rendering (Pango text)
+gtk4-skia       gui     GTK4 window, Skia CPU rendering
+gtk4-skia-gpu   gui     GTK4 window, Skia GPU (OpenGL/GLArea) rendering
+egui-vello      gui     egui window, Vello/wgpu GPU rendering
+egui-skia       gui     egui window, Skia CPU rendering
+egui-cairo      gui     egui window, Cairo CPU rendering
+mini-browser    gui     Every process-isolation setting on; Ctrl+P prints the process tree
+endef
+export EXAMPLES_TABLE
+
+# Every example target that actually exists: [[example]] names in the root
+# Cargo.toml, plus one package per examples/<name>/ directory.
+define discover_examples
+{ awk '/^\[\[example\]\]/{g=1;next} g&&/^name/{if(match($$0,/"[^"]+"/))print substr($$0,RSTART+1,RLENGTH-2);g=0}' Cargo.toml; \
+  find examples -mindepth 2 -maxdepth 2 -name Cargo.toml -printf '%h\n' 2>/dev/null | xargs -r -n1 basename; } | sort -u
+endef
+
+examples: ## List the runnable examples and how to start each one
+	found=$$($(discover_examples)) ;\
+	list() { echo "$$EXAMPLES_TABLE" | awk -v found="$$found" -v grp="$$1" \
+		'BEGIN{n=split(found,a,"\n");for(i=1;i<=n;i++)have[a[i]]=1} \
+		 $$2==grp && have[$$1] {n2=$$1;$$1="";$$2="";sub(/^ +/,""); \
+		 printf "  \033[36mmake run-%-16s\033[0m %s\n",n2,$$0}' ; } ;\
+	printf '\033[1mEngine examples\033[0m  (headless, no GUI or extra system packages)\n\n' ;\
+	list engine ;\
+	printf '\n\033[1mGUI examples\033[0m  (open a window; need GTK4/Cairo/Skia system libs)\n\n' ;\
+	list gui ;\
+	known=$$(echo "$$EXAMPLES_TABLE" | awk 'NF{print $$1}' | sort -u) ;\
+	extra=$$(comm -13 <(echo "$$known") <(echo "$$found")) ;\
+	if [ -n "$$extra" ]; then \
+		printf '\n\033[1mUndocumented\033[0m  (found on disk, missing from the Makefile table)\n\n' ;\
+		echo "$$extra" | sed 's/^/  \x1b[36mmake run-/;s/$$/\x1b[0m/' ;\
+	fi ;\
+	printf '\n\033[1mUsage\033[0m\n\n' ;\
+	printf '  make run-<name>                             run it\n' ;\
+	printf '  make run-winit-vello URL=https://gosub.io   pass a URL\n' ;\
+	printf '  make run-config-store ARGS="list"           pass arbitrary arguments\n' ;\
+	printf '  make run-winit-vello RELEASE=1              build optimised (recommended for GUI)\n\n'
+
+# CARGO is overridable so the dispatch can be exercised without a real build.
+CARGO ?= cargo
+
+# RELEASE=1 -> --release; URL/ARGS are forwarded to the example itself.
+run-%:
+	name='$*' ;\
+	relflag='' ; [ -n "$(RELEASE)" ] && relflag='--release' ;\
+	if [ -f "examples/$$name/Cargo.toml" ]; then \
+		set -- $(CARGO) run $$relflag -p "example-$$name" -- $(URL) $(ARGS) ;\
+	elif $(discover_examples) | grep -qx "$$name"; then \
+		set -- $(CARGO) run $$relflag --example "$$name" -- $(URL) $(ARGS) ;\
+	else \
+		printf '\033[31mUnknown example: %s\033[0m\n\n' "$$name" >&2 ;\
+		$(MAKE) --no-print-directory examples >&2 ;\
+		exit 1 ;\
+	fi ;\
+	printf '\033[90m$$ %s\033[0m\n' "$$*" ;\
+	exec "$$@"
