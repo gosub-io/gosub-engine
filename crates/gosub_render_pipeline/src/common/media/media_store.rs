@@ -4,7 +4,7 @@ use crate::common::media::{
 };
 use bytes::Bytes;
 use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
-use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
+use gosub_interface::resource_loader::{LoadError, NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -53,6 +53,29 @@ pub struct MediaStore {
     /// Where raster decoding happens. `None` decodes in this process, which is
     /// the default; the engine installs one to move it out.
     decoder: Option<Arc<dyn ImageDecoder>>,
+    /// The bytes each raster image was decoded from, so its pixels can be let
+    /// go of under [`decoded_budget`](Self::set_decoded_budget) and decoded
+    /// again when next drawn - what bounds a page of photographs.
+    encoded: RwLock<HashMap<MediaId, EncodedSource>>,
+    /// Most recent use per media id, for choosing what to let go of.
+    recent: parking_lot::Mutex<Recency>,
+    /// Decoded raster bytes to keep resident; 0 (the default) keeps everything.
+    decoded_budget: AtomicU64,
+}
+
+/// What a raster image can be decoded from again.
+struct EncodedSource {
+    src: String,
+    mime: Option<String>,
+    bytes: Bytes,
+    /// Its size for layout, so asking is never a reason to decode.
+    intrinsic: (u32, u32),
+}
+
+#[derive(Default)]
+struct Recency {
+    tick: u64,
+    last_used: HashMap<MediaId, u64>,
 }
 
 impl Default for MediaStore {
@@ -121,6 +144,9 @@ impl MediaStore {
             decoders,
             loader,
             decoder,
+            encoded: RwLock::new(HashMap::new()),
+            recent: parking_lot::Mutex::new(Recency::default()),
+            decoded_budget: AtomicU64::new(0),
         }
     }
 
@@ -179,6 +205,112 @@ impl MediaStore {
         MediaRequest::Pending
     }
 
+    /// Decoded bytes held for loaded media (RGBA for images; an estimate for SVG trees).
+    pub fn resident_bytes(&self) -> usize {
+        self.entries
+            .read()
+            .values()
+            .map(|media| match &**media {
+                Media::Image(image) => image.image.as_raw().len(),
+                Media::Svg(_) => 64 * 1024,
+            })
+            .sum()
+    }
+
+    /// Bound the decoded raster pixels kept resident. Above it, the least
+    /// recently used images give up their pixels (their encoded bytes stay)
+    /// and are decoded again on their next use. A long-lived process with a
+    /// fixed memory limit needs this; `0` keeps everything.
+    pub fn set_decoded_budget(&self, bytes: u64) {
+        self.decoded_budget.store(bytes, Ordering::Relaxed);
+    }
+
+    fn touch(&self, media_id: MediaId) {
+        let mut recent = self.recent.lock();
+        recent.tick += 1;
+        let tick = recent.tick;
+        recent.last_used.insert(media_id, tick);
+    }
+
+    /// Let go of least recently used decoded images until the resident total
+    /// fits the budget; `keep` (just decoded, about to be used) survives.
+    fn enforce_decoded_budget(&self, keep: MediaId) {
+        let budget = self.decoded_budget.load(Ordering::Relaxed);
+        if budget == 0 {
+            return;
+        }
+        let encoded = self.encoded.read();
+        let mut entries = self.entries.write();
+        let mut resident: u64 = entries
+            .iter()
+            .filter(|(id, _)| encoded.contains_key(id))
+            .map(|(_, media)| match &**media {
+                Media::Image(image) => image.image.as_raw().len() as u64,
+                Media::Svg(_) => 0,
+            })
+            .sum();
+        if resident <= budget {
+            return;
+        }
+        let mut recent = self.recent.lock();
+        let mut candidates: Vec<(u64, MediaId)> = entries
+            .keys()
+            .filter(|id| **id != keep && encoded.contains_key(id))
+            .map(|id| (recent.last_used.get(id).copied().unwrap_or(0), *id))
+            .collect();
+        candidates.sort_unstable_by_key(|(tick, id)| (*tick, id.as_u64()));
+        for (_, id) in candidates {
+            if resident <= budget {
+                break;
+            }
+            if let Some(media) = entries.remove(&id) {
+                if let Media::Image(image) = &*media {
+                    resident = resident.saturating_sub(image.image.as_raw().len() as u64);
+                }
+            }
+            recent.last_used.remove(&id);
+        }
+    }
+
+    /// Decode an image whose pixels were let go of, from the bytes kept for it.
+    fn revive(&self, media_id: MediaId) -> Option<Arc<Media>> {
+        let (src, mime, bytes) = {
+            let encoded = self.encoded.read();
+            let source = encoded.get(&media_id)?;
+            (source.src.clone(), source.mime.clone(), source.bytes.clone())
+        };
+        let media = match self.decode_media(&src, mime.as_deref(), &bytes) {
+            Ok(media) => Arc::new(media),
+            Err(e) => {
+                log::warn!("could not decode '{src}' again: {e}");
+                return None;
+            }
+        };
+        self.entries.write().insert(media_id, Arc::clone(&media));
+        self.touch(media_id);
+        self.enforce_decoded_budget(media_id);
+        Some(media)
+    }
+
+    /// Drop every loaded media once more than `budget_bytes` is held, keeping the
+    /// compiled-in placeholders. All-or-nothing on purpose: a long-lived process
+    /// (a resident renderer) calls this between pages, when nothing it holds is
+    /// known to be needed again and re-fetching what is comes from the broker's
+    /// cache anyway. Returns how many bytes were released.
+    pub fn trim(&self, budget_bytes: usize) -> usize {
+        let held = self.resident_bytes();
+        if held <= budget_bytes {
+            return 0;
+        }
+        let mut entries = self.entries.write();
+        let mut cache = self.cache.write();
+        entries.retain(|id, _| *id == DEFAULT_SVG_ID || *id == DEFAULT_IMAGE_ID);
+        cache.clear();
+        self.encoded.write().clear();
+        *self.recent.lock() = Recency::default();
+        held
+    }
+
     /// Returns and clears the "background fetch completed" flag; `true` means the engine should
     /// re-lay-out the page to pick up the new media.
     pub fn take_completed(&self) -> bool {
@@ -225,6 +357,9 @@ impl MediaStore {
 
         let media_id = match result {
             Ok(media_id) => media_id,
+            // Not here yet, not a failure: nothing is cached, and the loader's
+            // owner re-renders once the bytes arrive.
+            Err(e) if is_pending(&e) => return Err(e),
             Err(e) => {
                 log::warn!("Failed to load media from '{}': {}", src, e);
                 // Cache the failure as the default image placeholder so the same URL is
@@ -295,16 +430,62 @@ impl MediaStore {
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
         log::debug!("Loading non-cached media from path: {}", src);
         // `data:` URIs carry the bytes inline - decode them directly instead of going to the network.
-        let media = if let Some(rest) = src.strip_prefix("data:") {
+        let (mime, bytes) = if let Some(rest) = src.strip_prefix("data:") {
             let (mime, bytes) = decode_data_uri(rest)?;
-            self.decode_media(src, mime.as_deref(), &bytes)?
+            (mime, Bytes::from(bytes))
         } else {
-            let (content_type, raw_data) = self.fetch_resource(src)?;
-            self.decode_media(src, content_type.as_deref(), &raw_data)?
+            self.fetch_resource(src)?
         };
 
+        // A synchronous fetch runs on the layout thread (the resident renderer), where
+        // decoding every image of a page as its bytes land costs seconds. Layout only needs
+        // the size: take it from the header and leave the pixels to `get` on first paint -
+        // which, with a raster window, most images off-screen never reach. The asynchronous
+        // path decodes here as before: that is a background thread, and the pixels are wanted
+        // by the reflow that follows.
+        if self.synchronous_fetch.load(Ordering::Relaxed) {
+            // Header parsing is decoding too: through the decoder when there is one.
+            let intrinsic = match &self.decoder {
+                Some(decoder) => decoder.dimensions(mime.as_deref(), &bytes).ok(),
+                None => self.decoders.dimensions(mime.as_deref(), &bytes),
+            };
+            if let Some(intrinsic) = intrinsic {
+                let media_id = self.allocate_media_id();
+                self.encoded.write().insert(
+                    media_id,
+                    EncodedSource {
+                        src: src.to_string(),
+                        mime,
+                        bytes,
+                        intrinsic,
+                    },
+                );
+                return Ok(media_id);
+            }
+        }
+
+        let media = self.decode_media(src, mime.as_deref(), &bytes)?;
+
         let media_id = self.allocate_media_id();
+        let intrinsic = match &media {
+            Media::Image(image) => Some((image.image.intrinsic_width(), image.image.intrinsic_height())),
+            Media::Svg(_) => None,
+        };
         self.entries.write().insert(media_id, Arc::new(media));
+        if let Some(intrinsic) = intrinsic {
+            // Kept so the pixels can be given up and brought back (see `set_decoded_budget`).
+            self.encoded.write().insert(
+                media_id,
+                EncodedSource {
+                    src: src.to_string(),
+                    mime,
+                    bytes,
+                    intrinsic,
+                },
+            );
+            self.touch(media_id);
+            self.enforce_decoded_budget(media_id);
+        }
 
         Ok(media_id)
     }
@@ -352,14 +533,42 @@ impl MediaStore {
         entries.insert(media_id, media);
     }
 
-    /// Falls back to `media_type`'s default resource if `media_id` does not exist.
-    pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Arc<Media> {
-        let entries = self.entries.read();
-
-        match entries.get(&media_id) {
-            Some(media) => media.clone(),
-            None => self.default_media(media_type),
+    /// A raster image's size for layout, without decoding it: resident or not.
+    /// `None` for SVGs, placeholders and unknown ids.
+    pub fn image_intrinsic_size(&self, media_id: MediaId) -> Option<(u32, u32)> {
+        if let Some(source) = self.encoded.read().get(&media_id) {
+            return Some(source.intrinsic);
         }
+        match self.entries.read().get(&media_id).map(|m| &**m) {
+            Some(Media::Image(image)) => Some((image.image.intrinsic_width(), image.image.intrinsic_height())),
+            _ => None,
+        }
+    }
+
+    /// Whether every pixel of a raster image is transparent - known only
+    /// while its pixels are resident; an image let go of under the budget
+    /// answers `false` rather than being decoded for the question.
+    pub fn is_fully_transparent(&self, media_id: MediaId) -> bool {
+        match self.entries.read().get(&media_id).map(|m| &**m) {
+            Some(Media::Image(image)) => {
+                image.image.intrinsic_width() > 0 && image.image.as_raw().as_chunks::<4>().0.iter().all(|px| px[3] == 0)
+            }
+            _ => false,
+        }
+    }
+
+    /// Falls back to `media_type`'s default resource if `media_id` does not exist.
+    /// An image whose pixels were let go of under the decoded budget is decoded
+    /// again here.
+    pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Arc<Media> {
+        let resident = self.entries.read().get(&media_id).cloned();
+        if let Some(media) = resident {
+            if self.decoded_budget.load(Ordering::Relaxed) != 0 {
+                self.touch(media_id);
+            }
+            return media;
+        }
+        self.revive(media_id).unwrap_or_else(|| self.default_media(media_type))
     }
 
     fn default_media(&self, media_type: MediaType) -> Arc<Media> {
@@ -373,7 +582,7 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let response = self.loader.load(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let response = self.loader.load(&url)?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);
@@ -381,6 +590,12 @@ impl MediaStore {
 
         Ok((response.content_type, response.body))
     }
+}
+
+/// Whether a load error says "not yet" rather than "no".
+fn is_pending(e: &anyhow::Error) -> bool {
+    e.chain()
+        .any(|cause| matches!(cause.downcast_ref::<LoadError>(), Some(LoadError::Pending)))
 }
 
 /// Decodes a `data:` URI body (everything after `data:`) in its `[<mime>][;base64],<data>` form.
@@ -505,5 +720,86 @@ mod tests {
         let svg = store.get_svg(media_id);
         let size = svg.svg.tree.size();
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
+    }
+}
+
+#[cfg(test)]
+mod decoded_budget_tests {
+    use super::*;
+
+    fn data_uri(width: u32, height: u32, seed: u8) -> String {
+        use image::ImageEncoder;
+        let pixels = vec![seed; (width * height * 4) as usize];
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&pixels, width, height, image::ExtendedColorType::Rgba8)
+            .expect("encode");
+        let mut b64 = String::new();
+        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for chunk in png.chunks(3) {
+            let n = chunk
+                .iter()
+                .enumerate()
+                .fold(0u32, |acc, (i, &b)| acc | (u32::from(b) << (16 - 8 * i)));
+            for i in 0..4 {
+                b64.push(if i <= chunk.len() {
+                    ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char
+                } else {
+                    '='
+                });
+            }
+        }
+        format!("data:image/png;base64,{b64}")
+    }
+
+    #[test]
+    fn synchronous_loads_decode_on_first_use_not_on_load() {
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let before = store.resident_bytes();
+        let MediaRequest::Ready(id) = store.request_media(&data_uri(64, 32, 7)) else {
+            panic!("synchronous load should be ready");
+        };
+        // Layout gets the size; nothing was decoded for it.
+        assert_eq!(store.image_intrinsic_size(id), Some((64, 32)));
+        assert_eq!(store.resident_bytes(), before);
+        assert!(!store.entries.read().contains_key(&id));
+        // Paint asks for pixels: decoded now, at the real size.
+        let image = store.get_image(id);
+        assert_eq!((image.image.width(), image.image.height()), (64, 32));
+        assert!(store.entries.read().contains_key(&id));
+    }
+
+    #[test]
+    fn decoded_pixels_are_bounded_and_come_back_on_use() {
+        let store = Arc::new(MediaStore::new());
+        // Each image is 100x100x4 = 40 000 bytes; room for two.
+        store.set_decoded_budget(90_000);
+        store.set_synchronous_fetch(true);
+        let ids: Vec<MediaId> = (0..4u8)
+            .map(|seed| match store.request_media(&data_uri(100, 100, seed)) {
+                MediaRequest::Ready(id) => id,
+                MediaRequest::Pending => panic!("synchronous load should be ready"),
+            })
+            .collect();
+
+        let resident = |store: &MediaStore| -> usize {
+            let entries = store.entries.read();
+            ids.iter().filter(|id| entries.contains_key(id)).count()
+        };
+        assert!(resident(&store) <= 2, "budget must hold: {} resident", resident(&store));
+        // The first ones loaded were the ones let go of.
+        assert!(!store.entries.read().contains_key(&ids[0]));
+
+        // Using an evicted image decodes it again, at its own size, and the
+        // hash→id mapping still answers Ready for its source.
+        let Media::Image(back) = &*store.get(ids[0], MediaType::Image) else {
+            panic!("expected an image");
+        };
+        assert_eq!((back.image.width(), back.image.height()), (100, 100));
+        assert_eq!(back.image.as_raw()[0], 0);
+        assert!(store.entries.read().contains_key(&ids[0]));
+        assert!(resident(&store) <= 2);
+        assert!(matches!(store.request_media(&data_uri(100, 100, 0)), MediaRequest::Ready(id) if id == ids[0]));
     }
 }

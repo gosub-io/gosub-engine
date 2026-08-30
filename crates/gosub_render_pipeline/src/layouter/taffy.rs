@@ -91,9 +91,8 @@ pub struct TaffyLayouter {
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
 }
 
-/// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
-/// string; `capitalize` uppercases the first letter of each whitespace-separated word. `none`
-/// (and any unsupported keyword such as `full-width`) leaves the text unchanged.
+/// Apply the CSS `text-transform` keyword to a text run. Unsupported keywords (e.g. `full-width`)
+/// leave the text unchanged.
 fn apply_text_transform(text: String, transform: Value) -> String {
     let Value::Keyword(id) = transform else {
         return text;
@@ -183,9 +182,6 @@ impl Default for TaffyLayouter {
 
 impl TaffyLayouter {
     /// Create a layouter with its own font system.
-    ///
-    /// To share the font collection with other components (e.g. a `VelloRasterizer`)
-    /// use [`TaffyLayouter::with_font_system`] and pass the same `Arc` to both.
     pub fn new() -> Self {
         Self::with_font_system(Arc::new(Mutex::new(ParleyFontSystem::new())))
     }
@@ -218,9 +214,8 @@ impl TaffyLayouter {
         Arc::clone(&self.font_system)
     }
 
-    /// Share an external media store with this layouter. Resources loaded during layout are
-    /// stored here; passing the same store to the rasterizer lets it resolve those resources
-    /// by id. Without this they live in two separate stores and images render as placeholders.
+    /// Share an external media store with this layouter. The rasterizer must share the same
+    /// store to resolve resources by id; otherwise images render as placeholders.
     pub fn set_media_store(&mut self, media_store: Arc<MediaStore>) {
         self.media_store = media_store;
     }
@@ -256,7 +251,6 @@ impl CanLayout for TaffyLayouter {
         // let root_id = RenderNodeId::new(2);
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
-        // // Compute the layout based on the viewport
         let size = match viewport {
             Some(viewport) => Size {
                 width: AvailableSpace::Definite(viewport.width as f32),
@@ -361,9 +355,7 @@ impl CanLayout for TaffyLayouter {
         }
         self.measure_cache = measure_cache;
 
-        // Since we are not interested in taffy layout after this stage in the pipeline, we convert
-        // the taffy layout to a box model layout tree. This makes the rest of the pipeline
-        // layout-engine agnostic.
+        // Convert to the box-model tree so the rest of the pipeline is layout-engine agnostic.
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
@@ -872,8 +864,7 @@ impl TaffyLayouter {
             }
         }
 
-        // Create a mapping between the layout element id and the taffy node id. We need this to generate
-        // the boxmodel at a later time in this pipeline stage.
+        // Needed by populate_boxmodel later in this stage.
         self.layout_taffy_mapping.insert(layout_element_id, leaf_id);
         self.dom_to_layout_mapping.insert(dom_node.node_id, layout_element_id);
 
@@ -909,6 +900,14 @@ impl TaffyLayouter {
         // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
         // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
         // typically large - e.g. 400×300 - so cover/contain downscale and stay crisp.)
+        // A raster background's size is known without decoding it (see the <img> path).
+        if let Some((w, h)) = self.media_store.image_intrinsic_size(media_id) {
+            return Some(BackgroundMedia::Image {
+                media_id,
+                natural: (w as f32, h as f32),
+                layout,
+            });
+        }
         match &*self.media_store.get(media_id, MediaType::Image) {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
@@ -964,50 +963,59 @@ impl TaffyLayouter {
                     // completes and installs the real intrinsic size.
                     match self.media_store.request_media(src.as_str()) {
                         MediaRequest::Ready(media_id) => {
-                            let media = self.media_store.get(media_id, MediaType::Image);
                             // When the media is a placeholder (load failed), use a small fixed
                             // size so the broken-image icon doesn't blow up the layout. The
                             // rasterizer scales the icon to whatever rect the element actually
                             // occupies, so display quality is unaffected.
                             let is_placeholder = self.media_store.is_placeholder(media_id);
+                            // A raster image's size is known without its pixels: asking for
+                            // them here would decode every image on the page during layout,
+                            // and under a decoded-pixel budget evict the rest while doing so.
+                            let known = if is_placeholder {
+                                None
+                            } else {
+                                self.media_store.image_intrinsic_size(media_id)
+                            };
+                            let media = if known.is_some() {
+                                None
+                            } else {
+                                Some(self.media_store.get(media_id, MediaType::Image))
+                            };
                             // Resolve the intrinsic size, whether this is an SVG, and whether the
-                            // decoded raster is fully transparent (nothing visible to paint) - all
-                            // in one borrow.
-                            let (dimension, is_svg, is_transparent) = match media.borrow() {
-                                // Use the SVG's intrinsic size so the element gets a non-zero box.
-                                // A failed/placeholder load uses the same small fixed size as images.
-                                Media::Svg(media_svg) => {
-                                    let d = if is_placeholder {
-                                        geo::Dimension::new(32.0, 32.0)
-                                    } else {
-                                        let size = media_svg.svg.tree.size();
-                                        geo::Dimension::new(size.width() as f64, size.height() as f64)
-                                    };
-                                    (d, true, false)
-                                }
-                                Media::Image(media_image) => {
-                                    let d = if is_placeholder {
-                                        geo::Dimension::new(32.0, 32.0)
-                                    } else {
-                                        geo::Dimension::new(
-                                            media_image.image.width() as f64,
-                                            media_image.image.height() as f64,
-                                        )
-                                    };
-                                    // `.all()` short-circuits on the first opaque pixel, so this is
-                                    // cheap for the common (visible) image and only scans fully when
-                                    // the image really is transparent.
-                                    let transparent = !is_placeholder
-                                        && media_image.image.width() > 0
-                                        && media_image
-                                            .image
-                                            .as_raw()
-                                            .as_chunks::<4>()
-                                            .0
-                                            .iter()
-                                            .all(|px| px[3] == 0);
-                                    (d, false, transparent)
-                                }
+                            // decoded raster is fully transparent (nothing visible to paint).
+                            let (dimension, is_svg, is_transparent) = match (known, media.as_deref()) {
+                                (Some((w, h)), _) => (
+                                    geo::Dimension::new(w as f64, h as f64),
+                                    false,
+                                    self.media_store.is_fully_transparent(media_id),
+                                ),
+                                (None, None) => (geo::Dimension::new(32.0, 32.0), false, false),
+                                (None, Some(media)) => match media {
+                                    // Use the SVG's intrinsic size so the element gets a non-zero box.
+                                    // A failed/placeholder load uses the same small fixed size as images.
+                                    Media::Svg(media_svg) => {
+                                        let d = if is_placeholder {
+                                            geo::Dimension::new(32.0, 32.0)
+                                        } else {
+                                            let size = media_svg.svg.tree.size();
+                                            geo::Dimension::new(size.width() as f64, size.height() as f64)
+                                        };
+                                        (d, true, false)
+                                    }
+                                    Media::Image(media_image) => {
+                                        let d = if is_placeholder {
+                                            geo::Dimension::new(32.0, 32.0)
+                                        } else {
+                                            geo::Dimension::new(
+                                                media_image.image.intrinsic_width() as f64,
+                                                media_image.image.intrinsic_height() as f64,
+                                            )
+                                        };
+                                        let transparent =
+                                            !is_placeholder && self.media_store.is_fully_transparent(media_id);
+                                        (d, false, transparent)
+                                    }
+                                },
                             };
 
                             // Pin the intrinsic aspect ratio so a block-level replaced element keeps

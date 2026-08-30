@@ -37,7 +37,14 @@ impl ForkedResourceLoader {
         *self.link.lock() = Some(link);
     }
 
-    fn load_with(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+    /// The same link, asking for resources the render can do without for
+    /// now (images): the broker answers immediately, with the bytes or
+    /// [`LoadError::Pending`], and fetches in the background.
+    pub fn deferred(self: &Arc<Self>) -> Arc<DeferredForkedLoader> {
+        Arc::new(DeferredForkedLoader(Arc::clone(self)))
+    }
+
+    fn load_with(&self, url: &Url, deferred: bool) -> Result<LoadedResource, LoadError> {
         let slot = self.link.lock();
         let Some(link) = slot.as_ref() else {
             return Err(LoadError::Failed(
@@ -46,8 +53,11 @@ impl ForkedResourceLoader {
         };
         let mut link = link.lock();
 
-        link.send(&FromRenderer::NeedResource { url: url.to_string() })
-            .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;
+        link.send(&FromRenderer::NeedResource {
+            url: url.to_string(),
+            deferred,
+        })
+        .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;
         // No timeout on this recv: the renderer filter has no `setsockopt`.
         // A dead parent is an EOF; a wedged one is bounded by the broker's
         // clocks, which tear this whole process family down.
@@ -65,12 +75,28 @@ impl ForkedResourceLoader {
                 body: bytes::Bytes::from(body),
             }),
             ResourceReply::Failed(reason) => Err(LoadError::Failed(reason)),
+            ResourceReply::Pending => Err(LoadError::Pending),
         }
+    }
+}
+
+/// [`ForkedResourceLoader`] in deferred mode; see [`ForkedResourceLoader::deferred`].
+pub struct DeferredForkedLoader(Arc<ForkedResourceLoader>);
+
+impl std::fmt::Debug for DeferredForkedLoader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DeferredForkedLoader").field(&self.0).finish()
+    }
+}
+
+impl ResourceLoader for DeferredForkedLoader {
+    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+        self.0.load_with(url, true)
     }
 }
 
 impl ResourceLoader for ForkedResourceLoader {
     fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
-        self.load_with(url)
+        self.load_with(url, false)
     }
 }

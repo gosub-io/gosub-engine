@@ -32,6 +32,10 @@ pub struct BrokeredLoader {
     /// navigation superseded, a tab closed. Without it a cancelled page's
     /// stylesheets and fonts would keep downloading.
     cancel: CancellationToken,
+    /// The runtime this loader relays replies on, captured at construction.
+    /// Loads are issued from plain threads too (the media store's fetch
+    /// threads), where `Handle::try_current` finds nothing to spawn on.
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl BrokeredLoader {
@@ -41,6 +45,7 @@ impl BrokeredLoader {
             tab_id,
             io_tx,
             cancel: CancellationToken::new(),
+            runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
 
@@ -66,6 +71,7 @@ impl ResourceLoader for BrokeredLoader {
                 Ok(resource) => ("ok", Some(resource.status), resource.body.len()),
                 Err(LoadError::UnsupportedUrl(_)) => ("refused-scheme", None, 0),
                 Err(LoadError::TimedOut) => ("timeout", None, 0),
+                Err(LoadError::Pending) => ("pending", None, 0),
                 Err(LoadError::Failed(_)) => ("failed", None, 0),
             };
             crate::telemetry::emit(
@@ -98,20 +104,33 @@ impl BrokeredLoader {
             .with_auto_decode(true)
             .build();
 
+        let cancel = self.cancel.child_token();
         let handle = FetchHandle {
             req_id: req.req_id,
-            cancel: self.cancel.child_token(),
+            cancel: cancel.clone(),
         };
 
         // A std channel, not a tokio one: the receiver blocks a plain thread and
-        // must not need a runtime of its own to be woken.
+        // must not need a runtime of its own to be woken. The relay is spawned
+        // on whichever runtime is at hand: the current one, or the one captured
+        // at construction when this load comes from a plain thread (the media
+        // store's fetch threads do).
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<FetchResult>(1);
         let (io_tx, io_rx) = tokio::sync::oneshot::channel::<FetchResult>();
-        crate::util::spawn_named("brokered-load", async move {
+        let relay = async move {
             if let Ok(result) = io_rx.await {
                 let _ = reply_tx.send(result);
             }
-        });
+        };
+        match tokio::runtime::Handle::try_current()
+            .ok()
+            .or_else(|| self.runtime.clone())
+        {
+            Some(handle) => {
+                handle.spawn(relay);
+            }
+            None => return Err(LoadError::Failed("no runtime to relay the reply on".into())),
+        }
 
         self.io_tx
             .send(IoCommand::Fetch {
@@ -123,8 +142,24 @@ impl BrokeredLoader {
             })
             .map_err(|_| LoadError::Failed("the I/O runtime has shut down".into()))?;
 
-        let result = reply_rx.recv_timeout(BROKER_REPLY_TIMEOUT).map_err(|_| {
+        // The blocking wait must not hold this worker's scheduler core: the
+        // send above has just woken the I/O task into this worker's LIFO slot,
+        // which no other worker can steal - blocking here directly would trap
+        // the very task that produces the reply until the timeout expires.
+        // `block_in_place` hands the core (and that slot) to another thread
+        // for the duration. Outside a multi-thread runtime worker there is no
+        // core to hand over, and a plain blocking wait is correct.
+        let wait = || reply_rx.recv_timeout(BROKER_REPLY_TIMEOUT);
+        let result = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(wait)
+            }
+            _ => wait(),
+        };
+        let result = result.map_err(|_| {
             log::warn!("brokered load of {url} produced no reply within {BROKER_REPLY_TIMEOUT:?}");
+            // Nobody is waiting anymore: free the in-flight slot and the child's work.
+            cancel.cancel();
             LoadError::TimedOut
         })?;
 

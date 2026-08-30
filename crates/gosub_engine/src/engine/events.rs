@@ -680,6 +680,8 @@ pub enum EngineEvent {
     /// something meanwhile.
     RendererCrashed {
         zone_id: ZoneId,
+        /// The (scheme + eTLD+1) site the process served.
+        site: String,
         tabs: Vec<TabId>,
         error: String,
     },
