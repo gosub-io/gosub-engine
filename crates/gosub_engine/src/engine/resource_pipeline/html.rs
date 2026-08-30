@@ -1,34 +1,36 @@
-use crate::engine::types::{IoChannel, PeekBuf, RequestId};
-use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
+use crate::engine::types::{IoChannel, PeekBuf};
+use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration};
 use crate::net::brokered_loader::BrokeredLoader;
-use crate::net::req_ref_tracker::REF_REGISTRY;
-use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
-use crate::net::{submit_to_io, SharedBody};
+use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta};
+use crate::net::SharedBody;
 use crate::tab::TabId;
-use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
 use gosub_shared::timing_guard;
-use http::Method;
-use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::io::AsyncRead;
-use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
 
-/// What the pipeline made of a document body: the parsed document, with its
-/// source when a renderer process may re-parse it.
-pub struct ParsedDocument<C: RenderConfiguration> {
-    pub doc: Box<EngineDocument<C>>,
-    pub source: Option<Arc<str>>,
+/// What the pipeline made of a document body.
+pub enum ParsedDocument<C: RenderConfiguration> {
+    /// Parsed here, with its source when a renderer process may re-parse it.
+    Parsed {
+        doc: Box<EngineDocument<C>>,
+        source: Option<Arc<str>>,
+    },
+    /// Not parsed here: the renderer process parses. Only the source is kept.
+    SourceOnly { source: Arc<str> },
 }
 
 impl<C: RenderConfiguration> ParsedDocument<C> {
-    pub fn into_parts(self) -> (EngineDocument<C>, Option<Arc<str>>) {
-        (*self.doc, self.source)
+    pub fn into_parts(self) -> (Option<EngineDocument<C>>, Option<Arc<str>>) {
+        match self {
+            Self::Parsed { doc, source } => (Some(*doc), source),
+            Self::SourceOnly { source } => (None, Some(source)),
+        }
     }
 }
 
@@ -58,30 +60,36 @@ pub struct HtmlPipelineImpl {
     /// The tab these subresources belong to, so the I/O side can attach its
     /// cookies. Subresources previously carried none at all.
     tab_id: TabId,
-    /// `Accept-Language` header value sent with discovered subresource requests.
-    accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
     max_document_bytes: usize,
     /// Also return the parsed document's source text (see
     /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
     capture_source: bool,
+    /// Keep only the source: the renderer process parses, this process never
+    /// runs the HTML parser on page content.
+    source_only: bool,
 }
 
 impl HtmlPipelineImpl {
+    /// Skip parsing here and keep the source for a renderer process.
+    pub fn source_only(mut self, on: bool) -> Self {
+        self.source_only = on;
+        self
+    }
+
     pub fn new(
         zone_id: ZoneId,
         tab_id: TabId,
         io_tx: IoChannel,
-        accept_language: Option<String>,
         max_document_bytes: usize,
         capture_source: bool,
     ) -> Self {
         Self {
+            source_only: false,
             io_tx,
             zone_id,
             tab_id,
-            accept_language,
             max_document_bytes,
             capture_source,
         }
@@ -98,128 +106,41 @@ impl HtmlPipelineImpl {
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
-        let io_tx = self.io_tx.clone();
-        let zone_id = self.zone_id;
-        let tab_id = self.tab_id;
-        let parent_ref = request.reference;
+        if self.source_only {
+            let source = crate::html::read_document_source(
+                &meta.final_url,
+                reader,
+                handle.cancel.clone(),
+                self.max_document_bytes,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to read HTML document: {:?}", e))?;
+            handle.cancel.cancel();
+            return Ok(ParsedDocument::SourceOnly { source });
+        }
+        let _ = request;
         let parent_cancel = handle.cancel.clone();
 
         let cfg = crate::html::HtmlParseConfig {
             max_bytes: self.max_document_bytes,
             capture_source: self.capture_source,
             // The parse happens on this tab's behalf, so its stylesheet loads carry
-            // the tab's identity and cookies like any other request — and are
+            // the tab's identity and cookies like any other request - and are
             // cancelled with the parse that wanted them.
             resource_loader: Some(
-                BrokeredLoader::new(zone_id, Some(tab_id), io_tx.clone())
+                BrokeredLoader::new(self.zone_id, Some(self.tab_id), self.io_tx.clone())
                     .with_cancel(&parent_cancel)
                     .shared(),
             ),
         };
 
-        let child_handles = Arc::new(Mutex::new(Vec::<FetchHandle>::new()));
-        let child_tasks = Arc::new(Mutex::new(Vec::<JoinHandle<()>>::new()));
-
-        let child_handles_for_closure = child_handles.clone();
-        let child_tasks_for_closure = child_tasks.clone();
-
-        let mut sub_headers = http::HeaderMap::new();
-        if let Some(langs) = &self.accept_language {
-            if let Ok(val) = langs.parse() {
-                sub_headers.insert(http::header::ACCEPT_LANGUAGE, val);
-            }
-        }
-
-        let doc_url = meta.final_url.clone();
-        let mut on_discover = |hint: ResourceHint| {
-            // A remote document must never pull file:// subresources; don't even submit
-            // them (the file loader refuses them again as defense in depth).
-            if hint.url.scheme() == "file" && doc_url.scheme() != "file" {
-                log::warn!(
-                    "refusing file:// subresource {} for remote document {}",
-                    hint.url,
-                    doc_url
-                );
-                return;
-            }
-            let sub_req_id = RequestId::new();
-            REF_REGISTRY.register_request(sub_req_id, hint.kind, Initiator::Parser);
-            let mut headers = sub_headers.clone();
-            if let Ok(val) = hint.kind.accept_header().parse() {
-                headers.insert(http::header::ACCEPT, val);
-            }
-            // The referrer serves double duty: gosub-sonar computes the Referer header from
-            // it (never for non-http(s) referrers), and the file loader uses it to accept
-            // subresources of file:// documents.
-            let sub_req = FetchRequest::builder(Method::GET, hint.url)
-                .with_req_id(sub_req_id)
-                .with_reference(parent_ref)
-                .with_priority(hint.priority)
-                .with_initiator(Initiator::Parser.to_net())
-                .with_kind(hint.kind.to_net())
-                .with_headers(headers)
-                .with_referrer(doc_url.clone())
-                .with_streaming(true)
-                .with_auto_decode(true)
-                .build();
-
-            let io_tx_cloned = io_tx.clone();
-            let parent_cancel_cloned = parent_cancel.clone();
-            let child_handles = child_handles_for_closure.clone();
-            let child_tasks = child_tasks_for_closure.clone();
-
-            // Parent cancelled, so we don't have to do anything
-            if parent_cancel_cloned.is_cancelled() {
-                return;
-            }
-
-            let join_handle = spawn_named("html-sub-resource", async move {
-                match submit_to_io(zone_id, Some(tab_id), sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
-                    Ok((child_handle, rx)) => {
-                        child_handles.lock().push(child_handle);
-
-                        let _ = rx.await;
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to submit discovered resource request: {:?}", e);
-                    }
-                }
-            });
-
-            child_tasks.lock().push(join_handle);
-        };
-
-        let was_cancelled = handle.cancel.is_cancelled();
-
         let _doc_timer = timing_guard!("html.document", meta.final_url.as_str());
-        let res = parse_main_document_stream(
-            meta.final_url, // This is the base URL
-            reader,
-            handle.cancel.clone(),
-            cfg,
-            &mut on_discover,
-        )
-        .await;
+        let res = parse_main_document_stream(meta.final_url, reader, handle.cancel.clone(), cfg).await;
 
-        // Cancel the parent token so that all child fetch tokens (which are children of
-        // parent_cancel via child_token()) are also cancelled. This works regardless of
-        // whether the spawned submission tasks have run yet, since the cancellation
-        // propagates to any child tokens created from parent_cancel in the future too.
+        // The parse is over: nothing it started may keep loading.
         parent_cancel.cancel();
 
-        // On error or parent cancellation, also await all child tasks to clean up.
-        if was_cancelled || res.is_err() {
-            let joins: Vec<JoinHandle<()>> = {
-                let mut g = child_tasks.lock();
-                std::mem::take(&mut *g)
-            };
-
-            for jh in joins {
-                let _ = jh.await;
-            }
-        }
-
-        res.map(|(doc, source)| ParsedDocument {
+        res.map(|(doc, source)| ParsedDocument::Parsed {
             doc: Box::new(doc),
             source,
         })
@@ -258,17 +179,20 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::types::RequestId;
     use crate::events::IoCommand;
     use crate::html::DefaultRenderConfig;
-    use crate::net::req_ref_tracker::RequestReference;
-    use crate::net::types::{Priority, ResourceKind};
+    use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+    use crate::net::types::{Initiator, Priority, ResourceKind};
     use crate::NavigationId;
+    use http::Method;
+    use parking_lot::Mutex;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use url::Url;
 
-    // Minimal HTML that triggers 3 resource discoveries: link/script/img + a title.
+    // A stylesheet the parser loads, plus a script and an image nothing here fetches.
     const HTML_WITH_RESOURCES: &str = r#"
         <html>
           <head>
@@ -348,14 +272,14 @@ mod tests {
 
     // Multi-threaded on purpose: parsing blocks on the brokered stylesheet load,
     // so the task answering IoCommands needs a thread of its own. On a
-    // current-thread runtime that load can only time out — the same constraint
+    // current-thread runtime that load can only time out - the same constraint
     // `net::brokered_loader` warns embedders about.
     #[tokio::test(flavor = "multi_thread")]
-    async fn parse_bytes_discovers_and_submits_subresources() {
+    async fn parse_bytes_loads_the_stylesheet_once_and_nothing_else() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024, false);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, 10 * 1024 * 1024, false);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -366,6 +290,7 @@ mod tests {
             .await
             .expect("parse_bytes should succeed")
             .into_parts();
+        let doc = doc.expect("parsed in-process");
 
         // Allow spawned tasks to submit to IO and be recorded
         sleep(Duration::from_millis(10)).await;
@@ -373,11 +298,11 @@ mod tests {
         // Assert: title extracted from DOM
         assert_eq!(crate::html::document_title(&doc).as_deref(), Some("Hello World"));
 
-        // Three warm-up fetches from regex discovery (stylesheet, script, image),
-        // plus the parser's own brokered load of the `<link rel="stylesheet">` —
-        // which used to bypass this channel entirely by going straight to the network.
+        // Exactly the parser's own brokered load of the `<link rel="stylesheet">`:
+        // no prefetch of it (that was a second fetch of the same bytes), and no
+        // fetch of the script or image, which nothing here consumes.
         let count = seen_children.lock().len();
-        assert_eq!(count, 4, "expected 4 fetches, saw {}", count);
+        assert_eq!(count, 1, "expected 1 fetch (the stylesheet), saw {}", count);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -385,7 +310,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024, false);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, 10 * 1024 * 1024, false);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");
@@ -401,7 +326,7 @@ mod tests {
 
         // Assert: all recorded children are canceled (pipeline proactively cancels them at end)
         let children = seen_children.lock();
-        assert!(!children.is_empty(), "expected subresource children to be recorded");
+        assert!(!children.is_empty(), "expected the stylesheet load to be recorded");
         for h in children.iter() {
             assert!(
                 h.cancel.is_cancelled(),

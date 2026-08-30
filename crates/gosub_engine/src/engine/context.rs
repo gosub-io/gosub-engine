@@ -214,6 +214,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     document_source: Option<std::sync::Arc<str>>,
     /// The current document's URL, whether or not this process parsed it.
     document_url: Option<Url>,
+    /// Title and icon URL the renderer reported for the current document,
+    /// not yet handed to the tab.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_document_meta: Option<(Option<String>, Option<String>)>,
     /// Tiles from the last remote render, keyed by content hash; offered to the
     /// next render so unchanged tiles are neither rasterized nor shipped again.
     /// Remote counterpart of `tile_pixel_cache`.
@@ -345,6 +349,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_source: None,
             document_url: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_document_meta: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_renderer: None,
@@ -420,6 +426,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.storage.as_ref().map(|s| s.session.clone())
     }
 
+    /// `source` is the text the document was parsed from, kept when an
+    /// out-of-process renderer will need to re-parse it.
     /// Say on the firehose why a full render is about to happen.
     fn note_invalidate(&self, reason: &str) {
         if !crate::telemetry::enabled() {
@@ -432,8 +440,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         crate::telemetry::emit("tab.invalidate", serde_json::json!({ "tab": tab, "reason": reason }));
     }
 
-    /// Sets the parsed DOM document for the given tab. `source` is the text it
-    /// was parsed from, kept when an out-of-process renderer will re-parse it.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
         let url = {
             use gosub_interface::document::Document as _;
@@ -442,8 +448,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.replace_document(Some(doc), url, source);
     }
 
+    /// A document this process did not parse: the renderer process will, from
+    /// `source`. Nothing here holds a DOM for it.
+    pub fn set_document_source(&mut self, url: Url, source: std::sync::Arc<str>) {
+        self.replace_document(None, Some(url), Some(source));
+    }
+
     pub fn document_url(&self) -> Option<&Url> {
         self.document_url.as_ref()
+    }
+
+    /// Title and icon URL the renderer reported since the last call.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
+        self.remote_document_meta.take()
     }
 
     fn replace_document(
@@ -453,7 +471,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         source: Option<std::sync::Arc<str>>,
     ) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        self.remote_media.clear();
+        {
+            self.remote_media.clear();
+            self.remote_document_meta = None;
+        }
         self.note_invalidate("document");
         self.document = doc;
         self.document_url = url;
@@ -834,6 +855,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.remote_tile_memory
             .replace_with(page.tiles.into_iter().map(kept_tile));
         self.remote_layer_order = page.summary.layer_order.clone();
+        self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
         let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
         let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
         self.pipeline_cache = Some(PipelineCache {
