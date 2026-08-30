@@ -61,6 +61,14 @@ image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
 
+# Exercises the isolated components from a binary that dispatches child roles the
+# way an embedder must; `tests/process_isolation.rs` runs it. Pointless without
+# the machinery it drives.
+[[bin]]
+name = "isolation-harness"
+path = "src/bin/isolation-harness.rs"
+required-features = ["process-isolation"]
+
 [dev-dependencies]
 tempfile = { workspace = true }
 
