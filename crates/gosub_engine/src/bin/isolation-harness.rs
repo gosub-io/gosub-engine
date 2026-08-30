@@ -38,10 +38,13 @@ fn main() {
     let code = match scenario.as_str() {
         "direct" => direct(),
         "resolve" => resolve(),
+        "decode" => decode(),
+        "decode-garbage" => decode_garbage(),
+        "decode-many" => decode_many(),
         "engine" => engine(),
         "guard" => guard(),
         other => {
-            eprintln!("unknown scenario {other:?}; expected 'direct', 'resolve', 'engine' or 'guard'");
+            eprintln!("unknown scenario {other:?}; expected 'direct', 'resolve', 'engine', 'guard' or 'decode[-garbage|-many]'");
             2
         }
     };
@@ -159,6 +162,112 @@ fn resolve() -> i32 {
             eprintln!("the network process did not survive: {other:?}");
             1
         }
+    }
+}
+
+/// A 2x2 RGBA PNG: red, green, blue, white.
+const SAMPLE_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xB6, 0x0D, 0x24, 0x00, 0x00, 0x00, 0x12, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0, 0x1F, 0x0C, 0x81, 0x34, 0x18, 0x00, 0x00, 0x49, 0xC8,
+    0x09, 0xF7, 0xF9, 0xAB, 0xB6, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+/// The decode boundary: real image bytes go into a throwaway process and the
+/// exact pixels come back.
+fn decode() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
+
+    match ProcessImageDecoder.decode(Some("image/png"), SAMPLE_PNG) {
+        Ok(BrokeredDecode::Raster(image)) => {
+            if (image.width, image.height) != (2, 2) {
+                eprintln!("expected a 2x2 image, got {}x{}", image.width, image.height);
+                return 1;
+            }
+            let expected: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
+            if image.rgba.as_ref() != expected {
+                eprintln!("pixels did not survive the boundary: {:?}", image.rgba.as_ref());
+                return 1;
+            }
+        }
+        Err(e) => {
+            eprintln!("decode in a separate process failed: {e}");
+            return 1;
+        }
+    }
+
+    // Header parsing runs in the child too.
+    match ProcessImageDecoder.dimensions(Some("image/png"), SAMPLE_PNG) {
+        Ok((2, 2)) => {}
+        other => {
+            eprintln!("expected 2x2 from the decoder's header parse, got {other:?}");
+            return 1;
+        }
+    }
+
+    // SVG comes back rasterized at its intrinsic size: the tree never leaves
+    // the child. A logo-sized SVG (with text) must produce pixels, not a
+    // dead decoder.
+    match ProcessImageDecoder.decode(Some("image/svg+xml"), SAMPLE_SVG) {
+        Ok(BrokeredDecode::Raster(image)) if image.width > 1 && image.height > 1 => 0,
+        Ok(BrokeredDecode::Raster(image)) => {
+            eprintln!("an SVG rasterized to {}x{}", image.width, image.height);
+            1
+        }
+        Err(e) => {
+            eprintln!("SVG decode in a separate process failed: {e}");
+            1
+        }
+    }
+}
+
+/// A small SVG with a `<text>` element, so decoding it consults the fontdb.
+const SAMPLE_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><rect width="18" height="18" fill="#f60"/><text x="4" y="13" font-family="serif" font-size="10">Y</text></svg>"##;
+
+/// Decode the sample image repeatedly and report the wall-clock cost per image,
+/// so the price of a process per decode is a measured number rather than a
+/// guess. Count comes from argv[2], default 20.
+fn decode_many() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::ImageDecoder;
+
+    let count: u32 = std::env::args().nth(2).and_then(|a| a.parse().ok()).unwrap_or(20);
+
+    let start = std::time::Instant::now();
+    for _ in 0..count {
+        if ProcessImageDecoder.decode(Some("image/png"), SAMPLE_PNG).is_err() {
+            eprintln!("decode failed during timing run");
+            return 1;
+        }
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "{count} decodes in {:?} ({:.2} ms each)",
+        elapsed,
+        elapsed.as_secs_f64() * 1000.0 / f64::from(count)
+    );
+    0
+}
+
+/// Malformed input must come back as a refusal. This is the common case in the
+/// wild - a truncated or hostile image - and it must not hang or crash the
+/// broker.
+fn decode_garbage() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::ImageDecoder;
+
+    // A PNG magic number followed by nonsense: it gets past a magic-byte sniff
+    // and dies inside the decoder, which is where the danger actually lives.
+    let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    bytes.extend(std::iter::repeat_n(0xA5, 4096));
+
+    match ProcessImageDecoder.decode(Some("image/png"), &bytes) {
+        Ok(other) => {
+            eprintln!("garbage should not have decoded, got {other:?}");
+            1
+        }
+        Err(_) => 0,
     }
 }
 

@@ -95,7 +95,13 @@ fn run_role(role: &str, args: &[String]) -> i32 {
     // able to attach and read it.
     gosub_sandbox::deny_debugger_attach();
 
+    use crate::decoder_process::client::DECODER_ROLE;
+
     match role {
+        DECODER_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::decoder_process::child::serve(endpoint),
+            Err(code) => code,
+        },
         NET_ROLE => match adopt_link(role, args) {
             Ok(endpoint) => crate::net::process::child::serve(endpoint),
             Err(code) => code,
