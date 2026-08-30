@@ -441,6 +441,12 @@
       "type": "b",
       "default": "b:true",
       "description": "Decode raster images in a throwaway, sandboxed process, one per image. Needs the embedder to dispatch child roles. SVG is rasterized in that process at its intrinsic size (without system fonts), since a parsed vector tree cannot cross a process boundary; a decode the process refuses or cannot start is a failed image, never decoded in-process instead."
+    },
+    {
+      "key": "renderer_process",
+      "type": "b",
+      "default": "b:true",
+      "description": "Spawn the renderer fork server at engine start: a warmed, sandboxed process that renderers are forked from, one throwaway renderer per render, confined to the tier the configured font system answers. On by default on Linux when the embedder calls gosub_engine::child_process::dispatch_with::<AppConfig>() first thing in main() (plain dispatch() cannot run this role), the configured font system can run fully confined (Parley, cosmic-text) and the configuration has a forked rasterizer (the engine's cairo-tiles/skia-tiles feature, or a custom RenderConfiguration); a font system that reads font files while operating (Skia, Pango) renders in a throwaway exec'd process per render instead and must be opted into explicitly. If the fork server cannot start, pages render in-process (with a warning at startup); once it runs, page content is never rendered in-process - a failed render leaves the tab blank and emits EngineEvent::RendererCrashed. Linux only."
     }
   ],
   "telemetry": [

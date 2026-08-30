@@ -80,13 +80,30 @@ pub struct BakedTile {
 /// Format: (page_x bits, page_y bits, layer_id, paint-command hash).
 pub type TileCacheKey = (u64, u64, u64, u64);
 
+/// A tile's identity folded to one number: position, layer, and painted
+/// content. What a process that *keeps* tiles (the broker) sends to a process
+/// that *produces* them (a renderer), so the renderer can skip both
+/// rasterizing and shipping a tile the other side already holds.
+pub fn tile_content_hash(tile: &crate::tiler::Tile) -> u64 {
+    let (x, y, layer, content) = tile_cache_key(tile);
+    // FNV-1a over the four components, matching the key's own hasher.
+    let mut h: u64 = 14695981039346656037;
+    for part in [x, y, layer, content] {
+        for b in part.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+    }
+    h
+}
+
 /// Rasterized tile cache: maps a [`TileCacheKey`] to `(physical_width, physical_height, pixels)`.
 /// Carried between renders so unchanged tiles skip rasterization.
 pub type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>;
 
 /// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
 /// The content hash covers all paint commands so any visual change produces a different key.
-fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
+pub fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
     use crate::painter::commands::{
         border::{BorderRadius, BorderStyle},
         brush::Brush,

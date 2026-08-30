@@ -44,6 +44,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
+        capture_source: bool,
     ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
@@ -52,6 +53,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
                 io_tx,
                 accept_language,
                 max_document_bytes,
+                capture_source,
             )),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),

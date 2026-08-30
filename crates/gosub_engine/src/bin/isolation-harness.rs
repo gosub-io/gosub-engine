@@ -11,7 +11,8 @@ const BODY: &str = "<html><head><title>through the net process</title></head>\
 style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
 /// The harness's render configuration: null backend and compositor (nothing
-/// composites here), the scenario-selected font system.
+/// composites here), the scenario-selected font system - and, behind the
+/// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
 struct TileConfig<F>(std::marker::PhantomData<F>);
 
 impl<F> Clone for TileConfig<F> {
@@ -40,6 +41,22 @@ impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileCo
     type RenderBackend = gosub_render_pipeline::render::backends::null::NullBackend;
     type CompositorSink = gosub_render_pipeline::render::DefaultCompositor;
     type FontSystem = F;
+
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        #[cfg(feature = "cairo-tiles")]
+        {
+            Some(Box::new(gosub_renderer_cairo::CairoRasterizer::with_font_system(
+                font_system,
+            )))
+        }
+        #[cfg(not(feature = "cairo-tiles"))]
+        {
+            let _ = font_system;
+            None
+        }
+    }
 }
 
 /// Run a font scenario against the font system named by argv[2].
@@ -101,6 +118,12 @@ fn main() {
         "webfont-under-lockdown" => with_font_backend!(webfont_under_lockdown),
         "fonts-under-font-readable-lockdown" => with_font_backend!(fonts_under_font_readable_lockdown),
         "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
+        "fork-server" => with_font_backend!(fork_server_roundtrip),
+        "render-under-lockdown" => with_font_backend!(render_under_lockdown),
+        "engine-renderer-process" => with_font_backend!(engine_renderer_process),
+        "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
+        "render-file" => with_font_backend!(render_file),
+        "render-file-locked" => with_font_backend!(render_file_locked),
         "engine" => engine(),
         "guard" => guard(),
         other => {
@@ -465,6 +488,994 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     }
     println!("registered and shaped {w:.1}x{h:.1} under the font-readable renderer lockdown");
     0
+}
+
+/// The render pipeline under the renderer lockdown, in *this* process - the
+/// same stages the forked renderer runs, minus the fork machinery, so a
+/// pipeline-vs-sandbox failure can be debugged (and bisected) directly.
+fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::renderer;
+
+        let mut fonts = F::default();
+        println!("font backend: {}", std::any::type_name::<F>());
+        let _ = fonts.families();
+        match fonts.prepare_for_confinement() {
+            Confinement::Full => {}
+            other => {
+                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
+                return 2;
+            }
+        }
+
+        // SVG text goes through a system fontdb that loads face files lazily;
+        // pin them before the lockdown, exactly as the fork server does.
+        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+
+        gosub_sandbox::lock_down_renderer();
+
+        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
+        let (summary, baked, _hit_regions) = renderer::render_page::<TileConfig<F>>(
+            renderer::PageRequest {
+                html: "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
+                page_url: "about:blank",
+                viewport_width: 1280.0,
+                viewport_height: 720.0,
+                known_tiles: &Default::default(),
+                hovered_node: None,
+            },
+            shared,
+            media_store,
+            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+        );
+        if summary.page_height <= 0.0 || summary.paint_commands == 0 {
+            eprintln!("implausible page under lockdown: {summary:?}");
+            return 1;
+        }
+        // With a rasterizer compiled in, stage 6 must run under this sandbox
+        // too, and produce pixels that are actually ink rather than zeroes.
+        if cfg!(feature = "cairo-tiles") {
+            let inked: u64 = baked
+                .iter()
+                .map(|tile| match tile {
+                    renderer::RenderedTile::Fresh { tile, .. } => match &tile.pixels {
+                        gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) => {
+                            bytes.iter().filter(|&&b| b != 0).count() as u64
+                        }
+                        gosub_render_pipeline::common::texture::TilePixels::Gpu(_) => 0,
+                    },
+                    // Nothing was rasterized here (no broker memory in this
+                    // scenario, so this cannot happen).
+                    renderer::RenderedTile::Unchanged { .. } => 0,
+                })
+                .sum();
+            if baked.is_empty() || inked == 0 {
+                eprintln!("rasterization under lockdown produced no ink ({} tiles)", baked.len());
+                return 1;
+            }
+            println!(
+                "rasterized {} tiles under lockdown ({inked} non-zero bytes)",
+                baked.len()
+            );
+        }
+        println!(
+            "rendered a {:.0}x{:.0} page under the renderer lockdown ({} paint commands)",
+            summary.page_width, summary.page_height, summary.paint_commands
+        );
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer lockdown exists only on Linux");
+        2
+    }
+}
+
+/// The exec-fresh renderer, driven directly: spawn one throwaway
+/// font-readable-confined renderer process, have it render the same
+/// css+font+img page the fork-server scenario uses, and verify the brokered
+/// loads and the streamed tiles - the `FontPathsReadable` tier's whole
+/// render path, without an engine around it.
+fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        let html = r#"
+            <html><head>
+            <link rel="stylesheet" href="/page.css">
+            <style> body { margin: 0; } h1 { font-size: 32px; } </style></head>
+            <body>
+                <h1>Rendered in an exec'd renderer</h1>
+                <div class="card"><p>One page, one process, gone.</p></div>
+                <img src="/tile.png" width="64" height="64">
+            </body></html>
+        "#;
+        let font_bytes = {
+            use gosub_interface::font_system::FontQuery;
+            let mut fonts = gosub_fontmanager::ParleyFontSystem::default();
+            let _ = fonts.families();
+            fonts
+                .resolve(&FontQuery::new(&["sans-serif"]))
+                .map(|resolved| resolved.blob.data.as_ref().as_ref().to_vec())
+                .unwrap_or_default()
+        };
+        let loader = HarnessResourceLoader {
+            font: font_bytes,
+            ..Default::default()
+        };
+
+        match gosub_engine::render_process::client::render_page(
+            html,
+            "http://harness.invalid/index.html",
+            "exec-harness-tab",
+            (1280.0, 720.0),
+            &loader,
+            &Default::default(),
+            None,
+        ) {
+            Ok(page) => {
+                let (summary, tiles) = (page.summary, page.tiles);
+                if summary.page_height < 300.0 || summary.paint_commands == 0 {
+                    eprintln!("implausible page from the exec'd renderer: {summary:?}");
+                    return 1;
+                }
+                if page.hit_regions.is_empty() {
+                    eprintln!("the exec'd renderer shipped no hit-test geometry");
+                    return 1;
+                }
+                let paths = loader.paths.lock().clone();
+                for expected in ["/tile.png", "/page.css", "/face.ttf"] {
+                    if !paths.iter().any(|p| p.ends_with(expected)) {
+                        eprintln!("the exec'd renderer never requested {expected} (saw: {paths:?})");
+                        return 1;
+                    }
+                }
+                if cfg!(feature = "cairo-tiles") && tiles.is_empty() {
+                    eprintln!("no tiles arrived from the exec'd renderer");
+                    return 1;
+                }
+                println!(
+                    "exec'd renderer rendered a {:.0}x{:.0} page: {} tiles, {} brokered requests",
+                    summary.page_width,
+                    summary.page_height,
+                    tiles.len(),
+                    paths.len()
+                );
+                0
+            }
+            Err(e) => {
+                eprintln!("exec'd render failed: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the exec'd renderer exists only on Linux");
+        2
+    }
+}
+
+/// The engine-side wiring: `GosubEngine` itself spawns the fork server when
+/// `security.renderer_process` is on, announces the tier, hands out the
+/// handle, and tears it down at shutdown.
+fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            // The engine runs the same configuration the child dispatch uses,
+            // so its (static) font-system tier decides the renderer mechanism.
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+
+            // What the engine starts depends on the configured font system's
+            // static tier: `Full` gets a warmed fork server, `FontPathsReadable`
+            // gets exec-per-render mode (no long-lived process at all).
+            match F::confinement() {
+                Confinement::Full => {
+                    let Some(tier) = engine.renderer_process_tier() else {
+                        if !cfg!(feature = "cairo-tiles") {
+                            eprintln!(
+                                "no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn"
+                            );
+                            return 2;
+                        }
+                        eprintln!("the engine did not start a renderer fork server");
+                        return 1;
+                    };
+                    println!("engine renderer process tier: {tier:?}");
+                    if !matches!(tier, ConfinementTier::Full) {
+                        eprintln!("expected the Full tier, got {tier:?}");
+                        return 1;
+                    }
+                    let Some(server) = engine.renderer_process() else {
+                        eprintln!("tier announced but no handle exposed");
+                        return 1;
+                    };
+                    let outcome = server.lock().render_page(
+                        "<html><body><p>Rendered through the engine's fork server.</p></body></html>",
+                        "http://harness.invalid/",
+                        "fork-harness-tab",
+                        (1280.0, 720.0),
+                        &gosub_interface::resource_loader::NoResourceLoader,
+                        &Default::default(),
+                        None,
+                    );
+                    match outcome {
+                        Ok(page) => {
+                            let (summary, tiles) = (page.summary, page.tiles);
+                            if summary.page_height <= 0.0 || summary.paint_commands == 0 {
+                                eprintln!("implausible page through the engine handle: {summary:?}");
+                                return 1;
+                            }
+                            println!(
+                                "engine-held fork server rendered a {:.0}x{:.0} page ({} tiles over shm)",
+                                summary.page_width,
+                                summary.page_height,
+                                tiles.len()
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("rendering through the engine handle failed: {e}");
+                            return 1;
+                        }
+                    }
+                }
+                Confinement::FontPathsReadable => {
+                    if engine.renderer_process_tier().is_some() {
+                        eprintln!("a FontPathsReadable config must not spawn a fork server");
+                        return 1;
+                    }
+                    println!("exec-per-render mode: no fork server spawned, renderers spawn per render");
+                }
+                Confinement::Unsupported(reason) => {
+                    eprintln!("unexpected Unsupported tier: {reason}");
+                    return 1;
+                }
+            }
+
+            // The tab route: a real navigation whose frame is rendered
+            // out-of-process - forked from the fork server (Full) or in a
+            // throwaway exec'd renderer (FontPathsReadable). The tab worker
+            // captures the document source, sends it out, and submits the
+            // returned tiles to the compositor - the same code path an
+            // embedder's window drives.
+            {
+                use gosub_engine::events::{NavigationEvent, TabCommand};
+                use gosub_engine::storage::{
+                    InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
+                };
+                use gosub_engine::zone::ZoneServices;
+                use gosub_render_pipeline::render::backend::ExternalHandle;
+
+                let Ok((port, _server)) = serve_once_with(BODY) else {
+                    eprintln!("could not start the test server");
+                    return 1;
+                };
+                let mut events = engine.subscribe_events();
+                let services = ZoneServices {
+                    storage: Arc::new(StorageService::new(
+                        Arc::new(InMemoryLocalStore::new()),
+                        Arc::new(InMemorySessionStore::new()),
+                    )),
+                    cookie_store: None,
+                    cookie_jar: None,
+                    partition_policy: PartitionPolicy::None,
+                    places: None,
+                };
+                let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                    eprintln!("could not create a zone");
+                    return 1;
+                };
+                let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                    eprintln!("could not create a tab");
+                    return 1;
+                };
+                let _ = tab
+                    .send(TabCommand::SetViewport {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 720,
+                    })
+                    .await;
+                if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                    eprintln!("navigate failed");
+                    return 1;
+                }
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+                // Wait for the navigation, then for a frame to reach the
+                // compositor - both on a clock.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        eprintln!("timed out waiting for the navigation to finish");
+                        return 1;
+                    }
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(gosub_engine::events::EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        })) => break,
+                        Ok(Ok(gosub_engine::events::EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        })) => {
+                            eprintln!("navigation failed: {error}");
+                            return 1;
+                        }
+                        Ok(Ok(_)) => continue,
+                        _ => {
+                            eprintln!("event channel closed or timed out");
+                            return 1;
+                        }
+                    }
+                }
+
+                let frame = loop {
+                    if tokio::time::Instant::now() >= deadline {
+                        eprintln!("timed out waiting for a remotely rendered frame");
+                        return 1;
+                    }
+                    match compositor.frame_for(tab.tab_id) {
+                        Some(handle @ ExternalHandle::TileCache { .. }) => break handle,
+                        _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                    }
+                };
+                let ExternalHandle::TileCache { tiles, page_height, .. } = frame else {
+                    eprintln!("expected a TileCache frame");
+                    return 1;
+                };
+                if page_height <= 0.0 {
+                    eprintln!("remotely rendered frame has no page height");
+                    return 1;
+                }
+                if cfg!(feature = "cairo-tiles") && tiles.is_empty() {
+                    eprintln!("remotely rendered frame carried no tiles");
+                    return 1;
+                }
+                println!(
+                    "tab frame rendered out-of-process: {} tiles, page height {page_height:.0}",
+                    tiles.len()
+                );
+
+                // Hit testing on a remotely rendered page: the layer list is
+                // process-local, so this can only work off the geometry the
+                // renderer shipped. The served page is one big link, so a
+                // move into it must raise HoverUrl with that href.
+                let _ = tab.send(TabCommand::MouseMove { x: 50.0, y: 50.0 }).await;
+                let hover_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+                let mut hovered: Option<String> = None;
+                while tokio::time::Instant::now() < hover_deadline {
+                    let remaining = hover_deadline.saturating_duration_since(tokio::time::Instant::now());
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(gosub_engine::events::EngineEvent::HoverUrl { url: Some(url), .. })) => {
+                            hovered = Some(url);
+                            break;
+                        }
+                        Ok(Ok(_)) => continue,
+                        _ => break,
+                    }
+                }
+                match hovered {
+                    Some(url) if url.contains("example.test/target") => {
+                        println!("hit test on the remotely rendered page found the link: {url}");
+                    }
+                    Some(url) => {
+                        eprintln!("hovered an unexpected url: {url}");
+                        return 1;
+                    }
+                    None => {
+                        eprintln!("no HoverUrl for a remotely rendered page: hit testing is not working");
+                        return 1;
+                    }
+                }
+
+                engine.close_zone(zone).await;
+            }
+
+            if engine.shutdown().await.is_err() {
+                eprintln!("engine shutdown failed");
+                return 1;
+            }
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
+/// Answers a forked renderer's brokered subresource requests from memory,
+/// recording them - the harness's stand-in for the engine's cookie-attaching
+/// brokered loader. Serves an image, an external stylesheet (which declares a
+/// layout-visible rule and an `@font-face`), and the font that face names.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Default)]
+struct HarnessResourceLoader {
+    served: std::sync::atomic::AtomicU64,
+    /// Raw SFNT bytes served as `/face.ttf` (a real installed font, read
+    /// broker-side where files are still reachable).
+    font: Vec<u8>,
+    /// Every path requested, in order - what the assertions read.
+    paths: parking_lot::Mutex<Vec<String>>,
+}
+
+/// The stylesheet the renderer must fetch through the broker: one rule that
+/// visibly moves layout (asserted via page height) and one `@font-face` whose
+/// font must come back through the same channel.
+#[cfg(target_os = "linux")]
+const HARNESS_CSS: &str = r#"
+    @font-face { font-family: "HarnessFace"; src: url("/face.ttf"); }
+    .card { margin-top: 300px; font-family: "HarnessFace"; }
+    h1:hover { background: #ff0000; }
+"#;
+
+#[cfg(target_os = "linux")]
+impl gosub_interface::resource_loader::ResourceLoader for HarnessResourceLoader {
+    fn load(
+        &self,
+        url: &url::Url,
+    ) -> Result<gosub_interface::resource_loader::LoadedResource, gosub_interface::resource_loader::LoadError> {
+        use gosub_interface::resource_loader::{LoadError, LoadedResource};
+        self.served.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.paths.lock().push(url.path().to_string());
+        match url.path() {
+            path if path.ends_with("/tile.png") => Ok(LoadedResource {
+                status: 200,
+                content_type: Some("image/png".into()),
+                body: bytes::Bytes::from_static(SAMPLE_PNG),
+            }),
+            path if path.ends_with("/page.css") => Ok(LoadedResource {
+                status: 200,
+                content_type: Some("text/css".into()),
+                body: bytes::Bytes::from_static(HARNESS_CSS.as_bytes()),
+            }),
+            path if path.ends_with("/face.ttf") && !self.font.is_empty() => Ok(LoadedResource {
+                status: 200,
+                content_type: Some("font/ttf".into()),
+                body: bytes::Bytes::from(self.font.clone()),
+            }),
+            _ => Err(LoadError::Failed(format!("harness does not serve {url}"))),
+        }
+    }
+}
+
+/// The whole phase-4 chain, end to end: the fork server consumes the
+/// confinement answer and a forked renderer proves it was consumed correctly.
+fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+
+        let mut server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        println!("fork server ready, tier: {:?}", server.confinement());
+
+        match server.confinement() {
+            ConfinementTier::Unsupported(reason) => {
+                eprintln!("this font system cannot run isolated ({reason}); nothing to fork");
+                server.shutdown();
+                return 1;
+            }
+            // No zygote for this tier: renderers are exec'd fresh, so the
+            // correct behaviour is a refusal that says exactly that.
+            ConfinementTier::FontPathsReadable => {
+                let reply = server.prove_shaping();
+                server.shutdown();
+                return match reply {
+                    Err(e) if e.to_string().contains("no use for a fork server") => {
+                        println!("fork refused as designed: {e}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("expected the designed refusal, got: {e}");
+                        1
+                    }
+                    Ok(_) => {
+                        eprintln!("a FontPathsReadable fork server should refuse to fork, but forked");
+                        1
+                    }
+                };
+            }
+            ConfinementTier::Full => {}
+        }
+
+        match server.prove_shaping() {
+            Ok((w, h)) => {
+                if w <= 0.0 || h <= 0.0 {
+                    eprintln!("forked renderer shaped an empty box ({w}x{h})");
+                    return 1;
+                }
+                println!("forked renderer shaped {w:.1}x{h:.1} under its tier sandbox");
+            }
+            Err(e) => {
+                eprintln!("fork proof failed: {e}");
+                return 1;
+            }
+        }
+
+        // The renderer role proper: the whole pipeline (parse → style →
+        // layout → layering → tiling → paint) over a real page, in a fresh
+        // forked renderer, single-threaded, under the tier sandbox. The page
+        // exercises CSS (inline <style>), block flow, enough text that a
+        // dead font system could not fake the numbers - and an image, which
+        // the renderer cannot fetch: its request must come back out through
+        // the fork server and be answered by the loader below.
+        let html = r#"
+            <html><head>
+            <link rel="stylesheet" href="/page.css">
+            <style>
+                body { margin: 0; }
+                h1 { font-size: 32px; }
+                .card { padding: 16px; background: #eee; }
+            </style></head>
+            <body>
+                <h1>Rendered in a forked renderer</h1>
+                <div class="card"><p>Laid out, layered, tiled and painted under the
+                renderer sandbox, shaping through fonts inherited copy-on-write from
+                the fork server. No file was opened past this point.</p></div>
+                <img src="/tile.png" width="64" height="64">
+            </body></html>
+        "#;
+        // Real font bytes for `/face.ttf`, read broker-side (files are still
+        // reachable here) - the renderer must receive them over the channel,
+        // never from disk.
+        let font_bytes = {
+            use gosub_interface::font_system::FontQuery;
+            let mut fonts = gosub_fontmanager::ParleyFontSystem::default();
+            let _ = fonts.families();
+            fonts
+                .resolve(&FontQuery::new(&["sans-serif"]))
+                .map(|resolved| resolved.blob.data.as_ref().as_ref().to_vec())
+                .unwrap_or_default()
+        };
+        let loader = HarnessResourceLoader {
+            font: font_bytes,
+            ..Default::default()
+        };
+        let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+        // Filled from the first render's hit regions; the hover pass below
+        // needs node ids, and only the renderer knows them.
+        let mut hit_region_nodes: Vec<u64>;
+        match server.render_page(
+            html,
+            "http://harness.invalid/index.html",
+            "fork-harness-tab",
+            (1280.0, 720.0),
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) => {
+                let (summary, tiles, hit_regions) = (page.summary, page.tiles, page.hit_regions);
+                if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
+                    eprintln!("the forked renderer produced an implausible page: {summary:?}");
+                    return 1;
+                }
+                // Hit-test geometry must cross with the pixels: without it a
+                // remotely rendered page cannot answer what is under the
+                // pointer. The page has an <a>, so a link region must exist.
+                if hit_regions.is_empty() {
+                    eprintln!("the forked renderer shipped no hit-test geometry");
+                    return 1;
+                }
+                println!("received {} hit regions for the page", hit_regions.len());
+                memory.replace_with(tiles.iter().map(|t| {
+                    let (hash, kept) = t.keep();
+                    (hash, kept)
+                }));
+                hit_region_nodes = hit_regions.iter().map(|r| r.node_id).collect();
+                println!(
+                    "forked renderer rendered a {:.0}x{:.0} page: {} layers, {} tiles painted, {} paint commands",
+                    summary.page_width,
+                    summary.page_height,
+                    summary.layer_count,
+                    summary.painted_tiles,
+                    summary.paint_commands
+                );
+                // With a rasterizer compiled in, the pixels must arrive as
+                // mapped shared memory - and be ink, not zeroes: these are
+                // the renderer's own pages, validated and sealed.
+                if cfg!(feature = "cairo-tiles") {
+                    let inked: u64 = tiles
+                        .iter()
+                        .map(|tile| tile.pixels().iter().filter(|&&b| b != 0).count() as u64)
+                        .sum();
+                    if tiles.is_empty() || inked == 0 {
+                        eprintln!("no ink arrived over shared memory ({} tiles)", tiles.len());
+                        return 1;
+                    }
+                    println!(
+                        "received {} tiles over shared memory ({inked} non-zero bytes, zero-copy)",
+                        tiles.len()
+                    );
+
+                    // The consumer side, end to end: convert to the
+                    // compositor's `CachedTile` shape (asserting the pixels
+                    // are still the mapped pages, not a copy) and present a
+                    // frame through the production composite loop.
+                    use gosub_render_pipeline::render::tile_composite::{composite_tiles, TileTarget};
+                    let mapped_ptrs: Vec<*const u8> = tiles.iter().map(|t| t.pixels().as_ptr()).collect();
+                    let cached: Vec<_> = tiles.into_iter().map(|t| t.into_cached_tile()).collect();
+                    for (cached_tile, mapped_ptr) in cached.iter().zip(&mapped_ptrs) {
+                        if cached_tile.data.as_ptr() != *mapped_ptr {
+                            eprintln!("a tile was copied on its way into the compositor");
+                            return 1;
+                        }
+                    }
+
+                    const BACKGROUND: u32 = 0xFF00_00FF; // opaque blue: absent from the page
+                    let (vw, vh) = (1280usize, 720usize);
+                    let mut frame = vec![BACKGROUND; vw * vh];
+                    let mut target = TileTarget {
+                        buf: &mut frame,
+                        stride: vw,
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: vw,
+                        height: vh,
+                    };
+                    composite_tiles(&cached, 1, (0.0, 0.0), &mut target);
+                    let presented = frame.iter().filter(|&&px| px != BACKGROUND).count();
+                    if presented == 0 {
+                        eprintln!("compositing the mapped tiles painted nothing over the background");
+                        return 1;
+                    }
+                    println!("composited a {vw}x{vh} frame from the mapped tiles ({presented} pixels changed)");
+                } else if !tiles.is_empty() {
+                    eprintln!("received tiles without a rasterizer compiled in?");
+                    return 1;
+                }
+                // The subresource inversion: the confined renderer cannot
+                // fetch, so its <img>, its <link> stylesheet, and the
+                // @font-face that stylesheet declares must all have arrived
+                // here as brokered requests.
+                let paths = loader.paths.lock().clone();
+                for expected in ["/tile.png", "/page.css", "/face.ttf"] {
+                    if !paths.iter().any(|p| p.ends_with(expected)) {
+                        eprintln!("the renderer never requested {expected} (saw: {paths:?})");
+                        return 1;
+                    }
+                }
+                // The external stylesheet must have *applied*, not merely
+                // loaded: its 300px margin puts the page height beyond what
+                // the inline styles alone produce.
+                if summary.page_height < 300.0 {
+                    eprintln!(
+                        "page height {:.0} does not reflect the brokered stylesheet's 300px margin",
+                        summary.page_height
+                    );
+                    return 1;
+                }
+                println!(
+                    "served {} brokered requests ({} paths: img, stylesheet, web font); stylesheet applied",
+                    loader.served.load(std::sync::atomic::Ordering::Relaxed),
+                    paths.len()
+                );
+            }
+            Err(e) => {
+                eprintln!("rendering in a forked renderer failed: {e}");
+                return 1;
+            }
+        }
+
+        // Incrementality: render the same page again, this time telling the
+        // renderer which tiles we kept. Nothing about the page changed, so
+        // every tile must come back as unchanged - no rasterization, no
+        // pixels, no file descriptors. Needs a rasterizer to have produced
+        // tiles in the first place.
+        if cfg!(feature = "cairo-tiles") {
+            use gosub_engine::fork_server::client::PageTile;
+            match server.render_page(
+                html,
+                "http://harness.invalid/index.html",
+                "fork-harness-tab",
+                (1280.0, 720.0),
+                &loader,
+                &memory,
+                None,
+            ) {
+                Ok(page) => {
+                    let fresh = page
+                        .tiles
+                        .iter()
+                        .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                        .count();
+                    let reused = page.tiles.len() - fresh;
+                    if reused == 0 || fresh != 0 {
+                        eprintln!("re-render shipped {fresh} fresh and {reused} reused tiles; expected all reused");
+                        return 1;
+                    }
+                    println!("re-render reused all {reused} tiles: nothing rasterized, nothing shipped");
+                }
+                Err(e) => {
+                    eprintln!("re-render failed: {e}");
+                    return 1;
+                }
+            }
+        }
+
+        // Hover repaint, out of process: the renderer re-parses per render and
+        // has no hover state of its own, so the broker tells it which node is
+        // under the pointer. With the tile memory in play, only the tiles
+        // whose painted content actually changed come back - hovering the
+        // <h1> (which the brokered stylesheet gives a :hover background)
+        // must repaint some tiles while reusing the rest.
+        if cfg!(feature = "cairo-tiles") {
+            use gosub_engine::fork_server::client::PageTile;
+            let mut hovered_changed = 0usize;
+            let mut nodes: Vec<u64> = std::mem::take(&mut hit_region_nodes);
+            nodes.sort_unstable();
+            nodes.dedup();
+            for node in nodes {
+                let Ok(page) = server.render_page(
+                    html,
+                    "http://harness.invalid/index.html",
+                    "fork-harness-tab",
+                    (1280.0, 720.0),
+                    &loader,
+                    &memory,
+                    Some(node),
+                ) else {
+                    eprintln!("hover render failed for node {node}");
+                    return 1;
+                };
+                let fresh = page
+                    .tiles
+                    .iter()
+                    .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                    .count();
+                if fresh > 0 {
+                    hovered_changed += 1;
+                    println!(
+                        "hovering node {node} repainted {fresh} of {} tiles out of process",
+                        page.tiles.len()
+                    );
+                }
+            }
+            if hovered_changed == 0 {
+                eprintln!("no node produced a hover repaint; :hover is not reaching the renderer");
+                return 1;
+            }
+        }
+
+        // The streaming property: a page whose tile count exceeds any
+        // process's file-descriptor limit (RLIMIT_NOFILE is 128 in the fork
+        // server and its children) must still ship every tile - possible
+        // only because each hop seals/relays/maps one fd at a time.
+        if cfg!(feature = "cairo-tiles") {
+            let tall = r#"<html><body style="margin:0">
+                <div style="height: 12000px; background: #ddd">tall</div>
+            </body></html>"#;
+            match server.render_page(
+                tall,
+                "http://harness.invalid/tall.html",
+                "fork-harness-tab",
+                (1280.0, 720.0),
+                &loader,
+                &Default::default(),
+                None,
+            ) {
+                Ok(page) => {
+                    let (summary, tiles) = (page.summary, page.tiles);
+                    if tiles.len() <= 128 {
+                        eprintln!(
+                            "expected a tall page to stream more tiles than an fd limit could buffer, got {}",
+                            tiles.len()
+                        );
+                        return 1;
+                    }
+                    println!(
+                        "streamed {} tiles for a {:.0}px-tall page (past any fd limit)",
+                        tiles.len(),
+                        summary.page_height
+                    );
+                }
+                Err(e) => {
+                    eprintln!("tall-page streaming render failed: {e}");
+                    return 1;
+                }
+            }
+        }
+        server.shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Debugging aid, not a test: render an arbitrary HTML file (argv[3], with an
+/// optional base url in argv[4]) through the fork server, so a real-world page
+/// that kills a forked renderer can be replayed headlessly. Subresources are
+/// refused (`NoResourceLoader`), which real pages tolerate - the interesting
+/// failures live in parse/style/layout/shaping/raster, not in the fetches.
+fn render_file<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        println!("fork server ready, tier: {:?}", server.confinement());
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("render-file needs the Full tier");
+            server.shutdown();
+            return 2;
+        }
+
+        let outcome = server.render_page(
+            &html,
+            &base_url,
+            "render-file-tab",
+            (1280.0, 720.0),
+            &gosub_interface::resource_loader::NoResourceLoader,
+            &Default::default(),
+            None,
+        );
+        server.shutdown();
+        match outcome {
+            Ok(page) => {
+                println!(
+                    "forked renderer rendered {path}: {:.0}x{:.0}, {} tiles, {} paint commands",
+                    page.summary.page_width,
+                    page.summary.page_height,
+                    page.tiles.len(),
+                    page.summary.paint_commands
+                );
+                0
+            }
+            Err(e) => {
+                eprintln!("forked render of {path} failed: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// `render-file` without the fork: the same pipeline over argv[3] in *this*
+/// process under the renderer lockdown, so a SIGSYS can be caught by a
+/// debugger with a full backtrace (`gdb --args isolation-harness
+/// render-file-locked parley page.html`).
+fn render_file_locked<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::renderer;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file-locked <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut fonts = F::default();
+        let _ = fonts.families();
+        match fonts.prepare_for_confinement() {
+            Confinement::Full => {}
+            other => {
+                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
+                return 2;
+            }
+        }
+        // As in the fork server: fonts for SVG text pinned pre-lockdown, and
+        // single-threaded fetches, since a confined renderer cannot create
+        // threads.
+        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+        media_store.set_synchronous_fetch(true);
+
+        gosub_sandbox::lock_down_renderer();
+
+        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
+        let (summary, baked, _) = renderer::render_page::<TileConfig<F>>(
+            renderer::PageRequest {
+                html: &html,
+                page_url: &base_url,
+                viewport_width: 1280.0,
+                viewport_height: 720.0,
+                known_tiles: &Default::default(),
+                hovered_node: None,
+            },
+            shared,
+            media_store,
+            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+        );
+        println!(
+            "rendered {path} under the renderer lockdown: {:.0}x{:.0}, {} tiles, {} paint commands",
+            summary.page_width,
+            summary.page_height,
+            baked.len(),
+            summary.paint_commands
+        );
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer lockdown exists only on Linux");
+        2
+    }
 }
 
 /// The follow-up question to the warm-up finding: a page can introduce a font at
