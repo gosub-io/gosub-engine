@@ -1,0 +1,389 @@
+<!doctype html>
+<!--
+  Gosub telemetry viewer. A single static page: open it in any browser while
+  an engine built with the `metrics` feature is running, and it streams
+  GET /events (NDJSON) and polls GET /renderers from http://127.0.0.1:9090.
+  No build step, no dependencies - it only reads JSON.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gosub telemetry</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #8e5bd1;
+    --good: #0ca30c; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #a274e0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--ring); background: var(--surface); }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 600; }
+  input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--axis); border-radius: 6px; background: var(--page); color: var(--ink); min-width: 220px; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--axis); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+  button:hover { background: var(--page); }
+  .status { color: var(--ink-2); }
+  .status b { color: var(--ink); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: middle; }
+  .dot.on { background: var(--good); }
+  .dot.err { background: var(--critical); }
+  main { padding: 16px 20px 40px; display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+  .tiles { grid-column: span 12; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 12px 14px; }
+  .tile .label { color: var(--ink-2); font-size: 12px; }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .sub { color: var(--muted); font-size: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; grid-column: span 12; min-width: 0; }
+  .card h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .card .hint { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  @media (min-width: 1100px) { .half { grid-column: span 6; } }
+  svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--ink-2); font-weight: 500; }
+  th:first-child, td:first-child { text-align: left; }
+  td.l { text-align: left; }
+  .scroll { overflow: auto; max-height: 320px; }
+  .log { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; overflow: auto; max-height: 300px; color: var(--ink-2); }
+  .log .k { color: var(--ink); }
+  .tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--page); padding: 6px 8px; border-radius: 6px; font-size: 12px; display: none; z-index: 10; white-space: pre; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gosub telemetry</h1>
+  <input id="base" type="text" value="http://127.0.0.1:9090" spellcheck="false">
+  <button id="connect">Connect</button>
+  <span class="status"><span class="dot" id="dot"></span><span id="state">disconnected</span> · <b id="rate">0</b> events/s · <b id="total">0</b> total</span>
+  <span style="flex:1"></span>
+  <label class="status"><input type="checkbox" id="pause"> pause</label>
+  <button id="clear">Clear</button>
+</header>
+
+<main>
+  <section class="tiles">
+    <div class="tile"><div class="label">Frames / s</div><div class="value" id="t-fps">–</div><div class="sub">last 2 s, all tabs</div></div>
+    <div class="tile"><div class="label">Frame time p95</div><div class="value" id="t-p95">–</div><div class="sub">last 200 frames</div></div>
+    <div class="tile"><div class="label">Worst frame</div><div class="value" id="t-worst">–</div><div class="sub">last 200 frames</div></div>
+    <div class="tile"><div class="label">Last remote pass</div><div class="value" id="t-pass">–</div><div class="sub" id="t-pass-sub">–</div></div>
+    <div class="tile"><div class="label">Resident renderers</div><div class="value" id="t-renderers">–</div><div class="sub" id="t-renderers-sub">polling /renderers</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Frame time</h2>
+    <div class="hint">One bar per frame the tab worker submitted, newest on the right. A tall bar is a stall; its colour says why.</div>
+    <svg id="frames" viewBox="0 0 1200 220" preserveAspectRatio="none"></svg>
+    <div class="legend"><span><i style="background:var(--s1)"></i>scroll (cached tiles only)</span><span><i style="background:var(--s2)"></i>rebuild (pipeline ran, incl. any remote exchange)</span></div>
+  </section>
+
+  <section class="card half">
+    <h2>Remote passes — where the time goes</h2>
+    <div class="hint">One stacked bar per exchange with a renderer process, newest on the right (N = navigate, H = hover, unmarked = scroll). Stages measured in the renderer; the rest is transport (IPC, tile mapping).</div>
+    <svg id="passes" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>
+    <div class="legend" id="pass-legend"></div>
+  </section>
+
+  <section class="card half">
+    <h2>Remote passes — detail</h2>
+    <div class="hint">Newest first.</div>
+    <div class="scroll"><table id="pass-table"><thead><tr><th>time</th><th>kind</th><th>scroll y</th><th>exchange ms</th><th>fresh</th><th>reused</th><th>evicted</th><th>KiB</th><th>renderer ms</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Resource loads</h2>
+    <div class="hint">Every fetch the broker performed (<code>net.load</code>) and every subresource a renderer asked for mid-render (<code>remote.resource</code>), newest first. A blocking request the renderer waited long for is what stalls a navigate.</div>
+    <div class="scroll"><table id="loads"><thead><tr><th>time</th><th>kind</th><th>url</th><th>mode</th><th>outcome</th><th>status</th><th>KiB</th><th>ms</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card half">
+    <h2>Resident renderers</h2>
+    <div class="hint">From <code>/renderers</code>, every 2 s.</div>
+    <div class="scroll"><table id="renderers"><thead><tr><th>site</th><th>pid</th><th>tabs</th><th>RSS MiB</th><th>data MiB</th><th>zone</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card half">
+    <h2>Event log</h2>
+    <div class="row hint"><span>Last 300 events.</span><input id="filter" type="text" placeholder="filter by kind, e.g. remote." style="min-width:160px"></div>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const DEFAULT_BASE = 'http://127.0.0.1:9090';
+  function baseUrl() {
+    let base = $('base').value.trim().replace(/\/$/, '');
+    if (!base) { base = DEFAULT_BASE; $('base').value = base; }
+    try { localStorage.setItem('gosub-telemetry-base', base); } catch (e) { /* private mode */ }
+    return base;
+  }
+  try { const saved = localStorage.getItem('gosub-telemetry-base'); if (saved) $('base').value = saved; } catch (e) { /* ignore */ }
+  if (!$('base').value.trim()) $('base').value = DEFAULT_BASE;
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // ── state ──
+  const MAX_FRAMES = 240, MAX_PASSES = 60, MAX_LOG = 300;
+  const frames = [];   // {us, path, tab, ts}
+  const passes = [];   // {ts, kind, scroll_y, exchange_us, fresh, reused, evicted, bytes, stages:{}}
+  const log = [];
+  const loads = [];   // {ts, kind, url, mode, outcome, status, bytes, us}
+  const MAX_LOADS = 200;
+  let total = 0, recent = [];  // recent: timestamps for the rate
+  let controller = null, paused = false, dirty = false;
+
+  const STAGES = [
+    ['build.parse', 'parse', '--s1'], ['build.render_tree', 'style', '--s7'], ['build.layout', 'layout', '--s2'], ['render.tiling', 'tiling', '--s3'],
+    ['render.paint', 'paint', '--s4'], ['render.raster', 'raster', '--s5'], ['transport', 'transport', '--s6'],
+  ];
+  $('pass-legend').innerHTML = STAGES.map(([, label, v]) => `<span><i style="background:var(${v})"></i>${label}</span>`).join('');
+
+  // ── ingest ──
+  function onEvent(ev) {
+    total++;
+    recent.push(performance.now());
+    if (!paused) {
+      log.push(ev);
+      if (log.length > MAX_LOG) log.shift();
+    }
+    const d = ev.data || {};
+    if (ev.kind === 'tab.frame') {
+      frames.push({ us: d.frame_us || 0, path: d.path, tab: d.tab, ts: ev.ts_us, scroll_y: d.scroll_y });
+      if (frames.length > MAX_FRAMES) frames.shift();
+    } else if (ev.kind === 'net.load' || ev.kind === 'remote.resource') {
+      loads.push({ ts: ev.ts_us, kind: ev.kind === 'net.load' ? 'net' : 'renderer', url: d.url || '',
+        mode: ev.kind === 'net.load' ? '' : (d.deferred ? 'deferred' : 'blocking'),
+        outcome: d.outcome || '', status: d.status ?? '', bytes: d.bytes || 0,
+        us: ev.kind === 'net.load' ? (d.duration_us || 0) : (d.renderer_waited_us || 0), error: d.error || '' });
+      if (loads.length > MAX_LOADS) loads.shift();
+    } else if (ev.kind === 'remote.navigate' || ev.kind === 'remote.media' || ev.kind === 'remote.scroll' || ev.kind === 'remote.hover') {
+      const stages = {};
+      let sum = 0;
+      for (const [key] of STAGES) {
+        if (key === 'transport') continue;
+        const v = (d.renderer_us && d.renderer_us[key]) || 0;
+        stages[key] = v; sum += v;
+      }
+      stages.transport = Math.max(0, (d.exchange_us || 0) - sum);
+      passes.push({ ts: ev.ts_us, kind: ev.kind, scroll_y: d.scroll_y, exchange_us: d.exchange_us || 0,
+        fresh: d.tiles_fresh, reused: d.tiles_reused, evicted: d.tiles_evicted, bytes: d.bytes_shipped, url: d.url, stages });
+      if (passes.length > MAX_PASSES) passes.shift();
+    }
+    dirty = true;
+  }
+
+  // ── connection ──
+  async function connect() {
+    disconnect();
+    const base = baseUrl();
+    controller = new AbortController();
+    setState('connecting…', '');
+    try {
+      const res = await fetch(base + '/events', { signal: controller.signal });
+      if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+      setState('streaming', 'on');
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          try { onEvent(JSON.parse(line)); } catch (e) { /* a torn line; skip */ }
+        }
+      }
+      setState('stream ended', '');
+    } catch (e) {
+      if (controller && controller.signal.aborted) return;
+      setState('error: ' + e.message, 'err');
+    }
+  }
+  function disconnect() {
+    if (controller) { controller.abort(); controller = null; }
+    setState('disconnected', '');
+  }
+  function setState(text, cls) { $('state').textContent = text; $('dot').className = 'dot ' + cls; }
+
+  async function pollRenderers() {
+    const base = baseUrl();
+    try {
+      const res = await fetch(base + '/renderers');
+      const json = await res.json();
+      const rows = json.renderers || [];
+      $('t-renderers').textContent = rows.length;
+      $('t-renderers-sub').textContent = rows.reduce((n, r) => n + (r.tabs || 0), 0) + ' tab(s) hosted';
+      $('renderers').querySelector('tbody').innerHTML = rows.map(r =>
+        `<tr><td class="l">${esc(r.site)}</td><td>${r.pid}</td><td>${r.tabs}</td><td>${r.rss_kb == null ? '–' : (r.rss_kb / 1024).toFixed(0)}</td><td>${r.data_kb == null ? '–' : (r.data_kb / 1024).toFixed(0)}</td><td class="l">${esc(String(r.zone)).slice(0, 8)}</td></tr>`).join('');
+    } catch (e) {
+      $('t-renderers').textContent = '–';
+      $('t-renderers-sub').textContent = 'unreachable';
+    }
+  }
+
+  // ── render ──
+  const fmtMs = (us) => us >= 10_000_000 ? (us / 1e6).toFixed(1) + ' s' : (us / 1000).toFixed(us >= 100000 ? 0 : 1) + ' ms';
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const tip = $('tip');
+  function showTip(e, text) { tip.style.display = 'block'; tip.textContent = text; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; }
+  function hideTip() { tip.style.display = 'none'; }
+
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+    return 10 * p;
+  }
+
+  function renderFrames() {
+    const W = 1200, H = 220, L = 56, B = 22, T = 10;
+    const svg = $('frames');
+    const max = niceMax(Math.max(16000, ...frames.map(f => f.us)));
+    const y = (us) => T + (H - T - B) * (1 - us / max);
+    let out = '';
+    // grid: 0, 16.7ms (a 60 Hz frame), max
+    const ticks = [0, 16667, max].filter((v, i, a) => a.indexOf(v) === i && v <= max);
+    for (const t of ticks) {
+      out += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="${css('--grid')}" stroke-width="1"/>`;
+      out += `<text x="${L - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="${css('--muted')}">${t === 16667 ? '16.7 ms' : fmtMs(t)}</text>`;
+    }
+    const n = MAX_FRAMES, slot = (W - L) / n, bw = Math.max(1, slot - 2);
+    frames.forEach((f, i) => {
+      const x = L + (n - frames.length + i) * slot;
+      const h = Math.max(1, y(0) - y(Math.min(f.us, max)));
+      const color = f.path === 'scroll' ? css('--s1') : css('--s2');
+      out += `<rect x="${x}" y="${y(0) - h}" width="${bw}" height="${h}" rx="1.5" fill="${color}" data-i="${i}"/>`;
+    });
+    out += `<line x1="${L}" x2="${W}" y1="${y(0)}" y2="${y(0)}" stroke="${css('--axis')}" stroke-width="1"/>`;
+    svg.innerHTML = out;
+    svg.onmousemove = (e) => {
+      const t = e.target;
+      if (t.tagName !== 'rect') return hideTip();
+      const f = frames[+t.dataset.i];
+      showTip(e, `${f.path} frame  ${fmtMs(f.us)}\nscroll y ${Math.round(f.scroll_y || 0)}  tab ${String(f.tab).slice(0, 8)}`);
+    };
+    svg.onmouseleave = hideTip;
+  }
+
+  function renderPasses() {
+    const W = 600, H = 220, L = 50, B = 22, T = 10;
+    const svg = $('passes');
+    const max = niceMax(Math.max(50000, ...passes.map(p => p.exchange_us)));
+    const y = (us) => T + (H - T - B) * (1 - us / max);
+    let out = '';
+    for (const t of [0, max / 2, max]) {
+      out += `<line x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="${css('--grid')}" stroke-width="1"/>`;
+      out += `<text x="${L - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="${css('--muted')}">${fmtMs(t)}</text>`;
+    }
+    const n = MAX_PASSES, slot = (W - L) / n, bw = Math.max(2, slot - 2);
+    passes.forEach((p, i) => {
+      const x = L + (n - passes.length + i) * slot;
+      let acc = 0;
+      STAGES.forEach(([key, , v], si) => {
+        const val = p.stages[key] || 0;
+        if (!val) return;
+        const y0 = y(acc), y1 = y(acc + val);
+        const h = Math.max(0, y0 - y1 - 2);   // 2px surface gap between segments
+        out += `<rect x="${x}" y="${y1 + (h ? 2 : 0)}" width="${bw}" height="${h}" rx="${si === STAGES.length - 1 ? 1.5 : 0}" fill="${css(v)}" data-i="${i}" data-s="${si}"/>`;
+        acc += val;
+      });
+      const mark = { 'remote.navigate': 'N', 'remote.media': 'M', 'remote.hover': 'H' }[p.kind];
+      if (mark) {
+        out += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${css('--muted')}">${mark}</text>`;
+      }
+    });
+    out += `<line x1="${L}" x2="${W}" y1="${y(0)}" y2="${y(0)}" stroke="${css('--axis')}" stroke-width="1"/>`;
+    svg.innerHTML = out;
+    svg.onmousemove = (e) => {
+      const t = e.target;
+      if (t.tagName !== 'rect') return hideTip();
+      const p = passes[+t.dataset.i], s = STAGES[+t.dataset.s];
+      const lines = STAGES.map(([k, label]) => `${label.padEnd(9)} ${fmtMs(p.stages[k] || 0)}`).join('\n');
+      showTip(e, `${p.kind}  scroll y ${Math.round(p.scroll_y || 0)}\nexchange ${fmtMs(p.exchange_us)}  (${s[1]} ${fmtMs(p.stages[s[0]] || 0)})\n${lines}\nfresh ${p.fresh}  reused ${p.reused}  evicted ${p.evicted}  ${(p.bytes / 1024 | 0)} KiB`);
+    };
+    svg.onmouseleave = hideTip;
+
+    const tbody = $('pass-table').querySelector('tbody');
+    tbody.innerHTML = passes.slice().reverse().slice(0, 40).map(p => {
+      const r = STAGES.filter(([k]) => k !== 'transport').reduce((a, [k]) => a + (p.stages[k] || 0), 0);
+      return `<tr><td class="l">${new Date(p.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(p.kind.replace('remote.', ''))}</td><td>${Math.round(p.scroll_y || 0)}</td><td>${(p.exchange_us / 1000).toFixed(1)}</td><td>${p.fresh}</td><td>${p.reused}</td><td>${p.evicted}</td><td>${(p.bytes / 1024 | 0)}</td><td>${(r / 1000).toFixed(1)}</td></tr>`;
+    }).join('');
+  }
+
+  function renderTiles() {
+    const now = performance.now();
+    recent = recent.filter(t => now - t < 2000);
+    $('rate').textContent = (recent.length / 2).toFixed(0);
+    $('total').textContent = total;
+
+    const lastFrames = frames.slice(-200);
+    if (lastFrames.length) {
+      const sorted = lastFrames.map(f => f.us).sort((a, b) => a - b);
+      $('t-p95').textContent = fmtMs(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]);
+      $('t-worst').textContent = fmtMs(sorted[sorted.length - 1]);
+      const cutoff = Date.now() * 1000 - 2_000_000;
+      const inWindow = frames.filter(f => f.ts >= cutoff).length;
+      $('t-fps').textContent = (inWindow / 2).toFixed(0);
+    }
+    const p = passes[passes.length - 1];
+    if (p) {
+      $('t-pass').textContent = fmtMs(p.exchange_us);
+      $('t-pass-sub').textContent = `${p.kind.replace('remote.', '')} · ${p.fresh} fresh, ${p.evicted} evicted`;
+    }
+  }
+
+  function renderLoads() {
+    const tbody = $('loads').querySelector('tbody');
+    tbody.innerHTML = loads.slice().reverse().slice(0, 60).map(l => {
+      const url = l.url.length > 70 ? l.url.slice(0, 67) + '…' : l.url;
+      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(l.kind)}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${esc(l.mode)}</td><td class="l">${esc(l.outcome)}</td><td>${l.status}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
+    }).join('');
+  }
+
+  function renderLog() {
+    const q = $('filter').value.trim();
+    const rows = log.filter(ev => !q || ev.kind.includes(q)).slice(-120).reverse();
+    $('log').innerHTML = rows.map(ev =>
+      `${new Date(ev.ts_us / 1000).toLocaleTimeString()} <span class="k">${esc(ev.kind)}</span> ${esc(ev.source)} ${esc(JSON.stringify(ev.data))}`).join('\n');
+  }
+
+  function tick() {
+    if (dirty) { dirty = false; renderFrames(); renderPasses(); renderLoads(); renderLog(); }
+    renderTiles();
+  }
+  setInterval(tick, 200);
+  setInterval(pollRenderers, 2000);
+
+  $('connect').onclick = () => (controller ? disconnect() : connect(), $('connect').textContent = controller ? 'Disconnect' : 'Connect');
+  $('pause').onchange = (e) => { paused = e.target.checked; };
+  $('clear').onclick = () => { frames.length = 0; passes.length = 0; loads.length = 0; log.length = 0; total = 0; dirty = true; };
+  $('filter').oninput = () => { dirty = true; };
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { dirty = true; });
+
+  connect(); $('connect').textContent = 'Disconnect';
+  pollRenderers();
+})();
+</script>
+</body>
+</html>

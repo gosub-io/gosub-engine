@@ -133,17 +133,20 @@ impl EngineMediaSource {
         // thread waiting on the handoff, with no runtime of its own, and `tokio::spawn`
         // panics when there is no runtime in context.
         self.runtime.spawn(async move {
-            let delivered = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
-                Ok((_handle, rx)) => match rx.await {
-                    Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
-                        Some((meta.content_type.clone(), body.to_vec()))
-                    }
-                    _ => None,
-                },
+            let started = std::time::Instant::now();
+            let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
+                Ok((_handle, rx)) => rx.await.ok(),
                 Err(e) => {
                     log::warn!("Failed to submit media request: {e:?}");
                     None
                 }
+            };
+            crate::telemetry::net_load(&url, Some(tab_id), started, result.as_ref());
+            let delivered = match result {
+                Some(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
+                    Some((meta.content_type.clone(), body.to_vec()))
+                }
+                _ => None,
             };
             match delivered {
                 Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &url, content_type, bytes),

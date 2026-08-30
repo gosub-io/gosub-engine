@@ -4,11 +4,13 @@
 //!
 //! # Endpoints
 //!
-//! | Method | Path              | Description                            |
-//! |--------|-------------------|----------------------------------------|
-//! | GET    | `/metrics`        | JSON snapshot of all timing namespaces |
-//! | GET    | `/metrics/reset`  | Clear all timing counters              |
-//! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)     |
+//! | Method | Path              | Description                                          |
+//! |--------|-------------------|------------------------------------------------------|
+//! | GET    | `/metrics`        | JSON snapshot of all timing namespaces               |
+//! | GET    | `/metrics/reset`  | Clear all timing counters                            |
+//! | GET    | `/events`         | The telemetry firehose, streamed as NDJSON           |
+//! | GET    | `/renderers`      | Renderer processes (none yet; reserved for the viewer)  |
+//! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)                   |
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -40,11 +42,19 @@ async fn handle(mut stream: TcpStream) {
     let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
     let first_line = req.lines().next().unwrap_or("");
 
-    let (code, phrase, body) = if first_line.starts_with("GET /metrics/reset") {
+    if first_line.starts_with("GET /events") {
+        stream_events(stream).await;
+        return;
+    }
+
+    // A mutation on a GET is a `<img>` tag away; POST only.
+    let (code, phrase, body) = if first_line.starts_with("POST /metrics/reset") {
         gosub_shared::timing::reset_stats();
         (200u16, "OK", r#"{"status":"reset"}"#.to_string())
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
         (200, "OK", build_metrics_json())
+    } else if first_line.starts_with("GET /renderers") {
+        (200, "OK", r#"{"renderers":[]}"#.to_string())
     } else if first_line.starts_with("GET /health") {
         (200, "OK", r#"{"status":"ok"}"#.to_string())
     } else {
@@ -58,10 +68,37 @@ async fn handle(mut stream: TcpStream) {
         body.as_str()
     };
     let response = format!(
-        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{payload}",
+        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
+}
+
+/// The firehose, one JSON object per line, for as long as the client reads.
+/// Subscribing is what switches emission on, so the stream starts with the
+/// first event after the request. A client that reads too slowly is told
+/// what it missed rather than silently skipped past.
+async fn stream_events(mut stream: TcpStream) {
+    use tokio::sync::broadcast::error::RecvError;
+
+    let mut events = crate::telemetry::subscribe();
+    let head =
+        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    if stream.write_all(head.as_bytes()).await.is_err() {
+        return;
+    }
+    loop {
+        let line = match events.recv().await {
+            Ok(event) => serde_json::to_string(&*event).unwrap_or_default(),
+            Err(RecvError::Lagged(dropped)) => {
+                format!(r#"{{"source":"broker","kind":"telemetry.lagged","data":{{"dropped":{dropped}}}}}"#)
+            }
+            Err(RecvError::Closed) => return,
+        };
+        if stream.write_all(line.as_bytes()).await.is_err() || stream.write_all(b"\n").await.is_err() {
+            return;
+        }
+    }
 }
 
 fn build_metrics_json() -> String {

@@ -543,7 +543,8 @@ pub(crate) async fn fetch_subresource(
         .with_auto_decode(true)
         .build();
 
-    let (_handle, rx) = submit_to_io(
+    let started = std::time::Instant::now();
+    let result = match submit_to_io(
         fetch.zone_id,
         Some(fetch.tab_id),
         req,
@@ -551,9 +552,13 @@ pub(crate) async fn fetch_subresource(
         Some(fetch.parent_cancel.clone()),
     )
     .await
-    .ok()?;
-    match rx.await {
-        Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
+    {
+        Ok((_handle, rx)) => rx.await.ok(),
+        Err(_) => None,
+    };
+    crate::telemetry::net_load(url, Some(fetch.tab_id), started, result.as_ref());
+    match result {
+        Some(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
             Some((meta.content_type.clone(), body.to_vec()))
         }
         _ => None,
