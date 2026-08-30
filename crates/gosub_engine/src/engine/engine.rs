@@ -217,7 +217,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// in CI.
     #[cfg(feature = "process-isolation")]
     fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 1] = ["security.network_process"];
+        const PROCESS_SETTINGS: [&str; 2] = ["security.network_process", "security.image_decoder_process"];
         let store = &self.context.config_store;
 
         if !crate::child_process::was_dispatched() {

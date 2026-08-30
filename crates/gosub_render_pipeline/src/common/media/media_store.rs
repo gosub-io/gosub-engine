@@ -1,8 +1,9 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{
-    DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+    DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
 };
 use bytes::Bytes;
+use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
 use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +46,9 @@ pub struct MediaStore {
     /// How remote media is fetched. The store holds a loader rather than reaching
     /// for the network itself, so layout carries no network capability.
     loader: Arc<dyn ResourceLoader>,
+    /// Where raster decoding happens. `None` decodes in this process, which is
+    /// the default; the engine installs one to move it out.
+    decoder: Option<Arc<dyn ImageDecoder>>,
 }
 
 impl Default for MediaStore {
@@ -67,6 +71,15 @@ impl MediaStore {
 
     /// A store that pulls remote media through `loader`.
     pub fn with_loader(loader: Arc<dyn ResourceLoader>) -> MediaStore {
+        Self::with_loader_and_decoder(loader, None)
+    }
+
+    /// A store that also decodes raster images through `decoder` rather than in
+    /// this process. See [`ImageDecoder`].
+    pub fn with_loader_and_decoder(
+        loader: Arc<dyn ResourceLoader>,
+        decoder: Option<Arc<dyn ImageDecoder>>,
+    ) -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
         #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
@@ -102,6 +115,7 @@ impl MediaStore {
             default_image,
             decoders,
             loader,
+            decoder,
         }
     }
 
@@ -145,8 +159,24 @@ impl MediaStore {
         self.completed.swap(false, Ordering::Relaxed)
     }
 
-    /// Shared by the data, source and inline decode paths.
+    /// Shared by the data, source and inline decode paths. With a decoder
+    /// installed the bytes are never decoded here: a failure - including one
+    /// the decoder could not even start on - is the image's failure, not a
+    /// reason to decode locally after all.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
+        if let Some(decoder) = &self.decoder {
+            return match decoder.decode(mime, data) {
+                Ok(BrokeredDecode::Raster(raster)) => {
+                    // Length is checked against the dimensions rather than
+                    // trusted: the producer may be a compromised decoder.
+                    let image = DecodedImage::new_rgba8(raster.width, raster.height, raster.rgba.to_vec())
+                        .map_err(|e| anyhow::anyhow!("brokered decode of '{}' returned bad pixels: {}", src, e))?;
+                    Ok(Media::image(src, image))
+                }
+                Err(e) => Err(anyhow::anyhow!("brokered decode of '{}' failed: {}", src, e)),
+            };
+        }
+
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -375,7 +405,7 @@ fn percent_decode(s: &str) -> Vec<u8> {
 
 /// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`×`h` px (scaling the tree's
 /// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
-fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
+pub fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
     let size = tree.size();
     let (iw, ih) = (size.width().max(1.0), size.height().max(1.0));
     let (sx, sy) = (w as f32 / iw, h as f32 / ih);

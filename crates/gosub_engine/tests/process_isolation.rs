@@ -54,6 +54,29 @@ fn the_network_process_survives_hostname_resolution() {
     );
 }
 
+/// Image bytes cross into a throwaway, fully locked-down process and the exact
+/// pixels come back.
+#[test]
+fn an_image_decodes_in_a_separate_process() {
+    let out = run("decode");
+    assert!(
+        out.status.success(),
+        "decoding in a separate process failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Malformed input comes back as a refusal, not an image and not a hang.
+#[test]
+fn a_malformed_image_is_refused_rather_than_decoded() {
+    let out = run("decode-garbage");
+    assert!(
+        out.status.success(),
+        "malformed image handling failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The wiring: an ordinary navigation with `security.network_process` on resolves
 /// through the child rather than an in-process fetcher.
 #[test]

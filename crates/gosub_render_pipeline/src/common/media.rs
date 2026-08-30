@@ -20,5 +20,6 @@ pub use media::MediaType;
 pub use image::Image;
 pub use svg::Svg;
 
+pub use media_store::render_svg_tree_to_image;
 pub use media_store::MediaRequest;
 pub use media_store::MediaStore;

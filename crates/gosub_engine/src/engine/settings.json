@@ -435,6 +435,12 @@
       "type": "b",
       "default": "b:true",
       "description": "Run the network stack in a sandboxed child process. Needs the embedder to dispatch child roles; turned off at start when it cannot apply."
+    },
+    {
+      "key": "image_decoder_process",
+      "type": "b",
+      "default": "b:true",
+      "description": "Decode raster images in a throwaway, sandboxed process, one per image. Needs the embedder to dispatch child roles. SVG is rasterized in that process at its intrinsic size (without system fonts), since a parsed vector tree cannot cross a process boundary; a decode the process refuses or cannot start is a failed image, never decoded in-process instead."
     }
   ],
   "telemetry": [
