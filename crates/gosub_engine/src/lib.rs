@@ -141,6 +141,10 @@ extern crate core;
 
 mod engine;
 
+/// Child-role dispatch. An embedder that wants process isolation must call
+/// [`child_process::dispatch`] as the first statement of its `main`.
+#[cfg(feature = "process-isolation")]
+pub mod child_process;
 pub mod net;
 
 pub mod util;

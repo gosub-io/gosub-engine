@@ -3063,6 +3063,7 @@ name = "gosub_bin"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "console_error_panic_hook",
  "console_log",
@@ -3164,7 +3165,9 @@ dependencies = [
  "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
+ "gosub_ipc",
  "gosub_render_pipeline",
+ "gosub_sandbox",
  "gosub_shared",
  "http",
  "image",

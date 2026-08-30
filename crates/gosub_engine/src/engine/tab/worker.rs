@@ -1,4 +1,3 @@
-use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
 use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
@@ -8,6 +7,7 @@ use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
+use crate::net::brokered_loader::BrokeredLoader;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
     FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
@@ -432,7 +432,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(config_store.clone());
+        let context = BrowsingContext::new(
+            config_store.clone(),
+            BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone()).shared(),
+        );
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -504,6 +507,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
     async fn run_worker(mut self) {
         self.sink.set_worker_started_now();
 
+        // Publish this tab's jar to the I/O side, which attaches cookies on its
+        // behalf from now on — the tab itself never handles a cookie value.
+        self.zone_context
+            .tab_identities
+            .register(self.tab_id, self.services.cookie_jar.clone());
+
         // Announce creation
         self.send_event(EngineEvent::TabCreated {
             tab_id: self.tab_id,
@@ -570,6 +579,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
             }
         }
+
+        // Drop the jar reference before announcing closure: a fetch that outlives
+        // the tab then goes out without cookies rather than against a stale jar.
+        self.zone_context.tab_identities.remove(self.tab_id);
 
         // Receiver may already be gone at shutdown; that is expected.
         let _ = self.zone_context.event_tx.send(EngineEvent::TabClosed {
@@ -652,7 +665,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let cancel = nav_cancel.child_token();
         spawn_named("tab-favicon", async move {
-            let Ok((handle, rx)) = submit_to_io(zone_id, req, io_tx, Some(cancel.clone())).await else {
+            let Ok((handle, rx)) = submit_to_io(zone_id, Some(tab_id), req, io_tx, Some(cancel.clone())).await else {
                 return;
             };
             let result = tokio::select! {
@@ -680,6 +693,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// A loader that fetches on this tab's behalf through the I/O runtime.
+    fn resource_loader(&self) -> Arc<dyn gosub_interface::resource_loader::ResourceLoader> {
+        let loader = BrokeredLoader::new(self.zone_id, Some(self.tab_id), self.zone_context.io_tx.clone());
+        match &self.active_nav {
+            Some(nav) => loader.with_cancel(&nav.cancel).shared(),
+            None => loader.shared(),
+        }
+    }
+
     /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
     /// so the first layout/paint can use them. Runs once per navigation, before the first
     /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
@@ -689,6 +711,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         use gosub_interface::css3::CssStylesheet as _;
         use gosub_interface::document::Document as _;
         use gosub_interface::font_system::FontSystem as _;
+
+        // Brokered rather than fetched here: this code becomes renderer-side, which
+        // must hold no network capability of its own (see `net::brokered_loader`).
+        let loader = self.resource_loader();
 
         let mut fetched: std::collections::HashSet<String> = std::collections::HashSet::new();
         for sheet in doc.stylesheets() {
@@ -714,13 +740,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     if !fetched.insert(font_url.to_string()) {
                         break; // this exact font file is already registered
                     }
-                    match gosub_sonar::net::simple::sync_fetch(&font_url) {
-                        Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
+                    match loader.load(&font_url) {
+                        Ok(resp) if resp.is_ok() && !resp.body.is_empty() => {
                             // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
                             // negotiates WOFF2 for modern UAs like ours). The font backends
                             // (Skia/fontconfig) only decode raw SFNT (TTF/OTF), so unwrap WOFF2
                             // to TTF first. Other formats pass through unchanged.
-                            let font_bytes = decode_web_font(resp.body, &font_url);
+                            let font_bytes = decode_web_font(resp.body.to_vec(), &font_url);
                             match self
                                 .zone_context
                                 .font_system
@@ -981,7 +1007,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
             };
 
-            let result = match submit_to_io(zone_id, req, io_tx, None).await {
+            let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
                 Ok((_handle, rx)) => match rx.await {
                     Ok(result) => result,
                     Err(_) => return fail("fetch channel closed".into()),
@@ -1463,18 +1489,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             },
         });
 
-        // Attach cookies for the navigation request.
+        // This tab is now loading `url`, so requests it makes are attributed to
+        // that document. Set before submitting, so the navigation request itself
+        // is already attributed. Cookies are attached I/O-side from here on — see
+        // `net::tab_identity`.
+        self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+
         let mut fetch_headers = HeaderMap::new();
-        if let Some(cookie_str) =
-            self.services
-                .cookie_jar
-                .read()
-                .get_request_cookies(&url, Some(&url), SameSiteContext::SameSite)
-        {
-            if let Ok(val) = cookie_str.parse() {
-                fetch_headers.insert(http::header::COOKIE, val);
-            }
-        }
         if let Some(langs) = &self.services.accept_language {
             if let Ok(val) = langs.parse() {
                 fetch_headers.insert(http::header::ACCEPT_LANGUAGE, val);
@@ -1506,7 +1527,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
-        let cookie_jar = self.services.cookie_jar.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
 
@@ -1525,7 +1545,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         spawn_named("tab-fetcher", async move {
             let _enter = span.enter();
 
-            let submit = submit_to_io(zone_id, req.clone(), io_tx.clone(), Some(parent_cancel_clone.clone())).await;
+            let submit = submit_to_io(
+                zone_id,
+                Some(tab_id),
+                req.clone(),
+                io_tx.clone(),
+                Some(parent_cancel_clone.clone()),
+            )
+            .await;
 
             let (handle, rx) = match submit {
                 Ok(ok) => ok,
@@ -1559,13 +1586,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
             };
 
-            // Store Set-Cookie headers from the navigation response.
-            if let Some(meta) = fetch_result.meta() {
-                cookie_jar
-                    .write()
-                    .store_response_cookies(&meta.final_url, &meta.headers, Some(&url));
-            }
-
             let ua_policy = UaPolicy {
                 enable_sniffing: false,
                 enable_sniffing_navigation_upgrade: false,
@@ -1573,8 +1593,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks =
-                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+            let mut hooks = ResourcePipelines::<C>::new(
+                zone_id,
+                tab_id,
+                io_tx.clone(),
+                accept_language.clone(),
+                max_document_bytes,
+            );
 
             let outcome = route_response_for(
                 RequestDestination::Document,
@@ -1772,8 +1797,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         spawn_named("tab-load-html", async move {
             let _enter = span.enter();
 
-            let mut hooks =
-                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+            let mut hooks = ResourcePipelines::<C>::new(
+                zone_id,
+                tab_id,
+                io_tx.clone(),
+                accept_language.clone(),
+                max_document_bytes,
+            );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
                 Ok(doc) => {

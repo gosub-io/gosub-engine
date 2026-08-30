@@ -211,7 +211,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Creates a new runtime browsing context, sharing the given per-engine settings store.
-    pub(crate) fn new(config_store: Config) -> BrowsingContext<C> {
+    pub(crate) fn new(
+        config_store: Config,
+        loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    ) -> BrowsingContext<C> {
         Self {
             document: None,
             storage: None,
@@ -240,7 +243,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
-            media_store: std::sync::Arc::new(MediaStore::new()),
+            media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(loader)),
             config_store,
             tile_budget: TileBudget::new(),
         }
@@ -1586,7 +1589,10 @@ mod tests {
         /// Lays out a page with an `id` target and an `<a name>` target at known offsets and
         /// resolves fragments against it.
         fn context_with_targets() -> BrowsingContext<DefaultRenderConfig> {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1625,7 +1631,10 @@ mod tests {
         /// text and inputs, arrow elsewhere.
         #[test]
         fn hover_cursor_follows_content() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1661,7 +1670,10 @@ mod tests {
         /// point, URLs come back absolute.
         #[test]
         fn hit_test_describes_point() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1704,7 +1716,10 @@ mod tests {
         /// through the document.
         #[test]
         fn focus_traversal_and_click_to_focus() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1752,7 +1767,10 @@ mod tests {
         /// underflow the tiler's tile-count arithmetic and panic the tab worker.
         #[test]
         fn offscreen_layer_does_not_panic_the_tiler() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1773,7 +1791,10 @@ mod tests {
 
         #[test]
         fn unknown_before_layout() {
-            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             assert_eq!(ctx.fragment_target_y("section-2"), None);
             // Top-of-document needs no layout.
             assert_eq!(ctx.fragment_target_y(""), Some(0.0));
@@ -1840,7 +1861,8 @@ mod tests {
                 .set("renderer.tile.cache_budget_mb", Setting::UInt(budget_mb))
                 .is_ok());
 
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            let mut ctx: BrowsingContext<DefaultRenderConfig> =
+                BrowsingContext::new(config, Arc::new(gosub_interface::resource_loader::NoResourceLoader));
             let calls = Arc::new(AtomicUsize::new(0));
             ctx.set_rasterizer(
                 Box::new(SolidRasterizer {

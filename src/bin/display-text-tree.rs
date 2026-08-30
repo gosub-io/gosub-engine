@@ -6,6 +6,8 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::types::Result;
 use std::process::exit;
 
+use gosub_bin::direct_loader::DirectResourceLoader;
+use gosub_html5::parser::Html5ParserOptions;
 use gosub_interface::config::{HasDocument, ModuleConfiguration};
 use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
@@ -44,7 +46,15 @@ fn main() -> Result<()> {
     let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
 
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
-    let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None)?;
+    let parse_errors = Html5Parser::<Config>::parse_document(
+        &mut stream,
+        &mut doc,
+        Some(Html5ParserOptions {
+            // A CLI tool has no engine to broker through, so it fetches directly.
+            resource_loader: Some(std::sync::Arc::new(DirectResourceLoader)),
+            ..Default::default()
+        }),
+    )?;
 
     for e in parse_errors {
         println!("Parse Error: {}", e.message);

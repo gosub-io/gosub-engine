@@ -50,6 +50,7 @@
 //! The submodules below are internal implementation details unless re-exported. Public
 //! items are documented via the re-exports that follow.
 //!
+pub mod brokered_loader;
 mod decision;
 mod decision_hub;
 mod emitter;
@@ -60,6 +61,7 @@ mod io_runtime;
 pub mod req_ref_tracker;
 mod router;
 mod shared_body;
+pub mod tab_identity;
 pub mod types;
 mod utils;
 

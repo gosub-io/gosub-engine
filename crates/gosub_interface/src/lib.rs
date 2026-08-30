@@ -7,3 +7,4 @@ pub mod html5;
 pub mod input;
 pub mod node;
 pub mod render;
+pub mod resource_loader;

@@ -1,8 +1,10 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
+use crate::net::brokered_loader::BrokeredLoader;
 use crate::net::req_ref_tracker::REF_REGISTRY;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
+use crate::tab::TabId;
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
@@ -40,6 +42,9 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
 pub struct HtmlPipelineImpl {
     io_tx: IoChannel,
     zone_id: ZoneId,
+    /// The tab these subresources belong to, so the I/O side can attach its
+    /// cookies. Subresources previously carried none at all.
+    tab_id: TabId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
@@ -47,10 +52,17 @@ pub struct HtmlPipelineImpl {
 }
 
 impl HtmlPipelineImpl {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub fn new(
+        zone_id: ZoneId,
+        tab_id: TabId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+    ) -> Self {
         Self {
             io_tx,
             zone_id,
+            tab_id,
             accept_language,
             max_document_bytes,
         }
@@ -67,14 +79,23 @@ impl HtmlPipelineImpl {
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
-        let cfg = crate::html::HtmlParseConfig {
-            max_bytes: self.max_document_bytes,
-        };
-
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
+        let tab_id = self.tab_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
+
+        let cfg = crate::html::HtmlParseConfig {
+            max_bytes: self.max_document_bytes,
+            // The parse happens on this tab's behalf, so its stylesheet loads carry
+            // the tab's identity and cookies like any other request — and are
+            // cancelled with the parse that wanted them.
+            resource_loader: Some(
+                BrokeredLoader::new(zone_id, Some(tab_id), io_tx.clone())
+                    .with_cancel(&parent_cancel)
+                    .shared(),
+            ),
+        };
 
         let child_handles = Arc::new(Mutex::new(Vec::<FetchHandle>::new()));
         let child_tasks = Arc::new(Mutex::new(Vec::<JoinHandle<()>>::new()));
@@ -133,7 +154,7 @@ impl HtmlPipelineImpl {
             }
 
             let join_handle = spawn_named("html-sub-resource", async move {
-                match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
+                match submit_to_io(zone_id, Some(tab_id), sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
@@ -279,6 +300,7 @@ mod tests {
                 match cmd {
                     IoCommand::Fetch {
                         zone_id: _,
+                        tab_id: _,
                         req: _,
                         handle,
                         reply_tx,
@@ -299,12 +321,16 @@ mod tests {
         (tx, seen_children)
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    // Multi-threaded on purpose: parsing blocks on the brokered stylesheet load,
+    // so the task answering IoCommands needs a thread of its own. On a
+    // current-thread runtime that load can only time out — the same constraint
+    // `net::brokered_loader` warns embedders about.
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_bytes_discovers_and_submits_subresources() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -321,17 +347,19 @@ mod tests {
         // Assert: title extracted from DOM
         assert_eq!(crate::html::document_title(&doc).as_deref(), Some("Hello World"));
 
-        // Assert: 3 subresources were submitted (stylesheet, script, image)
+        // Three warm-up fetches from regex discovery (stylesheet, script, image),
+        // plus the parser's own brokered load of the `<link rel="stylesheet">` —
+        // which used to bypass this channel entirely by going straight to the network.
         let count = seen_children.lock().len();
-        assert_eq!(count, 3, "expected 3 subresource fetches, saw {}", count);
+        assert_eq!(count, 4, "expected 4 fetches, saw {}", count);
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_bytes_cancels_children_on_finish() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");

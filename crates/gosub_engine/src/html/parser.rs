@@ -60,6 +60,10 @@ pub struct HtmlParseConfig {
     /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
     /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
+    /// How the parser fetches an external stylesheet. `None` means it does not:
+    /// the parser has no network capability of its own (see
+    /// `gosub_html5::parser::Html5ParserOptions::resource_loader`).
+    pub resource_loader: Option<std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>>,
 }
 
 impl Default for HtmlParseConfig {
@@ -67,6 +71,7 @@ impl Default for HtmlParseConfig {
         // Matches the `net.document.max_bytes` schema default.
         Self {
             max_bytes: 10 * 1024 * 1024,
+            resource_loader: None,
         }
     }
 }
@@ -149,7 +154,13 @@ where
     let mut stream = ByteStream::new(encoding, None);
     stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
-    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
+    // Hand the parser the loader so `<link rel="stylesheet">` resolves through the
+    // broker rather than a socket opened mid-parse.
+    let parser_options = gosub_html5::parser::Html5ParserOptions {
+        resource_loader: cfg.resource_loader.clone(),
+        ..Default::default()
+    };
+    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser_options));
     let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
     doc.add_stylesheet(ua);
 
@@ -357,7 +368,10 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig {
+            max_bytes: 64 * 1024, // 64 KiB
+            ..Default::default()
+        };
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(

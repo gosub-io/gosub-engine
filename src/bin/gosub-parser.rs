@@ -1,8 +1,10 @@
 use anyhow::{anyhow, bail};
+use gosub_bin::direct_loader::DirectResourceLoader;
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
+use gosub_html5::parser::Html5ParserOptions;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::timing::Scale;
@@ -63,7 +65,15 @@ fn main() -> Result<()> {
 
     // Create a new document that will be filled in by the parser
     let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
-    let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None)?;
+    let parse_errors = Html5Parser::<Config>::parse_document(
+        &mut stream,
+        &mut doc,
+        Some(Html5ParserOptions {
+            // A CLI tool has no engine to broker through, so it fetches directly.
+            resource_loader: Some(std::sync::Arc::new(DirectResourceLoader)),
+            ..Default::default()
+        }),
+    )?;
 
     println!("Found {} stylesheets", doc.stylesheets.len());
     for sheet in &doc.stylesheets {
