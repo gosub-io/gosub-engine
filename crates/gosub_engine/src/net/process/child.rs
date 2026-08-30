@@ -58,19 +58,30 @@ pub fn serve(link: Endpoint) -> i32 {
     // resolve against - this process holds no tab map, no jar, no event bus - so
     // progress reporting stays the broker's job. `cookies_for` in particular must
     // stay silent: answering it would mean this process kept a jar.
-    let fetcher = match Fetcher::new(FetcherConfig::default(), Arc::new(NetProcessContext)) {
-        Ok(f) => Arc::new(f),
-        Err(e) => {
+    let build = |refuse_private: bool| {
+        let cfg = if refuse_private {
+            crate::net::fetcher::strict_config(&FetcherConfig::default())
+        } else {
+            FetcherConfig::default()
+        };
+        Fetcher::new(cfg, Arc::new(NetProcessContext { refuse_private })).map(Arc::new)
+    };
+    // Two fetchers: one that may reach anything the user navigates to, and a
+    // strict one for subresources of public documents (see `net::ssrf`); the
+    // broker says which serves a request.
+    let (fetcher, strict) = match (build(false), build(true)) {
+        (Ok(f), Ok(s)) => (f, s),
+        (Err(e), _) | (_, Err(e)) => {
             eprintln!("[net] could not build the fetcher: {e}");
             return 1;
         }
     };
 
     let shutdown = CancellationToken::new();
-    let fetcher_run = fetcher.clone();
+    let (fetcher_run, strict_run) = (fetcher.clone(), strict.clone());
     let cancel = shutdown.clone();
     runtime.spawn(async move {
-        fetcher_run.run(cancel).await;
+        tokio::join!(fetcher_run.run(cancel.clone()), strict_run.run(cancel));
     });
 
     // Requests run concurrently: each Fetch is spawned onto the runtime and
@@ -104,7 +115,11 @@ pub fn serve(link: Endpoint) -> i32 {
                 let tag = fetch.tag;
                 let token = CancellationToken::new();
                 cancels.lock().insert(tag, token.clone());
-                let fetcher = fetcher.clone();
+                let fetcher = if fetch.refuse_private {
+                    strict.clone()
+                } else {
+                    fetcher.clone()
+                };
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
                 let handle = runtime.spawn(async move {
@@ -136,8 +151,11 @@ pub fn serve(link: Endpoint) -> i32 {
 }
 
 /// The network process has no engine around it: no events, no cookies (the
-/// broker attaches those).
-struct NetProcessContext;
+/// broker attaches those). What it does enforce is the per-hop URL policy of
+/// its strict fetcher.
+struct NetProcessContext {
+    refuse_private: bool,
+}
 
 impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     fn observer_for(
@@ -151,8 +169,17 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
     fn on_ref_active(&self, _: gosub_sonar::RequestReference) {}
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
-    fn is_url_allowed(&self, _url: &Url) -> bool {
-        true
+    fn is_url_allowed(&self, url: &Url) -> bool {
+        if !self.refuse_private {
+            return true;
+        }
+        match crate::net::ssrf::literal_verdict(url) {
+            Some(reason) => {
+                eprintln!("[net] blocked {url}: {reason}");
+                false
+            }
+            None => true,
+        }
     }
 }
 

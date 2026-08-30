@@ -3,8 +3,9 @@ use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::events::IoCommand;
 use crate::net::decision_hub::DecisionHub;
-use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
+use crate::net::fetcher::{strict_config, EngineNetContext, Fetcher, FetcherConfig};
 use crate::net::req_ref_tracker::RequestRefTracker;
+use crate::net::ssrf::{AddressSpace, AddressSpaceCache};
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::tab::TabId;
@@ -80,6 +81,10 @@ impl IoHandle {
 
 pub struct ZoneEntry {
     fetcher: Arc<Fetcher>,
+    /// Same zone, may not reach the private network: serves subresources of
+    /// public documents (see `net::ssrf`). Its own connection pool, on purpose:
+    /// a pooled connection is a resolution already made.
+    strict: Arc<Fetcher>,
     shutdown: CancellationToken,
     join: JoinHandle<()>,
 }
@@ -98,6 +103,8 @@ pub struct IoRouter {
     /// Observer factory for requests the engine serves itself (the `file://` scheme),
     /// so they emit the same resource events a gosub-sonar fetch would.
     local_ctx: EngineNetContext,
+    /// Which documents live on the private network, for the subresource policy.
+    address_space: Arc<AddressSpaceCache>,
     /// The network process, if `security.network_process` is on and it started.
     /// One for the whole engine: it holds no per-zone state, and the connection
     /// pooling that *is* per-zone lives inside it.
@@ -111,6 +118,7 @@ impl IoRouter {
             event_tx: engine_ctx.event_tx.clone(),
             request_reference_map: engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
+            refuse_private: false,
         };
         #[cfg(feature = "process-isolation")]
         let net_process = start_net_process(&engine_ctx);
@@ -121,6 +129,7 @@ impl IoRouter {
             engine_ctx,
             decision_hub: Arc::new(DecisionHub::new()),
             local_ctx,
+            address_space: Arc::new(AddressSpaceCache::new()),
             #[cfg(feature = "process-isolation")]
             net_process,
         }
@@ -156,37 +165,59 @@ impl IoRouter {
         None
     }
 
-    /// The zone's fetcher, spawned on first use.
-    pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
+    /// The zone's fetcher; the strict one when the request may not reach the
+    /// private network.
+    pub fn get_or_spawn_zone_fetcher(
+        &self,
+        zone_id: ZoneId,
+        refuse_private: bool,
+    ) -> Result<Arc<Fetcher>, EngineError> {
+        let pick = |entry: &ZoneEntry| {
+            if refuse_private {
+                entry.strict.clone()
+            } else {
+                entry.fetcher.clone()
+            }
+        };
         if let Some(entry) = self.zones.get(&zone_id) {
-            return Ok(entry.fetcher.clone());
+            return Ok(pick(&entry));
         }
 
         let zone_shutdown = CancellationToken::new();
-        let context = Arc::new(EngineNetContext {
-            event_tx: self.engine_ctx.event_tx.clone(),
-            request_reference_map: self.engine_ctx.request_reference_map.clone(),
-            request_ref_tracker: Arc::new(RequestRefTracker::new()),
-        });
-        let f =
-            Arc::new(Fetcher::new(self.cfg.clone(), context).map_err(|e| EngineError::NetworkError(e.to_string()))?);
 
-        let f_run = f.clone();
+        let context = |refuse_private: bool| {
+            Arc::new(EngineNetContext {
+                event_tx: self.engine_ctx.event_tx.clone(),
+                request_reference_map: self.engine_ctx.request_reference_map.clone(),
+                request_ref_tracker: Arc::new(RequestRefTracker::new()),
+                refuse_private,
+            })
+        };
+        let f = Arc::new(
+            Fetcher::new(self.cfg.clone(), context(false)).map_err(|e| EngineError::NetworkError(e.to_string()))?,
+        );
+        let strict = Arc::new(
+            Fetcher::new(strict_config(&self.cfg), context(true))
+                .map_err(|e| EngineError::NetworkError(e.to_string()))?,
+        );
+
+        let (f_run, strict_run) = (f.clone(), strict.clone());
         let cancel = zone_shutdown.clone();
         let title = format!("I/O Fetcher Zone {}", zone_id);
         let join_handle = spawn_named(&title, async move {
-            f_run.run(cancel).await;
+            tokio::join!(f_run.run(cancel.clone()), strict_run.run(cancel));
         });
 
-        self.zones.insert(
-            zone_id,
-            ZoneEntry {
-                fetcher: f.clone(),
-                shutdown: zone_shutdown,
-                join: join_handle,
-            },
-        );
-        Ok(f)
+        let entry = ZoneEntry {
+            fetcher: f,
+            strict,
+            shutdown: zone_shutdown,
+            join: join_handle,
+        };
+        let picked = pick(&entry);
+        self.zones.insert(zone_id, entry);
+
+        Ok(picked)
     }
 
     #[instrument(
@@ -261,6 +292,7 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
 fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
+    refuse_private: bool,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -307,6 +339,7 @@ fn dispatch_to_net_process(
             method,
             headers,
             body,
+            refuse_private,
         };
         let reply = net.fetch(out, &cancel).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
@@ -324,6 +357,7 @@ fn dispatch_to_net_process(
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
+    _refuse_private: bool,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -394,6 +428,56 @@ fn store_response_cookies_then_forward(
     inner_tx
 }
 
+/// Wrap a reply channel so a cross-origin body that must not reach a page is
+/// withheld here (see [`crate::net::orb`]); the requester sees an error instead.
+fn block_opaque_responses_then_forward(
+    document: url::Url,
+    reply_tx: oneshot::Sender<FetchResult>,
+) -> oneshot::Sender<FetchResult> {
+    let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
+
+    spawn_named("io-orb", async move {
+        let Ok(result) = inner_rx.await else {
+            return;
+        };
+        let _ = reply_tx.send(apply_orb(&document, result));
+    });
+
+    inner_tx
+}
+
+/// The ORB verdict applied to one result: unchanged when allowed, an error
+/// carrying the reason when not.
+fn apply_orb(document: &url::Url, result: FetchResult) -> FetchResult {
+    use crate::net::orb::{verdict, OrbVerdict};
+
+    let (meta, peek): (&gosub_sonar::net::types::FetchResultMeta, &[u8]) = match &result {
+        FetchResult::Buffered { meta, body } => (meta, body.as_ref()),
+        FetchResult::Stream { meta, peek_buf, .. } => (meta, peek_buf.as_ref()),
+        FetchResult::Error(_) => return result,
+    };
+    let same_origin = document.origin() == meta.final_url.origin();
+    let content_type = meta
+        .headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok());
+    let nosniff = meta
+        .headers
+        .get("x-content-type-options")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("nosniff"));
+    match verdict(same_origin, content_type, nosniff, meta.status, peek) {
+        OrbVerdict::Allow => result,
+        OrbVerdict::Block(reason) => {
+            log::info!("opaque response blocked for {document}: {} ({reason})", meta.final_url);
+            let url = meta.final_url.clone();
+            FetchResult::Error(gosub_sonar::net::types::NetError::Other(Arc::new(anyhow::anyhow!(
+                "opaque response blocked ({reason}): {url}"
+            ))))
+        }
+    }
+}
+
 /// Submit a fetch on behalf of `tab_id`.
 pub async fn submit_to_io(
     zone_id: ZoneId,
@@ -456,21 +540,38 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // registered, which sends no cookies (see `net::tab_identity`).
                             let identity = tab_id.and_then(|id| router.tab_identities().get(id));
                             let net = router.net_process();
-                            let fetcher = match &net {
+                            let fetchers = match &net {
                                 Some(_) => None,
-                                None => match router.get_or_spawn_zone_fetcher(zone_id) {
-                                    Ok(fetcher) => Some(fetcher),
-                                    Err(e) => {
+                                None => match (
+                                    router.get_or_spawn_zone_fetcher(zone_id, false),
+                                    router.get_or_spawn_zone_fetcher(zone_id, true),
+                                ) {
+                                    (Ok(lenient), Ok(strict)) => Some((lenient, strict)),
+                                    (Err(e), _) | (_, Err(e)) => {
                                         log::error!("Failed to create fetcher for zone {zone_id}: {e}");
                                         continue;
                                     }
                                 },
                             };
+                            let address_space = Arc::clone(&router.address_space);
 
-                            // The cookie lookup may block, so it runs off this loop,
-                            // which must stay free for every other tab's requests.
+                            // The rest may block - the cookie lookup, a DNS lookup for the
+                            // policy - so it runs off this loop, which must stay free for
+                            // every other tab's requests.
                             spawn_named("io-fetch", async move {
+                                let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
+                                let document = identity.as_ref().and_then(|id| id.top_level.clone());
                                 attach_request_cookies(&mut req, identity.as_ref()).await;
+
+                                // Policy for what a page loads, decided from the tab's own
+                                // document - never from anything the requester sent. A
+                                // subresource of a public document may not reach the private
+                                // network, and its cross-origin bytes pass through ORB.
+                                let refuse_private = subresource
+                                    && match &document {
+                                        Some(top) => address_space.classify(top).await == AddressSpace::Public,
+                                        None => true,
+                                    };
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
@@ -478,12 +579,21 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                     Some(id) => store_response_cookies_then_forward(id, reply_tx),
                                     None => reply_tx,
                                 };
+                                let reply_tx = match (subresource, document) {
+                                    (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
+                                    _ => reply_tx,
+                                };
 
-                                match (net, fetcher) {
-                                    (Some(net), _) => {
-                                        dispatch_to_net_process(net, req, handle.cancel.clone(), reply_tx)
-                                    }
-                                    (None, Some(fetcher)) => {
+                                match (net, fetchers) {
+                                    (Some(net), _) => dispatch_to_net_process(
+                                        net,
+                                        req,
+                                        refuse_private,
+                                        handle.cancel.clone(),
+                                        reply_tx,
+                                    ),
+                                    (None, Some((lenient, strict))) => {
+                                        let fetcher = if refuse_private { strict } else { lenient };
                                         fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
                                     }
                                     (None, None) => {}
@@ -699,7 +809,7 @@ mod tests {
         let router = IoRouter::new(cfg, ctx);
         let z = ZoneId::new();
 
-        let f = router.get_or_spawn_zone_fetcher(z).unwrap();
+        let f = router.get_or_spawn_zone_fetcher(z, false).unwrap();
         assert!(Arc::strong_count(&f) >= 1, "fetcher Arc should be alive");
 
         let stopped = router.shutdown_zone(z).await;
@@ -716,13 +826,13 @@ mod tests {
         let z1 = ZoneId::new();
         let z2 = ZoneId::new();
 
-        let _f1 = router.get_or_spawn_zone_fetcher(z1).unwrap();
-        let f2 = router.get_or_spawn_zone_fetcher(z2).unwrap();
+        let _f1 = router.get_or_spawn_zone_fetcher(z1, false).unwrap();
+        let f2 = router.get_or_spawn_zone_fetcher(z2, false).unwrap();
 
         let stopped = router.shutdown_zone(z1).await;
         assert!(stopped, "z1 should have been stopped");
 
-        let f2_again = router.get_or_spawn_zone_fetcher(z2).unwrap();
+        let f2_again = router.get_or_spawn_zone_fetcher(z2, false).unwrap();
         assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
         // Clean up remaining zones to avoid leaking tasks in test

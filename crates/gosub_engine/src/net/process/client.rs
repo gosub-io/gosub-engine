@@ -18,6 +18,9 @@ pub struct Outbound {
     pub method: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
+    /// Serve through the strict fetcher: a subresource of a public document
+    /// may not reach the private network (see `net::ssrf`).
+    pub refuse_private: bool,
 }
 
 impl Outbound {
@@ -28,6 +31,7 @@ impl Outbound {
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
+            refuse_private: false,
         }
     }
 }
@@ -198,6 +202,7 @@ impl NetProcess {
             method,
             headers,
             body,
+            refuse_private,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -218,6 +223,7 @@ impl NetProcess {
             method,
             headers,
             body,
+            refuse_private,
         });
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
