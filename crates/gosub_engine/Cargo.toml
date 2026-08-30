@@ -95,9 +95,10 @@ process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 # Diagnostic only; nothing in the engine itself selects these.
 pango-fonts = ["gosub_fontmanager/pango"]
 skia-fonts = ["gosub_fontmanager/skia"]
-# Stage-6 rasterization in forked renderers: the Cairo CPU rasterizer, minus
-# its GTK/Pango default features. Diagnostic in the harness; an embedder may
-# also supply its own rasterizer through `RenderConfiguration::forked_tile_rasterizer`.
+# Stage-6 rasterization in the isolation harness's forked renderers: the Cairo
+# CPU rasterizer, minus its GTK/Pango default features. Diagnostic, like the
+# font features - a real embedder supplies its own rasterizer through
+# `RenderConfiguration::forked_tile_rasterizer`.
 cairo-tiles = ["dep:gosub_renderer_cairo"]
 # Same, with Skia's CPU rasterizer (`cairo-tiles` wins when both are on).
 skia-tiles = ["dep:gosub_renderer_skia"]

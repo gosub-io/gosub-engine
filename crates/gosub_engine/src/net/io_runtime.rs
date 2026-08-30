@@ -999,10 +999,16 @@ mod tests {
     /// Helper to make a minimal EngineContext for tests.
     fn test_engine_ctx() -> Arc<EngineContext> {
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
-        Arc::new(EngineContext {
+        let ctx = EngineContext {
             event_tx: tx,
             ..Default::default()
-        })
+        };
+        // In-process networking: the network process would be this test binary re-executed,
+        // which libtest refuses as an unknown option before the I/O thread falls back anyway.
+        let _ = ctx
+            .config_store
+            .set_transient("security.network_process", gosub_config::settings::Setting::Bool(false));
+        Arc::new(ctx)
     }
 
     // IoHandle-level tests

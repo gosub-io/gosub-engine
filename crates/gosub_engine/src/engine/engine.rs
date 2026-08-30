@@ -260,11 +260,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         !self.context.config_store.is_overridden(key)
     }
 
+    /// For this run only: what this process cannot do must not be written back as
+    /// the embedder's persisted choice, or a run that can would inherit the `false`.
     fn turn_off(&self, key: &str) {
         let _ = self
             .context
             .config_store
-            .set(key, gosub_config::settings::Setting::Bool(false));
+            .set_transient(key, gosub_config::settings::Setting::Bool(false));
     }
 
     /// The `security.*` process settings default to on; here the defaults meet
