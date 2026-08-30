@@ -231,13 +231,16 @@ fn resolve() -> i32 {
         return 1;
     };
     let cancel = tokio_util::sync::CancellationToken::new();
-    let fetch = |url: String| {
-        let out = gosub_engine::net::process::client::Outbound::get(url);
+    let fetch = |url: String, refuse_private: bool| {
+        let out = gosub_engine::net::process::client::Outbound {
+            refuse_private,
+            ..gosub_engine::net::process::client::Outbound::get(url)
+        };
         runtime.block_on(net.fetch(out, &cancel)).outcome
     };
 
-    // 1. A name that cannot exist (RFC 2606).
-    match fetch("http://gosub-hostname-probe.invalid/".into()) {
+    // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
+    match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
         FetchOutcome::Ok { status, .. } => {
             eprintln!("a .invalid name must not resolve, got status {status}");
             net.shutdown();
@@ -246,8 +249,25 @@ fn resolve() -> i32 {
         FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
     }
 
-    // 2. The process is still alive and serving.
-    let outcome = fetch(format!("http://127.0.0.1:{port}/"));
+    // 2. The strict fetcher classifies the loopback literal at the hop.
+    match fetch(format!("http://127.0.0.1:{port}/"), true) {
+        FetchOutcome::Ok { .. } => {
+            eprintln!("the strict fetcher reached loopback");
+            net.shutdown();
+            return 1;
+        }
+        FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
+            println!("strict fetcher refused loopback: {e}");
+        }
+        FetchOutcome::Error(e) => {
+            eprintln!("strict fetcher failed for the wrong reason: {e}");
+            net.shutdown();
+            return 1;
+        }
+    }
+
+    // 3. The process is still alive and serving.
+    let outcome = fetch(format!("http://127.0.0.1:{port}/"), false);
     net.shutdown();
     drop(server);
     match outcome {

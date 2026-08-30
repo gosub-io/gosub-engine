@@ -98,8 +98,12 @@ impl BrokeredLoader {
         }
         warn_if_current_thread_runtime();
 
+        // A subresource on a page's behalf: the I/O side applies the
+        // private-network and opaque-response policies to it.
         let req = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(RequestId::new())
+            .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
+            .with_initiator(gosub_sonar::net::types::Initiator::Application)
             .with_streaming(false)
             .with_auto_decode(true)
             .build();
