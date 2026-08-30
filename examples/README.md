@@ -3,6 +3,10 @@
 This directory contains runnable examples for the Gosub engine. They are split into two groups:
 engine examples (headless, no GUI required) and GUI examples (need system graphics libraries).
 
+**In a hurry?** Run `make examples` from the repository root for a menu of every example with a
+ready-to-paste command, then `make run-<name>` to start one (`URL=`, `ARGS=` and `RELEASE=1` are
+forwarded). The rest of this file explains what each one actually does.
+
 
 ## Engine examples
 
