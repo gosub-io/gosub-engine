@@ -443,6 +443,12 @@
       "description": "Decode raster images in a throwaway, sandboxed process, one per image. Needs the embedder to dispatch child roles. SVG is rasterized in that process at its intrinsic size (without system fonts), since a parsed vector tree cannot cross a process boundary; a decode the process refuses or cannot start is a failed image, never decoded in-process instead."
     },
     {
+      "key": "cookie_vault",
+      "type": "b",
+      "default": "b:true",
+      "description": "Keep the engine's cookie jars in a separate, sandboxed vault process (Linux). Tabs and the embedder API see an ordinary jar that forwards; the network process, when it runs, gets a direct line to the vault so cookie values attached to requests never pass through the engine process. Persistence stays with the zone's cookie store: the vault sends it a snapshot after every change and never touches a file itself. Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main(), and falls back to in-process jars with a warning if the vault cannot start."
+    },
+    {
       "key": "renderer_process",
       "type": "b",
       "default": "b:true",

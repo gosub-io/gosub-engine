@@ -19,6 +19,9 @@ pub enum ToNet {
     /// Finish in-flight work and exit. The broker still waits for the process to
     /// go away and kills it if it does not.
     Shutdown,
+    /// A new line to the cookie vault follows as a file descriptor (the vault
+    /// was respawned); it replaces the one inherited at spawn.
+    VaultLine,
 }
 
 /// One request, flattened to what actually has to travel.
@@ -42,10 +45,60 @@ pub struct NetFetch {
     /// The requester wants the body as it arrives. Honoured where the link can
     /// carry a ring fd (Linux); elsewhere the reply is buffered as usual.
     pub streaming: bool,
+    /// Whose cookies to attach, when the network process has its own line to
+    /// the cookie vault: the broker then sends no `Cookie` header at all, and
+    /// the network process stores `Set-Cookie` in the vault itself.
+    pub cookies: Option<CookieScope>,
     // Only these cross. `FetchRequest::origin` / `referrer` / `mixed_content`
     // (sonar 0.2.0) do not: the engine sets none of them yet. When it does, add
     // them here - otherwise the network process rebuilds the request without
     // them and mixed-content blocking silently disappears out-of-process.
+}
+
+/// `SameSiteContext` as it travels.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SameSite {
+    SameSite,
+    CrossSiteNavigation,
+    CrossSite,
+}
+
+impl From<crate::engine::cookies::SameSiteContext> for SameSite {
+    fn from(value: crate::engine::cookies::SameSiteContext) -> Self {
+        use crate::engine::cookies::SameSiteContext as C;
+        match value {
+            C::SameSite => Self::SameSite,
+            C::CrossSiteNavigation => Self::CrossSiteNavigation,
+            C::CrossSite => Self::CrossSite,
+        }
+    }
+}
+
+impl From<SameSite> for crate::engine::cookies::SameSiteContext {
+    fn from(value: SameSite) -> Self {
+        match value {
+            SameSite::SameSite => Self::SameSite,
+            SameSite::CrossSiteNavigation => Self::CrossSiteNavigation,
+            SameSite::CrossSite => Self::CrossSite,
+        }
+    }
+}
+
+/// A random, single-use request capability (see [`CookieScope::ticket`]).
+pub type Ticket = u128;
+
+/// Whose cookies a request is about: the tab's zone and the document it is
+/// loading, as the broker recorded them. Travels in place of the cookie
+/// header when the network process asks the cookie vault itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CookieScope {
+    /// A per-request capability the broker granted to the vault before
+    /// dispatch; the vault answers the network process for granted tickets
+    /// only, and from the grant's own scope. `0` on the broker's link.
+    pub ticket: Ticket,
+    pub zone: String,
+    pub top_level: Option<String>,
+    pub samesite: SameSite,
 }
 
 /// Network process → broker.

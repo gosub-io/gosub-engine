@@ -150,6 +150,10 @@ pub mod child_process;
 #[cfg(feature = "process-isolation")]
 pub mod decoder_process;
 
+/// The cookie vault: every vaulted zone's jar, in a process of its own.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod cookie_vault;
+
 /// The fork server renderers are forked from: warmed fonts, tier-chosen
 /// sandbox. The processes are Linux only - no other platform has a fork to
 /// serve - but the wire protocol is plain data and stays available everywhere,

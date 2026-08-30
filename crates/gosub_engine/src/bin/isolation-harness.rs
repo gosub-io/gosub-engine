@@ -138,6 +138,8 @@ fn main() {
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
+        "vault" => vault(),
+        "engine-cookie-vault" => engine_cookie_vault(),
         "stream" => stream(),
         "engine" => engine(),
         "guard" => guard(),
@@ -157,7 +159,7 @@ fn guard() -> i32 {
         return 2;
     }
 
-    match NetProcess::spawn() {
+    match NetProcess::spawn(None) {
         Ok(_) => {
             eprintln!("spawning should have been refused: an undispatched child must not spawn more");
             1
@@ -220,7 +222,7 @@ fn resolve() -> i32 {
         eprintln!("could not start the test server");
         return 1;
     };
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
@@ -3185,7 +3187,7 @@ fn stream() -> i32 {
         eprintln!("could not start the test server");
         return 1;
     };
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
@@ -3262,6 +3264,472 @@ fn stream() -> i32 {
     }
 }
 
+/// The cookie vault on its own: a jar that forwards, the HttpOnly split, zone
+/// partitioning, and persistence brokered through a real SQLite store - the
+/// vault never opens the file, the broker does, from the snapshots it is sent.
+#[cfg(target_os = "linux")]
+fn line_channel(line: gosub_engine::cookie_vault::client::NetVaultLink) -> gosub_ipc::channel::Channel {
+    line.0
+}
+
+fn vault() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::cookie_vault::client::{CookieVault, VaultCookieJar};
+        use gosub_engine::cookie_vault::protocol::{CookieScope, SameSite};
+        use gosub_engine::cookies::{CookieJar as _, CookieStoreHandle, SameSiteContext, SqliteCookieStore};
+        use gosub_engine::zone::ZoneId;
+
+        let (vault, _) = match CookieVault::spawn(false) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("could not spawn the vault: {e}");
+                return 1;
+            }
+        };
+        let vault = Arc::new(vault);
+        let Ok(url) = url::Url::parse("https://example.test/app") else {
+            eprintln!("bad test url");
+            return 1;
+        };
+        let set_cookie = |values: &[&str]| {
+            let mut headers = http::HeaderMap::new();
+            for value in values {
+                if let Ok(value) = value.parse() {
+                    headers.append(http::header::SET_COOKIE, value);
+                }
+            }
+            headers
+        };
+
+        // A zone with no store: in-memory in the vault.
+        let zone = ZoneId::new();
+        vault.open_zone(zone, None);
+        let mut jar = VaultCookieJar::new(Arc::clone(&vault), zone);
+        let headers = set_cookie(&["sid=abc; HttpOnly; Path=/", "theme=dark; Path=/"]);
+        jar.store_response_cookies(&url, &headers, None);
+
+        let attach = jar
+            .get_request_cookies(&url, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        if !(attach.contains("sid=abc") && attach.contains("theme=dark")) {
+            eprintln!("the attachable set should hold both cookies, got {attach:?}");
+            return 1;
+        }
+        let scope = CookieScope {
+            ticket: 0,
+            zone: zone.to_string(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        let visible = vault.get(scope.clone(), &url, true).unwrap_or_default();
+        if visible.contains("sid=") || !visible.contains("theme=dark") {
+            eprintln!("the document.cookie view must hide HttpOnly, got {visible:?}");
+            return 1;
+        }
+        let other = ZoneId::new();
+        vault.open_zone(other, None);
+        let foreign = CookieScope {
+            zone: other.to_string(),
+            ..scope
+        };
+        if vault.get(foreign, &url, false).is_some() {
+            eprintln!("another zone must not see this zone's cookies");
+            return 1;
+        }
+        let listed = jar
+            .get_all_cookies()
+            .into_iter()
+            .map(|(_, cookies)| cookies)
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !(listed.contains("sid=abc") && listed.contains("theme=dark")) {
+            eprintln!("get_all_cookies should list both cookies, got {listed:?}");
+            return 1;
+        }
+        println!("attach/visible/partition views correct");
+
+        // The network process's line answers granted tickets only, and from
+        // the grant's scope - not from what the line claims.
+        let (net_vault, net_line) = match CookieVault::spawn(true) {
+            Ok((v, Some(line))) => (Arc::new(v), line),
+            _ => {
+                eprintln!("could not spawn a vault with a network line");
+                return 1;
+            }
+        };
+        let Ok(mut net_link) = gosub_ipc::Endpoint::from_channel(line_channel(net_line)) else {
+            eprintln!("could not open the network line");
+            return 1;
+        };
+        net_vault.open_zone(zone, None);
+        let mut net_jar = VaultCookieJar::new(Arc::clone(&net_vault), zone);
+        net_jar.store_response_cookies(&url, &set_cookie(&["sid=abc; Path=/"]), None);
+        use gosub_engine::cookie_vault::protocol::{FromVault, ToVault};
+        let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| -> Option<String> {
+            link.send(&ToVault::Get {
+                tag: 7,
+                scope,
+                url: url.to_string(),
+                visible_only: false,
+            })
+            .ok()?;
+            match link.recv::<FromVault>().ok()? {
+                FromVault::Cookies { header, .. } => header,
+                _ => None,
+            }
+        };
+        let claimed = CookieScope {
+            ticket: 424242,
+            zone: zone.to_string(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        if ask(&mut net_link, claimed.clone()).is_some() {
+            eprintln!("the network line answered a ticket nobody granted");
+            return 1;
+        }
+        if !net_vault.grant(&claimed) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        // Under the grant, the zone the line names is ignored: the grant's counts.
+        let lying = CookieScope {
+            zone: other.to_string(),
+            ..claimed.clone()
+        };
+        let got = ask(&mut net_link, lying).unwrap_or_default();
+        if !got.contains("sid=abc") {
+            eprintln!("a granted ticket should answer from the grant's zone, got {got:?}");
+            return 1;
+        }
+        net_vault.revoke(&claimed);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if ask(&mut net_link, claimed).is_some() {
+            eprintln!("the network line answered a revoked ticket");
+            return 1;
+        }
+        println!("network line honours grants only");
+
+        // A zone with a SQLite store: the vault's snapshots reach the file
+        // through the broker, and a fresh store on the same file has them.
+        let dir = std::env::temp_dir().join(format!("gosub-vault-{}", std::process::id()));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("no temp dir: {e}");
+            return 1;
+        }
+        let path = dir.join("cookies.db");
+        let store = match SqliteCookieStore::new(path.clone()) {
+            Ok(s) => CookieStoreHandle::from(s),
+            Err(e) => {
+                eprintln!("could not open the sqlite store: {e}");
+                return 1;
+            }
+        };
+        let persisted = ZoneId::new();
+        vault.open_zone(persisted, Some(store.clone()));
+        let mut jar = VaultCookieJar::new(Arc::clone(&vault), persisted);
+        let headers = set_cookie(&["durable=1; Path=/"]);
+        jar.store_response_cookies(&url, &headers, None);
+        // Reading back through the vault orders after the store (same link),
+        // and the snapshot precedes the reply on the broker link.
+        let _ = jar.get_request_cookies(&url, None, SameSiteContext::SameSite);
+        store.persist_all();
+        drop(store);
+        let reopened = match SqliteCookieStore::new(path) {
+            Ok(s) => CookieStoreHandle::from(s),
+            Err(e) => {
+                eprintln!("could not reopen the sqlite store: {e}");
+                return 1;
+            }
+        };
+        let back = reopened
+            .jar_for(persisted)
+            .and_then(|jar| jar.read().get_request_cookies(&url, None, SameSiteContext::SameSite))
+            .unwrap_or_default();
+        vault.shutdown();
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+        if !back.contains("durable=1") {
+            eprintln!("the cookie did not reach the store through the broker, got {back:?}");
+            return 1;
+        }
+        println!("brokered persistence reached sqlite: {back}");
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the cookie vault is Linux-only");
+        2
+    }
+}
+
+/// The whole chain: engine with the vault and the network process on, a page
+/// whose response sets an HttpOnly cookie, and a stylesheet the page loads
+/// next. The second request must carry the cookie - which only the vault and
+/// the network process ever handled - and the first must not.
+fn engine_cookie_vault() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use parking_lot::Mutex;
+
+    let modes: Vec<String> = std::env::args().skip(2).collect();
+    let in_process = modes.iter().any(|m| m == "in-process");
+    // `respawn`: kill the vault after the first flow; the cookie must still
+    // reach the next request, from the store the respawned vault reopens.
+    let respawn = modes.iter().any(|m| m == "respawn");
+    let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
+    let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    let seen_after = Arc::clone(&seen);
+    // Requests recorded from this index on came after the vault was killed.
+    let after_kill = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let after_kill_seen = Arc::clone(&after_kill);
+    let code = runtime.block_on(async move {
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        for (key, on) in [
+            ("security.cookie_vault", true),
+            ("security.network_process", !in_process),
+            ("security.image_decoder_process", false),
+            ("security.renderer_process", false),
+        ] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
+        }
+        // The engine's event bus refuses to send without a subscriber.
+        let _events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if !engine.settings().get_bool("security.cookie_vault") {
+            eprintln!("the vault did not start");
+            return 1;
+        }
+
+        // A real store when the vault is to be killed: what comes back must
+        // come from disk, not from the process that died.
+        let cookie_store = if respawn {
+            let dir = std::env::temp_dir().join(format!("gosub-vault-respawn-{}", std::process::id()));
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                eprintln!("no temp dir: {e}");
+                return 1;
+            }
+            match gosub_engine::cookies::SqliteCookieStore::new(dir.join("cookies.db")) {
+                Ok(store) => Some(gosub_engine::cookies::CookieStoreHandle::from(store)),
+                Err(e) => {
+                    eprintln!("could not open the sqlite store: {e}");
+                    return 1;
+                }
+            }
+        } else {
+            None
+        };
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let mut zone = match engine.create_zone(None, services, None) {
+            Ok(zone) => zone,
+            Err(e) => {
+                eprintln!("could not create a zone: {e}");
+                return 1;
+            }
+        };
+        let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+        if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+
+        // Two requests: the page, then its stylesheet.
+        let wait_for = |n: usize| {
+            let seen = Arc::clone(&seen);
+            async move {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+                while seen.lock().len() < n {
+                    if tokio::time::Instant::now() > deadline {
+                        eprintln!("timed out waiting for request {n}; seen {:?}", seen.lock());
+                        return false;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                true
+            }
+        };
+        if !wait_for(2).await {
+            return 1;
+        }
+        // The favicon follows the page; give it time to be *sent* before
+        // shutdown removes the tab's identity, so the request log is stable.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        #[cfg(target_os = "linux")]
+        if respawn {
+            // Let the first navigation's trailing requests (favicon, a
+            // repeated stylesheet) land before counting from here.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            let after_kill_from = seen.lock().len();
+            after_kill_seen.store(after_kill_from, std::sync::atomic::Ordering::Relaxed);
+            let Some(vault) = engine.cookie_vault() else {
+                eprintln!("no vault to kill");
+                return 1;
+            };
+            let Some(pid) = vault.pid() else {
+                eprintln!("the vault has no pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while vault.is_alive() {
+                if tokio::time::Instant::now() > deadline {
+                    eprintln!("the broker never noticed the vault dying");
+                    return 1;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            // Straight to the stylesheet: nothing sets the cookie again, so it
+            // has to come out of the store through the respawned vault.
+            if tab
+                .navigate(format!("http://127.0.0.1:{port}/style.css"))
+                .await
+                .is_err()
+            {
+                eprintln!("second navigate failed");
+                return 1;
+            }
+            if !wait_for(after_kill_from + 1).await {
+                return 1;
+            }
+            let Some(new_pid) = vault.pid() else {
+                eprintln!("no vault after the respawn");
+                return 1;
+            };
+            if new_pid == pid || !vault.is_alive() {
+                eprintln!(
+                    "the vault was not respawned (pid {pid} -> {new_pid}, alive {})",
+                    vault.is_alive()
+                );
+                return 1;
+            }
+            println!("vault respawned: pid {pid} -> {new_pid}");
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = (respawn, &after_kill_seen);
+        let _ = engine.shutdown().await;
+        0
+    });
+    if code != 0 {
+        return code;
+    }
+    let after_kill_from = after_kill.load(std::sync::atomic::Ordering::Relaxed);
+    let seen = seen_after.lock().clone();
+    println!("requests: {seen:?}");
+    let first_clean = seen.first().is_some_and(|(_, cookie)| cookie.is_none());
+    let second_has = seen
+        .get(1)
+        .is_some_and(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")));
+    if !first_clean || !second_has {
+        eprintln!("the stylesheet request must carry the cookie the page set, and the page request must not");
+        return 1;
+    }
+    if respawn {
+        let third_has = seen.get(after_kill_from..).is_some_and(|later| {
+            later
+                .iter()
+                .any(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")))
+        });
+        if !third_has {
+            eprintln!("after the vault died, the next request must still carry the cookie (from the store)");
+            return 1;
+        }
+    }
+    println!(
+        "cookie set by the page reached the next request through the vault{}{}",
+        if in_process {
+            " (in-process fetch)"
+        } else {
+            " and the network process"
+        },
+        if respawn { ", across a vault respawn" } else { "" }
+    );
+    0
+}
+
+/// Every request a test server saw: its path and `Cookie` header.
+type SeenRequests = Arc<parking_lot::Mutex<Vec<(String, Option<String>)>>>;
+
+/// A server whose page sets an HttpOnly cookie and references a stylesheet;
+/// every request's path and `Cookie` header are recorded in `seen`.
+fn serve_cookie_pages(seen: SeenRequests) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let cookie = request
+                .lines()
+                .find(|l| l.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("cookie:")))
+                .map(|l| l[7..].trim().to_string());
+            seen.lock().push((path.clone(), cookie));
+            let (content_type, extra, body): (&str, &str, &str) = if path == "/style.css" {
+                ("text/css", "", "body { color: rgb(1, 2, 3); }")
+            } else {
+                (
+                    "text/html",
+                    "Set-Cookie: sid=abc; HttpOnly; Path=/\r\n",
+                    "<html><head><link rel=\"stylesheet\" href=\"/style.css\"></head><body>vaulted</body></html>",
+                )
+            };
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    Ok(port)
+}
+
 /// The transport on its own: does a request survive the round trip through a
 /// separate, sandboxed process and come back intact?
 fn direct() -> i32 {
@@ -3273,7 +3741,7 @@ fn direct() -> i32 {
         return 1;
     };
 
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
