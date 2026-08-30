@@ -36,6 +36,9 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// An icon larger than this is not an icon.
+const MAX_FAVICON_BYTES: usize = 512 * 1024;
+
 /// Filename to suggest for downloading `meta`'s resource: the `Content-Disposition`
 /// `filename` parameter when present, else the final URL's last path segment, else
 /// "download". Path separators are stripped so a hostile header cannot escape the
@@ -65,8 +68,15 @@ fn suggested_filename(meta: &FetchResultMeta) -> String {
             })
     });
     let name = name.unwrap_or_default();
-    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
-    if name.is_empty() {
+    let name: String = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let name = name.trim().to_string();
+    if name.is_empty() || name == "." || name == ".." {
         "download".to_string()
     } else {
         name
@@ -506,6 +516,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let Some(base_url) = self.context.document_url().cloned() else {
             return;
         };
+        // The icon URL is the page's (via the renderer): web schemes only,
+        // plus a file page's own files.
+        let allowed = matches!(icon_url.scheme(), "http" | "https")
+            || (icon_url.scheme() == "file" && base_url.scheme() == "file");
+        if !allowed {
+            log::debug!("favicon {icon_url}: scheme not allowed, ignored");
+            return;
+        }
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::Other);
         let mut headers = HeaderMap::new();
@@ -544,12 +562,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let Ok(FetchResult::Buffered { meta, body }) = result else {
                 return;
             };
-            if meta.status != 200 || body.is_empty() {
+            if meta.status != 200 || body.is_empty() || body.len() > MAX_FAVICON_BYTES {
                 log::debug!(
                     "favicon {icon_url}: status {} ({} bytes), ignored",
                     meta.status,
                     body.len()
                 );
+                return;
+            }
+            // The embedder will hand these bytes to an image decoder in its
+            // own process: at least require the response to say it is an image.
+            let is_image = meta
+                .headers
+                .get(http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_none_or(|ct| ct.trim_start().starts_with("image/"));
+            if !is_image {
+                log::debug!("favicon {icon_url}: not an image content type, ignored");
                 return;
             }
             let _ = event_tx.send(EngineEvent::FavIconChanged {
@@ -1109,13 +1138,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
-                        let resolved = self
-                            .current_url
-                            .as_ref()
-                            .and_then(|base| base.join(&href).ok())
-                            .map(|u| u.to_string())
-                            .unwrap_or(href);
-                        self.navigate_to(resolved, false, HistoryIntent::Push);
+                        let resolved = self.current_url.as_ref().and_then(|base| base.join(&href).ok());
+                        // A page's link may take the tab to the web, or a file
+                        // page to another file: never to an internal page.
+                        let allowed = resolved.as_ref().is_some_and(|url| {
+                            matches!(url.scheme(), "http" | "https")
+                                || (url.scheme() == "file"
+                                    && self.current_url.as_ref().is_some_and(|cur| cur.scheme() == "file"))
+                        });
+                        match resolved {
+                            Some(url) if allowed => {
+                                self.navigate_to(url.to_string(), false, HistoryIntent::Push);
+                            }
+                            _ => log::debug!("link to {href} not followed: scheme not allowed from a page"),
+                        }
                         return ControlFlow::Continue;
                     }
                 }

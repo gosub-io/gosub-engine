@@ -217,6 +217,8 @@ pub enum AddressSpace {
     Private,
 }
 
+const MAX_CACHED_HOSTS: usize = 4096;
+
 /// Remembers which address space a host was classified into, so a document's
 /// own host is not resolved again for every subresource it loads.
 #[derive(Debug, Default)]
@@ -250,7 +252,16 @@ impl AddressSpaceCache {
             Ok(addrs) => space_of(addrs.into_iter()),
             Err(_) => AddressSpace::Public,
         };
-        self.hosts.lock().insert(key, (Instant::now(), space));
+        let mut hosts = self.hosts.lock();
+        hosts.insert(key, (Instant::now(), space));
+        // Expired entries are only ever skipped on lookup; sweep them here
+        // when the table grows past what a session plausibly touches.
+        if hosts.len() > MAX_CACHED_HOSTS {
+            hosts.retain(|_, (seen, _)| seen.elapsed() < CLASSIFICATION_TTL);
+            if hosts.len() > MAX_CACHED_HOSTS {
+                hosts.clear();
+            }
+        }
         space
     }
 }

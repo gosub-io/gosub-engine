@@ -203,9 +203,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start I/O thread, building the fetcher config from the settings store.
         let io_cfg = fetcher_config_from(&self.context.config_store);
-        // Isolation needs the embedder's cooperation and a platform that has
-        // it; decided before the I/O thread, which spawns the network process.
-        #[cfg(feature = "process-isolation")]
+        // Which `security.*` process settings survive into this run. Decided
+        // before the I/O thread, which is what spawns the network process.
         self.resolve_isolation_settings();
 
         // The vault before the I/O thread: the network process, spawned there,
@@ -220,7 +219,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
         #[cfg(feature = "metrics")]
-        crate::metrics::start(9090, Arc::clone(&self.context));
+        if self.context.config_store.get_bool("telemetry.metrics_enabled") {
+            crate::metrics::start(9090, Arc::clone(&self.context));
+        }
 
         // Spawn the renderer fork server if asked to. Blocks briefly (spawn
         // plus font warm-up, ~200 ms typical) - acceptable at startup, and
@@ -232,6 +233,91 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Whether `key` still holds its schema default, i.e. the embedder never
+    /// chose it. A default that cannot apply here is dropped quietly; an
+    /// explicit choice that cannot apply gets a warning.
+    #[cfg_attr(not(feature = "process-isolation"), allow(dead_code))]
+    fn setting_at_default(&self, key: &str) -> bool {
+        let store = &self.context.config_store;
+        match (store.get_info(key), store.get(key)) {
+            (Some(info), Ok(Some(value))) => info.default == value,
+            _ => false,
+        }
+    }
+
+    fn turn_off(&self, key: &str) {
+        let _ = self
+            .context
+            .config_store
+            .set(key, gosub_config::settings::Setting::Bool(false));
+    }
+
+    /// The `security.*` process settings default to on; here the defaults meet
+    /// this process, platform and configuration. Without the embedder's
+    /// `child_process::dispatch()` nothing may spawn (a child is this binary
+    /// re-exec'd, and would run the embedder's own `main()` - for a GUI
+    /// embedder, a phantom window per spawn); the network and decoder
+    /// processes are on by default on Linux only, until the macOS and Windows
+    /// backends have run in CI; the renderer tier has conditions of its own,
+    /// checked in `start_renderer_process`.
+    fn resolve_isolation_settings(&self) {
+        const PROCESS_SETTINGS: [&str; 5] = [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+            "security.cookie_vault",
+            "security.storage_service",
+        ];
+
+        #[cfg(not(feature = "process-isolation"))]
+        {
+            for key in PROCESS_SETTINGS {
+                self.turn_off(key);
+            }
+            return;
+        }
+
+        #[cfg(feature = "process-isolation")]
+        {
+            let store = &self.context.config_store;
+            if !crate::child_process::was_dispatched() {
+                let requested: Vec<&str> = PROCESS_SETTINGS.into_iter().filter(|key| store.get_bool(key)).collect();
+                if requested.is_empty() {
+                    return;
+                }
+                if requested.iter().any(|key| !self.setting_at_default(key)) {
+                    log::warn!(
+                        "{} requested, but gosub_engine::child_process::dispatch() was not called at the \
+                         top of main(); running without process isolation",
+                        requested.join(", ")
+                    );
+                } else {
+                    log::info!(
+                        "process isolation is off: this embedder does not call \
+                         gosub_engine::child_process::dispatch() at the top of main()"
+                    );
+                }
+                for key in requested {
+                    self.turn_off(key);
+                }
+                return;
+            }
+
+            if !cfg!(target_os = "linux") {
+                for key in PROCESS_SETTINGS {
+                    if store.get_bool(key) && self.setting_at_default(key) {
+                        self.turn_off(key);
+                    }
+                }
+                if PROCESS_SETTINGS.iter().any(|key| store.get_bool(key)) {
+                    log::info!(
+                        "process isolation was requested explicitly on a platform where it is not on by default"
+                    );
+                }
+            }
+        }
     }
 
     /// Spawn the cookie vault when `security.cookie_vault` asks for it. With
@@ -427,79 +513,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// The engine's settings store, for reading or overriding settings (e.g.
     /// `net.user_agent`). Network settings are read once when [`start`](Self::start)
     /// builds the I/O runtime, so overrides must land before then.
-    /// Whether `key` still holds its schema default, i.e. the embedder never
-    /// chose it. A default that cannot apply here is dropped quietly; an
-    /// explicit choice that cannot apply gets a warning.
-    #[cfg(feature = "process-isolation")]
-    fn setting_at_default(&self, key: &str) -> bool {
-        let store = &self.context.config_store;
-        match (store.get_info(key), store.get(key)) {
-            (Some(info), Ok(Some(value))) => info.default == value,
-            _ => false,
-        }
-    }
-
-    #[cfg(feature = "process-isolation")]
-    fn turn_off(&self, key: &str) {
-        let _ = self
-            .context
-            .config_store
-            .set(key, gosub_config::settings::Setting::Bool(false));
-    }
-
-    /// The `security.*` process settings default to on; here the defaults meet
-    /// this process and platform. Without the embedder's
-    /// `child_process::dispatch()` nothing may spawn (a child is this binary
-    /// re-exec'd, and would run the embedder's own `main()` - for a GUI
-    /// embedder, a phantom window per spawn); the network process is on by
-    /// default on Linux only, until the macOS and Windows backends have run
-    /// in CI.
-    #[cfg(feature = "process-isolation")]
-    fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 5] = [
-            "security.network_process",
-            "security.image_decoder_process",
-            "security.renderer_process",
-            "security.cookie_vault",
-            "security.storage_service",
-        ];
-        let store = &self.context.config_store;
-
-        if !crate::child_process::was_dispatched() {
-            let requested: Vec<&str> = PROCESS_SETTINGS.into_iter().filter(|key| store.get_bool(key)).collect();
-            if requested.is_empty() {
-                return;
-            }
-            if requested.iter().any(|key| !self.setting_at_default(key)) {
-                log::warn!(
-                    "{} requested, but gosub_engine::child_process::dispatch() was not called at the \
-                     top of main(); running without process isolation",
-                    requested.join(", ")
-                );
-            } else {
-                log::info!(
-                    "process isolation is off: this embedder does not call \
-                     gosub_engine::child_process::dispatch() at the top of main()"
-                );
-            }
-            for key in requested {
-                self.turn_off(key);
-            }
-            return;
-        }
-
-        if !cfg!(target_os = "linux") {
-            for key in PROCESS_SETTINGS {
-                if store.get_bool(key) && self.setting_at_default(key) {
-                    self.turn_off(key);
-                }
-            }
-            if PROCESS_SETTINGS.iter().any(|key| store.get_bool(key)) {
-                log::info!("process isolation was requested explicitly on a platform where it is not on by default");
-            }
-        }
-    }
-
     pub fn settings(&self) -> &Config {
         &self.context.config_store
     }
