@@ -158,6 +158,9 @@ pub mod html;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
+/// The engine's event firehose for external tooling; see the module docs.
+pub mod telemetry;
+
 pub use engine::{BrowsingContext, EngineError, GosubEngine};
 
 /// The engine's ready-made config: a marker that implements both
