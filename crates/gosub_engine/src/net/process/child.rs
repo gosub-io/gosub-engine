@@ -1,5 +1,8 @@
 //! The network process: the only part of the engine that may open a socket.
 //!
+//! What only Linux can do - pass a ring fd for a streamed body - lives in
+//! `platform`; the same API elsewhere declines, so this file has no platform
+//! branches of its own.
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
@@ -14,6 +17,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+#[cfg(target_os = "linux")]
+#[path = "child/linux.rs"]
+mod platform;
+#[cfg(not(target_os = "linux"))]
+#[path = "child/portable.rs"]
+mod platform;
+
+use platform::Streamed;
 
 /// How long a shutdown drain waits for in-flight requests before giving up.
 /// Shorter than the broker's `SHUTDOWN_GRACE`, so a draining child exits on
@@ -125,21 +137,27 @@ pub fn serve(link: Endpoint) -> i32 {
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
                 let handle = runtime.spawn(async move {
-                    let outcome = perform(&fetcher, fetch, token).await;
+                    let performed = perform(&fetcher, fetch, token).await;
                     cancels.lock().remove(&tag);
-                    let mut link_tx = link_tx.lock();
-                    if let Err(e) = link_tx.send(&FromNet::Reply { tag, outcome }) {
-                        // A reply the link cannot carry (a body past the frame cap)
-                        // is refused before any of it is written, so the link is
-                        // still good: answer with an error rather than leave the
-                        // broker waiting out its timeout for a reply that never
-                        // comes. Any other write error means the broker went away,
-                        // which the recv loop notices and ends the process on.
-                        if e.kind() == std::io::ErrorKind::InvalidData {
-                            let outcome =
-                                FetchOutcome::Error(format!("response too large to cross the process boundary: {e}"));
-                            let _ = link_tx.send(&FromNet::Reply { tag, outcome });
+                    match performed {
+                        Performed::Done(outcome) => {
+                            let mut link_tx = link_tx.lock();
+                            if let Err(e) = link_tx.send(&FromNet::Reply { tag, outcome }) {
+                                // A reply the link cannot carry (a body past the frame cap)
+                                // is refused before any of it is written, so the link is
+                                // still good: answer with an error rather than leave the
+                                // broker waiting out its timeout for a reply that never
+                                // comes. Any other write error means the broker went away,
+                                // which the recv loop notices and ends the process on.
+                                if e.kind() == std::io::ErrorKind::InvalidData {
+                                    let outcome = FetchOutcome::Error(format!(
+                                        "response too large to cross the process boundary: {e}"
+                                    ));
+                                    let _ = link_tx.send(&FromNet::Reply { tag, outcome });
+                                }
+                            }
                         }
+                        Performed::Streaming(streamed) => streamed.deliver(tag, &link_tx).await,
                     }
                 });
                 let mut tasks = tasks.lock();
@@ -196,9 +214,17 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
 }
 
+/// What `perform` produced: a reply that travels whole, or a response head
+/// whose body is still arriving and will follow it (see [`Streamed`]).
+enum Performed {
+    Done(FetchOutcome),
+    Streaming(Streamed),
+}
+
 /// Perform one request and flatten the result to something that can travel.
-async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> FetchOutcome {
-    let done = |o: FetchOutcome| o;
+async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> Performed {
+    let streaming = fetch.streaming && platform::STREAMING;
+    let done = Performed::Done;
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
         Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
@@ -210,7 +236,7 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
 
     let mut builder = FetchRequest::builder(method, url)
         .with_headers(rebuild_headers(&fetch.headers))
-        .with_streaming(false)
+        .with_streaming(streaming)
         .with_auto_decode(true);
     if let Some(body) = fetch.body {
         // Plain bytes: the Content-Type already travelled in the headers.
@@ -233,8 +259,25 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
             headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
         }),
-        // Never streamed: the request asked for a buffered body.
-        Ok(FetchResult::Stream { .. }) => done(FetchOutcome::Error("unexpected streamed body".into())),
+        Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
+            // What `Content-Length` promises past the peek, when it says.
+            let expected = meta
+                .headers
+                .get(http::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok()?.trim().parse::<u64>().ok())
+                .map(|len| len.saturating_sub(peek_buf.len() as u64));
+            let head = FetchOutcome::Streaming {
+                status: meta.status,
+                status_text: meta.status_text,
+                final_url: meta.final_url.to_string(),
+                headers: flatten_headers(&meta.headers),
+                peek: peek_buf.as_ref().to_vec(),
+            };
+            match platform::begin_stream(head, expected, shared) {
+                Ok(streamed) => Performed::Streaming(streamed),
+                Err(e) => done(FetchOutcome::Error(format!("could not set up a body stream: {e}"))),
+            }
+        }
         Ok(FetchResult::Error(e)) => done(FetchOutcome::Error(e.to_string())),
         Err(_) => done(FetchOutcome::Error("the fetcher dropped the request".into())),
     }
