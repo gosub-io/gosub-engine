@@ -153,6 +153,9 @@ pub mod decoder_process;
 /// The cookie vault: every vaulted zone's jar, in a process of its own.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod cookie_vault;
+/// `localStorage` served from a sandboxed process confined to one directory.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod storage_service;
 
 /// The fork server renderers are forked from: warmed fonts, tier-chosen
 /// sandbox. The processes are Linux only - no other platform has a fork to

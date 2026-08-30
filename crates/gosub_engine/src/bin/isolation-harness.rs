@@ -138,6 +138,8 @@ fn main() {
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
+        "storage" => storage(),
+        "engine-storage-service" => engine_storage_service(),
         "vault" => vault(),
         "engine-cookie-vault" => engine_cookie_vault(),
         "stream" => stream(),
@@ -3728,6 +3730,255 @@ fn serve_cookie_pages(seen: SeenRequests) -> std::io::Result<u16> {
         }
     });
     Ok(port)
+}
+
+/// A zone built with a plain `FileLocalStore` gets its local storage served
+/// by the storage process without the embedder asking: the setting's default.
+fn engine_storage_service() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{
+            FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService,
+        };
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let dir = std::env::temp_dir().join(format!("gosub-engine-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let Ok(store) = FileLocalStore::open(&dir) else {
+            eprintln!("could not open the file store");
+            return 1;
+        };
+        let Ok(origin) = url::Url::parse("https://app.test").map(|u| u.origin()) else {
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let code = runtime.block_on(async move {
+            let mut engine: GosubEngine = GosubEngine::new(
+                None,
+                Arc::new(NullBackend::new()),
+                Arc::new(DefaultCompositor::default()),
+            );
+            let _events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let storage = Arc::new(StorageService::new(
+                Arc::new(store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let zone = match engine.create_zone(None, services, None) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a zone: {e}");
+                    return 1;
+                }
+            };
+            // The embedder's own handle sees the routed store.
+            let area = match storage.local_for(zone.id, &PartitionKey::None, &origin) {
+                Ok(area) => area,
+                Err(e) => {
+                    eprintln!("no area: {e}");
+                    return 1;
+                }
+            };
+            if let Err(e) = area.set_item("k", "v") {
+                eprintln!("set failed: {e}");
+                return 1;
+            }
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("get did not round-trip");
+                return 1;
+            }
+            if !has_child_named("gosub-storage") {
+                eprintln!(
+                    "no gosub-storage child process: storage stayed in-process (children: {:?}, routed dir: {:?})",
+                    child_names(),
+                    storage.local_store().service_directory()
+                );
+                return 1;
+            }
+            println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+
+            // Kill it: the next request brings a new one, reading the same files.
+            let Some(pid) = storage.local_store().service_pid() else {
+                eprintln!("the routed store has no service pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("the value did not survive the storage service dying");
+                return 1;
+            }
+            match storage.local_store().service_pid() {
+                Some(new_pid) if new_pid != pid => println!("storage service respawned: pid {pid} -> {new_pid}"),
+                other => {
+                    eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
+                    return 1;
+                }
+            }
+            let _ = engine.shutdown().await;
+            0
+        });
+        let files = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+        let _ = std::fs::remove_dir_all(&dir);
+        if code == 0 && files == 0 {
+            eprintln!("the service wrote nothing to the storage directory");
+            return 1;
+        }
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
+}
+
+/// The `comm` of every direct child of this process.
+#[cfg(target_os = "linux")]
+fn child_names() -> Vec<String> {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let status = std::fs::read_to_string(entry.path().join("status")).ok()?;
+            let mut comm = String::new();
+            let mut ppid = String::new();
+            for line in status.lines() {
+                if let Some(v) = line.strip_prefix("Name:\t") {
+                    comm = v.trim().to_string();
+                } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                    ppid = v.trim().to_string();
+                }
+            }
+            (ppid == me).then_some(comm)
+        })
+        .collect()
+}
+
+/// Whether this process has a direct child whose `comm` is `name`.
+#[cfg(target_os = "linux")]
+fn has_child_named(name: &str) -> bool {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let status = std::fs::read_to_string(entry.path().join("status")).unwrap_or_default();
+        let mut comm = "";
+        let mut ppid = "";
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Name:\t") {
+                comm = v.trim();
+            } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                ppid = v.trim();
+            }
+        }
+        ppid == me && comm == name
+    })
+}
+
+/// Storage service round trip, origin isolation, a refused oversize write,
+/// persistence across a restart of the service.
+fn storage() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{LocalStore as _, PartitionKey, ServiceLocalStore};
+        use gosub_engine::zone::ZoneId;
+
+        let dir = std::env::temp_dir().join(format!("gosub-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let origin = |s: &str| url::Url::parse(s).map(|u| u.origin());
+        let (Ok(a_origin), Ok(b_origin)) = (origin("https://a.test"), origin("https://b.test")) else {
+            eprintln!("bad test origins");
+            return 1;
+        };
+        let zone = ZoneId::new();
+
+        let run = |expect_remote: bool| -> Result<(), String> {
+            let store = ServiceLocalStore::new(&dir).map_err(|e| e.to_string())?;
+            let a = store
+                .area(zone, &PartitionKey::None, &a_origin)
+                .map_err(|e| e.to_string())?;
+            if expect_remote && !store.is_remote() {
+                return Err("the storage service did not start; areas are in-process".into());
+            }
+            if a.get_item("k").is_none() {
+                a.set_item("k", "1").map_err(|e| e.to_string())?;
+                a.set_item("k2", "2").map_err(|e| e.to_string())?;
+                let b = store
+                    .area(zone, &PartitionKey::None, &b_origin)
+                    .map_err(|e| e.to_string())?;
+                if b.get_item("k").is_some() {
+                    return Err("another origin must not see this origin's item".into());
+                }
+                if a.len() != 2 || a.get_item("k2").as_deref() != Some("2") {
+                    return Err(format!("len/get wrong: len {} k2 {:?}", a.len(), a.get_item("k2")));
+                }
+                a.remove_item("k2").map_err(|e| e.to_string())?;
+                if a.keys() != vec!["k".to_string()] {
+                    return Err(format!("keys after remove: {:?}", a.keys()));
+                }
+                let huge = "v".repeat(gosub_engine::storage::file_store::MAX_VALUE_BYTES + 1);
+                if a.set_item("huge", &huge).is_ok() {
+                    return Err("an oversize value must be refused".into());
+                }
+                if a.get_item("k").as_deref() != Some("1") {
+                    return Err("the service must survive a refused write".into());
+                }
+                println!("set/get/keys/remove/quota through the service ok");
+            } else {
+                if a.get_item("k").as_deref() != Some("1") || a.len() != 1 {
+                    return Err(format!("state did not persist across a restart: {:?}", a.keys()));
+                }
+                a.clear().map_err(|e| e.to_string())?;
+                if !a.is_empty() {
+                    return Err("clear must empty the area".into());
+                }
+                println!("state persisted across a service restart");
+            }
+            store.shutdown();
+            Ok(())
+        };
+        let outcome = run(true).and_then(|()| run(true));
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
 }
 
 /// The transport on its own: does a request survive the round trip through a

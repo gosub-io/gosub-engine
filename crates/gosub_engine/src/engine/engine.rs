@@ -95,7 +95,16 @@ pub struct EngineContext {
     /// thread to spawn that process.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub net_vault_link: Arc<Mutex<Option<crate::cookie_vault::client::NetVaultLink>>>,
+    /// Storage service processes, one per directory, shared by the zones
+    /// whose local store lives there.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub storage_services: Arc<Mutex<StorageServices>>,
 }
+
+/// Storage service per directory, with how many open zones use it.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub type StorageServices =
+    std::collections::HashMap<std::path::PathBuf, (Arc<crate::storage_service::client::ServiceLocalStore>, usize)>;
 
 impl Default for EngineContext {
     fn default() -> Self {
@@ -115,6 +124,8 @@ impl Default for EngineContext {
             cookie_vault: OnceLock::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             net_vault_link: Arc::new(Mutex::new(None)),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            storage_services: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -163,6 +174,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 cookie_vault: OnceLock::new(),
                 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
                 net_vault_link: Arc::new(Mutex::new(None)),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                storage_services: Arc::new(Mutex::new(std::collections::HashMap::new())),
             }),
             render_backend: backend,
             compositor,
@@ -443,11 +456,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// in CI.
     #[cfg(feature = "process-isolation")]
     fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 4] = [
+        const PROCESS_SETTINGS: [&str; 5] = [
             "security.network_process",
             "security.image_decoder_process",
             "security.renderer_process",
             "security.cookie_vault",
+            "security.storage_service",
         ];
         let store = &self.context.config_store;
 
@@ -555,6 +569,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 log::trace!("signal: shutting down the cookie vault");
                 vault.shutdown();
             }
+            for (store, _) in self.context.storage_services.lock().values() {
+                store.shutdown();
+            }
         }
 
         // Shutdown I/O thread
@@ -614,6 +631,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
         let cookie_store = services.cookie_store.clone();
 
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.route_local_storage(&services);
+
         // A zone whose jar the engine provisions keeps it in the vault, behind a
         // jar handle that forwards; an embedder-supplied jar is the embedder's.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -635,6 +655,38 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             _ => services,
         };
         self.create_zone_with_services(config, services, zone_id, cookie_store)
+    }
+
+    /// Route a zone's local storage through the storage service process when
+    /// its store can be served from a directory. One process per directory.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn route_local_storage(&self, services: &ZoneServices) {
+        use crate::storage_service::client::ServiceLocalStore;
+        if !self.context.config_store.get_bool("security.storage_service") {
+            return;
+        }
+        let Some(dir) = services.storage.local_store().service_directory() else {
+            return;
+        };
+        let mut processes = self.context.storage_services.lock();
+        let store = match processes.get_mut(&dir) {
+            Some((store, zones)) => {
+                *zones += 1;
+                Arc::clone(store)
+            }
+            None => match ServiceLocalStore::new(&dir) {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    processes.insert(dir, (Arc::clone(&store), 1));
+                    store
+                }
+                Err(e) => {
+                    log::warn!("localStorage stays in-process for {}: {e}", dir.display());
+                    return;
+                }
+            },
+        };
+        services.storage.route_local_through(store);
     }
 
     fn create_zone_with_services(
@@ -687,6 +739,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
     pub async fn close_zone(&mut self, zone: Zone<C>) {
         let zone_id = zone.id;
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let storage_dir = zone.context.services.storage.local_store().service_directory();
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
@@ -710,6 +764,24 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Final cookie snapshot + cache eviction; durable data stays on disk.
         if let Some(store) = self.cookie_stores.remove(&zone_id) {
             store.release_zone(zone_id);
+        }
+
+        // The storage service outlives its last zone by nothing.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(dir) = storage_dir {
+            let mut processes = self.context.storage_services.lock();
+            let last = match processes.get_mut(&dir) {
+                Some((_, zones)) => {
+                    *zones = zones.saturating_sub(1);
+                    *zones == 0
+                }
+                None => false,
+            };
+            if last {
+                if let Some((store, _)) = processes.remove(&dir) {
+                    store.shutdown();
+                }
+            }
         }
 
         self.zones.remove(&zone_id);
