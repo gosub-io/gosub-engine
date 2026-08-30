@@ -1,6 +1,6 @@
 //! Minimal browser window: Skia (CPU) rasterizer + winit toolkit + softbuffer presentation.
 //!
-//! Usage: cargo run -p example-winit-skia -- https://example.com
+//! Usage: cargo run --example winit-skia -- https://example.com
 //!
 //! No GTK dependency - Skia has its own font system.
 //! Press Ctrl+L to focus the address bar.

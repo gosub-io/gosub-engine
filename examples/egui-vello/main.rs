@@ -1,6 +1,6 @@
 //! Minimal browser window: Vello (GPU) rasterizer + egui toolkit.
 //!
-//! Usage: cargo run -p example-egui-vello -- https://example.com
+//! Usage: cargo run --example egui-vello -- https://example.com
 //!
 //! No GTK dependency - pure egui + wgpu.
 
