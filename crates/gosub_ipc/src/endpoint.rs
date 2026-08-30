@@ -471,7 +471,7 @@ mod tests {
         assert!(libc::sendmsg(sock_fd, &msg, 0) >= 0, "{}", io::Error::last_os_error());
     }
 
-    #[cfg(all(feature = "multi-process", unix))]
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
     #[test]
     fn peer_alive_sees_a_closed_peer_without_consuming() {
         let (mine, peer) = UnixStream::pair().unwrap();
