@@ -77,6 +77,7 @@ pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
 
 /// Roles that need `C` (a renderer) dispatch here; every other role behaves
 /// exactly as under [`dispatch`].
+#[allow(clippy::extra_unused_type_parameters)]
 fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String]) -> i32 {
     run_role(role, args)
 }
@@ -86,11 +87,36 @@ pub fn is_child_process() -> bool {
     std::env::args().any(|a| a == ROLE_FLAG)
 }
 
-fn run_role(role: &str, _args: &[String]) -> i32 {
+fn run_role(role: &str, args: &[String]) -> i32 {
+    use crate::net::process::client::NET_ROLE;
+
     // Every child is non-dumpable: a role holds cookies or page content in its
     // address space, and another process running as the same user must not be
     // able to attach and read it.
     gosub_sandbox::deny_debugger_attach();
-    eprintln!("[gosub] unknown child role '{role}'");
-    2
+
+    match role {
+        NET_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::net::process::child::serve(endpoint),
+            Err(code) => code,
+        },
+        other => {
+            eprintln!("[gosub] unknown child role '{other}'");
+            2
+        }
+    }
+}
+
+/// Take over the link this child inherited, or report why it could not.
+fn adopt_link(role: &str, args: &[String]) -> Result<gosub_ipc::Endpoint, i32> {
+    // `spawn` appends the primary link last; anything before it is a further
+    // inherited channel the role knows what to do with.
+    let Some(link) = args.last() else {
+        eprintln!("[gosub] child role '{role}' needs an IPC link argument");
+        return Err(2);
+    };
+    gosub_ipc::Endpoint::adopt_inherited(link).map_err(|e| {
+        eprintln!("[gosub] child role '{role}' could not adopt its link: {e}");
+        2
+    })
 }

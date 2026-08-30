@@ -429,6 +429,12 @@
       "values": "off,balanced,strict",
       "default": "s:balanced",
       "description": "Sandboxing level applied to zones."
+    },
+    {
+      "key": "network_process",
+      "type": "b",
+      "default": "b:true",
+      "description": "Run the network stack in a sandboxed child process. Needs the embedder to dispatch child roles; turned off at start when it cannot apply."
     }
   ],
   "telemetry": [

@@ -9,7 +9,7 @@ name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]
-gosub-sonar = "0.2.0"
+gosub-sonar = "0.4.0"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_config = { version = "0.1.1", path = "../gosub_config" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
@@ -60,6 +60,14 @@ mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
+
+# Exercises the isolated components from a binary that dispatches child roles the
+# way an embedder must; `tests/process_isolation.rs` runs it. Pointless without
+# the machinery it drives.
+[[bin]]
+name = "isolation-harness"
+path = "src/bin/isolation-harness.rs"
+required-features = ["process-isolation"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

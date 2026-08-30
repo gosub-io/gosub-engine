@@ -3032,9 +3032,9 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "680c8da58b4a9f5ac7b1f822c88c3fad564acb695c7a040581f3b5d905318c41"
+checksum = "4ee39d8a24112d929543f3e9d1fab83abf8fb718c48f512f87c99ce5ff36290a"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3047,7 +3047,11 @@ dependencies = [
  "http",
  "log",
  "parking_lot",
+ "psl",
  "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
