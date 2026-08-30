@@ -7,6 +7,7 @@ use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
+use crate::net::brokered_loader::BrokeredLoader;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
     FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
@@ -431,7 +432,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(config_store.clone());
+        let context = BrowsingContext::new(
+            config_store.clone(),
+            BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone()).shared(),
+        );
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -689,6 +693,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// A loader that fetches on this tab's behalf through the I/O runtime.
+    fn resource_loader(&self) -> Arc<dyn gosub_interface::resource_loader::ResourceLoader> {
+        let loader = BrokeredLoader::new(self.zone_id, Some(self.tab_id), self.zone_context.io_tx.clone());
+        match &self.active_nav {
+            Some(nav) => loader.with_cancel(&nav.cancel).shared(),
+            None => loader.shared(),
+        }
+    }
+
     /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
     /// so the first layout/paint can use them. Runs once per navigation, before the first
     /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
@@ -698,6 +711,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         use gosub_interface::css3::CssStylesheet as _;
         use gosub_interface::document::Document as _;
         use gosub_interface::font_system::FontSystem as _;
+
+        // Brokered rather than fetched here: this code becomes renderer-side, which
+        // must hold no network capability of its own (see `net::brokered_loader`).
+        let loader = self.resource_loader();
 
         let mut fetched: std::collections::HashSet<String> = std::collections::HashSet::new();
         for sheet in doc.stylesheets() {
@@ -723,13 +740,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     if !fetched.insert(font_url.to_string()) {
                         break; // this exact font file is already registered
                     }
-                    match gosub_sonar::net::simple::sync_fetch(&font_url) {
-                        Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
+                    match loader.load(&font_url) {
+                        Ok(resp) if resp.is_ok() && !resp.body.is_empty() => {
                             // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
                             // negotiates WOFF2 for modern UAs like ours). The font backends
                             // (Skia/fontconfig) only decode raw SFNT (TTF/OTF), so unwrap WOFF2
                             // to TTF first. Other formats pass through unchanged.
-                            let font_bytes = decode_web_font(resp.body, &font_url);
+                            let font_bytes = decode_web_font(resp.body.to_vec(), &font_url);
                             match self
                                 .zone_context
                                 .font_system

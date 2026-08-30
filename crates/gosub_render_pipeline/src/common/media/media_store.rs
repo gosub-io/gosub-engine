@@ -3,6 +3,7 @@ use crate::common::media::{
     DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
 };
 use bytes::Bytes;
+use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -41,6 +42,9 @@ pub struct MediaStore {
     /// Compiled-in placeholder returned when an image is missing or failed to load
     default_image: Arc<Media>,
     decoders: MediaDecoderRegistry,
+    /// How remote media is fetched. The store holds a loader rather than reaching
+    /// for the network itself, so layout carries no network capability.
+    loader: Arc<dyn ResourceLoader>,
 }
 
 impl Default for MediaStore {
@@ -54,7 +58,15 @@ impl MediaStore {
         MediaId::new(self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// A store with no network: `data:` URIs still decode, remote sources do not
+    /// load. For tests and measurement-only layout passes; the engine builds its
+    /// store with [`with_loader`](Self::with_loader).
     pub fn new() -> MediaStore {
+        Self::with_loader(Arc::new(NoResourceLoader))
+    }
+
+    /// A store that pulls remote media through `loader`.
+    pub fn with_loader(loader: Arc<dyn ResourceLoader>) -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
         #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
@@ -89,6 +101,7 @@ impl MediaStore {
             default_svg,
             default_image,
             decoders,
+            loader,
         }
     }
 
@@ -304,16 +317,13 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let response = gosub_sonar::net::simple::sync_fetch(&url)?;
+        let response = self.loader.load(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);
         }
 
-        let content_type = response.headers.get("content-type").cloned();
-        let raw_bytes = Bytes::from(response.body);
-
-        Ok((content_type, raw_bytes))
+        Ok((response.content_type, response.body))
     }
 }
 

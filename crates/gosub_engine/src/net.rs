@@ -50,6 +50,7 @@
 //! The submodules below are internal implementation details unless re-exported. Public
 //! items are documented via the re-exports that follow.
 //!
+pub mod brokered_loader;
 mod decision;
 mod decision_hub;
 mod emitter;
