@@ -6,20 +6,13 @@ use crate::storage::{PartitionKey, StorageService};
 use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
-/// Default parameters for a newly created tab.
-///
-/// These values are *initial conditions* for the tab. They are optional and
-/// usually provided by the caller when creating a tab.
-///
-/// - [`url`](Self::url): initial URL to load
-/// - [`title`](Self::title): optional title (used if no document title is available)
-/// - [`viewport`](Self::viewport): initial viewport size
+/// Initial conditions for a newly created tab.
 #[derive(Clone, Debug, Default)]
 pub struct TabDefaults {
     /// Initial URL to navigate to.
     pub url: Option<String>,
 
-    /// Optional initial title for the tab.
+    /// Initial title, used if no document title is available.
     pub title: Option<String>,
 
     /// Initial viewport configuration (width, height, scroll offset).

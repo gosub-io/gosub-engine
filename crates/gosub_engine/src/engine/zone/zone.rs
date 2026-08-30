@@ -337,18 +337,15 @@ impl<C: RenderConfiguration> Zone<C> {
             },
         );
 
-        // Increase metrics
         self.sink
             .tabs_created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Set tab defaults
         tab_handle
             .set_title(initial.title.as_deref().unwrap_or("New Tab"))
             .await?;
         tab_handle.set_viewport(initial.viewport.unwrap_or_default()).await?;
 
-        // Load URL in tab if provided
         if let Some(url) = initial.url.as_ref() {
             tab_handle.navigate(url).await?;
         }

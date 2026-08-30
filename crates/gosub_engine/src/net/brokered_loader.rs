@@ -34,7 +34,7 @@ pub struct BrokeredLoader {
     /// cookies. `None` for engine-internal loads that belong to no tab.
     tab_id: Option<TabId>,
     io_tx: IoChannel,
-    /// Cancelled when the work that needed these resources is abandoned — a
+    /// Cancelled when the work that needed these resources is abandoned - a
     /// navigation superseded, a tab closed. Without it a cancelled page's
     /// stylesheets and fonts would keep downloading.
     cancel: CancellationToken,

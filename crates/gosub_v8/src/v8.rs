@@ -189,10 +189,10 @@ impl WebRuntime for V8Engine {
     type VariadicArgs = V8VariadicArgs;
     type VariadicArgsInternal = V8VariadicArgsInternal;
 
-    //let isolate = &mut Isolate::new(Default::default());
-    //let hs = &mut HandleScope::new(isolate);
-    //let c = Context::new(hs);
-    //let s = &mut ContextScope::new(hs, c);
+    // let isolate = &mut Isolate::new(Default::default());
+    // let hs = &mut HandleScope::new(isolate);
+    // let c = Context::new(hs);
+    // let s = &mut ContextScope::new(hs, c);
 
     fn new_context(&mut self) -> Result<Self::Context> {
         V8Context::with_default()

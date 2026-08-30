@@ -203,6 +203,9 @@ fn main() {
     std::process::exit(code);
 }
 
+/// An embedder that never dispatched: re-exec landed here, in `main`, rather
+/// than in a component role. Spawning from this state would repeat the mistake
+/// for every generation, so it must be refused.
 fn guard() -> i32 {
     use gosub_engine::net::process::client::NetProcess;
 
@@ -229,6 +232,7 @@ fn guard() -> i32 {
     }
 }
 
+/// A one-shot HTTP server on an ephemeral port, serving [`BODY`].
 fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
     serve_once_with(BODY)
 }
@@ -266,6 +270,14 @@ fn serve_once_bytes(body: Vec<u8>, content_type: &'static str) -> std::io::Resul
     Ok((port, handle))
 }
 
+/// Real hostname resolution inside the sandboxed network process. `127.0.0.1`
+/// never reaches NSS, which is how two syscall denials (`mmap(PROT_EXEC)` from
+/// `dlopen`ing NSS modules, `sendmmsg` from the resolver) survived every test
+/// until an example hit a live URL. A reserved `.invalid` name exercises the
+/// whole resolver path without needing the network: the fetch must fail, and
+/// the process must *survive* it and still serve. The strict fetcher (a
+/// subresource of a public page) must then refuse the loopback test server,
+/// and the permissive one must still reach it.
 fn resolve() -> i32 {
     use gosub_engine::net::process::client::NetProcess;
     use gosub_engine::net::process::protocol::FetchOutcome;

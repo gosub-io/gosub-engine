@@ -1,7 +1,4 @@
-//! Shared functionality
-//!
-//! This crate supplies a lot of shared functionality in the gosub engine.
-//!
+//! Functionality shared across the gosub engine crates.
 
 extern crate core;
 

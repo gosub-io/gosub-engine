@@ -1,4 +1,3 @@
-// Re-export the net-layer Fetcher and supporting types from the external gosub-sonar crate
 pub use gosub_sonar::net::fetcher::{Fetcher, FetcherConfig};
 pub use gosub_sonar::net::fetcher_context::FetcherContext;
 
