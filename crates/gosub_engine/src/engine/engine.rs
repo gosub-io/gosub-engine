@@ -475,6 +475,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.context.renderer_process.get()
     }
 
+    /// The escape audit in the network process; `None` when networking is
+    /// in-process (tools and tests).
+    #[cfg(feature = "process-isolation")]
+    pub async fn audit_net_process(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        self.io_handle.as_ref()?.audit_net().await
+    }
+
     /// The cookie vault, when one runs (tools and tests).
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn cookie_vault(&self) -> Option<&Arc<crate::cookie_vault::client::CookieVault>> {

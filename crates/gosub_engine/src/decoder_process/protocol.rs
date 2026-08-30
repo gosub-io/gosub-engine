@@ -28,6 +28,8 @@ pub enum ToDecoder {
     },
     /// The intrinsic size only, from the header.
     Dimensions { mime: Option<String>, bytes: Vec<u8> },
+    /// Run the escape audit under the decoder's lockdown and report it.
+    Audit,
 }
 
 /// Decoder → broker.
@@ -50,4 +52,6 @@ pub enum FromDecoder {
         height: u32,
     },
     Failed(String),
+    /// Answer to [`ToDecoder::Audit`]; `None` where the audit cannot run.
+    Audit(Option<gosub_sandbox::audit::AuditReport>),
 }

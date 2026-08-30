@@ -147,6 +147,15 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 let _ = gosub_sandbox::reap_exited_children();
                 FromForkServer::Pong
             }
+            ToForkServer::Audit => {
+                FromForkServer::Audit(gosub_sandbox::audit::run(gosub_sandbox::audit::Role::ForkServer, &[]))
+            }
+            ToForkServer::AuditRenderer => match fork_confined_task(font_access, &parent_only, || {
+                Some(gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Renderer, &[]))
+            }) {
+                Ok(report) => FromForkServer::Audit(report),
+                Err(e) => FromForkServer::Refused(e),
+            },
             ToForkServer::RenderPage {
                 html,
                 url,
@@ -274,6 +283,8 @@ fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
             ToForkServer::ForkProof
             | ToForkServer::RenderPage { .. }
             | ToForkServer::SpawnRenderer { .. }
+            | ToForkServer::Audit
+            | ToForkServer::AuditRenderer
             | ToForkServer::Resource(_) => FromForkServer::Refused(refusal.clone()),
         };
         if link.send(&reply).is_err() {
@@ -488,6 +499,9 @@ fn fork_and_render<C: RenderConfiguration>(
                         // lets go of anything.
                         FromRenderer::Evict { .. } => {
                             return Err(std::io::Error::other("a one-shot renderer sent an eviction"));
+                        }
+                        FromRenderer::Audit(_) => {
+                            return Err(std::io::Error::other("a one-shot renderer sent an audit report"));
                         }
                     }
                 }

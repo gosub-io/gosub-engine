@@ -47,6 +47,10 @@ pub enum ToStorage {
         tag: Tag,
         area: AreaKey,
     },
+    /// Run the escape audit in the service and report it.
+    Audit {
+        tag: Tag,
+    },
     Shutdown,
 }
 
@@ -70,5 +74,9 @@ pub enum FromStorage {
     Len {
         tag: Tag,
         len: u64,
+    },
+    Audit {
+        tag: Tag,
+        report: gosub_sandbox::audit::AuditReport,
     },
 }

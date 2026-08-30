@@ -14,6 +14,10 @@ use std::time::Duration;
 /// Bodies may stream: the link carries the ring's fd.
 pub(super) const STREAMING: bool = true;
 
+pub(super) fn escape_audit() -> Option<gosub_sandbox::audit::AuditReport> {
+    Some(gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Net, &[]))
+}
+
 /// Ring window for streamed bodies. Small on purpose: a large body wraps
 /// through it many times, and neither side ever holds more than this (plus one
 /// chunk) for the transport.

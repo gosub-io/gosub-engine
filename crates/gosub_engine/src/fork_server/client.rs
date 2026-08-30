@@ -246,6 +246,7 @@ impl RenderStream for FromRenderer {
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
             FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
+            FromRenderer::Audit(_) => anyhow::bail!("an audit report in the middle of a render"),
         })
     }
 
@@ -676,6 +677,26 @@ impl ForkServer {
         }
     }
 
+    /// The escape audit, run in the fork server itself.
+    pub fn audit(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.link.send(&ToForkServer::Audit)?;
+        match self.link.recv::<FromForkServer>()? {
+            FromForkServer::Audit(report) => Ok(report),
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected reply to Audit: {other:?}"),
+        }
+    }
+
+    /// The escape audit, run in a renderer forked for it.
+    pub fn audit_forked_renderer(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.link.send(&ToForkServer::AuditRenderer)?;
+        match self.link.recv::<FromForkServer>()? {
+            FromForkServer::Audit(report) => Ok(report),
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected reply to AuditRenderer: {other:?}"),
+        }
+    }
+
     /// Fork a renderer and run the pipeline over `html` in it - parse, style,
     /// layout, layering, tiling, paint, and (when the configuration has a
     /// forked rasterizer) rasterize - under its tier sandbox, with the
@@ -877,6 +898,19 @@ impl ResidentRenderer {
             self.mark_dead();
         }
         result
+    }
+
+    /// The escape audit, run inside this resident renderer.
+    pub fn audit(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.send(&ToRenderer::Audit)?;
+        match self.link.recv::<FromRenderer>() {
+            Ok(FromRenderer::Audit(report)) => Ok(report),
+            Ok(other) => anyhow::bail!("unexpected reply to Audit: {other:?}"),
+            Err(e) => {
+                self.mark_dead();
+                anyhow::bail!("renderer link failed: {e}")
+            }
+        }
     }
 
     /// Whether the process is still there, without sending anything: a closed

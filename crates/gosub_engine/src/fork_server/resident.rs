@@ -88,6 +88,12 @@ pub fn serve<C: RenderConfiguration>(
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
             ToRenderer::CrashForTest => gosub_sandbox::exit_now(139),
+            ToRenderer::Audit => {
+                let report = gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Renderer, &[]);
+                if link.lock().send(&FromRenderer::Audit(report)).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
             ToRenderer::Navigate {
                 tab,
                 html,

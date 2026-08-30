@@ -159,7 +159,8 @@ impl StorageProcess {
             FromStorage::Value { tag, .. }
             | FromStorage::Done { tag, .. }
             | FromStorage::Keys { tag, .. }
-            | FromStorage::Len { tag, .. } => Some(*tag),
+            | FromStorage::Len { tag, .. }
+            | FromStorage::Audit { tag, .. } => Some(*tag),
             FromStorage::Pong => None,
         };
         if echoed != Some(tag) {
@@ -173,6 +174,14 @@ impl StorageProcess {
             FromStorage::Done { error: None, .. } => Ok(()),
             FromStorage::Done { error: Some(e), .. } => Err(anyhow!(e)),
             _ => Err(anyhow!("unexpected reply from the storage service")),
+        }
+    }
+
+    /// The escape audit, run inside the service process.
+    pub fn audit(&self) -> Result<gosub_sandbox::audit::AuditReport> {
+        match self.ask(|tag| ToStorage::Audit { tag })? {
+            FromStorage::Audit { report, .. } => Ok(report),
+            _ => Err(anyhow!("unexpected reply to the audit")),
         }
     }
 
@@ -268,6 +277,13 @@ impl LocalStore for ServiceLocalStore {
 
     fn service_pid(&self) -> Option<u32> {
         self.pid()
+    }
+
+    fn escape_audit(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        match self.backend.get() {
+            Some(Backend::Remote(process)) => process.audit().ok(),
+            _ => None,
+        }
     }
 
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {

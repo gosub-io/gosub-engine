@@ -30,6 +30,17 @@ pub fn serve(mut link: Endpoint) -> i32 {
 
     let (mime, bytes) = match link.recv::<ToDecoder>() {
         Ok(ToDecoder::Decode { mime, bytes }) => (mime, bytes),
+        Ok(ToDecoder::Audit) => {
+            #[cfg(target_os = "linux")]
+            let report = Some(gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Decoder, &[]));
+            #[cfg(not(target_os = "linux"))]
+            let report = None;
+            return if link.send(&FromDecoder::Audit(report)).is_ok() {
+                0
+            } else {
+                1
+            };
+        }
         Ok(ToDecoder::Dimensions { mime, bytes }) => {
             let reply = match registry.dimensions(mime.as_deref(), &bytes) {
                 Some((width, height)) => FromDecoder::Dimensions { width, height },

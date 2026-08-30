@@ -545,6 +545,35 @@ fn an_exec_fresh_renderer_renders_one_page_confined() {
     );
 }
 
+/// The escape audit inside every process of a running engine: nothing a
+/// compromised child would try - files, sockets, fork, exec, signals, the
+/// broker's memory - comes out other than the role's design says.
+#[cfg(target_os = "linux")]
+#[test]
+fn no_process_finds_a_way_out_of_its_sandbox() {
+    let out = run_with_backend("escape-audit", "parley");
+    assert!(
+        out.status.success(),
+        "escape audit failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A *spawned* child must run under the restricted token, not fall back to
+/// the inherited one: `gosub_sandbox::spawn` reports the fallback on stderr,
+/// which the harness (spawning the network process) inherits.
+#[cfg(target_os = "windows")]
+#[test]
+fn spawned_children_get_a_restricted_token() {
+    let out = run("direct");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("using inherited token"),
+        "a child fell back to the inherited token - restricted_token() failed:\n{stderr}"
+    );
+}
+
 /// The wiring: an ordinary navigation with `security.network_process` on resolves
 /// through the child rather than an in-process fetcher.
 #[test]

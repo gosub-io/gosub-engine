@@ -27,6 +27,7 @@ enum Reply {
     Cookies(Option<String>),
     All(Vec<(String, String)>),
     Granted(bool),
+    Audit(gosub_sandbox::audit::AuditReport),
 }
 
 /// Why a zone's snapshot would be expected right now. A snapshot for a zone
@@ -196,6 +197,11 @@ fn start_reader(
                     }
                     // The broker's own stores are fire-and-forget.
                     FromVault::Stored { .. } => {}
+                    FromVault::Audit { tag, report } => {
+                        if let Some(waiter) = waiters.lock().remove(&tag) {
+                            let _ = waiter.send(Reply::Audit(report));
+                        }
+                    }
                     FromVault::Refused { tag } => {
                         if let Some(waiter) = waiters.lock().remove(&tag) {
                             let _ = waiter.send(Reply::Granted(false));
@@ -401,7 +407,7 @@ impl CookieVault {
             visible_only,
         })? {
             Reply::Cookies(header) => header,
-            Reply::All(_) | Reply::Granted(_) => None,
+            Reply::All(_) | Reply::Granted(_) | Reply::Audit(_) => None,
         }
     }
 
@@ -422,6 +428,14 @@ impl CookieVault {
             url: url.to_string(),
             set_cookie,
         });
+    }
+
+    /// The escape audit, run inside the vault process.
+    pub fn audit(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        match self.ask(|tag| ToVault::Audit { tag })? {
+            Reply::Audit(report) => Some(report),
+            _ => None,
+        }
     }
 
     /// Let the network process act on `scope` for one request. `false` means
