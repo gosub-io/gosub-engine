@@ -424,29 +424,28 @@
   ],
   "security": [
     {
-      "key": "sandbox_mode",
-      "type": "s",
-      "values": "off,balanced,strict",
-      "default": "s:balanced",
-      "description": "Sandboxing level applied to zones."
-    },
-    {
       "key": "network_process",
       "type": "b",
       "default": "b:true",
-      "description": "Run the network stack in a sandboxed child process. Needs the embedder to dispatch child roles; turned off at start when it cannot apply. Streamed bodies cross the process boundary through a shared-memory ring on Linux, and are buffered on other platforms."
+      "description": "Run the network stack in a separate, sandboxed process. On by default on Linux; elsewhere the default is off until those platforms are verified (set it explicitly to try). Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main() - without that the engine turns it off at start with a log line; if the child cannot be started the engine falls back to in-process networking (with a warning). Streamed bodies cross the process boundary through a shared-memory ring on Linux, and are buffered on other platforms."
     },
     {
       "key": "image_decoder_process",
       "type": "b",
       "default": "b:true",
-      "description": "Decode raster images in a throwaway, sandboxed process, one per image. Needs the embedder to dispatch child roles. SVG is rasterized in that process at its intrinsic size (without system fonts), since a parsed vector tree cannot cross a process boundary; a decode the process refuses or cannot start is a failed image, never decoded in-process instead."
+      "description": "Decode raster images in a throwaway, sandboxed process, one per image. On by default on Linux (off elsewhere until verified). Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main(). Costs a process spawn per image. SVG is rasterized in that process at its intrinsic size (without system fonts), since a parsed vector tree cannot cross a process boundary; a decode the process refuses or cannot start is a failed image, never decoded in-process instead."
+    },
+    {
+      "key": "renderer_process",
+      "type": "b",
+      "default": "b:true",
+      "description": "Spawn the renderer fork server at engine start: a warmed, sandboxed process that resident renderers are forked from - one long-lived renderer per (zone, site), hosting that site's tabs, confined to the tier the configured font system answers. On by default on Linux when the embedder calls gosub_engine::child_process::dispatch_with::<AppConfig>() first thing in main() (plain dispatch() cannot run this role), the configured font system can run fully confined (Parley, cosmic-text) and the configuration has a forked rasterizer (the engine's cairo-tiles/skia-tiles feature, or a custom RenderConfiguration); a font system that reads font files while operating (Skia, Pango) renders in a throwaway process per render instead and must be opted into explicitly. If the fork server cannot start, pages render in-process (with a warning at startup); once it runs, page content is never rendered in-process - a failed render leaves the tab blank and emits EngineEvent::RendererCrashed. See docs/process-isolation.md. Linux only."
     },
     {
       "key": "cookie_vault",
       "type": "b",
       "default": "b:true",
-      "description": "Keep the engine's cookie jars in a separate, sandboxed vault process (Linux). Tabs and the embedder API see an ordinary jar that forwards; the network process, when it runs, gets a direct line to the vault so cookie values attached to requests never pass through the engine process. Persistence stays with the zone's cookie store: the vault sends it a snapshot after every change and never touches a file itself. Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main(), and falls back to in-process jars with a warning if the vault cannot start."
+      "description": "Keep the engine's cookie jars in a separate, sandboxed vault process (Linux). Tabs and the embedder API see an ordinary jar that forwards; the network process, when it runs, gets a direct line to the vault so cookie values attached to requests never pass through the engine process. Persistence stays with the zone's cookie store: the vault sends it a snapshot after every change and never touches a file itself. On by default on Linux (off elsewhere); takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main(), and falls back to in-process jars with a warning if the vault cannot start."
     },
     {
       "key": "storage_service",
@@ -455,10 +454,11 @@
       "description": "Serve a zone's localStorage from a separate, sandboxed storage process when its local store can be (a FileLocalStore, or a ServiceLocalStore): one process per directory, confined to opening files there. Stores of other kinds stay in-process. Linux; takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main()."
     },
     {
-      "key": "renderer_process",
-      "type": "b",
-      "default": "b:true",
-      "description": "Spawn the renderer fork server at engine start: a warmed, sandboxed process that renderers are forked from, one throwaway renderer per render, confined to the tier the configured font system answers. On by default on Linux when the embedder calls gosub_engine::child_process::dispatch_with::<AppConfig>() first thing in main() (plain dispatch() cannot run this role), the configured font system can run fully confined (Parley, cosmic-text) and the configuration has a forked rasterizer (the engine's cairo-tiles/skia-tiles feature, or a custom RenderConfiguration); a font system that reads font files while operating (Skia, Pango) renders in a throwaway exec'd process per render instead and must be opted into explicitly. If the fork server cannot start, pages render in-process (with a warning at startup); once it runs, page content is never rendered in-process - a failed render leaves the tab blank and emits EngineEvent::RendererCrashed. Linux only."
+      "key": "sandbox_mode",
+      "type": "s",
+      "values": "off,balanced,strict",
+      "default": "s:balanced",
+      "description": "Sandboxing level applied to zones."
     }
   ],
   "telemetry": [
