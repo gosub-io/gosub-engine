@@ -4,7 +4,7 @@ use crate::model::TableRow;
 #[derive(Debug, Clone)]
 pub struct PlacedCell<N> {
     pub node: N,
-    /// Zero-based row index within the **section** (not the whole table).
+    /// Zero-based row index within the section (not the whole table).
     pub row: usize,
     /// Zero-based column index within the table.
     pub col: usize,
@@ -60,7 +60,7 @@ impl<N: Copy> SectionGrid<N> {
 ///
 /// Rules:
 /// - Cells are placed left-to-right, skipping slots already occupied by a
-///   spanning cell from an earlier row in the **same section**.
+///   spanning cell from an earlier row in the same section.
 /// - `rowspan` is clamped to the number of rows remaining in the section,
 ///   enforcing that spans never cross section boundaries.
 pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {

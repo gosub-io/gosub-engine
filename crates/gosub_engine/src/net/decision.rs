@@ -13,26 +13,10 @@ mod sniff;
 pub(crate) use sniff::ResponseClass;
 pub mod types;
 
-/// Decide how the user agent should handle a fetched response.
-///
-/// The decision is based on (in order):
-/// 1) **UA policy gates** (feature flags like `enable_sniffing`, `enable_pdf_viewer`, etc.)
-/// 2) **Header signals** (declared `Content-Type`, `X-Content-Type-Options: nosniff`,
-///    `Content-Disposition` attachment/filename, etc.)
-/// 3) **Sniffed class** from a peek buffer (when allowed)
-///
-/// High-level rules:
-/// - If `Content-Disposition` indicates *attachment* and UA policy allows downloads without
-///   user activation, prefer **Download**.
-/// - If a trustworthy declared type is present, prefer it. If not trustworthy or absent,
-///   and sniffing is enabled (and not blocked by `nosniff`), use the **sniffed** class.
-/// - If the result is (or looks like) **PDF** and the UA has an embedded PDF viewer,
-///   prefer **Render(PdfViewer)**.
-/// - If navigation sniffing upgrade is enabled, allow HTML upgrade for mislabelled
-///   navigations (e.g., `text/plain` / `application/octet-stream` that sniff as HTML).
-///
-/// Returns a [`DecisionOutcome`] with both the *final* class and the auxiliary evidence
-/// (declared MIME, sniffed class, disposition flag).
+/// Decide how the user agent should handle a fetched response, weighing UA
+/// policy gates, header signals (`Content-Type`, `X-Content-Type-Options:
+/// nosniff`, `Content-Disposition`) and, when allowed, a sniffed class from
+/// the peek buffer. Returns the final class plus the evidence it came from.
 pub fn decide_handling(
     meta: &FetchResultMeta,
     dest: RequestDestination,
@@ -65,7 +49,6 @@ pub fn decide_handling(
         }
     }
 
-    // If we are an attachment, and policy allows downloads without user activation, download.
     if is_attachment && policy.allow_download_without_user_activation {
         return DecisionOutcome {
             class: effective_class.unwrap_or(ResponseClass::Binary),
@@ -78,7 +61,6 @@ pub fn decide_handling(
         };
     }
 
-    // Special case: if we look like a PDF, and the UA has a PDF viewer, render in it.
     if policy.enable_pdf_viewer {
         let looks_like_pdf = declared_mime.as_ref().map(mime_is_pdf).unwrap_or(false)
             || matches!(sniffed_class, Some(ResponseClass::Pdf));
@@ -94,7 +76,6 @@ pub fn decide_handling(
         }
     }
 
-    // Final fallback: if we have no idea, treat as binary.
     let class = effective_class.unwrap_or(ResponseClass::Binary);
 
     let decision = match class {
@@ -122,12 +103,9 @@ pub fn decide_handling(
                 path: std::path::PathBuf::new(),
             },
         },
-        _ => {
-            // Unknown or unhandled types: download by default.
-            HandlingDecision::Download {
-                path: std::path::PathBuf::new(),
-            }
-        }
+        _ => HandlingDecision::Download {
+            path: std::path::PathBuf::new(),
+        },
     };
 
     DecisionOutcome {

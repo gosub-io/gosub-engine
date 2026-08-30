@@ -6,9 +6,7 @@
 //! `*-timing-function`, so the named curves mirror CSS and the [`Easing::CubicBezier`] variant
 //! can express any of them.
 //!
-//! The primitive is deliberately backend-agnostic: it is consumed by scroll smoothing today and is
-//! the same building block CSS transitions/animations will use later. It is `Send + Sync` so it can
-//! be evaluated on a worker thread.
+//! [`Easing`] is `Send + Sync` so curves can be evaluated on a worker thread.
 
 use std::sync::Arc;
 

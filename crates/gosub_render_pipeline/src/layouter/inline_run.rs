@@ -3,7 +3,7 @@
 //!
 //! Collects a block's inline content into styled [`InlineSegment`]s, split into line boxes at `<br>`.
 //!
-//! Scaffolding: **not yet wired into layout** (Stage 1 replaces the flex-based anonymous line
+//! Scaffolding: not yet wired into layout (Stage 1 replaces the flex-based anonymous line
 //! container with a single run leaf built from this), hence the module-wide `dead_code` allow.
 #![allow(dead_code)]
 

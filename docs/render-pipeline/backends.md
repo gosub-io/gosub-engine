@@ -261,7 +261,18 @@ Used when the engine needs a valid backend but no rendering is desired (headless
 
 ---
 
-## Adding a new backend
+## Limitations under process isolation
+
+A backend choice usually implies a font-system pairing, and the font system decides how tightly a future **renderer process** can be sandboxed — see [fonts.md, "Font systems under process isolation"](../fonts.md#font-systems-under-process-isolation) for the measurements behind this table:
+
+| Typical pairing | Font system's answer | Renderer sandbox |
+|---|---|---|
+| Vello + Parley | `Confinement::Full` | strictest: no file access at all |
+| any + cosmic-text | `Confinement::Full` | strictest: no file access at all |
+| Cairo + Pango | `Confinement::FontPathsReadable` | relaxed: seccomp gains the file-reading syscalls, Landlock grants **read-only** font paths + one writable scratch (fontconfig reads the filesystem *while shaping*; Pango also stages web fonts as temp files) |
+| Skia + SkiaFontSystem | `Confinement::FontPathsReadable` | same relaxed tier (Skia's Linux `FontMgr` is fontconfig-backed, and additionally wants `getcwd`/`fstatfs`/`fadvise64`) |
+
+Independently of fonts, the **GPU compositing paths** (`winit-skia-gpu`, `gtk4-skia-gpu`, Vello's wgpu surface) cannot cross a process boundary as-is: `GlTexture`/`WgpuTextureId` handles are process-local, so an isolated renderer ships CPU tiles over shared memory and GPU upload stays host-side. The CPU TileCache path already produces exactly that shape.
 
 1. Implement `RenderBackend` for your type, with `ErasedSurface` for the surface.
 2. Handle `DisplayItem::Clear` and `DisplayItem::Blit` at minimum. Pixel data in `Blit` is premultiplied BGRA32.

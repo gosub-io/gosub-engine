@@ -118,16 +118,7 @@ impl Color {
     }
 }
 
-/// A single display item representing a drawing command.
-///
-/// These commands are appended to a [`RenderList`] and later processed
-/// by the render backend.
-///
-/// Variants:
-/// - [`DisplayItem::Clear`] - clear the entire surface to a color.
-/// - [`DisplayItem::Rect`] - draw a solid rectangle.
-/// - [`DisplayItem::TextRun`] - draw a run of text at a position.
-/// - [`DisplayItem::Blit`] - blit a rasterized tile (raw ARgb32 pixels).
+/// A single drawing command in a [`RenderList`], consumed by the render backend.
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     /// Clear the entire surface with the given color.
@@ -136,7 +127,7 @@ pub enum DisplayItem {
         color: Color,
     },
 
-    /// Draw a filled rectangle at `(x, y)` with width `w` and height `h`.
+    /// Draw a filled rectangle.
     Rect {
         /// The x-coordinate of the rectangle's top-left corner.
         x: f32,
@@ -150,7 +141,7 @@ pub enum DisplayItem {
         color: Color,
     },
 
-    /// Draw a text run at `(x, y)` with font size `size`.
+    /// Draw a text run.
     TextRun {
         /// The x-coordinate where the text starts.
         x: f32,
@@ -162,7 +153,7 @@ pub enum DisplayItem {
         size: f32,
         /// The color to render the text with.
         color: Color,
-        /// Optional maximum width for text wrapping (in pixels).
+        /// Wrap width in pixels; `None` = no wrapping.
         max_width: Option<f32>,
     },
 
@@ -188,16 +179,8 @@ pub enum DisplayItem {
     },
 }
 
-/// Render list and display items.
-///
-/// This module defines a lightweight, immediate-style render list
-/// consisting of [`DisplayItem`] commands. It acts as a temporary
-/// system for testing and prototyping before the full render pipeline
-/// is integrated.
-///
-/// The core type is [`RenderList`], which collects a sequence of
-/// display items such as rectangles, text runs, or clears, and can
-/// later be consumed by a compositor or renderer.
+/// Immediate-style list of [`DisplayItem`] commands; a stopgap until the full
+/// render pipeline is integrated.
 ///
 /// # Example
 ///

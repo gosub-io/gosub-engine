@@ -22,6 +22,3 @@ pub use sink::TabSink;
 pub use history::{HistoryEntryId, HistoryEntrySummary, HistorySnapshot};
 
 // Tab management and tab-related types.
-//
-// This module re-exports the main types and services for working with tabs in the engine.
-// It includes tab handles, options, services, and internal structures for tab management.

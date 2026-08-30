@@ -11,20 +11,13 @@ pub use document::*;
 
 /// Compile-time description of the engine components a client wires together.
 ///
-/// A client (browser, headless tool, test) defines a single zero-sized marker type and
-/// implements this trait once, naming every component as an associated type. The engine is
-/// generic over `C: ModuleConfiguration`, so the whole component set is resolved and checked
-/// at compile time - there is no runtime registry. Naming a component implies a dependency on
-/// the crate that provides it (you cannot name `CairoBackend` without compiling Cairo in).
+/// A client implements this once on a zero-sized marker type, naming every component as an
+/// associated type; there is no runtime registry, and naming a component pulls in the crate
+/// that provides it.
 ///
-/// The narrow `Has*` view traits (e.g. [`HasCssSystem`]) are **derived automatically** from a
-/// `ModuleConfiguration` via blanket impls below; they are never implemented by hand. Subsystem
-/// signatures keep using the narrow `Has*` bounds, and any `C: ModuleConfiguration` satisfies
-/// them.
-///
-/// Additional components (font system, network stack, render backend, compositor) are added as
-/// associated types here as each is wired into the engine. Layout is not one of them: it lives
-/// entirely in `gosub_render_pipeline`, behind that crate's own `CanLayout` trait.
+/// The narrow `Has*` view traits (e.g. [`HasCssSystem`]) come from the blanket impls below;
+/// never implement them by hand. Layout is not a component here: it lives in
+/// `gosub_render_pipeline` behind that crate's own `CanLayout` trait.
 pub trait ModuleConfiguration: Clone + Debug + PartialEq + Send + Sync + 'static {
     /// CSS parser and property system.
     type CssSystem: CssSystem;
