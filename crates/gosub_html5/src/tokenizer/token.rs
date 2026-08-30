@@ -45,7 +45,6 @@ pub enum Token {
 impl Token {
     /// Returns true when there is a mixture of white and non-white and \0 characters in the token
     pub(crate) fn is_mixed(&self) -> bool {
-        // Check if there are white characters AND non-white characters in the token
         if let Token::Text { text: value, .. } = self {
             let mut found = 0;
 
@@ -66,7 +65,6 @@ impl Token {
 
     /// Returns true when there is a mixture of \0 and non-\0 characters in the token
     pub(crate) fn is_mixed_null(&self) -> bool {
-        // Check if there are white characters AND non-white characters in the token
         if let Token::Text { text: value, .. } = self {
             value.chars().any(|ch| ch == '\0') && value.chars().any(|ch| ch != '\0')
         } else {

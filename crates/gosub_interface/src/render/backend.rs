@@ -49,13 +49,10 @@ pub enum PresentMode {
 
 /// In-memory byte order of a rasterized tile / pixel buffer.
 ///
-/// Both variants are premultiplied; they differ only in channel byte order, so
-/// converting between them is a red/blue swap. A buffer is tagged with its format
-/// at the point of production (the rasterizer) so consumers never have to assume an
-/// order based on which backend feature happens to be compiled in. This matters
-/// because Cargo feature unification (e.g. `cargo build --all`) can enable several
-/// `backend_*` features at once, leaving a single rasterizer to win - its output
-/// must be self-describing or colors silently swap.
+/// Both variants are premultiplied; they differ only in channel byte order (conversion is a
+/// red/blue swap). Buffers are tagged at production rather than inferred from compiled features:
+/// Cargo feature unification can enable several `backend_*` features at once, and a
+/// non-self-describing buffer silently swaps colors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
     /// Little-endian premultiplied ARGB32 - bytes are `[B, G, R, A]`. Produced by
@@ -489,7 +486,7 @@ pub trait RenderBackend: Send {
         false
     }
 
-    /// Whether this GPU backend wants the **shared tile pipeline** rather than its own one-shot
+    /// Whether this GPU backend wants the shared tile pipeline rather than its own one-shot
     /// scene path: the engine rasterizes tiles (into GPU textures, via [`Self::create_rasterizer`])
     /// and calls [`Self::composite_tiles`] to present them. Only consulted when
     /// [`Self::renders_to_gpu_texture`] is also true. Default `false` keeps the scene path.
@@ -500,13 +497,11 @@ pub trait RenderBackend: Send {
     /// Composite GPU-resident tiles (produced by this backend's rasterizer, see
     /// [`Self::create_rasterizer`]) into `surface`, for the given viewport and scroll offset.
     ///
-    /// This is the GPU analogue of the host's CPU tile compositing: the shared tile pipeline
-    /// rasterizes every tile (CPU bytes *or* a GPU texture id) and a GPU backend blits the visible
-    /// GPU tiles into its surface here, after which [`Self::external_handle`] yields the presentable
-    /// `WgpuTextureId`. `tiles` carry backend-owned `texture_id`s in page coordinates.
+    /// GPU analogue of the host's CPU tile compositing: blit the visible GPU tiles into the
+    /// surface, after which [`Self::external_handle`] yields the presentable `WgpuTextureId`.
+    /// `tiles` carry backend-owned `texture_id`s in page coordinates.
     ///
-    /// Default is unsupported; only GPU backends override it. Lets one tile pipeline serve CPU and
-    /// GPU backends, differing only in where tile pixels live and who composites them.
+    /// Default is unsupported; only GPU backends override it.
     fn composite_tiles(
         &self,
         _surface: &mut dyn ErasedSurface,

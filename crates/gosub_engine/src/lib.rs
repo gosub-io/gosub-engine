@@ -4,17 +4,17 @@
 //! # Gosub Engine
 //!
 //! Gosub is a work-in-progress, embeddable browser engine for building your own User Agent (UA).
-//! It uses **async channels** and **handles**:
+//! It uses async channels and handles:
 //! - `EngineEvent` flows from the engine → UA over an event channel.
 //! - You control things via `EngineCommand` (engine/zone scoped) and `TabCommand` (tab scoped).
-//! - The engine owns a **render backend** (e.g., Null, Cairo, Vello) that you provide.
-//! - The engine is built around a **multi-zone** model, where each zone represents a separate profile.
+//! - The engine owns a render backend (e.g., Null, Cairo, Vello) that you provide.
+//! - The engine is built around a multi-zone model, where each zone represents a separate profile.
 //! - A compositor(sink) is owned by the UA and receives `Redraw` events to composite into the final UI.
 //! - Each zone can have multiple tabs (browsing contexts).
 //! - Zones own their own cookies and storage.
 //! - Tabs are controlled via a `TabHandle`.
 //! - Tabs emit events (navigation, resource loading, rendering) that you can handle in your UA.
-//! - The engine is built on **Tokio**; render backend, storage backend, and cookie store are pluggable.
+//! - The engine is built on Tokio; render backend, storage backend, and cookie store are pluggable.
 //! - The engine is still a work in progress and is not yet production-ready.
 //!
 //! ## Quick start
@@ -114,7 +114,7 @@
 //! - `F` - font system (defaults to `ParleyFontSystem`)
 //! - `S` - compositor sink (defaults to [`DefaultCompositor`](gosub_render_pipeline::render::DefaultCompositor))
 //!
-//! **To start a browser that renders**, alias your chosen stack once and hand it to the engine:
+//! To start a browser that renders, alias your chosen stack once and hand it to the engine:
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
@@ -147,13 +147,10 @@ mod engine;
 pub mod child_process;
 
 /// Image decoding in a throwaway, sandboxed process.
-#[cfg(feature = "process-isolation")]
-pub mod decoder_process;
-
-/// The cookie vault: every vaulted zone's jar, in a process of its own.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod cookie_vault;
-/// `localStorage` served from a sandboxed process confined to one directory.
+#[cfg(feature = "process-isolation")]
+pub mod decoder_process;
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod storage_service;
 
@@ -163,21 +160,22 @@ pub mod storage_service;
 /// so the tab's remotely-rendered page state need not be gated.
 pub mod fork_server;
 
-pub mod net;
 /// Exec-fresh, throwaway renderer processes - how `FontPathsReadable`
 /// configurations render out-of-process. Linux only.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod render_process;
 
+pub mod net;
+
 pub mod util;
+
+/// The engine's event firehose for external tooling; see the module docs.
+pub mod telemetry;
 
 pub mod html;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
-
-/// The engine's event firehose for external tooling; see the module docs.
-pub mod telemetry;
 
 pub use engine::{BrowsingContext, EngineError, GosubEngine};
 
@@ -222,7 +220,6 @@ pub use engine::cookies;
 /// Storage APIs for local/session data.
 pub use engine::storage;
 
-// EngineConfig at crate root:
 #[doc(inline)]
 pub use crate::engine::config::EngineConfig;
 

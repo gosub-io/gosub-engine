@@ -274,7 +274,6 @@ impl CssDefinitions {
         self.resolved_properties.insert(name.to_string(), element);
     }
 
-    /// Resolve a syntax component
     /// Resolves a datatype against the property definitions (for property references and
     /// property-named datatypes). Returns None when no such property exists.
     fn resolve_property_reference(

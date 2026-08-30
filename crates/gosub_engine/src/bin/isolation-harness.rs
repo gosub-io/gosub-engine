@@ -6,15 +6,15 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 
+const BODY: &str = "<html><head><title>through the net process</title></head>\
+<body style=\"margin:0\"><a href=\"https://example.test/target\" \
+style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
+
 /// [`BODY`] with a long tail, for scrolling a remotely rendered page.
 const TALL_BODY: &str = "<html><head><title>through the net process</title></head>\
 <body style=\"margin:0\"><a href=\"https://example.test/target\" \
 style=\"display:block;width:400px;height:200px\">a link to hover</a>\
 <div style=\"height:12000px;background:#ddd\">tall</div></body></html>";
-
-const BODY: &str = "<html><head><title>through the net process</title></head>\
-<body style=\"margin:0\"><a href=\"https://example.test/target\" \
-style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
 /// The harness's render configuration: null backend and compositor (nothing
 /// composites here), the scenario-selected font system - and, behind the
@@ -117,6 +117,13 @@ fn main() {
     let code = match scenario.as_str() {
         "direct" => direct(),
         "resolve" => resolve(),
+        "vault" => vault(),
+        "storage" => storage(),
+        "engine-storage-service" => engine_storage_service(),
+        "engine-cookie-vault" => engine_cookie_vault(),
+        "stream" => stream(),
+        "engine" => engine(),
+        "guard" => guard(),
         "decode" => decode(),
         "decode-garbage" => decode_garbage(),
         "decode-many" => decode_many(),
@@ -128,8 +135,6 @@ fn main() {
         "render-under-lockdown" => with_font_backend!(render_under_lockdown),
         "engine-renderer-process" => with_font_backend!(engine_renderer_process),
         "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
-        "render-file" => with_font_backend!(render_file),
-        "render-file-locked" => with_font_backend!(render_file_locked),
         "renderer-lifecycle" => with_font_backend!(renderer_lifecycle),
         "renderer-scroll-window" => with_font_backend!(renderer_scroll_window),
         "renderer-hover" => with_font_backend!(renderer_hover),
@@ -140,153 +145,14 @@ fn main() {
         "engine-soak" => with_font_backend!(engine_soak),
         "escape-audit" => with_font_backend!(escape_audit),
         "engine-stress" => with_font_backend!(engine_stress),
-        "storage" => storage(),
-        "engine-storage-service" => engine_storage_service(),
-        "vault" => vault(),
-        "engine-cookie-vault" => engine_cookie_vault(),
-        "stream" => stream(),
-        "engine" => engine(),
-        "guard" => guard(),
+        "render-file" => with_font_backend!(render_file),
+        "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
-            eprintln!("unknown scenario {other:?}; see the match above for the scenario names");
+            eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
         }
     };
     std::process::exit(code);
-}
-
-fn guard() -> i32 {
-    use gosub_engine::net::process::client::NetProcess;
-
-    if !gosub_engine::child_process::is_child_process() {
-        eprintln!("the guard scenario must be run with the child-role flag");
-        return 2;
-    }
-
-    match NetProcess::spawn(None) {
-        Ok(_) => {
-            eprintln!("spawning should have been refused: an undispatched child must not spawn more");
-            1
-        }
-        Err(e) => {
-            // The message has to name the omission, or whoever hits this cannot
-            // act on it.
-            if e.to_string().contains("dispatch()") {
-                0
-            } else {
-                eprintln!("refused, but not for the documented reason: {e}");
-                1
-            }
-        }
-    }
-}
-
-fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
-    serve_once_with(BODY)
-}
-
-/// A one-shot HTTP server on an ephemeral port, serving `body`.
-fn serve_once_with(body: &'static str) -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
-    serve_once_bytes(body.as_bytes().to_vec(), "text/html")
-}
-
-/// A one-shot HTTP server on an ephemeral port, serving `body` in small
-/// writes with pauses, the way a body arrives over a real network.
-fn serve_once_bytes(body: Vec<u8>, content_type: &'static str) -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-
-    let handle = std::thread::spawn(move || {
-        let Ok((mut stream, _)) = listener.accept() else {
-            return;
-        };
-        let mut buf = [0u8; 4096];
-        let _ = stream.read(&mut buf);
-        let head = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        let _ = stream.write_all(head.as_bytes());
-        for chunk in body.chunks(32 * 1024) {
-            if stream.write_all(chunk).is_err() {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-    });
-
-    Ok((port, handle))
-}
-
-fn resolve() -> i32 {
-    use gosub_engine::net::process::client::NetProcess;
-    use gosub_engine::net::process::protocol::FetchOutcome;
-
-    let Ok((port, server)) = serve_once() else {
-        eprintln!("could not start the test server");
-        return 1;
-    };
-    let net = match NetProcess::spawn(None) {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("could not spawn the network process: {e}");
-            return 1;
-        }
-    };
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-        eprintln!("could not start a runtime");
-        return 1;
-    };
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let fetch = |url: String, refuse_private: bool| {
-        let out = gosub_engine::net::process::client::Outbound {
-            refuse_private,
-            ..gosub_engine::net::process::client::Outbound::get(url)
-        };
-        runtime.block_on(net.fetch(out, &cancel)).outcome
-    };
-
-    // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
-    match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
-        FetchOutcome::Ok { status, .. } | FetchOutcome::Streaming { status, .. } => {
-            eprintln!("a .invalid name must not resolve, got status {status}");
-            net.shutdown();
-            return 1;
-        }
-        FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
-    }
-
-    // 2. The strict fetcher classifies the loopback literal at the hop.
-    match fetch(format!("http://127.0.0.1:{port}/"), true) {
-        FetchOutcome::Ok { .. } | FetchOutcome::Streaming { .. } => {
-            eprintln!("the strict fetcher reached loopback");
-            net.shutdown();
-            return 1;
-        }
-        FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
-            println!("strict fetcher refused loopback: {e}");
-        }
-        FetchOutcome::Error(e) => {
-            eprintln!("strict fetcher failed for the wrong reason: {e}");
-            net.shutdown();
-            return 1;
-        }
-    }
-
-    // 3. The process is still alive and serving.
-    let outcome = fetch(format!("http://127.0.0.1:{port}/"), false);
-    net.shutdown();
-    drop(server);
-    match outcome {
-        FetchOutcome::Ok { status: 200, body, .. } if body == BODY.as_bytes() => {
-            println!("network process survived resolution and still serves");
-            0
-        }
-        other => {
-            eprintln!("the network process did not survive: {other:?}");
-            1
-        }
-    }
 }
 
 /// A 2x2 RGBA PNG: red, green, blue, white.
@@ -745,12 +611,6 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
             match F::confinement() {
                 Confinement::Full => {
                     let Some(tier) = engine.renderer_process_tier() else {
-                        if !cfg!(feature = "cairo-tiles") {
-                            eprintln!(
-                                "no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn"
-                            );
-                            return 2;
-                        }
                         eprintln!("the engine did not start a renderer fork server");
                         return 1;
                     };
@@ -1409,155 +1269,6 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
     }
 }
 
-/// Debugging aid, not a test: render an arbitrary HTML file (argv[3], with an
-/// optional base url in argv[4]) through the fork server, so a real-world page
-/// that kills a forked renderer can be replayed headlessly. Subresources are
-/// refused (`NoResourceLoader`), which real pages tolerate - the interesting
-/// failures live in parse/style/layout/shaping/raster, not in the fetches.
-fn render_file<F: FontSystem + Default>() -> i32 {
-    println!("font backend: {}", std::any::type_name::<F>());
-    #[cfg(target_os = "linux")]
-    {
-        use gosub_engine::fork_server::client::ForkServer;
-        use gosub_engine::fork_server::protocol::ConfinementTier;
-
-        let Some(path) = std::env::args().nth(3) else {
-            eprintln!("usage: isolation-harness render-file <font-backend> <page.html> [base-url]");
-            return 2;
-        };
-        let html = match std::fs::read_to_string(&path) {
-            Ok(html) => html,
-            Err(e) => {
-                eprintln!("could not read {path}: {e}");
-                return 2;
-            }
-        };
-        let base_url = std::env::args()
-            .nth(4)
-            .unwrap_or_else(|| "http://harness.invalid/".into());
-
-        let mut server = match ForkServer::spawn() {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("could not spawn the fork server: {e}");
-                return 1;
-            }
-        };
-        println!("fork server ready, tier: {:?}", server.confinement());
-        if !matches!(server.confinement(), ConfinementTier::Full) {
-            eprintln!("render-file needs the Full tier");
-            server.shutdown();
-            return 2;
-        }
-
-        let outcome = server.render_page(
-            &html,
-            &base_url,
-            "render-file-tab",
-            (1280.0, 720.0),
-            &gosub_interface::resource_loader::NoResourceLoader,
-            &Default::default(),
-            None,
-        );
-        server.shutdown();
-        match outcome {
-            Ok(page) => {
-                println!(
-                    "forked renderer rendered {path}: {:.0}x{:.0}, {} tiles, {} paint commands",
-                    page.summary.page_width,
-                    page.summary.page_height,
-                    page.tiles.len(),
-                    page.summary.paint_commands
-                );
-                0
-            }
-            Err(e) => {
-                eprintln!("forked render of {path} failed: {e}");
-                1
-            }
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the fork server exists only on Linux");
-        2
-    }
-}
-
-/// `render-file` without the fork: the same pipeline over argv[3] in *this*
-/// process under the renderer lockdown, so a SIGSYS can be caught by a
-/// debugger with a full backtrace (`gdb --args isolation-harness
-/// render-file-locked parley page.html`).
-fn render_file_locked<F: FontSystem + Default>() -> i32 {
-    println!("font backend: {}", std::any::type_name::<F>());
-    #[cfg(target_os = "linux")]
-    {
-        use gosub_engine::fork_server::renderer;
-
-        let Some(path) = std::env::args().nth(3) else {
-            eprintln!("usage: isolation-harness render-file-locked <font-backend> <page.html> [base-url]");
-            return 2;
-        };
-        let html = match std::fs::read_to_string(&path) {
-            Ok(html) => html,
-            Err(e) => {
-                eprintln!("could not read {path}: {e}");
-                return 2;
-            }
-        };
-        let base_url = std::env::args()
-            .nth(4)
-            .unwrap_or_else(|| "http://harness.invalid/".into());
-
-        let mut fonts = F::default();
-        let _ = fonts.families();
-        match fonts.prepare_for_confinement() {
-            Confinement::Full => {}
-            other => {
-                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
-                return 2;
-            }
-        }
-        // As in the fork server: fonts for SVG text pinned pre-lockdown, and
-        // single-threaded fetches, since a confined renderer cannot create
-        // threads.
-        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
-        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
-        media_store.set_synchronous_fetch(true);
-
-        gosub_sandbox::lock_down_renderer();
-
-        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
-            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
-        let (summary, baked, _) = renderer::render_page::<TileConfig<F>>(
-            renderer::PageRequest {
-                html: &html,
-                page_url: &base_url,
-                viewport_width: 1280.0,
-                viewport_height: 720.0,
-                known_tiles: &Default::default(),
-                hovered_node: None,
-            },
-            shared,
-            media_store,
-            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
-        );
-        println!(
-            "rendered {path} under the renderer lockdown: {:.0}x{:.0}, {} tiles, {} paint commands",
-            summary.page_width,
-            summary.page_height,
-            baked.len(),
-            summary.paint_commands
-        );
-        0
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the renderer lockdown exists only on Linux");
-        2
-    }
-}
-
 /// Resident renderers, driven through the pool the engine uses: one process
 /// per (zone, site) shared by that site's tabs, a cross-site navigation
 /// moving a tab to another process, and the last tab leaving shutting the
@@ -2187,10 +1898,6 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
             };
             tokio::spawn(run);
             let Some(pool) = engine.renderer_pool().cloned() else {
-                if !cfg!(feature = "cairo-tiles") {
-                    eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
-                    return 2;
-                }
                 eprintln!("the engine did not start a renderer pool");
                 return 1;
             };
@@ -2385,10 +2092,6 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                 return 1;
             };
             tokio::spawn(run);
-            if engine.renderer_pool().is_none() && !cfg!(feature = "cairo-tiles") {
-                eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
-                return 2;
-            }
             // The firehose says what each render was for.
             let mut firehose = gosub_engine::telemetry::subscribe();
 
@@ -2751,6 +2454,187 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// Not a test - a tool: the whole engine with every isolation setting on,
+/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
+/// in turn, reporting per site what it cost and what it took to render, and
+/// at the end what the renderer processes hold. Exit 1 only if a renderer
+/// crashed or a page could not be rendered out of process.
+/// The escape audit in every process of a running engine: what an attacker
+/// holding each child could still reach, measured from inside it after the
+/// real spawn and lockdown. Exit 1 on any expectation violated or any role
+/// that gave no report.
+fn escape_audit<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::decoder_process::client::ProcessImageDecoder;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{FileLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+        use gosub_sandbox::audit::AuditReport;
+        use parking_lot::Mutex;
+
+        let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
+        let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let dir = std::env::temp_dir().join(format!("gosub-escape-audit-{}", std::process::id()));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("no temp dir: {e}");
+            return 1;
+        }
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let store_dir = dir.clone();
+        let code = runtime.block_on(async move {
+            let dir = store_dir;
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in [
+                "security.network_process",
+                "security.image_decoder_process",
+                "security.renderer_process",
+                "security.cookie_vault",
+                "security.storage_service",
+            ] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let mut events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+
+            let storage = Arc::new(StorageService::new(
+                Arc::new(FileLocalStore::attach(&dir)),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            // A page, so a resident renderer exists and the storage service ran.
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("the page never finished loading");
+                        return 1;
+                    }
+                }
+            }
+            // Touch storage so its service is spawned (it starts lazily).
+            let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map(|u| u.origin());
+            if let Ok(origin) = origin {
+                if let Ok(area) = storage.local_for(zone.id, &gosub_engine::storage::PartitionKey::None, &origin) {
+                    let _ = area.set_item("audit", "1");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            let mut reports: Vec<(String, Option<AuditReport>)> = Vec::new();
+            reports.push(("net".into(), engine.audit_net_process().await));
+            reports.push(("decoder".into(), ProcessImageDecoder.audit().ok().flatten()));
+            reports.push(("vault".into(), engine.cookie_vault().and_then(|v| v.audit())));
+            reports.push(("storage".into(), storage.local_store().escape_audit()));
+            match engine.renderer_pool() {
+                Some(pool) => {
+                    for (label, report) in pool.audit() {
+                        match report {
+                            Ok(report) => reports.push((label, Some(report))),
+                            Err(e) => {
+                                eprintln!("{label}: no report ({e})");
+                                reports.push((label, None));
+                            }
+                        }
+                    }
+                }
+                None => reports.push(("fork-server".into(), None)),
+            }
+
+            let mut failed = false;
+            let mut resident = 0;
+            for (label, report) in &reports {
+                match report {
+                    Some(report) => {
+                        if label.starts_with("renderer ") {
+                            resident += 1;
+                        }
+                        let violations = report.violations().len();
+                        println!("== {label}: {} check(s), {violations} violation(s)", report.items.len());
+                        print!("{}", report.render());
+                        if violations > 0 {
+                            failed = true;
+                        }
+                    }
+                    None => {
+                        println!("== {label}: NO REPORT");
+                        failed = true;
+                    }
+                }
+            }
+            if resident == 0 {
+                println!("no resident renderer was audited");
+                failed = true;
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(failed)
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the escape audit is Linux-only");
+        2
+    }
+}
+
 /// The firehose names pages in normalized form (`https://example.com/`).
 #[cfg(target_os = "linux")]
 fn same_page(reported: Option<&str>, asked: &str) -> bool {
@@ -2820,10 +2704,6 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
             };
             tokio::spawn(run);
             let Some(pool) = engine.renderer_pool().cloned() else {
-                if !cfg!(feature = "cairo-tiles") {
-                    eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
-                    return 2;
-                }
                 eprintln!("renderer isolation did not start (font system tier?)");
                 return 1;
             };
@@ -3015,223 +2895,6 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
     #[cfg(not(target_os = "linux"))]
     {
         eprintln!("the renderer process exists only on Linux");
-        2
-    }
-}
-
-/// An HTTP server on an ephemeral port answering `routes` for as long as the
-/// process lives, one connection at a time; unknown paths get a 404.
-fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(mut stream) = stream else {
-                continue;
-            };
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
-            let route = routes.iter().find(|(p, ..)| *p == path);
-            let (status, content_type, body): (&str, &str, &[u8]) = match route {
-                Some((_, content_type, body, delay)) => {
-                    std::thread::sleep(*delay);
-                    ("200 OK", content_type, body)
-                }
-                None => ("404 Not Found", "text/plain", b"no such route"),
-            };
-            let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = stream.write_all(head.as_bytes());
-            let _ = stream.write_all(body);
-        }
-    });
-    Ok(port)
-}
-
-/// One route of [`serve_routes`]: path → (content type, body, delay before answering).
-type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
-
-/// Not a test - a tool: the whole engine with every isolation setting on,
-/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
-/// in turn, reporting per site what it cost and what it took to render, and
-/// at the end what the renderer processes hold. Exit 1 only if a renderer
-/// crashed or a page could not be rendered out of process.
-/// The escape audit in every process of a running engine: what an attacker
-/// holding each child could still reach, measured from inside it after the
-/// real spawn and lockdown. Exit 1 on any expectation violated or any role
-/// that gave no report.
-fn escape_audit<F: FontSystem + Default>() -> i32 {
-    #[cfg(target_os = "linux")]
-    {
-        use gosub_config::settings::Setting;
-        use gosub_engine::decoder_process::client::ProcessImageDecoder;
-        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
-        use gosub_engine::storage::{FileLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
-        use gosub_engine::zone::ZoneServices;
-        use gosub_engine::GosubEngine;
-        use gosub_render_pipeline::render::backends::null::NullBackend;
-        use gosub_render_pipeline::render::DefaultCompositor;
-        use gosub_sandbox::audit::AuditReport;
-        use parking_lot::Mutex;
-
-        let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
-        let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
-            eprintln!("could not start the test server");
-            return 1;
-        };
-        let dir = std::env::temp_dir().join(format!("gosub-escape-audit-{}", std::process::id()));
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            eprintln!("no temp dir: {e}");
-            return 1;
-        }
-        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-            Ok(rt) => rt,
-            Err(e) => {
-                eprintln!("could not build a runtime: {e}");
-                return 1;
-            }
-        };
-        let store_dir = dir.clone();
-        let code = runtime.block_on(async move {
-            let dir = store_dir;
-            let compositor = Arc::new(DefaultCompositor::default());
-            let mut engine: GosubEngine<TileConfig<F>> =
-                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
-            for key in [
-                "security.network_process",
-                "security.image_decoder_process",
-                "security.renderer_process",
-                "security.cookie_vault",
-                "security.storage_service",
-            ] {
-                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
-                    eprintln!("could not enable {key}: {e}");
-                    return 1;
-                }
-            }
-            let mut events = engine.subscribe_events();
-            let Ok(run) = engine.start() else {
-                eprintln!("engine failed to start");
-                return 1;
-            };
-            tokio::spawn(run);
-
-            let storage = Arc::new(StorageService::new(
-                Arc::new(FileLocalStore::attach(&dir)),
-                Arc::new(InMemorySessionStore::new()),
-            ));
-            let services = ZoneServices {
-                storage: Arc::clone(&storage),
-                cookie_store: None,
-                cookie_jar: None,
-                partition_policy: PartitionPolicy::None,
-                places: None,
-            };
-            let Ok(mut zone) = engine.create_zone(None, services, None) else {
-                eprintln!("could not create a zone");
-                return 1;
-            };
-            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
-                eprintln!("could not create a tab");
-                return 1;
-            };
-            let _ = tab
-                .send(TabCommand::SetViewport {
-                    x: 0,
-                    y: 0,
-                    width: 800,
-                    height: 600,
-                })
-                .await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-            // A page, so a resident renderer exists and the storage service ran.
-            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
-                eprintln!("navigate failed");
-                return 1;
-            }
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
-            loop {
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                match tokio::time::timeout(remaining, events.recv()).await {
-                    Ok(Ok(EngineEvent::Navigation {
-                        event: NavigationEvent::Finished { .. },
-                        ..
-                    })) => break,
-                    Ok(Ok(_)) => continue,
-                    _ => {
-                        eprintln!("the page never finished loading");
-                        return 1;
-                    }
-                }
-            }
-            // Touch storage so its service is spawned (it starts lazily).
-            let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map(|u| u.origin());
-            if let Ok(origin) = origin {
-                if let Ok(area) = storage.local_for(zone.id, &gosub_engine::storage::PartitionKey::None, &origin) {
-                    let _ = area.set_item("audit", "1");
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-            let mut reports: Vec<(String, Option<AuditReport>)> = Vec::new();
-            reports.push(("net".into(), engine.audit_net_process().await));
-            reports.push(("decoder".into(), ProcessImageDecoder.audit().ok().flatten()));
-            reports.push(("vault".into(), engine.cookie_vault().and_then(|v| v.audit())));
-            reports.push(("storage".into(), storage.local_store().escape_audit()));
-            match engine.renderer_pool() {
-                Some(pool) => {
-                    for (label, report) in pool.audit() {
-                        match report {
-                            Ok(report) => reports.push((label, Some(report))),
-                            Err(e) => {
-                                eprintln!("{label}: no report ({e})");
-                                reports.push((label, None));
-                            }
-                        }
-                    }
-                }
-                None => reports.push(("fork-server".into(), None)),
-            }
-
-            let mut failed = false;
-            let mut resident = 0;
-            for (label, report) in &reports {
-                match report {
-                    Some(report) => {
-                        if label.starts_with("renderer ") {
-                            resident += 1;
-                        }
-                        let violations = report.violations().len();
-                        println!("== {label}: {} check(s), {violations} violation(s)", report.items.len());
-                        print!("{}", report.render());
-                        if violations > 0 {
-                            failed = true;
-                        }
-                    }
-                    None => {
-                        println!("== {label}: NO REPORT");
-                        failed = true;
-                    }
-                }
-            }
-            if resident == 0 {
-                println!("no resident renderer was audited");
-                failed = true;
-            }
-            engine.close_zone(zone).await;
-            let _ = engine.shutdown().await;
-            i32::from(failed)
-        });
-        let _ = std::fs::remove_dir_all(&dir);
-        code
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the escape audit is Linux-only");
         2
     }
 }
@@ -3560,6 +3223,155 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// Debugging aid, not a test: render an arbitrary HTML file (argv[3], with an
+/// optional base url in argv[4]) through the fork server, so a real-world page
+/// that kills a forked renderer can be replayed headlessly. Subresources are
+/// refused (`NoResourceLoader`), which real pages tolerate - the interesting
+/// failures live in parse/style/layout/shaping/raster, not in the fetches.
+fn render_file<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        println!("fork server ready, tier: {:?}", server.confinement());
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("render-file needs the Full tier");
+            server.shutdown();
+            return 2;
+        }
+
+        let outcome = server.render_page(
+            &html,
+            &base_url,
+            "render-file-tab",
+            (1280.0, 720.0),
+            &gosub_interface::resource_loader::NoResourceLoader,
+            &Default::default(),
+            None,
+        );
+        server.shutdown();
+        match outcome {
+            Ok(page) => {
+                println!(
+                    "forked renderer rendered {path}: {:.0}x{:.0}, {} tiles, {} paint commands",
+                    page.summary.page_width,
+                    page.summary.page_height,
+                    page.tiles.len(),
+                    page.summary.paint_commands
+                );
+                0
+            }
+            Err(e) => {
+                eprintln!("forked render of {path} failed: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// `render-file` without the fork: the same pipeline over argv[3] in *this*
+/// process under the renderer lockdown, so a SIGSYS can be caught by a
+/// debugger with a full backtrace (`gdb --args isolation-harness
+/// render-file-locked parley page.html`).
+fn render_file_locked<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::renderer;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file-locked <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut fonts = F::default();
+        let _ = fonts.families();
+        match fonts.prepare_for_confinement() {
+            Confinement::Full => {}
+            other => {
+                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
+                return 2;
+            }
+        }
+        // As in the fork server: fonts for SVG text pinned pre-lockdown, and
+        // single-threaded fetches, since a confined renderer cannot create
+        // threads.
+        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+        media_store.set_synchronous_fetch(true);
+
+        gosub_sandbox::lock_down_renderer();
+
+        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
+        let (summary, baked, _) = renderer::render_page::<TileConfig<F>>(
+            renderer::PageRequest {
+                html: &html,
+                page_url: &base_url,
+                viewport_width: 1280.0,
+                viewport_height: 720.0,
+                known_tiles: &Default::default(),
+                hovered_node: None,
+            },
+            shared,
+            media_store,
+            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+        );
+        println!(
+            "rendered {path} under the renderer lockdown: {:.0}x{:.0}, {} tiles, {} paint commands",
+            summary.page_width,
+            summary.page_height,
+            baked.len(),
+            summary.paint_commands
+        );
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer lockdown exists only on Linux");
+        2
+    }
+}
+
 /// The follow-up question to the warm-up finding: a page can introduce a font at
 /// any moment with `@font-face`, long after the sandbox is in place. Does that
 /// need a file, and therefore a process that can open one?
@@ -3676,6 +3488,109 @@ fn decode_garbage() -> i32 {
     }
 }
 
+/// An embedder that never dispatched: re-exec landed here, in `main`, rather
+/// than in a component role. Spawning from this state would repeat the mistake
+/// for every generation, so it must be refused.
+fn guard() -> i32 {
+    use gosub_engine::net::process::client::NetProcess;
+
+    if !gosub_engine::child_process::is_child_process() {
+        eprintln!("the guard scenario must be run with the child-role flag");
+        return 2;
+    }
+
+    match NetProcess::spawn(None) {
+        Ok(_) => {
+            eprintln!("spawning should have been refused: an undispatched child must not spawn more");
+            1
+        }
+        Err(e) => {
+            // The message has to name the omission, or whoever hits this cannot
+            // act on it.
+            if e.to_string().contains("dispatch()") {
+                0
+            } else {
+                eprintln!("refused, but not for the documented reason: {e}");
+                1
+            }
+        }
+    }
+}
+
+/// One route of [`serve_routes`]: path → (content type, body, delay before answering).
+type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
+
+/// An HTTP server on an ephemeral port answering `routes` for as long as the
+/// process lives, one connection at a time; unknown paths get a 404.
+fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]);
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let route = routes.iter().find(|(p, ..)| *p == path);
+            let (status, content_type, body): (&str, &str, &[u8]) = match route {
+                Some((_, content_type, body, delay)) => {
+                    std::thread::sleep(*delay);
+                    ("200 OK", content_type, body)
+                }
+                None => ("404 Not Found", "text/plain", b"no such route"),
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+    Ok(port)
+}
+
+/// A one-shot HTTP server on an ephemeral port, serving [`BODY`].
+fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
+    serve_once_with(BODY)
+}
+
+/// A one-shot HTTP server on an ephemeral port, serving `body`.
+fn serve_once_with(body: &'static str) -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
+    serve_once_bytes(body.as_bytes().to_vec(), "text/html")
+}
+
+/// A one-shot HTTP server on an ephemeral port, serving `body` in small
+/// writes with pauses, the way a body arrives over a real network.
+fn serve_once_bytes(body: Vec<u8>, content_type: &'static str) -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+
+    let handle = std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf);
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let _ = stream.write_all(head.as_bytes());
+        for chunk in body.chunks(32 * 1024) {
+            if stream.write_all(chunk).is_err() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    });
+
+    Ok((port, handle))
+}
+
 /// A deterministic body larger than the ring window, so a stream wraps the
 /// ring several times and every byte's position is checkable.
 fn streamed_body() -> Vec<u8> {
@@ -3684,92 +3599,252 @@ fn streamed_body() -> Vec<u8> {
         .collect()
 }
 
-/// A streamed body through the network process: the head comes back in-band,
-/// the ring fd right behind it, and the bytes arrive through the ring as the
-/// child produces them - the whole body never sits in a message.
-fn stream() -> i32 {
-    use gosub_engine::net::process::client::NetProcess;
-    use gosub_engine::net::process::protocol::FetchOutcome;
+/// A zone built with a plain `FileLocalStore` gets its local storage served
+/// by the storage process without the embedder asking: the setting's default.
+fn engine_storage_service() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{
+            FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService,
+        };
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
 
-    let expected = streamed_body();
-    let Ok((port, server)) = serve_once_bytes(expected.clone(), "application/octet-stream") else {
-        eprintln!("could not start the test server");
-        return 1;
-    };
-    let net = match NetProcess::spawn(None) {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("could not spawn the network process: {e}");
+        let dir = std::env::temp_dir().join(format!("gosub-engine-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let Ok(store) = FileLocalStore::open(&dir) else {
+            eprintln!("could not open the file store");
             return 1;
-        }
-    };
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-        eprintln!("could not start a runtime");
-        return 1;
-    };
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let out = gosub_engine::net::process::client::Outbound {
-        streaming: true,
-        ..gosub_engine::net::process::client::Outbound::get(format!("http://127.0.0.1:{port}/"))
-    };
-    let reply = runtime.block_on(net.fetch(out, &cancel));
-    let result = match reply.outcome {
-        FetchOutcome::Streaming { status, peek, .. } => {
-            let Some(ring) = reply.ring else {
-                eprintln!("streamed head arrived without its ring fd");
-                net.shutdown();
+        };
+        let Ok(origin) = url::Url::parse("https://app.test").map(|u| u.origin()) else {
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let code = runtime.block_on(async move {
+            let mut engine: GosubEngine = GosubEngine::new(
+                None,
+                Arc::new(NullBackend::new()),
+                Arc::new(DefaultCompositor::default()),
+            );
+            let _events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
                 return 1;
             };
-            #[cfg(target_os = "linux")]
-            {
-                let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("could not open the ring: {e}");
-                        net.shutdown();
-                        return 1;
-                    }
-                };
-                let mut body = peek.clone();
-                let mut buf = [0u8; 4096];
-                loop {
-                    match consumer.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => body.extend_from_slice(&buf[..n]),
-                        Err(e) => {
-                            eprintln!("ring read failed: {e}");
-                            net.shutdown();
-                            return 1;
-                        }
-                    }
+            tokio::spawn(run);
+            let storage = Arc::new(StorageService::new(
+                Arc::new(store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let zone = match engine.create_zone(None, services, None) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a zone: {e}");
+                    return 1;
                 }
-                println!("streamed {} bytes ({} peeked), status {status}", body.len(), peek.len());
-                (status == 200 && body == expected).then_some(()).ok_or_else(|| {
-                    format!(
-                        "body did not survive the ring ({} of {} bytes)",
-                        body.len(),
-                        expected.len()
-                    )
-                })
+            };
+            // The embedder's own handle sees the routed store.
+            let area = match storage.local_for(zone.id, &PartitionKey::None, &origin) {
+                Ok(area) => area,
+                Err(e) => {
+                    eprintln!("no area: {e}");
+                    return 1;
+                }
+            };
+            if let Err(e) = area.set_item("k", "v") {
+                eprintln!("set failed: {e}");
+                return 1;
             }
-            #[cfg(not(target_os = "linux"))]
-            {
-                let _ = (status, peek, ring);
-                let _ = ring;
-                Err("streaming is Linux-only".to_string())
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("get did not round-trip");
+                return 1;
             }
+            if !has_child_named("gosub-storage") {
+                eprintln!(
+                    "no gosub-storage child process: storage stayed in-process (children: {:?}, routed dir: {:?})",
+                    child_names(),
+                    storage.local_store().service_directory()
+                );
+                return 1;
+            }
+            println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+
+            // Kill it: the next request brings a new one, reading the same files.
+            let Some(pid) = storage.local_store().service_pid() else {
+                eprintln!("the routed store has no service pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("the value did not survive the storage service dying");
+                return 1;
+            }
+            match storage.local_store().service_pid() {
+                Some(new_pid) if new_pid != pid => println!("storage service respawned: pid {pid} -> {new_pid}"),
+                other => {
+                    eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
+                    return 1;
+                }
+            }
+            let _ = engine.shutdown().await;
+            0
+        });
+        let files = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+        let _ = std::fs::remove_dir_all(&dir);
+        if code == 0 && files == 0 {
+            eprintln!("the service wrote nothing to the storage directory");
+            return 1;
         }
-        FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
-        FetchOutcome::Error(e) => Err(format!("fetch failed: {e}")),
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
+}
+
+/// The `comm` of every direct child of this process.
+#[cfg(target_os = "linux")]
+fn child_names() -> Vec<String> {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
     };
-    net.shutdown();
-    drop(server);
-    match result {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("{e}");
-            1
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let status = std::fs::read_to_string(entry.path().join("status")).ok()?;
+            let mut comm = String::new();
+            let mut ppid = String::new();
+            for line in status.lines() {
+                if let Some(v) = line.strip_prefix("Name:\t") {
+                    comm = v.trim().to_string();
+                } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                    ppid = v.trim().to_string();
+                }
+            }
+            (ppid == me).then_some(comm)
+        })
+        .collect()
+}
+
+/// Whether this process has a direct child whose `comm` is `name`.
+#[cfg(target_os = "linux")]
+fn has_child_named(name: &str) -> bool {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let status = std::fs::read_to_string(entry.path().join("status")).unwrap_or_default();
+        let mut comm = "";
+        let mut ppid = "";
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Name:\t") {
+                comm = v.trim();
+            } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                ppid = v.trim();
+            }
         }
+        ppid == me && comm == name
+    })
+}
+
+/// Storage service round trip, origin isolation, a refused oversize write,
+/// persistence across a restart of the service.
+fn storage() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{LocalStore as _, PartitionKey, ServiceLocalStore};
+        use gosub_engine::zone::ZoneId;
+
+        let dir = std::env::temp_dir().join(format!("gosub-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let origin = |s: &str| url::Url::parse(s).map(|u| u.origin());
+        let (Ok(a_origin), Ok(b_origin)) = (origin("https://a.test"), origin("https://b.test")) else {
+            eprintln!("bad test origins");
+            return 1;
+        };
+        let zone = ZoneId::new();
+
+        let run = |expect_remote: bool| -> Result<(), String> {
+            let store = ServiceLocalStore::new(&dir).map_err(|e| e.to_string())?;
+            let a = store
+                .area(zone, &PartitionKey::None, &a_origin)
+                .map_err(|e| e.to_string())?;
+            if expect_remote && !store.is_remote() {
+                return Err("the storage service did not start; areas are in-process".into());
+            }
+            if a.get_item("k").is_none() {
+                a.set_item("k", "1").map_err(|e| e.to_string())?;
+                a.set_item("k2", "2").map_err(|e| e.to_string())?;
+                let b = store
+                    .area(zone, &PartitionKey::None, &b_origin)
+                    .map_err(|e| e.to_string())?;
+                if b.get_item("k").is_some() {
+                    return Err("another origin must not see this origin's item".into());
+                }
+                if a.len() != 2 || a.get_item("k2").as_deref() != Some("2") {
+                    return Err(format!("len/get wrong: len {} k2 {:?}", a.len(), a.get_item("k2")));
+                }
+                a.remove_item("k2").map_err(|e| e.to_string())?;
+                if a.keys() != vec!["k".to_string()] {
+                    return Err(format!("keys after remove: {:?}", a.keys()));
+                }
+                let huge = "v".repeat(gosub_engine::storage::file_store::MAX_VALUE_BYTES + 1);
+                if a.set_item("huge", &huge).is_ok() {
+                    return Err("an oversize value must be refused".into());
+                }
+                if a.get_item("k").as_deref() != Some("1") {
+                    return Err("the service must survive a refused write".into());
+                }
+                println!("set/get/keys/remove/quota through the service ok");
+            } else {
+                if a.get_item("k").as_deref() != Some("1") || a.len() != 1 {
+                    return Err(format!("state did not persist across a restart: {:?}", a.keys()));
+                }
+                a.clear().map_err(|e| e.to_string())?;
+                if !a.is_empty() {
+                    return Err("clear must empty the area".into());
+                }
+                println!("state persisted across a service restart");
+            }
+            store.shutdown();
+            Ok(())
+        };
+        let outcome = run(true).and_then(|()| run(true));
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
     }
 }
 
@@ -4239,252 +4314,171 @@ fn serve_cookie_pages(seen: SeenRequests) -> std::io::Result<u16> {
     Ok(port)
 }
 
-/// A zone built with a plain `FileLocalStore` gets its local storage served
-/// by the storage process without the embedder asking: the setting's default.
-fn engine_storage_service() -> i32 {
-    #[cfg(target_os = "linux")]
-    {
-        use gosub_engine::storage::{
-            FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService,
-        };
-        use gosub_engine::zone::ZoneServices;
-        use gosub_engine::GosubEngine;
-        use gosub_render_pipeline::render::backends::null::NullBackend;
-        use gosub_render_pipeline::render::DefaultCompositor;
+/// A streamed body through the network process: the head comes back in-band,
+/// the ring fd right behind it, and the bytes arrive through the ring as the
+/// child produces them - the whole body never sits in a message.
+fn stream() -> i32 {
+    use gosub_engine::net::process::client::NetProcess;
+    use gosub_engine::net::process::protocol::FetchOutcome;
 
-        let dir = std::env::temp_dir().join(format!("gosub-engine-storage-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let Ok(store) = FileLocalStore::open(&dir) else {
-            eprintln!("could not open the file store");
+    let expected = streamed_body();
+    let Ok((port, server)) = serve_once_bytes(expected.clone(), "application/octet-stream") else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let net = match NetProcess::spawn(None) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("could not spawn the network process: {e}");
             return 1;
-        };
-        let Ok(origin) = url::Url::parse("https://app.test").map(|u| u.origin()) else {
-            return 1;
-        };
-        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-            Ok(rt) => rt,
-            Err(e) => {
-                eprintln!("could not build a runtime: {e}");
-                return 1;
-            }
-        };
-        let code = runtime.block_on(async move {
-            let mut engine: GosubEngine = GosubEngine::new(
-                None,
-                Arc::new(NullBackend::new()),
-                Arc::new(DefaultCompositor::default()),
-            );
-            let _events = engine.subscribe_events();
-            let Ok(run) = engine.start() else {
-                eprintln!("engine failed to start");
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let out = gosub_engine::net::process::client::Outbound {
+        streaming: true,
+        ..gosub_engine::net::process::client::Outbound::get(format!("http://127.0.0.1:{port}/"))
+    };
+    let reply = runtime.block_on(net.fetch(out, &cancel));
+    let result = match reply.outcome {
+        FetchOutcome::Streaming { status, peek, .. } => {
+            let Some(ring) = reply.ring else {
+                eprintln!("streamed head arrived without its ring fd");
+                net.shutdown();
                 return 1;
             };
-            tokio::spawn(run);
-            let storage = Arc::new(StorageService::new(
-                Arc::new(store),
-                Arc::new(InMemorySessionStore::new()),
-            ));
-            let services = ZoneServices {
-                storage: Arc::clone(&storage),
-                cookie_store: None,
-                cookie_jar: None,
-                partition_policy: PartitionPolicy::None,
-                places: None,
-            };
-            let zone = match engine.create_zone(None, services, None) {
-                Ok(zone) => zone,
-                Err(e) => {
-                    eprintln!("could not create a zone: {e}");
-                    return 1;
+            #[cfg(target_os = "linux")]
+            {
+                let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("could not open the ring: {e}");
+                        net.shutdown();
+                        return 1;
+                    }
+                };
+                let mut body = peek.clone();
+                let mut buf = [0u8; 4096];
+                loop {
+                    match consumer.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => body.extend_from_slice(&buf[..n]),
+                        Err(e) => {
+                            eprintln!("ring read failed: {e}");
+                            net.shutdown();
+                            return 1;
+                        }
+                    }
                 }
-            };
-            // The embedder's own handle sees the routed store.
-            let area = match storage.local_for(zone.id, &PartitionKey::None, &origin) {
-                Ok(area) => area,
-                Err(e) => {
-                    eprintln!("no area: {e}");
-                    return 1;
-                }
-            };
-            if let Err(e) = area.set_item("k", "v") {
-                eprintln!("set failed: {e}");
-                return 1;
+                println!("streamed {} bytes ({} peeked), status {status}", body.len(), peek.len());
+                (status == 200 && body == expected).then_some(()).ok_or_else(|| {
+                    format!(
+                        "body did not survive the ring ({} of {} bytes)",
+                        body.len(),
+                        expected.len()
+                    )
+                })
             }
-            if area.get_item("k").as_deref() != Some("v") {
-                eprintln!("get did not round-trip");
-                return 1;
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (status, peek, ring);
+                let _ = ring;
+                Err("streaming is Linux-only".to_string())
             }
-            if !has_child_named("gosub-storage") {
-                eprintln!(
-                    "no gosub-storage child process: storage stayed in-process (children: {:?}, routed dir: {:?})",
-                    child_names(),
-                    storage.local_store().service_directory()
-                );
-                return 1;
-            }
-            println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+        }
+        FetchOutcome::Ok { .. } => Err("expected a streamed reply, got a buffered one".into()),
+        FetchOutcome::Error(e) => Err(format!("fetch failed: {e}")),
+    };
+    net.shutdown();
+    drop(server);
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
 
-            // Kill it: the next request brings a new one, reading the same files.
-            let Some(pid) = storage.local_store().service_pid() else {
-                eprintln!("the routed store has no service pid");
-                return 1;
-            };
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .status();
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            if area.get_item("k").as_deref() != Some("v") {
-                eprintln!("the value did not survive the storage service dying");
-                return 1;
-            }
-            match storage.local_store().service_pid() {
-                Some(new_pid) if new_pid != pid => println!("storage service respawned: pid {pid} -> {new_pid}"),
-                other => {
-                    eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
-                    return 1;
-                }
-            }
-            let _ = engine.shutdown().await;
+/// Real hostname resolution inside the sandboxed network process. `127.0.0.1`
+/// never reaches NSS, which is how two syscall denials (`mmap(PROT_EXEC)` from
+/// `dlopen`ing NSS modules, `sendmmsg` from the resolver) survived every test
+/// until an example hit a live URL. A reserved `.invalid` name exercises the
+/// whole resolver path without needing the network: the fetch must fail, and
+/// the process must *survive* it and still serve. The strict fetcher (a
+/// subresource of a public page) must then refuse the loopback test server,
+/// and the permissive one must still reach it.
+fn resolve() -> i32 {
+    use gosub_engine::net::process::client::NetProcess;
+    use gosub_engine::net::process::protocol::FetchOutcome;
+
+    let Ok((port, server)) = serve_once() else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let net = match NetProcess::spawn(None) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("could not spawn the network process: {e}");
+            return 1;
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let fetch = |url: String, refuse_private: bool| {
+        let out = gosub_engine::net::process::client::Outbound {
+            refuse_private,
+            ..gosub_engine::net::process::client::Outbound::get(url)
+        };
+        runtime.block_on(net.fetch(out, &cancel)).outcome
+    };
+
+    // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
+    match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
+        FetchOutcome::Ok { status, .. } | FetchOutcome::Streaming { status, .. } => {
+            eprintln!("a .invalid name must not resolve, got status {status}");
+            net.shutdown();
+            return 1;
+        }
+        FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
+    }
+
+    // 2. The strict fetcher classifies the loopback literal at the hop.
+    match fetch(format!("http://127.0.0.1:{port}/"), true) {
+        FetchOutcome::Ok { .. } | FetchOutcome::Streaming { .. } => {
+            eprintln!("the strict fetcher reached loopback");
+            net.shutdown();
+            return 1;
+        }
+        FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
+            println!("strict fetcher refused loopback: {e}");
+        }
+        FetchOutcome::Error(e) => {
+            eprintln!("strict fetcher failed for the wrong reason: {e}");
+            net.shutdown();
+            return 1;
+        }
+    }
+
+    // 3. The process is still alive and serving.
+    let outcome = fetch(format!("http://127.0.0.1:{port}/"), false);
+    net.shutdown();
+    drop(server);
+    match outcome {
+        FetchOutcome::Ok { status: 200, body, .. } if body == BODY.as_bytes() => {
+            println!("network process survived resolution and still serves");
             0
-        });
-        let files = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
-        let _ = std::fs::remove_dir_all(&dir);
-        if code == 0 && files == 0 {
-            eprintln!("the service wrote nothing to the storage directory");
-            return 1;
         }
-        code
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the storage service is Linux-only");
-        2
-    }
-}
-
-/// The `comm` of every direct child of this process.
-#[cfg(target_os = "linux")]
-fn child_names() -> Vec<String> {
-    let me = std::process::id().to_string();
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let status = std::fs::read_to_string(entry.path().join("status")).ok()?;
-            let mut comm = String::new();
-            let mut ppid = String::new();
-            for line in status.lines() {
-                if let Some(v) = line.strip_prefix("Name:\t") {
-                    comm = v.trim().to_string();
-                } else if let Some(v) = line.strip_prefix("PPid:\t") {
-                    ppid = v.trim().to_string();
-                }
-            }
-            (ppid == me).then_some(comm)
-        })
-        .collect()
-}
-
-/// Whether this process has a direct child whose `comm` is `name`.
-#[cfg(target_os = "linux")]
-fn has_child_named(name: &str) -> bool {
-    let me = std::process::id().to_string();
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return false;
-    };
-    entries.flatten().any(|entry| {
-        let status = std::fs::read_to_string(entry.path().join("status")).unwrap_or_default();
-        let mut comm = "";
-        let mut ppid = "";
-        for line in status.lines() {
-            if let Some(v) = line.strip_prefix("Name:\t") {
-                comm = v.trim();
-            } else if let Some(v) = line.strip_prefix("PPid:\t") {
-                ppid = v.trim();
-            }
+        other => {
+            eprintln!("the network process did not survive: {other:?}");
+            1
         }
-        ppid == me && comm == name
-    })
-}
-
-/// Storage service round trip, origin isolation, a refused oversize write,
-/// persistence across a restart of the service.
-fn storage() -> i32 {
-    #[cfg(target_os = "linux")]
-    {
-        use gosub_engine::storage::{LocalStore as _, PartitionKey, ServiceLocalStore};
-        use gosub_engine::zone::ZoneId;
-
-        let dir = std::env::temp_dir().join(format!("gosub-storage-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let origin = |s: &str| url::Url::parse(s).map(|u| u.origin());
-        let (Ok(a_origin), Ok(b_origin)) = (origin("https://a.test"), origin("https://b.test")) else {
-            eprintln!("bad test origins");
-            return 1;
-        };
-        let zone = ZoneId::new();
-
-        let run = |expect_remote: bool| -> Result<(), String> {
-            let store = ServiceLocalStore::new(&dir).map_err(|e| e.to_string())?;
-            let a = store
-                .area(zone, &PartitionKey::None, &a_origin)
-                .map_err(|e| e.to_string())?;
-            if expect_remote && !store.is_remote() {
-                return Err("the storage service did not start; areas are in-process".into());
-            }
-            if a.get_item("k").is_none() {
-                a.set_item("k", "1").map_err(|e| e.to_string())?;
-                a.set_item("k2", "2").map_err(|e| e.to_string())?;
-                let b = store
-                    .area(zone, &PartitionKey::None, &b_origin)
-                    .map_err(|e| e.to_string())?;
-                if b.get_item("k").is_some() {
-                    return Err("another origin must not see this origin's item".into());
-                }
-                if a.len() != 2 || a.get_item("k2").as_deref() != Some("2") {
-                    return Err(format!("len/get wrong: len {} k2 {:?}", a.len(), a.get_item("k2")));
-                }
-                a.remove_item("k2").map_err(|e| e.to_string())?;
-                if a.keys() != vec!["k".to_string()] {
-                    return Err(format!("keys after remove: {:?}", a.keys()));
-                }
-                let huge = "v".repeat(gosub_engine::storage::file_store::MAX_VALUE_BYTES + 1);
-                if a.set_item("huge", &huge).is_ok() {
-                    return Err("an oversize value must be refused".into());
-                }
-                if a.get_item("k").as_deref() != Some("1") {
-                    return Err("the service must survive a refused write".into());
-                }
-                println!("set/get/keys/remove/quota through the service ok");
-            } else {
-                if a.get_item("k").as_deref() != Some("1") || a.len() != 1 {
-                    return Err(format!("state did not persist across a restart: {:?}", a.keys()));
-                }
-                a.clear().map_err(|e| e.to_string())?;
-                if !a.is_empty() {
-                    return Err("clear must empty the area".into());
-                }
-                println!("state persisted across a service restart");
-            }
-            store.shutdown();
-            Ok(())
-        };
-        let outcome = run(true).and_then(|()| run(true));
-        let _ = std::fs::remove_dir_all(&dir);
-        match outcome {
-            Ok(()) => 0,
-            Err(e) => {
-                eprintln!("{e}");
-                1
-            }
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the storage service is Linux-only");
-        2
     }
 }
 

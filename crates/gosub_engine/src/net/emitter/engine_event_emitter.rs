@@ -8,7 +8,7 @@ use crate::net::types::{Initiator, ResourceKind};
 use crate::tab::TabId;
 use std::sync::Arc;
 
-/// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
+/// Converts `NetEvent`s into `EngineEvent`s sent back to the UA over `event_tx`.
 pub struct EngineEventEmitter {
     /// The tab ID to route the event to
     tab_id: TabId,
@@ -30,8 +30,8 @@ pub struct EngineEventEmitter {
 impl EngineEventEmitter {
     #[must_use]
     pub fn new(
-        // Normally we don't expose high-level tab IDs to the net layer, but we need it here to
-        // route events back to the right tab. We retrieve this IDs from the resource_request_map
+        // The net layer normally never sees tab IDs; needed here to route
+        // events back to the right tab (from the resource_request_map).
         tab_id: TabId,
         req_id: RequestId,
         reference: RequestReference,
@@ -187,6 +187,8 @@ impl NetObserver for EngineEventEmitter {
                     error: error.into(),
                 });
             }
+            // The handshake failure is followed by `Failed` for the request;
+            // the TLS detail is not surfaced as an engine event yet.
             NetEvent::TlsFailed { url, error } => {
                 log::debug!("TLS handshake failed for {url}: {error}");
             }
@@ -204,12 +206,8 @@ impl NetObserver for EngineEventEmitter {
                 });
             }
 
-            NetEvent::Io { .. } => {
-                // Do nothing
-            }
-            NetEvent::Warning { .. } => {
-                // Do nothing
-            }
+            NetEvent::Io { .. } => {}
+            NetEvent::Warning { .. } => {}
         }
     }
 }

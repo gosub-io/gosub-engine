@@ -1,23 +1,16 @@
 //! Zone configuration.
 //!
 //! `ZoneConfig` controls properties and limits for a single
-//! [`Zone`](crate::zone::Zone) in the Gosub engine. A *zone* acts like a
-//! browser profile/container: it defines behavior (e.g. JS/images enabled),
-//! identity (e.g. user agent, languages), and limits (e.g. max tabs).
+//! [`Zone`](crate::zone::Zone): behavior (e.g. JS/images enabled), identity
+//! (user agent, languages), and limits (max tabs). Most fields are not
+//! implemented yet; they sketch the intended design.
 //!
-//! `ZoneConfig` provides sensible defaults via [`Default`] and a fluent
-//! [`ZoneConfig::builder()`] for customization with validation.
-//!
-//! # Examples
-//!
-//! ## Use defaults
 //! ```rust
 //! use gosub_engine::zone::ZoneConfig;
 //! let cfg = ZoneConfig::default();
 //! assert_eq!(cfg.max_tabs, 16);
 //! ```
 //!
-//! ## Customize with the builder
 //! ```rust
 //! use gosub_engine::zone::ZoneConfig;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,17 +25,6 @@
 //!     .build()?; // returns Result<ZoneConfig, ZoneConfigError>
 //! # Ok(()) }
 //! ```
-//!
-//! # Notes
-//!
-//! Note that most of these fields are not implemented but are here to show
-//! the intended design. The actual implementation may change without notice.
-//!
-//! # Errors
-//!
-//! Builder validation can return [`ZoneConfigError`] if values are invalid
-//! (e.g. `font_scale` outside `0.25..=10.0`, `minimum_font_size > default_font_size`,
-//! or `max_tabs == 0`).
 
 use crate::storage::PartitionPolicy;
 use std::fmt;
@@ -181,7 +163,6 @@ impl ZoneConfigBuilder {
     }
 }
 
-/// These checks help prevent common configuration errors and ensure a valid zone setup.
 #[derive(Debug, Clone)]
 pub enum ZoneConfigError {
     /// Invalid font scale (must be 0.25..=10.0).

@@ -1,7 +1,7 @@
 //! A runtime-selectable render backend.
 //!
 //! [`DynamicRenderBackend`] bundles the concrete backends (Cairo, Skia, Vello) behind a single
-//! [`RenderBackend`] and delegates to the selected one. This is the *only* place in the workspace
+//! [`RenderBackend`] and delegates to the selected one. This is the only place in the workspace
 //! that knows the concrete backends exist - the pipeline and engine only ever see `dyn RenderBackend`.
 //!
 //! A host enables what it can build via crate features (`cairo`, `skia`, `vello`) and registers
