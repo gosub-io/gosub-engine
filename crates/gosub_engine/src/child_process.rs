@@ -124,12 +124,32 @@ fn run_role(role: &str, args: &[String]) -> i32 {
             Err(code) => code,
         },
         NET_ROLE => match adopt_link(role, args) {
-            Ok(endpoint) => crate::net::process::child::serve(endpoint),
+            Ok(endpoint) => crate::net::process::child::serve(endpoint, adopt_extra(role, args)),
+            Err(code) => code,
+        },
+        #[cfg(target_os = "linux")]
+        crate::cookie_vault::protocol::VAULT_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::cookie_vault::child::serve(endpoint, adopt_extra(role, args)),
             Err(code) => code,
         },
         other => {
             eprintln!("[gosub] unknown child role '{other}'");
             2
+        }
+    }
+}
+
+/// The second inherited channel, when the spawner named one before the
+/// primary link. Failing to adopt it is reported and treated as absent.
+fn adopt_extra(role: &str, args: &[String]) -> Option<gosub_ipc::Endpoint> {
+    if args.len() < 2 {
+        return None;
+    }
+    match gosub_ipc::Endpoint::adopt_inherited(&args[0]) {
+        Ok(endpoint) => Some(endpoint),
+        Err(e) => {
+            eprintln!("[gosub] child role '{role}' could not adopt its second link: {e}");
+            None
         }
     }
 }

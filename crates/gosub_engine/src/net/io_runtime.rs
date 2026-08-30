@@ -269,10 +269,28 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
         return None;
     }
 
-    match crate::net::process::client::NetProcess::spawn() {
+    // The vault's line for this process, if the engine started a vault with one.
+    #[cfg(target_os = "linux")]
+    let vault_line = engine_ctx
+        .net_vault_link
+        .lock()
+        .take()
+        .map(|link| crate::net::process::client::VaultLine(link.0));
+    #[cfg(not(target_os = "linux"))]
+    let vault_line = None;
+    match crate::net::process::client::NetProcess::spawn(vault_line) {
         Ok(net) => {
             log::info!("network stack running in a separate, sandboxed process");
-            Some(Arc::new(net))
+            let net = Arc::new(net);
+            // A respawned vault hands this process a new line through here.
+            #[cfg(target_os = "linux")]
+            if let (Some(vault), true) = (engine_ctx.cookie_vault.get(), net.vault_linked()) {
+                let relinked = Arc::clone(&net);
+                vault.on_relink(Box::new(move |line| {
+                    relinked.relink_vault(crate::net::process::client::VaultLine(line.0));
+                }));
+            }
+            Some(net)
         }
         Err(e) => {
             log::error!(
@@ -293,6 +311,7 @@ fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
     refuse_private: bool,
+    cookies: Option<CookieScope>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -342,6 +361,7 @@ fn dispatch_to_net_process(
             body,
             refuse_private,
             streaming,
+            cookies,
         };
         let reply = net.fetch(out, &cancel).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
@@ -355,16 +375,90 @@ fn dispatch_to_net_process(
     });
 }
 
+/// Whose cookies a request is about; nothing where no network process exists.
+#[cfg(feature = "process-isolation")]
+type CookieScope = crate::net::process::protocol::CookieScope;
+#[cfg(not(feature = "process-isolation"))]
+type CookieScope = std::convert::Infallible;
+
 #[cfg(not(feature = "process-isolation"))]
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
     _refuse_private: bool,
+    _cookies: Option<CookieScope>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
 ) {
 }
 
+/// The scope a request carries instead of a cookie header: only when the
+/// network process has its own line to the vault *and* this tab's jar is a
+/// vault jar (an embedder-supplied jar stays the broker's business).
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &FetchRequest) -> Option<CookieScope> {
+    let identity = identity?;
+    if !router.net_process().is_some_and(|net| net.vault_linked()) {
+        return None;
+    }
+    let jar = identity.cookie_jar.read();
+    let vaulted = jar
+        .as_any()
+        .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?;
+    Some(CookieScope {
+        ticket: uuid::Uuid::new_v4().as_u128(),
+        zone: vaulted.zone().to_string(),
+        top_level: identity.top_level.as_ref().map(|u| u.to_string()),
+        samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
+    })
+}
+
+/// What a granted scope hands back: the scope to send, and the wrapper that
+/// revokes the grant once the reply has passed through.
+type Revoke = Box<dyn FnOnce(oneshot::Sender<FetchResult>) -> oneshot::Sender<FetchResult> + Send>;
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+async fn grant_scope(identity: Option<&TabIdentity>, scope: CookieScope) -> Option<(CookieScope, Revoke)> {
+    let vault = {
+        let jar = identity?.cookie_jar.read();
+        Arc::clone(
+            jar.as_any()
+                .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?
+                .vault(),
+        )
+    };
+    let granting = Arc::clone(&vault);
+    let granted_scope = scope.clone();
+    let granted = tokio::task::spawn_blocking(move || granting.grant(&granted_scope)).await;
+    if !matches!(granted, Ok(true)) {
+        return None;
+    }
+    let revoke_scope = scope.clone();
+    let revoke: Revoke = Box::new(move |reply_tx| {
+        let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
+        spawn_named("io-cookie-revoke", async move {
+            let result = inner_rx.await;
+            vault.revoke(&revoke_scope);
+            if let Ok(result) = result {
+                let _ = reply_tx.send(result);
+            }
+        });
+        inner_tx
+    });
+    Some((scope, revoke))
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+async fn grant_scope(_identity: Option<&TabIdentity>, _scope: CookieScope) -> Option<(CookieScope, Revoke)> {
+    None
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+fn cookie_scope_for(_router: &IoRouter, _identity: Option<&TabIdentity>, _req: &FetchRequest) -> Option<CookieScope> {
+    None
+}
+
+/// Put the requesting tab's cookies on an outbound request.
 /// A vault jar answers over IPC, so the lookup runs on a blocking thread.
 async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
     req.headers.remove(http::header::COOKIE);
@@ -541,7 +635,13 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // `identity` is None for a tab that has closed or never
                             // registered, which sends no cookies (see `net::tab_identity`).
                             let identity = tab_id.and_then(|id| router.tab_identities().get(id));
+                            // With a vault the network process talks to directly, the
+                            // request carries whose cookies it wants and this process
+                            // neither attaches nor stores any.
+                            let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
                             let net = router.net_process();
+                            // Both of the zone's fetchers: which one serves the request
+                            // is decided in the task, after the address-space lookup.
                             let fetchers = match &net {
                                 Some(_) => None,
                                 None => match (
@@ -557,13 +657,26 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             };
                             let address_space = Arc::clone(&router.address_space);
 
-                            // The rest may block - the cookie lookup, a DNS lookup for the
-                            // policy - so it runs off this loop, which must stay free for
-                            // every other tab's requests.
+                            // The rest may block - a vault round trip for the cookies, a
+                            // DNS lookup for the policy - so it runs off this loop, which
+                            // must stay free for every other tab's requests.
                             spawn_named("io-fetch", async move {
                                 let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
                                 let document = identity.as_ref().and_then(|id| id.top_level.clone());
-                                attach_request_cookies(&mut req, identity.as_ref()).await;
+                                // The vault must hold the grant before the network process
+                                // can ask under it; a refused grant means no cookies at all.
+                                let (cookie_scope, reply_tx) = match cookie_scope {
+                                    Some(scope) => match grant_scope(identity.as_ref(), scope).await {
+                                        Some((scope, revoke)) => (Some(scope), revoke(reply_tx)),
+                                        None => (None, reply_tx),
+                                    },
+                                    None => (None, reply_tx),
+                                };
+                                if cookie_scope.is_some() {
+                                    req.headers.remove(http::header::COOKIE);
+                                } else {
+                                    attach_request_cookies(&mut req, identity.as_ref()).await;
+                                }
 
                                 // Policy for what a page loads, decided from the tab's own
                                 // document - never from anything the requester sent. A
@@ -577,9 +690,9 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
-                                let reply_tx = match identity {
-                                    Some(id) => store_response_cookies_then_forward(id, reply_tx),
-                                    None => reply_tx,
+                                let reply_tx = match (identity, cookie_scope.is_some()) {
+                                    (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
+                                    _ => reply_tx,
                                 };
                                 let reply_tx = match (subresource, document) {
                                     (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
@@ -591,6 +704,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                         net,
                                         req,
                                         refuse_private,
+                                        cookie_scope,
                                         handle.cancel.clone(),
                                         reply_tx,
                                     ),

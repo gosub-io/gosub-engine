@@ -45,6 +45,70 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+/// The cookie vault on its own: jar that forwards, HttpOnly split, zone
+/// partitioning, persistence brokered through a real SQLite store.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_cookie_vault_holds_partitioned_jars_and_persists_through_the_broker() {
+    let out = run("vault");
+    assert!(
+        out.status.success(),
+        "vault scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A vault that dies is respawned on the next use: the zone comes back from
+/// its store and the network process gets a new line, so the cookie still
+/// reaches the next request.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dead_cookie_vault_is_respawned_with_its_zones() {
+    for mode in [
+        &["engine-cookie-vault", "respawn"][..],
+        &["engine-cookie-vault", "respawn", "in-process"][..],
+    ] {
+        let out = Command::new(harness())
+            .args(mode)
+            .output()
+            .expect("spawn isolation-harness");
+        assert!(
+            out.status.success(),
+            "{mode:?} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// With the vault and the network process on, a cookie a page sets reaches the
+/// page's next request without the engine process ever attaching it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cookie_flows_from_the_vault_through_the_network_process() {
+    let out = run("engine-cookie-vault");
+    assert!(
+        out.status.success(),
+        "engine cookie vault scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The same with in-process fetching: the broker's forwarding jar asks the vault.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cookie_flows_from_the_vault_with_in_process_fetching() {
+    let out = run_with_backend("engine-cookie-vault", "in-process");
+    assert!(
+        out.status.success(),
+        "engine cookie vault (in-process) scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A streamed body crosses the network-process boundary through a
 /// shared-memory ring: head in-band, ring fd right behind it, bytes intact.
 #[cfg(target_os = "linux")]

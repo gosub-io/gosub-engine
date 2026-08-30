@@ -1,12 +1,15 @@
 //! Linux: a streamed body crosses to the broker through a shared-memory ring
-//! whose fd is passed on the link. The API here is what `super` calls;
-//! `portable.rs` is its stand-in.
+//! whose fd is passed on the link, and cookies come from a direct line to the
+//! vault. The API here is what `super` calls; `portable.rs` is its stand-in.
 
-use crate::net::process::protocol::{FetchOutcome, FromNet, RequestTag};
-use gosub_ipc::EndpointTx;
+use crate::cookie_vault::protocol::{FromVault, ToVault};
+use crate::net::process::protocol::{CookieScope, FetchOutcome, FromNet, RequestTag};
+use gosub_ipc::{Endpoint, EndpointRx, EndpointTx};
 use gosub_sonar::net::shared_body::SharedBody;
+use gosub_sonar::net::types::FetchResultMeta;
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Bodies may stream: the link carries the ring's fd.
 pub(super) const STREAMING: bool = true;
@@ -21,6 +24,8 @@ const RING_CAPACITY: u32 = 256 * 1024;
 /// the broker is not draining; this queue absorbs that stall (16 KiB chunks:
 /// at most 16 MiB held) so backpressure costs memory here, never bytes.
 const PUMP_QUEUE: usize = 1024;
+
+const VAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 type BodyChunks = futures_util::stream::BoxStream<'static, Result<bytes::Bytes, gosub_sonar::net::types::NetError>>;
 
@@ -112,6 +117,90 @@ async fn pump(mut producer: gosub_ipc::ring::RingProducer, body: BodyPump) {
         return;
     }
     producer.finish();
+}
+
+/// The direct line to the vault: one request in flight at a time, each
+/// answer checked against the tag it was asked with.
+pub(super) struct VaultLink {
+    link: Endpoint,
+    next_tag: u64,
+}
+
+impl VaultLink {
+    pub(super) fn new(mut link: Endpoint) -> Self {
+        let _ = link.rx.set_read_timeout(Some(VAULT_TIMEOUT));
+        let _ = link.tx.set_write_timeout(Some(VAULT_TIMEOUT));
+        Self { link, next_tag: 1 }
+    }
+
+    /// One tagged exchange. Any failure - timeout, a reply for another tag -
+    /// is `None`; replies for an earlier, timed-out request are skipped.
+    fn exchange(&mut self, build: impl FnOnce(u64) -> ToVault) -> Option<FromVault> {
+        let tag = self.next_tag;
+        self.next_tag += 1;
+        self.link.send(&build(tag)).ok()?;
+        loop {
+            let reply = self.link.recv::<FromVault>().ok()?;
+            let got = match &reply {
+                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } => *tag,
+                _ => return None,
+            };
+            if got == tag {
+                return Some(reply);
+            }
+            if got > tag {
+                return None;
+            }
+        }
+    }
+}
+
+/// A respawned vault's line: the fd arrives twice, one per half, because this
+/// process may not `dup`.
+pub(super) fn adopt_vault_line(rx: &mut EndpointRx) -> Result<VaultLink, String> {
+    let tx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
+    let rx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
+    Ok(VaultLink::new(Endpoint::from_halves(
+        std::os::unix::net::UnixStream::from(tx_fd),
+        std::os::unix::net::UnixStream::from(rx_fd),
+    )))
+}
+
+/// The `Cookie` header for a request, from the vault; any failure is "no cookies".
+pub(super) fn vault_cookies(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, url: &str) -> Option<String> {
+    match vault.lock().as_mut()?.exchange(|tag| ToVault::Get {
+        tag,
+        scope: scope.clone(),
+        url: url.to_string(),
+        visible_only: false,
+    })? {
+        FromVault::Cookies { header, .. } => header,
+        _ => None,
+    }
+}
+
+/// Hand a response's `Set-Cookie` headers to the vault. Waited for: the reply
+/// to the broker must not overtake the store.
+pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, meta: &FetchResultMeta) {
+    let set_cookie: Vec<String> = meta
+        .headers
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(str::to_string))
+        .collect();
+    if set_cookie.is_empty() {
+        return;
+    }
+    let mut guard = vault.lock();
+    let Some(link) = guard.as_mut() else {
+        return;
+    };
+    let _ = link.exchange(|tag| ToVault::Store {
+        tag,
+        scope: scope.clone(),
+        url: meta.final_url.to_string(),
+        set_cookie,
+    });
 }
 
 #[cfg(test)]
