@@ -61,8 +61,8 @@ pub fn dispatch() {
     std::process::exit(code);
 }
 
-/// Run a child role - including those that need the embedder's render
-/// configuration - if this process was started as one; otherwise return.
+/// Run a child role - including the fork server - if this process was started
+/// as one; otherwise return.
 pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
     DISPATCHED.store(true, std::sync::atomic::Ordering::Release);
     let args: Vec<String> = std::env::args().collect();
@@ -75,10 +75,31 @@ pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
     std::process::exit(code);
 }
 
-/// Roles that need `C` (a renderer) dispatch here; every other role behaves
-/// exactly as under [`dispatch`].
-#[allow(clippy::extra_unused_type_parameters)]
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String]) -> i32 {
+    use crate::fork_server::client::FORK_SERVER_ROLE;
+
+    if role == FORK_SERVER_ROLE {
+        gosub_sandbox::deny_debugger_attach();
+        return match adopt_link(role, args) {
+            Ok(endpoint) => crate::fork_server::child::serve::<C>(endpoint),
+            Err(code) => code,
+        };
+    }
+    if role == crate::render_process::client::RENDERER_ROLE {
+        gosub_sandbox::deny_debugger_attach();
+        return match adopt_link(role, args) {
+            Ok(endpoint) => crate::render_process::child::serve::<C>(endpoint),
+            Err(code) => code,
+        };
+    }
+    run_role(role, args)
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String]) -> i32 {
+    // No fork server here (feature off, or a platform with nothing to fork);
+    // every other role behaves exactly as under `dispatch`.
     run_role(role, args)
 }
 

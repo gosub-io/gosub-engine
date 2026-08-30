@@ -75,6 +75,14 @@ pub struct EngineContext {
     /// this to attach cookies itself, so no cookie value is ever handled by tab
     /// code — see [`TabIdentityRegistry`].
     pub tab_identities: Arc<TabIdentityRegistry>,
+    /// The fork server renderers are forked from, if `security.renderer_process`
+    /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
+    /// One per engine: what it holds (a warmed font system, a confinement tier)
+    /// is engine-wide state. On the shared context so tab workers can route
+    /// their renders through it; behind a `Mutex` because its request/reply
+    /// protocol is strictly serial.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_process: OnceLock<Arc<Mutex<crate::fork_server::client::ForkServer>>>,
 }
 
 impl Default for EngineContext {
@@ -87,6 +95,8 @@ impl Default for EngineContext {
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             internal_pages: InternalPages::with_builtins(),
             tab_identities: Arc::new(TabIdentityRegistry::new()),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: OnceLock::new(),
         }
     }
 }
@@ -127,6 +137,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
                 internal_pages: InternalPages::with_builtins(),
                 tab_identities: Arc::new(TabIdentityRegistry::new()),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_process: OnceLock::new(),
             }),
             render_backend: backend,
             compositor,
@@ -168,10 +180,140 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         #[cfg(feature = "metrics")]
         crate::metrics::start(9090);
 
+        // Spawn the renderer fork server if asked to. Blocks briefly (spawn
+        // plus font warm-up, ~200 ms typical) - acceptable at startup, and
+        // the answer decides engine-wide behaviour, so it belongs here.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_renderer_process();
+
         // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Spawn the fork server when `security.renderer_process` asks for it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_renderer_process(&mut self) {
+        use crate::fork_server::client::ForkServer;
+        use crate::fork_server::protocol::ConfinementTier;
+
+        if !self.context.config_store.get_bool("security.renderer_process") {
+            return;
+        }
+
+        let by_default = self.setting_at_default("security.renderer_process");
+
+        // The configured font system's (static) tier decides the mechanism:
+        // only `Full` systems benefit from a warmed fork server.
+        // `FontPathsReadable` renders in throwaway exec'd processes spawned
+        // per render (see `render_process`) - nothing to start here, and not
+        // by default either: an embedder opts into that mode knowingly.
+        {
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {}
+                Confinement::FontPathsReadable if by_default => {
+                    log::info!(
+                        "renderer isolation is off by default for this font system (it reads font \
+                         files while operating, so renderers would be exec'd per render); set \
+                         security.renderer_process explicitly to opt in"
+                    );
+                    self.turn_off("security.renderer_process");
+                    return;
+                }
+                Confinement::FontPathsReadable => {
+                    log::info!(
+                        "renderer isolation active in exec-per-render mode \
+                         (the configured font system reads font files while operating)"
+                    );
+                    return;
+                }
+                Confinement::Unsupported(reason) => {
+                    if by_default {
+                        log::info!(
+                            "renderer isolation is off: the configured font system cannot run isolated ({reason})"
+                        );
+                    } else {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                    }
+                    self.turn_off("security.renderer_process");
+                    return;
+                }
+            }
+        }
+
+        // A renderer that cannot rasterize would ship geometry and no pixels:
+        // blank tabs with no way back. Better to say so and stay in-process.
+        {
+            let fonts: Arc<Mutex<dyn gosub_interface::font_system::FontSystem>> =
+                Arc::new(Mutex::new(C::FontSystem::default()));
+            if C::forked_tile_rasterizer(fonts).is_none() {
+                if by_default {
+                    log::info!(
+                        "renderer isolation is off: this RenderConfiguration provides no \
+                         forked_tile_rasterizer (enable the engine's `cairo-tiles`/`skia-tiles` feature)"
+                    );
+                } else {
+                    log::warn!(
+                        "security.renderer_process is on, but this RenderConfiguration provides no \
+                         forked_tile_rasterizer (enable the engine's `cairo-tiles`/`skia-tiles` feature, \
+                         or implement it); rendering stays in-process"
+                    );
+                }
+                self.turn_off("security.renderer_process");
+                return;
+            }
+        }
+
+        match ForkServer::spawn() {
+            Ok(mut server) => {
+                let tier = server.confinement().clone();
+                match tier {
+                    ConfinementTier::Unsupported(reason) => {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                        self.turn_off("security.renderer_process");
+                        server.shutdown();
+                    }
+                    tier => {
+                        log::info!("renderer fork server ready (confinement tier: {tier:?})");
+                        // Set once, like `io_tx`; `start()` refuses to run twice.
+                        let _ = self.context.renderer_process.set(Arc::new(Mutex::new(server)));
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "security.renderer_process is on, but the fork server could not be started ({e}); \
+                     rendering stays in-process. The most likely cause is an embedder that has not \
+                     called gosub_engine::child_process::dispatch_with() first thing in main()."
+                );
+            }
+        }
+    }
+
+    /// The running renderer fork server, when `security.renderer_process` is on
+    /// and it started - the handle render routing goes through. `None` means
+    /// this engine renders in-process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
+        self.context.renderer_process.get()
+    }
+
+    /// The confinement tier the renderer fork server announced, when one is
+    /// running: how confined this engine's forked renderers are.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process_tier(&self) -> Option<crate::fork_server::protocol::ConfinementTier> {
+        self.context
+            .renderer_process
+            .get()
+            .map(|server| server.lock().confinement().clone())
     }
 
     /// Return a receiver for engine events.
@@ -217,7 +359,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// in CI.
     #[cfg(feature = "process-isolation")]
     fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 2] = ["security.network_process", "security.image_decoder_process"];
+        const PROCESS_SETTINGS: [&str; 3] = [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ];
         let store = &self.context.config_store;
 
         if !crate::child_process::was_dispatched() {
@@ -307,6 +453,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Persist cookie stores before tearing anything down.
         self.flush_persistence();
+
+        // Ask the fork server for a clean exit (it kills-and-reaps on drop
+        // regardless, but a Shutdown lets it leave without a SIGKILL).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(server) = self.context.renderer_process.get() {
+            log::trace!("signal: shutting down the renderer fork server");
+            server.lock().shutdown();
+        }
 
         // Shutdown I/O thread
         log::trace!("signal: shutting down I/O thread");
@@ -451,6 +605,47 @@ mod tests {
             partition_policy: PartitionPolicy::None,
             places: None,
         }
+    }
+
+    /// Without `child_process::dispatch()` the process settings must not survive
+    /// `start()`: a child would re-exec into this test binary's own startup.
+    #[cfg(feature = "process-isolation")]
+    #[tokio::test]
+    async fn process_settings_are_dropped_without_dispatch() {
+        use gosub_config::settings::Setting;
+        let mut engine = engine_with_max_zones(1);
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            engine.settings().set(key, Setting::Bool(true)).expect("set");
+            assert!(engine.settings().get_bool(key));
+        }
+        assert!(!crate::child_process::was_dispatched());
+        let _join = tokio::spawn(engine.start().expect("start"));
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            assert!(!engine.settings().get_bool(key), "{key} should have been turned off");
+        }
+    }
+
+    /// The defaults are on, but they too need `dispatch()`: an engine in a
+    /// process that never dispatched ends up with all three off, quietly.
+    #[cfg(feature = "process-isolation")]
+    #[tokio::test]
+    async fn process_settings_default_on_but_need_dispatch() {
+        let mut engine = engine_with_max_zones(1);
+        assert!(engine.settings().get_bool("security.network_process"));
+        assert!(engine.settings().get_bool("security.image_decoder_process"));
+        assert!(engine.settings().get_bool("security.renderer_process"));
+        let _join = tokio::spawn(engine.start().expect("start"));
+        assert!(!engine.settings().get_bool("security.network_process"));
+        assert!(!engine.settings().get_bool("security.image_decoder_process"));
+        assert!(!engine.settings().get_bool("security.renderer_process"));
     }
 
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {

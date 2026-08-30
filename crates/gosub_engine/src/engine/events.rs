@@ -674,6 +674,15 @@ pub enum EngineEvent {
         zone_id: ZoneId,
         error: String,
     },
+    /// A renderer process could not render a tab's page. Page content is
+    /// never rendered in-process once isolation is on, so the tab stays
+    /// blank until a render succeeds again; an embedder may want to show
+    /// something meanwhile.
+    RendererCrashed {
+        zone_id: ZoneId,
+        tabs: Vec<TabId>,
+        error: String,
+    },
     // Uncategorized / generic
 }
 

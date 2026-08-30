@@ -16,8 +16,12 @@ use std::sync::Arc;
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
-    /// The main document has been parsed and is ready.
-    MainDocument(Arc<EngineDocument<C>>),
+    /// The main document has been parsed and is ready, with its source when
+    /// a renderer process will re-parse it.
+    MainDocument {
+        doc: Arc<EngineDocument<C>>,
+        source: Option<Arc<str>>,
+    },
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
 
@@ -181,7 +185,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
     match (dest, outcome.decision, body_content) {
         (RequestDestination::Document, HandlingDecision::Render(target), body_content) => match target {
             RenderTarget::HtmlParser => {
-                let doc = match body_content {
+                let parsed = match body_content {
                     BodyContent::Stream { shared } => {
                         hooks.html.parse_stream(request, handle, meta, peek_buf, shared).await?
                     }
@@ -189,7 +193,11 @@ pub async fn route_response_for<C: RenderConfiguration>(
                         hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                     }
                 };
-                Ok(RoutedOutcome::MainDocument(Arc::new(doc)))
+                let (doc, source) = parsed.into_parts();
+                Ok(RoutedOutcome::MainDocument {
+                    doc: Arc::new(doc),
+                    source,
+                })
             }
             RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
@@ -216,8 +224,15 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 };
                 let mut meta = meta;
                 meta.content_type = Some("text/html; charset=utf-8".into());
-                let doc = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
-                return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
+                let (doc, source) = hooks
+                    .html
+                    .parse_bytes(request, handle, meta, html.as_bytes())
+                    .await?
+                    .into_parts();
+                return Ok(RoutedOutcome::MainDocument {
+                    doc: Arc::new(doc),
+                    source,
+                });
             }
             // Binary content or an explicit attachment: offer it to the embedder as a
             // download instead of failing the navigation.
