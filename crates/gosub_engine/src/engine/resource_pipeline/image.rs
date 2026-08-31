@@ -24,21 +24,27 @@ pub struct ImagePipelineImpl;
 impl ImagePipeline for ImagePipelineImpl {
     async fn parse_stream(
         &mut self,
-        _meta: FetchResultMeta,
+        meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
     ) -> anyhow::Result<image::DynamicImage> {
         // Normally, we send chunks to the image decoder. Right now, we just collect everything
-        match stream_to_bytes(peek_buf, shared).await {
-            Ok(buf) => ImageReader::new(Cursor::new(buf))
-                .with_guessed_format()?
-                .decode()
-                .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e)),
-            Err(e) => Err(anyhow::anyhow!("Failed to read image stream: {}", e)),
-        }
+        let buf = stream_to_bytes(peek_buf, shared)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read image stream: {}", e))?;
+
+        // The guard starts here, not above: draining the body is transfer, and folding it
+        // into decode.image would make the counter track the network the way html5.parse
+        // used to.
+        let _t = gosub_shared::timing_guard!("decode.image", meta.final_url.as_str());
+        ImageReader::new(Cursor::new(buf))
+            .with_guessed_format()?
+            .decode()
+            .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))
     }
 
-    async fn parse_bytes(&mut self, _meta: FetchResultMeta, body: &[u8]) -> anyhow::Result<image::DynamicImage> {
+    async fn parse_bytes(&mut self, meta: FetchResultMeta, body: &[u8]) -> anyhow::Result<image::DynamicImage> {
+        let _t = gosub_shared::timing_guard!("decode.image", meta.final_url.as_str());
         ImageReader::new(Cursor::new(body))
             .with_guessed_format()?
             .decode()

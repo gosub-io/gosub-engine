@@ -134,6 +134,9 @@ impl MediaStore {
 
     /// Shared by the data, source and inline decode paths.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
+        // Pure CPU: the bytes are already in hand, whether they came from the network,
+        // a data: URI or inline markup. Fetching is timed separately as net.fetch.image.
+        let _t = gosub_shared::timing_guard!("decode.image", src);
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -426,6 +429,34 @@ mod tests {
             assert_eq!(img.image.width(), 8, "{format:?} width");
             assert_eq!(img.image.height(), 4, "{format:?} height");
         }
+    }
+
+    /// Decoding must land under `decode.image`, and must not swallow any transfer time -
+    /// this path only ever sees bytes that are already in hand.
+    #[test]
+    fn decode_is_recorded_under_decode_image() {
+        // The timing table is process-global and tests run in parallel, so this asserts a
+        // relative increase rather than an absolute count, and never calls reset_stats()
+        // (which would wipe whatever a concurrent test is recording).
+        let count_of = |ns: &str| {
+            gosub_shared::timing::snapshot_stats()
+                .iter()
+                .find(|s| s.namespace == ns)
+                .map_or(0, |s| s.count)
+        };
+        let before = count_of("decode.image");
+
+        let store = MediaStore::new();
+        let bytes = encode(ImageFormat::Png);
+        let media_id = store
+            .load_media_from_data(MediaType::Image, &bytes)
+            .unwrap_or_else(|e| panic!("png failed to load: {e}"));
+        assert!(!store.is_placeholder(media_id));
+
+        assert!(
+            count_of("decode.image") > before,
+            "decoding did not record a decode.image sample"
+        );
     }
 
     /// SVG data must decode through `load_media_from_data` into a retained SVG (not the

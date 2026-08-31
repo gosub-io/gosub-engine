@@ -87,7 +87,7 @@ impl NetObserver for TimingEmitter {
 #[cfg(test)]
 mod test {
     use super::*;
-    use gosub_shared::timing::{reset_stats, snapshot_stats};
+    use gosub_shared::timing::snapshot_stats;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use url::Url;
@@ -106,7 +106,17 @@ mod test {
 
     #[test]
     fn records_fetch_duration_and_forwards_every_event() {
-        reset_stats();
+        // The timing table is process-global and tests run in parallel: assert a relative
+        // increase, and never reset_stats() here - that would wipe whatever a concurrent
+        // test is recording.
+        let stat_of = |ns: &str| {
+            snapshot_stats()
+                .iter()
+                .find(|s| s.namespace == ns)
+                .map(|s| (s.count, s.total_us))
+        };
+        let before = stat_of("net.fetch.css").unwrap_or((0, 0));
+
         let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
         let em = TimingEmitter::wrap(inner.clone(), ResourceKind::Stylesheet);
 
@@ -120,14 +130,10 @@ mod test {
         // Both events reached the wrapped observer.
         assert_eq!(inner.0.load(Ordering::SeqCst), 2);
 
-        let stats = snapshot_stats();
-        let fetch = stats
-            .iter()
-            .find(|s| s.namespace == "net.fetch.css")
-            .expect("net.fetch.css recorded");
-        assert_eq!(fetch.count, 1);
+        let (count, total_us) = stat_of("net.fetch.css").expect("net.fetch.css recorded");
+        assert_eq!(count, before.0 + 1, "exactly one sample added");
         // sonar's own elapsed is used verbatim, not re-measured from our clock.
-        assert_eq!(fetch.total_us, 40_000);
+        assert_eq!(total_us - before.1, 40_000);
     }
 
     #[test]
