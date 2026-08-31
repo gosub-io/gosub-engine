@@ -112,14 +112,26 @@ impl FetcherContext for EngineNetContext {
 
         let guard = self.request_reference_map.read();
         match guard.get(&reference) {
-            Some(&tab_id) => Arc::new(EngineEventEmitter::new(
-                tab_id,
-                req_id,
-                reference,
-                self.event_tx.clone(),
-                kind,
-                initiator,
-            )),
+            Some(&tab_id) => {
+                let observer = Arc::new(EngineEventEmitter::new(
+                    tab_id,
+                    req_id,
+                    reference,
+                    self.event_tx.clone(),
+                    kind,
+                    initiator,
+                )) as Arc<dyn NetObserver + Send + Sync>;
+
+                // Timing decorates the emitter rather than replacing it: it reads the
+                // fetch timings off each event in passing and forwards the event on.
+                // With the feature off no wrapper is built and sonar emits into exactly
+                // what it does today.
+                #[cfg(feature = "timing")]
+                let observer = Arc::new(crate::net::emitter::timing_emitter::TimingEmitter::wrap(observer, kind))
+                    as Arc<dyn NetObserver + Send + Sync>;
+
+                observer
+            }
             None => {
                 log::trace!("Cannot find the request reference for reference {:?}", reference);
                 Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>

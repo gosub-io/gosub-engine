@@ -144,6 +144,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     viewport: Viewport,
     /// Epoch of the scene, used to determine if the scene has changed
     scene_epoch: u64,
+    /// Navigation the pipeline's timings are attributed to, so one tab's numbers do not
+    /// land in another's. Set when a navigation's document arrives; `None` before the
+    /// first document, where samples stay unattributed rather than being misfiled.
+    timing_scope: Option<gosub_shared::timing::ScopeId>,
 
     /// DOM dirty flag, used to determine if the DOM has changed
     dom_dirty: bool,
@@ -219,6 +223,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             render_dirty: false,
             viewport: Viewport::default(),
             scene_epoch: 0,
+            timing_scope: None,
             dom_dirty: false,
             style_dirty: false,
             layout_dirty: false,
@@ -344,6 +349,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     #[inline]
+    /// Attribute this context's pipeline timings to `scope` (one navigation).
+    pub(crate) fn set_timing_scope(&mut self, scope: Option<gosub_shared::timing::ScopeId>) {
+        self.timing_scope = scope;
+    }
+
     pub fn scene_epoch(&self) -> u64 {
         self.scene_epoch
     }
@@ -370,6 +380,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`].
     fn rebuild_full_pipeline(&mut self) {
+        // `pipeline_build_cache` is synchronous - no await can move this work to another
+        // thread mid-flight - so a thread-local scope attributes every span it records,
+        // including the rasterizer's (whose timers run on this thread, outside its rayon
+        // par_iter), to the navigation that owns the document.
+        let _scope = self.timing_scope.map(gosub_shared::timing::enter_scope);
+
         if let Some(doc) = &self.document {
             let prev_tile_cache = self
                 .pipeline_cache
