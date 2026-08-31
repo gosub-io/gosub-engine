@@ -125,6 +125,12 @@ impl TimingTable {
         self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
     }
 
+    /// File an already-finished timer under `namespace`.
+    pub fn insert_finished(&mut self, namespace: &str, timer: Timer) {
+        self.timers.insert(timer.id, timer.clone());
+        self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
+    }
+
     /// Record a duration that was measured somewhere else.
     ///
     /// Some work is timed by a component we don't drive the clock for - the fetch
@@ -403,6 +409,22 @@ pub fn record(namespace: &str, duration_us: u64, context: Option<String>) {
 /// Timing disabled: drop the sample.
 #[cfg(not(feature = "timing"))]
 pub fn record(_namespace: &str, _duration_us: u64, _context: Option<String>) {}
+
+/// File a duration against an explicitly named scope.
+///
+/// Use this from async code, for the same reason as [`mark_in`]: the thread-local scope
+/// only holds inside a synchronous unit.
+#[cfg(feature = "timing")]
+pub fn record_in(scope: ScopeId, namespace: &str, duration_us: u64, context: Option<String>) {
+    let mut table = TIMING_TABLE.lock();
+    let mut timer = Timer::finished(context, duration_us);
+    timer.scope = Some(scope);
+    table.insert_finished(namespace, timer);
+}
+
+/// Timing disabled: drop the sample.
+#[cfg(not(feature = "timing"))]
+pub fn record_in(_scope: ScopeId, _namespace: &str, _duration_us: u64, _context: Option<String>) {}
 
 /// Stamp the start of `scope` - the epoch its marks are measured from.
 #[cfg(feature = "timing")]

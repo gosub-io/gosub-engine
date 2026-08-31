@@ -15,8 +15,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use gosub_shared::timing_record;
-
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::types::ResourceKind;
@@ -27,6 +25,9 @@ pub struct TimingEmitter {
     inner: Arc<dyn NetObserver + Send + Sync>,
     /// Resource kind, which selects the `net.fetch.*` namespace.
     kind: ResourceKind,
+    /// Navigation these samples belong to, carried explicitly because events arrive on
+    /// the fetch stack's own tasks where the thread-local scope does not apply.
+    scope: Option<gosub_shared::timing::ScopeId>,
     /// When this request was first seen, so `ResponseHeaders` can be turned into a
     /// duration. `Started` normally sets it; requests served from cache may never emit
     /// `Started`, in which case TTFB is skipped rather than guessed.
@@ -35,12 +36,29 @@ pub struct TimingEmitter {
 
 impl TimingEmitter {
     /// Wrap `inner` so this request's fetch timings are recorded as they pass through.
+    ///
+    /// `scope` attributes them to a navigation; `None` leaves them unattributed rather
+    /// than filed against whichever navigation happens to be current.
     #[must_use]
-    pub fn wrap(inner: Arc<dyn NetObserver + Send + Sync>, kind: ResourceKind) -> Self {
+    pub fn wrap(
+        inner: Arc<dyn NetObserver + Send + Sync>,
+        kind: ResourceKind,
+        scope: Option<gosub_shared::timing::ScopeId>,
+    ) -> Self {
         Self {
             inner,
             kind,
+            scope,
             started: parking_lot::Mutex::new(None),
+        }
+    }
+
+    /// File `duration` under `namespace`, scoped when this request belongs to a navigation.
+    fn record(&self, namespace: &str, duration: std::time::Duration, url: &url::Url) {
+        let us = duration.as_micros() as u64;
+        match self.scope {
+            Some(scope) => gosub_shared::timing::record_in(scope, namespace, us, Some(url.to_string())),
+            None => gosub_shared::timing::record(namespace, us, Some(url.to_string())),
         }
     }
 
@@ -69,13 +87,13 @@ impl NetObserver for TimingEmitter {
             }
             NetEvent::ResponseHeaders { url, .. } => {
                 if let Some(started) = *self.started.lock() {
-                    timing_record!("net.ttfb", started.elapsed(), url.as_str());
+                    self.record("net.ttfb", started.elapsed(), url);
                 }
             }
             NetEvent::Finished { elapsed, url, .. } => {
                 // sonar measured this itself - use its number rather than re-deriving one
                 // from our own clock, which would include event-queue latency.
-                timing_record!(self.namespace(), *elapsed, url.as_str());
+                self.record(self.namespace(), *elapsed, url);
             }
             _ => {}
         }
@@ -118,7 +136,7 @@ mod test {
         let before = stat_of("net.fetch.css").unwrap_or((0, 0));
 
         let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
-        let em = TimingEmitter::wrap(inner.clone(), ResourceKind::Stylesheet);
+        let em = TimingEmitter::wrap(inner.clone(), ResourceKind::Stylesheet, None);
 
         em.on_event(NetEvent::Started { url: url() });
         em.on_event(NetEvent::Finished {
@@ -136,10 +154,34 @@ mod test {
         assert_eq!(total_us - before.1, 40_000);
     }
 
+    /// A request that belongs to a navigation records into that navigation's scope, not
+    /// the global bucket - the events arrive on the fetch stack's tasks, where there is no
+    /// thread-local scope to fall back on.
+    #[test]
+    fn records_into_the_navigation_scope() {
+        let scope = gosub_shared::timing::ScopeId(uuid::Uuid::new_v4());
+        let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
+        let em = TimingEmitter::wrap(inner, ResourceKind::Document, Some(scope));
+
+        em.on_event(NetEvent::Finished {
+            received_bytes: 10,
+            elapsed: Duration::from_millis(25),
+            url: url(),
+        });
+
+        let scoped = gosub_shared::timing::snapshot_stats_for(scope);
+        let fetch = scoped
+            .iter()
+            .find(|s| s.namespace == "net.fetch.html")
+            .expect("recorded in the navigation scope");
+        assert_eq!(fetch.count, 1);
+        assert_eq!(fetch.total_us, 25_000);
+    }
+
     #[test]
     fn namespace_follows_resource_kind() {
         let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
-        let ns = |k| TimingEmitter::wrap(inner.clone(), k).namespace();
+        let ns = |k| TimingEmitter::wrap(inner.clone(), k, None).namespace();
 
         assert_eq!(ns(ResourceKind::Document), "net.fetch.html");
         assert_eq!(ns(ResourceKind::Stylesheet), "net.fetch.css");
