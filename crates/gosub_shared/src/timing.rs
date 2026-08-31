@@ -147,11 +147,33 @@ impl TimingTable {
     /// Returns aggregated stats for every registered namespace.
     #[must_use]
     pub fn namespace_stats(&self) -> Vec<NamespaceStats> {
+        self.namespace_stats_for(None)
+    }
+
+    /// Aggregated per-namespace statistics.
+    ///
+    /// `scope` of `None` aggregates every sample regardless of scope, which is what the
+    /// global views (`gosub://stats`, `/metrics`) want. `Some(id)` narrows to one unit of
+    /// work. Namespaces with no samples in that scope are omitted rather than reported as
+    /// zero, so a per-navigation view only lists what that navigation actually did.
+    #[must_use]
+    pub fn namespace_stats_for(&self, scope: Option<ScopeId>) -> Vec<NamespaceStats> {
         self.namespaces
             .iter()
-            .map(|(ns, timer_ids)| {
-                let s = self.get_stats(timer_ids);
-                NamespaceStats {
+            .filter_map(|(ns, timer_ids)| {
+                let timer_ids: Vec<TimerId> = match scope {
+                    None => timer_ids.clone(),
+                    Some(want) => timer_ids
+                        .iter()
+                        .filter(|id| self.timers.get(id).is_some_and(|t| t.scope == Some(want)))
+                        .copied()
+                        .collect(),
+                };
+                if timer_ids.is_empty() {
+                    return None;
+                }
+                let s = self.get_stats(&timer_ids);
+                Some(NamespaceStats {
                     namespace: ns.clone(),
                     count: s.count,
                     total_us: s.total,
@@ -162,7 +184,7 @@ impl TimingTable {
                     p75_us: s.p75,
                     p95_us: s.p95,
                     p99_us: s.p99,
-                }
+                })
             })
             .collect()
     }
@@ -171,6 +193,15 @@ impl TimingTable {
     pub fn clear(&mut self) {
         self.timers.clear();
         self.namespaces.clear();
+    }
+
+    /// Drop every sample belonging to `scope`, leaving other scopes untouched.
+    pub fn clear_scope(&mut self, scope: ScopeId) {
+        self.timers.retain(|_, t| t.scope != Some(scope));
+        for ids in self.namespaces.values_mut() {
+            ids.retain(|id| self.timers.contains_key(id));
+        }
+        self.namespaces.retain(|_, ids| !ids.is_empty());
     }
 
     fn scale(&self, value: u64, scale: Scale) -> String {
@@ -242,6 +273,66 @@ impl TimingTable {
 
 lazy_static! {
     pub static ref TIMING_TABLE: Mutex<TimingTable> = Mutex::new(TimingTable::default());
+}
+
+/// Identifies the unit of work a sample belongs to - in the engine, one navigation.
+///
+/// Without this the table is one process-global bucket, so a second tab's numbers land
+/// in the first tab's stats and nothing can be attributed to the page that caused it.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct ScopeId(pub uuid::Uuid);
+
+thread_local! {
+    /// Scope that samples recorded on this thread belong to.
+    ///
+    /// Thread-local, which is only sound because every span this crate records is taken
+    /// around *synchronous* work: the render pipeline is a plain fn, parsing is a plain
+    /// fn, and the rasterizer's spans are on the calling thread, outside its rayon
+    /// `par_iter`. A scope must therefore never be held across an `.await` - the task
+    /// could resume on another thread and samples would be attributed to whatever that
+    /// thread was doing. Enter one around the synchronous unit instead.
+    static CURRENT_SCOPE: std::cell::Cell<Option<ScopeId>> = const { std::cell::Cell::new(None) };
+}
+
+/// Attribute samples recorded on this thread to `scope` until the guard drops.
+///
+/// Nests: the previous scope is restored, not cleared.
+#[must_use = "the scope ends as soon as the guard is dropped"]
+pub fn enter_scope(scope: ScopeId) -> ScopeGuard {
+    let previous = CURRENT_SCOPE.with(|c| c.replace(Some(scope)));
+    ScopeGuard { previous }
+}
+
+/// Restores the enclosing scope when dropped. See [`enter_scope`].
+pub struct ScopeGuard {
+    previous: Option<ScopeId>,
+}
+
+impl Drop for ScopeGuard {
+    fn drop(&mut self) {
+        CURRENT_SCOPE.with(|c| c.set(self.previous));
+    }
+}
+
+/// The scope samples on this thread are currently attributed to, if any.
+#[must_use]
+pub fn current_scope() -> Option<ScopeId> {
+    CURRENT_SCOPE.with(std::cell::Cell::get)
+}
+
+/// Statistics for one namespace within `scope` only.
+#[must_use]
+pub fn snapshot_stats_for(scope: ScopeId) -> Vec<NamespaceStats> {
+    TIMING_TABLE.lock().namespace_stats_for(Some(scope))
+}
+
+/// Drop everything recorded for `scope`.
+///
+/// The table otherwise grows for the life of the process, so a long browsing session
+/// accumulates every navigation it ever ran. Call this when a navigation's numbers have
+/// been read and are no longer wanted.
+pub fn clear_scope(scope: ScopeId) {
+    TIMING_TABLE.lock().clear_scope(scope);
 }
 
 /// Start a timer on the global table. No-op returning a nil id when the `timing`
@@ -405,6 +496,8 @@ macro_rules! timing_display {
 pub struct Timer {
     id: TimerId,
     context: Option<String>,
+    /// Unit of work this sample belongs to, captured when the timer was created.
+    scope: Option<ScopeId>,
     #[cfg(not(target_arch = "wasm32"))]
     start: Instant,
     #[cfg(target_arch = "wasm32")]
@@ -433,6 +526,7 @@ impl Timer {
         Timer {
             id: new_timer_id(),
             context,
+            scope: current_scope(),
             start,
             end: None,
             duration_us: 0,
@@ -456,6 +550,7 @@ impl Timer {
         Timer {
             id: new_timer_id(),
             context,
+            scope: current_scope(),
             start: now,
             end: Some(now),
             duration_us,
@@ -499,6 +594,111 @@ impl Timer {
         } else {
             0
         }
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    fn scope() -> ScopeId {
+        ScopeId(uuid::Uuid::new_v4())
+    }
+
+    fn count_in(table: &TimingTable, sc: Option<ScopeId>, ns: &str) -> u64 {
+        table
+            .namespace_stats_for(sc)
+            .into_iter()
+            .find(|s| s.namespace == ns)
+            .map_or(0, |s| s.count)
+    }
+
+    /// Samples land in the scope that was current when they were recorded, and a query for
+    /// one scope must not see another's - the whole point of the change.
+    #[test]
+    fn samples_are_isolated_per_scope() {
+        let (a, b) = (scope(), scope());
+        let mut table = TimingTable::new();
+
+        {
+            let _g = enter_scope(a);
+            table.record("decode.html", 100, None);
+        }
+        {
+            let _g = enter_scope(b);
+            table.record("decode.html", 200, None);
+            table.record("decode.html", 300, None);
+        }
+
+        assert_eq!(count_in(&table, Some(a), "decode.html"), 1);
+        assert_eq!(count_in(&table, Some(b), "decode.html"), 2);
+        // The global view still aggregates everything.
+        assert_eq!(count_in(&table, None, "decode.html"), 3);
+    }
+
+    /// Dropping the guard restores the enclosing scope rather than clearing it, so nesting
+    /// a scope inside another does not silently unscope the outer work.
+    #[test]
+    fn scopes_nest_and_restore() {
+        let (outer, inner) = (scope(), scope());
+        assert_eq!(current_scope(), None);
+
+        let _o = enter_scope(outer);
+        assert_eq!(current_scope(), Some(outer));
+        {
+            let _i = enter_scope(inner);
+            assert_eq!(current_scope(), Some(inner));
+        }
+        assert_eq!(current_scope(), Some(outer));
+    }
+
+    /// Work recorded with no scope entered stays unattributed rather than being folded
+    /// into some other navigation.
+    #[test]
+    fn unscoped_samples_belong_to_no_scope() {
+        let a = scope();
+        let mut table = TimingTable::new();
+        table.record("pipeline.total", 50, None);
+
+        assert_eq!(count_in(&table, Some(a), "pipeline.total"), 0);
+        assert_eq!(count_in(&table, None, "pipeline.total"), 1);
+    }
+
+    /// Clearing one scope must leave the others intact - this is what stops the table
+    /// growing for the life of the process.
+    #[test]
+    fn clear_scope_drops_only_that_scope() {
+        let (a, b) = (scope(), scope());
+        let mut table = TimingTable::new();
+
+        {
+            let _g = enter_scope(a);
+            table.record("decode.html", 100, None);
+        }
+        {
+            let _g = enter_scope(b);
+            table.record("decode.html", 200, None);
+        }
+
+        table.clear_scope(a);
+
+        assert_eq!(count_in(&table, Some(a), "decode.html"), 0);
+        assert_eq!(count_in(&table, Some(b), "decode.html"), 1);
+        assert_eq!(count_in(&table, None, "decode.html"), 1);
+    }
+
+    /// A namespace left with no samples after a clear disappears instead of lingering as
+    /// an empty row.
+    #[test]
+    fn emptied_namespaces_are_removed() {
+        let a = scope();
+        let mut table = TimingTable::new();
+        {
+            let _g = enter_scope(a);
+            table.record("net.fetch.css", 100, None);
+        }
+        table.clear_scope(a);
+        assert!(table.namespace_stats_for(None).is_empty());
     }
 }
 

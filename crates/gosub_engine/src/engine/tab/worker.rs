@@ -754,6 +754,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 title,
                 doc,
             } => {
+                // Everything the pipeline records from here belongs to this navigation.
+                // Set before the document so the first rebuild is already attributed.
+                self.context
+                    .set_timing_scope(Some(gosub_shared::timing::ScopeId(nav_id.0)));
                 self.context.set_document(Arc::clone(&doc));
                 self.load_web_fonts(&doc, &final_url);
                 if let Some(cancel) = self
