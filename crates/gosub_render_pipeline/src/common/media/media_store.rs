@@ -304,6 +304,10 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
+        // This is a blocking fetch on the caller's thread, and it goes through
+        // `simple::sync_fetch` rather than the observed Fetcher, so the net observer
+        // never sees it. Time it here or it is invisible.
+        let _t = gosub_shared::timing_guard!("net.fetch.image", src);
         let response = gosub_sonar::net::simple::sync_fetch(&url)?;
 
         if !response.is_ok() {

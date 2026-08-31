@@ -28,8 +28,8 @@ use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::config::{Context, ParserConfig};
 use gosub_shared::node::NodeId;
+use gosub_shared::timing::{self, Timer};
 use gosub_shared::types::{ParseError, Result};
-use gosub_shared::{timing_start, timing_stop};
 use log::warn;
 use url::Url;
 
@@ -161,6 +161,10 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     frameset_ok: bool,
     /// Foster parenting flag
     foster_parenting: bool,
+    /// Microseconds spent inside blocking external-stylesheet fetches during this parse.
+    /// Subtracted from the `decode.html` span so that counter measures parsing and not
+    /// the network. `Cell` because `load_external_stylesheet` only has `&self`.
+    external_fetch_us: std::cell::Cell<u64>,
     /// If true, the script engine has already started
     script_already_started: bool,
     /// Pending table character tokens
@@ -295,6 +299,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             scripting_enabled: options.unwrap_or_default().scripting_enabled,
             frameset_ok: true,
             foster_parenting: false,
+            external_fetch_us: std::cell::Cell::new(0),
             script_already_started: false,
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
@@ -334,6 +339,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             scripting_enabled: true,
             frameset_ok: true,
             foster_parenting: false,
+            external_fetch_us: std::cell::Cell::new(0),
             script_already_started: false,
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
@@ -438,15 +444,23 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
-        let t_id = match document.url() {
-            Some(url) => timing_start!("html5.parse", url.as_str()),
-            None => timing_start!("html5.parse", "unknown"),
-        };
+        let context = document.url().map_or_else(|| "unknown".to_string(), |u| u.to_string());
+
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), Location::default());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
+        // `do_parse` can block on the network: an external `<link rel=stylesheet>` is
+        // fetched synchronously as it is encountered. Timing the whole call would report
+        // that wait as parse time - on a real page it dominates, and the counter then
+        // tracks the CDN rather than the parser. Measure the wall clock, then subtract
+        // what the fetches took, so `decode.html` is bytes-to-DOM and nothing else. The
+        // waits are not lost; they are recorded under `net.fetch.css`.
+        let mut wall = Timer::new(Some(context.clone()));
         let ret = parser.do_parse();
-        timing_stop!(t_id);
+        wall.end();
+
+        let parse_us = wall.duration().saturating_sub(parser.external_fetch_us.get());
+        timing::record("decode.html", parse_us, Some(context));
 
         ret
     }
@@ -4086,7 +4100,17 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
-            let response = match gosub_sonar::net::simple::sync_fetch(&url) {
+            // Blocking HTTP in the middle of a parse. It goes through `simple::sync_fetch`
+            // rather than the observed Fetcher, so nothing else records it. Time it here,
+            // file it under `net.fetch.css`, and add it to the parser's running total so
+            // `parse_document` can subtract it back out of `decode.html`.
+            let mut ft = Timer::new(Some(url.to_string()));
+            let fetched = gosub_sonar::net::simple::sync_fetch(&url);
+            ft.end();
+            self.external_fetch_us.set(self.external_fetch_us.get() + ft.duration());
+            timing::record("net.fetch.css", ft.duration(), Some(url.to_string()));
+
+            let response = match fetched {
                 Ok(r) => r,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {}. Error: {}", url, err);

@@ -714,6 +714,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     if !fetched.insert(font_url.to_string()) {
                         break; // this exact font file is already registered
                     }
+                    // Blocking fetch outside the observed Fetcher, so the net observer
+                    // never sees it; the guard is the only record of the wait. Dropped
+                    // at the end of this iteration, after the body has been read.
+                    let _t = gosub_shared::timing_guard!("net.fetch.font", font_url.as_str());
                     match gosub_sonar::net::simple::sync_fetch(&font_url) {
                         Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
                             // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
