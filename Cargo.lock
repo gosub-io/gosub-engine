@@ -3085,7 +3085,7 @@ dependencies = [
  "log",
  "once_cell",
  "parking_lot",
- "rand 0.10.1",
+ "rand 0.10.2",
  "reqwest",
  "serde_json",
  "simple_logger",
@@ -3169,7 +3169,7 @@ dependencies = [
  "psl",
  "r2d2",
  "r2d2_sqlite",
- "rand 0.10.1",
+ "rand 0.10.2",
  "regex",
  "reqwest",
  "serde",
@@ -3360,7 +3360,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
- "rand 0.10.1",
+ "rand 0.10.2",
  "thiserror 2.0.20",
  "uuid",
  "wasm-bindgen-futures",
@@ -5878,9 +5878,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20",
  "getrandom 0.4.2",
@@ -7796,7 +7796,7 @@ checksum = "2cefc03fd367c0c6d4305de1b312cf00248c4114f4a0418ce6a6af769e3b0bd9"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde_core",
  "wasm-bindgen",
 ]
