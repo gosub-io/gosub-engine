@@ -6,6 +6,13 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 description = "Gosub shared code"
 
+[features]
+default = ["timing"]
+# Compiles the timing subsystem in. With this off, the timing macros expand to
+# calls that do no work and take no locks, so embedders that don't want
+# instrumentation pay nothing for it.
+timing = []
+
 [dependencies]
 parking_lot = { workspace = true }
 thiserror = { workspace = true }

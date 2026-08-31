@@ -95,6 +95,18 @@ impl TimingTable {
         }
     }
 
+    /// Record a duration that was measured somewhere else.
+    ///
+    /// Some work is timed by a component we don't drive the clock for - the fetch
+    /// stack reports its own elapsed time on `NetEvent::Finished`, for instance. Those
+    /// durations still belong in the table, but there is no start/stop pair to hang
+    /// them off. This files a already-finished timer directly.
+    pub fn record(&mut self, namespace: &str, duration_us: u64, context: Option<String>) {
+        let timer = Timer::finished(context, duration_us);
+        self.timers.insert(timer.id, timer.clone());
+        self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
+    }
+
     #[must_use]
     pub fn get_stats(&self, timers: &Vec<TimerId>) -> Stats {
         let mut durations: Vec<u64> = Vec::new();
@@ -232,6 +244,43 @@ lazy_static! {
     pub static ref TIMING_TABLE: Mutex<TimingTable> = Mutex::new(TimingTable::default());
 }
 
+/// Start a timer on the global table. No-op returning a nil id when the `timing`
+/// feature is off.
+///
+/// The macros route through here rather than touching `TIMING_TABLE` directly, so the
+/// feature check lives in this crate. A `cfg` inside a `#[macro_export]` body would be
+/// evaluated against the *calling* crate's features, which is not what we want.
+#[cfg(feature = "timing")]
+pub fn start(namespace: &str, context: Option<String>) -> TimerId {
+    TIMING_TABLE.lock().start_timer(namespace, context)
+}
+
+/// Timing disabled: hand back a nil id and take no lock.
+#[cfg(not(feature = "timing"))]
+pub fn start(_namespace: &str, _context: Option<String>) -> TimerId {
+    TimerId::nil()
+}
+
+/// Stop a timer previously started with [`start`].
+#[cfg(feature = "timing")]
+pub fn stop(timer_id: TimerId) {
+    TIMING_TABLE.lock().stop_timer(timer_id);
+}
+
+/// Timing disabled: nothing to stop.
+#[cfg(not(feature = "timing"))]
+pub fn stop(_timer_id: TimerId) {}
+
+/// File a duration measured elsewhere under `namespace`.
+#[cfg(feature = "timing")]
+pub fn record(namespace: &str, duration_us: u64, context: Option<String>) {
+    TIMING_TABLE.lock().record(namespace, duration_us, context);
+}
+
+/// Timing disabled: drop the sample.
+#[cfg(not(feature = "timing"))]
+pub fn record(_namespace: &str, _duration_us: u64, _context: Option<String>) {}
+
 /// Returns a snapshot of all namespace statistics from the global timing table.
 pub fn snapshot_stats() -> Vec<NamespaceStats> {
     TIMING_TABLE.lock().namespace_stats()
@@ -260,19 +309,21 @@ pub struct TimerGuard {
 
 impl TimerGuard {
     pub fn start(namespace: &str, context: &str) -> Self {
-        let id = TIMING_TABLE.lock().start_timer(namespace, Some(context.to_string()));
-        Self { id }
+        Self {
+            id: start(namespace, Some(context.to_string())),
+        }
     }
 
     pub fn start_anon(namespace: &str) -> Self {
-        let id = TIMING_TABLE.lock().start_timer(namespace, None);
-        Self { id }
+        Self {
+            id: start(namespace, None),
+        }
     }
 }
 
 impl Drop for TimerGuard {
     fn drop(&mut self) {
-        TIMING_TABLE.lock().stop_timer(self.id);
+        stop(self.id);
     }
 }
 
@@ -280,13 +331,11 @@ impl Drop for TimerGuard {
 #[macro_export]
 macro_rules! timing_start {
     ($namespace:expr, $context:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .start_timer($namespace, Some($context.to_string()))
+        $crate::timing::start($namespace, Some($context.to_string()))
     }};
 
     ($namespace:expr) => {{
-        $crate::timing::TIMING_TABLE.lock().start_timer($namespace, None)
+        $crate::timing::start($namespace, None)
     }};
 }
 
@@ -294,7 +343,25 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        $crate::timing::TIMING_TABLE.lock().stop_timer($timer_id);
+        $crate::timing::stop($timer_id);
+    }};
+}
+
+/// Record a duration measured somewhere else - work this process did not clock itself,
+/// such as a fetch whose elapsed time the net stack reports back to us.
+///
+/// ```rust,ignore
+/// timing_record!("net.fetch.image", elapsed, url.as_str());
+/// ```
+#[allow(clippy::crate_in_macro_def)]
+#[macro_export]
+macro_rules! timing_record {
+    ($namespace:expr, $duration:expr, $context:expr) => {{
+        $crate::timing::record($namespace, $duration.as_micros() as u64, Some($context.to_string()))
+    }};
+
+    ($namespace:expr, $duration:expr) => {{
+        $crate::timing::record($namespace, $duration.as_micros() as u64, None)
     }};
 }
 
@@ -369,6 +436,29 @@ impl Timer {
             start,
             end: None,
             duration_us: 0,
+        }
+    }
+
+    /// A timer that is already finished, carrying a duration measured elsewhere.
+    /// `start` and `end` are stamped at construction so `has_finished()` holds; only
+    /// `duration_us` is meaningful.
+    #[must_use]
+    pub fn finished(context: Option<String>, duration_us: u64) -> Timer {
+        #[cfg(not(target_arch = "wasm32"))]
+        let now = Instant::now();
+
+        #[cfg(target_arch = "wasm32")]
+        let now = window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(f64::NAN);
+
+        Timer {
+            id: new_timer_id(),
+            context,
+            start: now,
+            end: Some(now),
+            duration_us,
         }
     }
 

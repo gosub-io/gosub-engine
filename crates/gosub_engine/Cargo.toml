@@ -67,6 +67,10 @@ default = ["sqlite_cookie_store"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
+# Records fetch timings (net.fetch.*, net.ttfb) into the shared timing table by
+# wrapping the per-request net observer. Off by default: it is opt-in instrumentation,
+# and with it off no wrapper is constructed at all.
+timing = ["gosub_shared/timing"]
 
 [lints]
 workspace = true
