@@ -210,7 +210,7 @@ gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], regis
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
 gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
 gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
-gosub-sonar = "0.2.0"
+gosub-sonar = "0.4.0"
 futures = { workspace = true }
 cookie = { workspace = true, features = ["secure", "private"] }
 clap = { workspace = true, features = ["derive"] }

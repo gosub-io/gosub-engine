@@ -3050,6 +3050,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub-sonar"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee39d8a24112d929543f3e9d1fab83abf8fb718c48f512f87c99ce5ff36290a"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "cookie",
+ "cow-utils",
+ "dashmap 6.2.1",
+ "futures-core",
+ "futures-util",
+ "http",
+ "log",
+ "parking_lot",
+ "psl",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "gosub_bin"
 version = "0.1.1"
 dependencies = [
@@ -3065,7 +3097,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
- "gosub-sonar",
+ "gosub-sonar 0.4.0",
  "gosub_config",
  "gosub_css3",
  "gosub_engine",
@@ -3150,7 +3182,7 @@ dependencies = [
  "dashmap 7.0.0-rc2",
  "futures",
  "futures-util",
- "gosub-sonar",
+ "gosub-sonar 0.2.0",
  "gosub_config",
  "gosub_css3",
  "gosub_fontmanager",
@@ -3209,7 +3241,7 @@ dependencies = [
  "cow-utils",
  "criterion",
  "flate2",
- "gosub-sonar",
+ "gosub-sonar 0.2.0",
  "gosub_css3",
  "gosub_interface",
  "gosub_shared",
@@ -3265,7 +3297,7 @@ dependencies = [
  "bytes",
  "cow-utils",
  "csscolorparser",
- "gosub-sonar",
+ "gosub-sonar 0.2.0",
  "gosub_css3",
  "gosub_fontmanager",
  "gosub_html5",
