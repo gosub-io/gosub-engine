@@ -770,7 +770,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // async loop, where a thread-local scope is not reliable.
                 gosub_shared::timing::mark_in(scope, "page.dom_complete", Some(final_url.to_string()));
                 self.context.set_document(Arc::clone(&doc));
-                self.load_web_fonts(&doc, &final_url);
+
+                // `load_web_fonts` fetches each @font-face synchronously, and it is the last
+                // fetch path that was still recording unattributed. The call is sync and no
+                // await intervenes, so a thread-local scope holds across it.
+                {
+                    let _scope = gosub_shared::timing::enter_scope(scope);
+                    self.load_web_fonts(&doc, &final_url);
+                }
                 if let Some(cancel) = self
                     .active_nav
                     .as_ref()
