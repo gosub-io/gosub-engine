@@ -29,6 +29,16 @@ pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
         req_timeout: Duration::from_secs(cfg.get_uint("net.timeout.request_secs") as u64),
         read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
         total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
+        // Resolution has to go through a `DnsResolver` to be visible: reqwest's built-in
+        // lookup happens below sonar's level and emits no event, so `net.dns` stays silent
+        // without one. `SystemResolver` is `getaddrinfo` with no policy attached - the same
+        // resolution reqwest would do by itself - so this buys the timing and changes
+        // nothing else.
+        //
+        // It applies no SSRF or DNS-rebinding protection. Neither does the default it
+        // replaces, so this is not a regression, but a resolver that classifies addresses
+        // is what should eventually sit here. See `gosub_sonar::net::dns`.
+        dns_resolver: Some(std::sync::Arc::new(gosub_sonar::net::dns::SystemResolver)),
         ..FetcherConfig::default()
     }
 }
@@ -162,5 +172,36 @@ impl FetcherContext for EngineNetContext {
             self.request_ref_tracker
                 .dec_and_maybe_cleanup(&reference, &self.request_reference_map);
         }
+    }
+}
+
+#[cfg(test)]
+mod dns_resolver_tests {
+    use super::*;
+    use crate::engine::settings_store::default_config;
+
+    /// `net.dns` timings only exist when resolution goes through a `DnsResolver`; reqwest's
+    /// built-in lookup is below sonar's level and emits nothing. Dropping the resolver from
+    /// the config would silence that namespace without breaking anything else, which is a
+    /// hard failure to notice - hence this test.
+    #[test]
+    fn a_resolver_is_installed_so_dns_timings_exist() {
+        let cfg = fetcher_config_from(&default_config());
+        assert!(
+            cfg.dns_resolver.is_some(),
+            "no DnsResolver configured - net.dns will be silent in the running engine"
+        );
+    }
+
+    /// The installed resolver has to actually resolve. It hands sonar `host:0` and lets the
+    /// fetcher substitute the scheme's default port, so a mistake there yields zero
+    /// addresses and every connection fails - worth pinning rather than assuming.
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_installed_resolver_resolves_localhost() {
+        let cfg = fetcher_config_from(&default_config());
+        let resolver = cfg.dns_resolver.expect("resolver installed");
+
+        let addrs = resolver.resolve("localhost").await.expect("localhost resolves");
+        assert!(!addrs.is_empty(), "resolver returned no addresses for localhost");
     }
 }
