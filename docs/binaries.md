@@ -91,7 +91,7 @@ Parse Error: link element with rel attribute 'icon' is not supported in the body
 Namespace            |    Count |      Total |        Min |        Max |        Avg
 ------------------------------------------------------------------------------------
 html5.parse          |        1 |      605ms |      605ms |      605ms |      605ms
-css3.parse           |        1 |      613µs |      613µs |      613µs |      613µs
+decode.css           |        1 |      613µs |      613µs |      613µs |      613µs
 ```
 
 ## display-text-tree

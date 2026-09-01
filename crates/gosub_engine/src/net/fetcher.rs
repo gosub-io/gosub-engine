@@ -127,8 +127,20 @@ impl FetcherContext for EngineNetContext {
                 // With the feature off no wrapper is built and sonar emits into exactly
                 // what it does today.
                 #[cfg(feature = "timing")]
-                let observer = Arc::new(crate::net::emitter::timing_emitter::TimingEmitter::wrap(observer, kind))
-                    as Arc<dyn NetObserver + Send + Sync>;
+                let observer = {
+                    // Only the main document's request is referenced by its navigation;
+                    // sub-resources reference a Document, which carries no navigation, so
+                    // they record unattributed rather than against a guessed one.
+                    let scope = match reference {
+                        crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
+                            Some(gosub_shared::timing::ScopeId(nav_id.0))
+                        }
+                        _ => None,
+                    };
+                    Arc::new(crate::net::emitter::timing_emitter::TimingEmitter::wrap(
+                        observer, kind, scope,
+                    )) as Arc<dyn NetObserver + Send + Sync>
+                };
 
                 observer
             }

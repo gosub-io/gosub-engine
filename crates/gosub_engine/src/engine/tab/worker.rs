@@ -248,6 +248,11 @@ pub struct TabWorker<C: RenderConfiguration> {
     load: Option<NavJoin<C>>,
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
+    /// Timing scope for the navigation currently being loaded or displayed.
+    timing_scope: Option<gosub_shared::timing::ScopeId>,
+    /// Whether `page.first_paint` has been marked for `timing_scope` yet. First paint is
+    /// once per navigation, and `tick_draw` runs on every frame.
+    first_paint_marked: bool,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
     /// Last cursor shape reported to the embedder (CursorChanged is emitted on change only).
@@ -461,6 +466,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             runtime,
             load: None,
             active_nav: None,
+            timing_scope: None,
+            first_paint_marked: false,
             history: History::default(),
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
@@ -756,10 +763,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
             } => {
                 // Everything the pipeline records from here belongs to this navigation.
                 // Set before the document so the first rebuild is already attributed.
-                self.context
-                    .set_timing_scope(Some(gosub_shared::timing::ScopeId(nav_id.0)));
+                let scope = gosub_shared::timing::ScopeId(nav_id.0);
+                self.context.set_timing_scope(Some(scope));
+                self.timing_scope = Some(scope);
+                // Explicit scope rather than the thread-local one: this is the worker's
+                // async loop, where a thread-local scope is not reliable.
+                gosub_shared::timing::mark_in(scope, "page.dom_complete", Some(final_url.to_string()));
                 self.context.set_document(Arc::clone(&doc));
-                self.load_web_fonts(&doc, &final_url);
+
+                // `load_web_fonts` fetches each @font-face synchronously, and it is the last
+                // fetch path that was still recording unattributed. The call is sync and no
+                // await intervenes, so a thread-local scope holds across it.
+                {
+                    let _scope = gosub_shared::timing::enter_scope(scope);
+                    self.load_web_fonts(&doc, &final_url);
+                }
                 if let Some(cancel) = self
                     .active_nav
                     .as_ref()
@@ -1443,6 +1461,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         let nav_id = NavigationId::new();
+
+        // Start this navigation's clock. Every page.* mark is measured from here, so it
+        // must be stamped before any work, not when the document arrives.
+        let scope = gosub_shared::timing::ScopeId(nav_id.0);
+        gosub_shared::timing::begin_scope(scope);
+        self.timing_scope = Some(scope);
+        self.first_paint_marked = false;
+
         let parent_cancel = CancellationToken::new();
         self.active_nav = Some(ActiveNav {
             nav_id,
@@ -1702,6 +1728,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         let nav_id = NavigationId::new();
+
+        // Start this navigation's clock. Every page.* mark is measured from here, so it
+        // must be stamped before any work, not when the document arrives.
+        let scope = gosub_shared::timing::ScopeId(nav_id.0);
+        gosub_shared::timing::begin_scope(scope);
+        self.timing_scope = Some(scope);
+        self.first_paint_marked = false;
+
         let parent_cancel = CancellationToken::new();
         self.active_nav = Some(ActiveNav {
             nav_id,
@@ -1767,14 +1801,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             req_id,
             cancel: parent_cancel.child_token(),
         };
-        let meta = FetchResultMeta {
-            final_url: url.clone(),
-            status: 200,
-            status_text: "OK".into(),
-            headers: HeaderMap::new(),
-            content_length: Some(html.len() as u64),
-            content_type: Some("text/html".into()),
-            has_body: true,
+        let meta = {
+            let mut meta = FetchResultMeta::synthetic(url.clone());
+            meta.content_length = Some(html.len() as u64);
+            meta.content_type = Some("text/html".into());
+            meta.has_body = true;
+            meta
         };
 
         spawn_named("tab-load-html", async move {
@@ -2057,6 +2089,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let render_ms = render_start.elapsed().as_millis();
 
         self.sink.inc_frame();
+
+        // First frame this navigation has actually produced. `tick_draw` runs every frame,
+        // so the flag is what makes this a mark ("when did the page first appear") rather
+        // than a per-frame sample; it is cleared when a navigation starts.
+        if !self.first_paint_marked {
+            if let Some(scope) = self.timing_scope {
+                gosub_shared::timing::mark_in(scope, "page.first_paint", None);
+                self.first_paint_marked = true;
+            }
+        }
 
         let now = std::time::Instant::now();
         let elapsed = now - self.runtime.last_tick_draw;

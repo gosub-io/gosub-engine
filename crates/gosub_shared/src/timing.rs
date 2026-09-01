@@ -39,6 +39,9 @@ impl Display for Duration {
 pub struct TimingTable {
     timers: HashMap<TimerId, Timer>,
     namespaces: HashMap<String, Vec<TimerId>>,
+    /// Start of each scope, the epoch its marks are measured from. Held as a running
+    /// `Timer` so the platform clock handling stays in one place.
+    epochs: HashMap<ScopeId, Timer>,
 }
 
 pub struct Stats {
@@ -78,6 +81,7 @@ impl TimingTable {
         TimingTable {
             timers: HashMap::new(),
             namespaces: HashMap::new(),
+            epochs: HashMap::new(),
         }
     }
 
@@ -93,6 +97,38 @@ impl TimingTable {
         if let Some(timer) = self.timers.get_mut(&timer_id) {
             timer.end();
         }
+    }
+
+    /// Stamp the start of `scope`. Marks recorded against it are measured from here.
+    ///
+    /// Re-stamping an existing scope resets its epoch, which is what a reload wants.
+    pub fn begin_scope(&mut self, scope: ScopeId) {
+        self.epochs.insert(scope, Timer::new(None));
+    }
+
+    /// Record how far into `scope` we are right now, under `namespace`.
+    ///
+    /// A mark is not a duration of work - it is a moment in a navigation ("first paint
+    /// happened here"). It is still stored as a sample, because the distance from the
+    /// navigation's epoch to that moment *is* a duration, so the existing per-namespace
+    /// aggregation applies unchanged.
+    ///
+    /// Does nothing when the scope has no epoch: a mark with no navigation to measure
+    /// from is meaningless, and inventing one would read as a real measurement.
+    pub fn mark_in(&mut self, scope: ScopeId, namespace: &str, context: Option<String>) {
+        let Some(elapsed) = self.epochs.get(&scope).map(Timer::elapsed_us) else {
+            return;
+        };
+        let mut timer = Timer::finished(context, elapsed);
+        timer.scope = Some(scope);
+        self.timers.insert(timer.id, timer.clone());
+        self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
+    }
+
+    /// File an already-finished timer under `namespace`.
+    pub fn insert_finished(&mut self, namespace: &str, timer: Timer) {
+        self.timers.insert(timer.id, timer.clone());
+        self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
     }
 
     /// Record a duration that was measured somewhere else.
@@ -193,10 +229,12 @@ impl TimingTable {
     pub fn clear(&mut self) {
         self.timers.clear();
         self.namespaces.clear();
+        self.epochs.clear();
     }
 
     /// Drop every sample belonging to `scope`, leaving other scopes untouched.
     pub fn clear_scope(&mut self, scope: ScopeId) {
+        self.epochs.remove(&scope);
         self.timers.retain(|_, t| t.scope != Some(scope));
         for ids in self.namespaces.values_mut() {
             ids.retain(|id| self.timers.contains_key(id));
@@ -371,6 +409,60 @@ pub fn record(namespace: &str, duration_us: u64, context: Option<String>) {
 /// Timing disabled: drop the sample.
 #[cfg(not(feature = "timing"))]
 pub fn record(_namespace: &str, _duration_us: u64, _context: Option<String>) {}
+
+/// File a duration against an explicitly named scope.
+///
+/// Use this from async code, for the same reason as [`mark_in`]: the thread-local scope
+/// only holds inside a synchronous unit.
+#[cfg(feature = "timing")]
+pub fn record_in(scope: ScopeId, namespace: &str, duration_us: u64, context: Option<String>) {
+    let mut table = TIMING_TABLE.lock();
+    let mut timer = Timer::finished(context, duration_us);
+    timer.scope = Some(scope);
+    table.insert_finished(namespace, timer);
+}
+
+/// Timing disabled: drop the sample.
+#[cfg(not(feature = "timing"))]
+pub fn record_in(_scope: ScopeId, _namespace: &str, _duration_us: u64, _context: Option<String>) {}
+
+/// Stamp the start of `scope` - the epoch its marks are measured from.
+#[cfg(feature = "timing")]
+pub fn begin_scope(scope: ScopeId) {
+    TIMING_TABLE.lock().begin_scope(scope);
+}
+
+/// Timing disabled: no epoch to stamp.
+#[cfg(not(feature = "timing"))]
+pub fn begin_scope(_scope: ScopeId) {}
+
+/// Record a mark under `namespace`, measured from the current scope's epoch.
+///
+/// No-op when no scope is entered on this thread, or when that scope was never begun.
+#[cfg(feature = "timing")]
+pub fn mark(namespace: &str, context: Option<String>) {
+    if let Some(scope) = current_scope() {
+        TIMING_TABLE.lock().mark_in(scope, namespace, context);
+    }
+}
+
+/// Timing disabled: drop the mark.
+#[cfg(not(feature = "timing"))]
+pub fn mark(_namespace: &str, _context: Option<String>) {}
+
+/// Record a mark against an explicitly named scope.
+///
+/// Use this from async code. [`mark`] reads the thread-local scope, which is only valid
+/// inside a synchronous unit; a task that resumed on another thread would either see no
+/// scope or, worse, someone else's.
+#[cfg(feature = "timing")]
+pub fn mark_in(scope: ScopeId, namespace: &str, context: Option<String>) {
+    TIMING_TABLE.lock().mark_in(scope, namespace, context);
+}
+
+/// Timing disabled: drop the mark.
+#[cfg(not(feature = "timing"))]
+pub fn mark_in(_scope: ScopeId, _namespace: &str, _context: Option<String>) {}
 
 /// Returns a snapshot of all namespace statistics from the global timing table.
 pub fn snapshot_stats() -> Vec<NamespaceStats> {
@@ -583,6 +675,26 @@ impl Timer {
         self.duration_us = self.end.map(|e| (e - self.start) * 1000.0).unwrap_or(f64::NAN) as u64;
     }
 
+    /// Microseconds since this timer started, whether or not it has ended.
+    ///
+    /// `duration()` reports 0 until `end()` is called; an epoch timer is never ended, so
+    /// marks need this instead.
+    #[must_use]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn elapsed_us(&self) -> u64 {
+        Instant::now().duration_since(self.start).as_micros() as u64
+    }
+
+    /// Microseconds since this timer started, whether or not it has ended.
+    #[must_use]
+    #[cfg(target_arch = "wasm32")]
+    pub fn elapsed_us(&self) -> u64 {
+        window()
+            .and_then(|w| w.performance())
+            .map(|p| ((p.now() - self.start) * 1000.0) as u64)
+            .unwrap_or(0)
+    }
+
     pub(crate) fn has_finished(&self) -> bool {
         self.end.is_some()
     }
@@ -685,6 +797,87 @@ mod scope_tests {
         assert_eq!(count_in(&table, Some(a), "decode.html"), 0);
         assert_eq!(count_in(&table, Some(b), "decode.html"), 1);
         assert_eq!(count_in(&table, None, "decode.html"), 1);
+    }
+
+    /// Marks land in the scope's namespace and are measured from its epoch, so they are
+    /// ordered the way the navigation actually happened.
+    #[test]
+    fn marks_are_measured_from_the_scope_epoch() {
+        let a = scope();
+        let mut table = TimingTable::new();
+        table.begin_scope(a);
+
+        table.mark_in(a, "page.dom_complete", None);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        table.mark_in(a, "page.load_complete", None);
+
+        let at = |ns: &str| {
+            table
+                .namespace_stats_for(Some(a))
+                .into_iter()
+                .find(|s| s.namespace == ns)
+                .map(|s| s.total_us)
+                .expect("mark recorded")
+        };
+
+        // Later marks sit further from the epoch. That ordering is the whole point: a mark
+        // answers "when", not "how long".
+        assert!(
+            at("page.load_complete") > at("page.dom_complete"),
+            "load_complete ({}) should be later than dom_complete ({})",
+            at("page.load_complete"),
+            at("page.dom_complete")
+        );
+        assert!(at("page.load_complete") >= 5_000, "at least the 5ms we slept");
+    }
+
+    /// A mark against a scope that was never begun is dropped rather than recorded from a
+    /// made-up epoch - a wrong number here would read as a real measurement.
+    #[test]
+    fn marks_without_an_epoch_are_dropped() {
+        let a = scope();
+        let mut table = TimingTable::new();
+
+        table.mark_in(a, "page.first_paint", None);
+
+        assert!(table.namespace_stats_for(Some(a)).is_empty());
+    }
+
+    /// Re-beginning a scope resets its epoch, so a reload measures from the reload.
+    #[test]
+    fn beginning_a_scope_again_resets_the_epoch() {
+        let a = scope();
+        let mut table = TimingTable::new();
+
+        table.begin_scope(a);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        table.begin_scope(a);
+        table.mark_in(a, "page.first_paint", None);
+
+        let first_paint = table
+            .namespace_stats_for(Some(a))
+            .into_iter()
+            .find(|s| s.namespace == "page.first_paint")
+            .map(|s| s.total_us)
+            .expect("mark recorded");
+
+        assert!(
+            first_paint < 10_000,
+            "measured {first_paint}us - should be from the second begin_scope, not the first"
+        );
+    }
+
+    /// Clearing a scope drops its epoch too, so a later mark cannot resurrect it.
+    #[test]
+    fn clearing_a_scope_drops_its_epoch() {
+        let a = scope();
+        let mut table = TimingTable::new();
+        table.begin_scope(a);
+        table.clear_scope(a);
+
+        table.mark_in(a, "page.first_paint", None);
+
+        assert!(table.namespace_stats_for(Some(a)).is_empty());
     }
 
     /// A namespace left with no samples after a clear disappears instead of lingering as

@@ -203,6 +203,9 @@ impl NetObserver for EngineEventEmitter {
             NetEvent::Warning { .. } => {
                 // Do nothing
             }
+            // Timing-only events (DnsResolved, Connected) and anything sonar adds
+            // later carry nothing the shell needs; the timing emitter reads them.
+            _ => {}
         }
     }
 }
