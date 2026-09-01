@@ -669,6 +669,10 @@ impl css3::CssProperty<Css3System> for CssProperty {
     fn is_none(&self) -> bool {
         matches!(self.actual, CssValue::None)
     }
+
+    fn winning_origin(&self) -> Option<CssOrigin> {
+        self.declared.iter().max().map(|d| d.origin)
+    }
 }
 
 /// Map of all declared values for a single node. Note that these are only the defined properties, not

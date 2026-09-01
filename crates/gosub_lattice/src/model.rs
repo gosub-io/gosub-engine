@@ -40,7 +40,9 @@ pub struct SourceCell<N> {
     pub node: N,
     /// Effective colspan (always >= 1).
     pub colspan: usize,
-    /// Effective rowspan (always >= 1, clamped per section by the grid builder).
+    /// Rowspan as authored: `0` is the HTML sentinel for "span all remaining
+    /// rows of the row group". The grid builder resolves it and clamps every
+    /// span to the section boundary (spans never cross into another section).
     pub rowspan: usize,
 }
 
@@ -81,12 +83,12 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             TableRole::FooterGroup => {
                 model.footer_groups.push(build_row_group(tree, child));
             }
-            // Bare row directly inside the table → anonymous tbody
+            // Bare row directly inside the table -> anonymous tbody
             TableRole::Row => {
                 let group = anon_body_group(&mut model.row_groups);
                 group.rows.push(build_row(tree, child));
             }
-            // Bare cell directly inside the table → anonymous row inside anonymous tbody
+            // Bare cell directly inside the table -> anonymous row inside anonymous tbody
             TableRole::Cell => {
                 let group = anon_body_group(&mut model.row_groups);
                 let row = anon_row(&mut group.rows);
@@ -121,7 +123,7 @@ fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeI
     for child in tree.children(node) {
         match tree.table_role(child) {
             TableRole::Row => group.rows.push(build_row(tree, child)),
-            // Cell directly inside row group → anonymous row
+            // Cell directly inside row group -> anonymous row
             TableRole::Cell => {
                 let row = anon_row(&mut group.rows);
                 row.cells.push(build_source_cell(tree, child));
@@ -147,7 +149,8 @@ fn build_row<T: TableTree>(tree: &T, node: T::NodeId) -> TableRow<T::NodeId> {
 
 fn build_source_cell<T: TableTree>(tree: &T, node: T::NodeId) -> SourceCell<T::NodeId> {
     let colspan = tree.attr_usize(node, "colspan").unwrap_or(1).max(1);
-    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1).max(1);
+    // rowspan=0 is kept as-is: HTML's "span all remaining rows of the group".
+    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1);
     SourceCell { node, colspan, rowspan }
 }
 

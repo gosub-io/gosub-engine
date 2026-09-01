@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>14 - border-spacing and padding</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { background-color: #ffe9a8; }
+  td { border: 1px solid #999; background-color: #e8f0fe; }
+  .s0 { border-spacing: 0; }
+  .s10 { border-spacing: 10px; }
+  .sxy { border-spacing: 20px 4px; }
+  .pad td { padding: 15px; }
+</style>
+</head>
+<body>
+<h3>border-spacing - 0, 10px, asymmetric 20px/4px, and heavy padding</h3>
+<p>Expected: the yellow table background shows through the gutters. First
+table has no gutters at all (borders touch), second has 10px everywhere
+(including around the outside), third has 20px horizontal but only 4px
+vertical gutters. Fourth: 15px padding inside every cell.</p>
+
+<table class="s0">
+  <tr><td>a</td><td>b</td></tr>
+  <tr><td>c</td><td>d</td></tr>
+</table>
+<br>
+<table class="s10">
+  <tr><td>a</td><td>b</td></tr>
+  <tr><td>c</td><td>d</td></tr>
+</table>
+<br>
+<table class="sxy">
+  <tr><td>a</td><td>b</td></tr>
+  <tr><td>c</td><td>d</td></tr>
+</table>
+<br>
+<table class="s10 pad">
+  <tr><td>padded</td><td>cells</td></tr>
+</table>
+</body>
+</html>

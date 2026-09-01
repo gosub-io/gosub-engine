@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn decodes_png_with_bad_chunk_crc() {
-        // A 1×1 grayscale+alpha PNG whose IDAT chunk carries an incorrect CRC (stored 0x018084a9,
+        // A 1x1 grayscale+alpha PNG whose IDAT chunk carries an incorrect CRC (stored 0x018084a9,
         // correct 0x1fa2b2f0). The strict `image` decoder rejects it; browsers tolerate it, so the
         // RasterDecoder retries with checksum validation disabled. Bytes are the base64 payload of
         // the `data:image/png` edge case on tests.gosub.io/images.html.

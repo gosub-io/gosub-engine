@@ -8,6 +8,7 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
+use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -164,6 +165,11 @@ where
     let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
     let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
     doc.add_stylesheet(ua);
+    if doc.quirks_mode() == QuirksMode::Quirks {
+        if let Some(quirks) = <C::CssSystem as CssSystem>::load_quirks_useragent_stylesheet() {
+            doc.add_stylesheet(quirks);
+        }
+    }
 
     Ok(doc)
 }
@@ -336,6 +342,40 @@ mod tests {
         assert!(hints
             .iter()
             .any(|h| h.kind == ResourceKind::Image && h.url.as_str() == "https://example.com/path/images/logo.png"));
+    }
+
+    /// HN-style markup: no doctype, `<center><table>`. The spec's quirks-mode table rules
+    /// keep the cells from inheriting the centering; a standards-mode document gets no such sheet.
+    #[tokio::test(flavor = "current_thread")]
+    async fn quirks_mode_documents_get_the_quirks_useragent_sheet() {
+        let body = "<center><table><tr><td>row</td></tr></table></center>";
+        let base = Url::parse("https://example.com/").unwrap();
+        let parse = |html: String| {
+            parse_main_document_stream::<DefaultRenderConfig, _, _>(
+                base.clone(),
+                reader_from_str(&html),
+                CancellationToken::new(),
+                HtmlParseConfig::default(),
+                |_| {},
+            )
+        };
+
+        let quirks = parse(format!("<html><body>{body}</body></html>")).await.unwrap();
+        assert_eq!(quirks.quirks_mode(), QuirksMode::Quirks);
+        let standards = parse(format!("<!DOCTYPE html><html><body>{body}</body></html>"))
+            .await
+            .unwrap();
+        assert_eq!(standards.quirks_mode(), QuirksMode::NoQuirks);
+
+        assert_eq!(
+            quirks.stylesheets().len(),
+            standards.stylesheets().len() + 1,
+            "quirks documents carry exactly one extra user-agent sheet"
+        );
+        assert!(
+            quirks.stylesheets().iter().any(|s| s.url.contains("useragent-quirks")),
+            "the extra sheet is the quirks sheet"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -1,5 +1,5 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
-use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient, Tiling};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendMode, Rectangle};
@@ -83,13 +83,18 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
         paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_stroke_width(border.width());
         paint.set_style(skia_safe::paint::Style::Stroke);
+        // Skia centers a stroke on the path; inset by half the border width so
+        // the whole border lies inside the border box (a centered stroke bleeds
+        // into the neighbouring element and gets painted over - visibly halving
+        // collapsed table borders).
+        let half = border.width() / 2.0;
         draw_rect_or_rounded(
             canvas,
             cmd,
-            r.x as f32,
-            r.y as f32,
-            r.width as f32,
-            r.height as f32,
+            r.x as f32 + half,
+            r.y as f32 + half,
+            (r.width as f32 - border.width()).max(0.0),
+            (r.height as f32 - border.width()).max(0.0),
             &paint,
         );
     }
@@ -98,53 +103,41 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
 /// Paints a non-uniform border (e.g. `border-bottom` only) by filling each visible side as a
 /// solid edge rectangle. Side order is `[top, right, bottom, left]`.
 fn paint_per_side_border(canvas: &Canvas, cmd: &Rectangle) {
-    let r = cmd.rect();
-    let widths = cmd.border().widths();
-    let styles = cmd.border().styles();
     let brushes = cmd.border().brushes();
+    let strips = per_side_strips(cmd.rect(), cmd.border().widths(), &cmd.border().styles());
 
-    let edges = [
-        (r.x as f32, r.y as f32, r.width as f32, widths[0]),
-        (
-            r.x as f32 + r.width as f32 - widths[1],
-            r.y as f32,
-            widths[1],
-            r.height as f32,
-        ),
-        (
-            r.x as f32,
-            r.y as f32 + r.height as f32 - widths[2],
-            r.width as f32,
-            widths[2],
-        ),
-        (r.x as f32, r.y as f32, widths[3], r.height as f32),
-    ];
-
-    for i in 0..4 {
-        if widths[i] <= 0.0 || styles[i].is_invisible() {
+    for (i, side) in strips.iter().enumerate() {
+        if side.is_empty() {
             continue;
         }
-        let (x, y, w, h) = edges[i];
         let mut paint = Paint::new(brush_to_color4f(&brushes[i]), None);
         paint.set_anti_alias(true);
         paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_style(skia_safe::paint::Style::Fill);
-        canvas.draw_rect(Rect::from_xywh(x, y, w, h), &paint);
+        for strip in side {
+            canvas.draw_rect(
+                Rect::from_xywh(strip.x as f32, strip.y as f32, strip.width as f32, strip.height as f32),
+                &paint,
+            );
+        }
     }
 }
 
 /// `radius_x`/`radius_y` yield corners in CSS order (top-left, top-right, bottom-right,
 /// bottom-left), which is also the order Skia's radii array expects.
-fn rounded_rect(cmd: &Rectangle, rect: Rect) -> RRect {
+/// `inset` is how far `rect` sits inside the CSS border box; the radii shrink by the same
+/// amount so the outer edge of an inset stroke keeps the box's corner curvature.
+fn rounded_rect(cmd: &Rectangle, rect: Rect, inset: f32) -> RRect {
     let (x_tl, x_tr, x_br, x_bl) = cmd.radius_x();
     let (y_tl, y_tr, y_br, y_bl) = cmd.radius_y();
+    let r = |v: f64| (v as f32 - inset).max(0.0);
     RRect::new_rect_radii(
         rect,
         &[
-            Point::new(x_tl as f32, y_tl as f32),
-            Point::new(x_tr as f32, y_tr as f32),
-            Point::new(x_br as f32, y_br as f32),
-            Point::new(x_bl as f32, y_bl as f32),
+            Point::new(r(x_tl), r(y_tl)),
+            Point::new(r(x_tr), r(y_tr)),
+            Point::new(r(x_br), r(y_br)),
+            Point::new(r(x_bl), r(y_bl)),
         ],
     )
 }
@@ -152,7 +145,8 @@ fn rounded_rect(cmd: &Rectangle, rect: Rect) -> RRect {
 fn draw_rect_or_rounded(canvas: &Canvas, cmd: &Rectangle, x: f32, y: f32, w: f32, h: f32, paint: &Paint) {
     let skia_rect = Rect::from_xywh(x, y, w, h);
     if cmd.is_rounded() {
-        canvas.draw_rrect(rounded_rect(cmd, skia_rect), paint);
+        let inset = x - cmd.rect().x as f32;
+        canvas.draw_rrect(rounded_rect(cmd, skia_rect, inset), paint);
     } else {
         canvas.draw_rect(skia_rect, paint);
     }
@@ -216,7 +210,7 @@ fn draw_image_brush(
             paint.set_shader(shader);
         }
         if cmd.is_rounded() {
-            canvas.draw_rrect(rounded_rect(cmd, dest), &paint);
+            canvas.draw_rrect(rounded_rect(cmd, dest, 0.0), &paint);
         } else {
             canvas.draw_rect(dest, &paint);
         }
@@ -226,7 +220,7 @@ fn draw_image_brush(
     let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
     if cmd.is_rounded() {
         canvas.save();
-        canvas.clip_rrect(rounded_rect(cmd, dest), None, true);
+        canvas.clip_rrect(rounded_rect(cmd, dest, 0.0), None, true);
         canvas.draw_image_rect_with_sampling_options(&image, None, dest, sampling, &paint);
         canvas.restore();
     } else {

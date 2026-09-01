@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>18 - vertical-align in cells</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .tall { background-color: #d9ffb3; }
+  .top { vertical-align: top; }
+  .mid { vertical-align: middle; }
+  .bot { vertical-align: bottom; }
+  .base { vertical-align: baseline; font-size: 28px; }
+</style>
+</head>
+<body>
+<h3>vertical-align - top / middle / bottom / baseline in a tall row</h3>
+<p>Expected: the green cell makes the row tall. "top" hugs the top edge,
+"middle" centers vertically, "bottom" hugs the bottom edge. In the second
+table, the large-font cell and the small-font cell must share one text
+baseline for their first lines.</p>
+<table>
+  <tr>
+    <td class="tall"><div>tall</div><div>cell</div><div>with</div><div>five</div><div>lines</div></td>
+    <td class="top">top</td>
+    <td class="mid">middle</td>
+    <td class="bot">bottom</td>
+  </tr>
+</table>
+
+<br>
+
+<table>
+  <tr>
+    <td class="base">Big text</td>
+    <td>small text on the same baseline</td>
+  </tr>
+</table>
+</body>
+</html>
