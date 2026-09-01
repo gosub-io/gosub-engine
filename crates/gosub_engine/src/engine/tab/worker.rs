@@ -1923,8 +1923,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // through to the display-list path below so the backend draws those tiles into a GPU
         // texture and the host presents a `WgpuTextureId` instead of compositing CPU tiles.
         //
-        // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
-        // Skia and Vello rasterize at CSS pixels (DPR = 1).
+        // DPR comes from the backend: every backend that honours it rasterizes at physical
+        // pixels on a HiDPI host. Only the null backend stays at 1.
         if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
             let dpr = render_backend.device_pixel_ratio();
 
@@ -1954,8 +1954,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
         // translate (no rebuild); only content/hover/size changes rebuild the command list.
         if render_backend.renders_to_gpu_texture() {
-            let surface_recreated =
-                self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
+            // The viewport is CSS pixels, the texture is physical ones. Sizing the texture in
+            // CSS pixels leaves the host to upscale it, which reads as blurry text rather than
+            // as the scaling bug it is. The backend scales its scene to match, so the page is
+            // re-rendered at this resolution instead of stretched.
+            //
+            // The GPU tile path is excluded: `composite_tiles` takes the CSS viewport and
+            // places CSS-sized tiles, so it stays at 1 until it learns about DPR too.
+            let dpr = if render_backend.gpu_tile_compositing() {
+                1
+            } else {
+                render_backend.device_pixel_ratio().max(1)
+            };
+            let mut surface_size = self.desired_viewport.as_size();
+            surface_size.width *= dpr;
+            surface_size.height *= dpr;
+
+            let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), surface_size)?;
             self.context.set_viewport(self.desired_viewport);
 
             // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run

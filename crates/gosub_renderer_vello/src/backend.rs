@@ -286,6 +286,15 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         "vello"
     }
 
+    /// Honour the host's DPR. Vello draws vectors, so a HiDPI display is served by rendering
+    /// the same scene into a larger texture rather than by upscaling a CSS-sized one -- glyph
+    /// outlines are re-tessellated at the physical resolution and come out sharp.
+    fn device_pixel_ratio(&self) -> u32 {
+        gosub_render_pipeline::render::DEVICE_PIXEL_RATIO
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .max(1)
+    }
+
     fn create_surface(&self, size: SurfaceSize, _present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
         let texture_store_id = self
             .context
@@ -310,6 +319,19 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             let mut fs = self.font_system.lock();
             let font_cx = fs.font_cx_mut();
             self.build_scene(&mut tr, &mut fm, &mut fc, font_cx, ctx)?
+        };
+
+        // The scene is built in CSS pixels; the surface is physical. Appending under a scale
+        // is what turns one into the other, and it happens here rather than inside the scene
+        // builders so both of them -- paint commands and the display-list fallback -- are
+        // covered by the same transform.
+        let dpr = self.device_pixel_ratio();
+        let scene = if dpr > 1 {
+            let mut scaled = Scene::new();
+            scaled.append(&scene, Some(Affine::scale(dpr as f64)));
+            scaled
+        } else {
+            scene
         };
 
         let s = surface
