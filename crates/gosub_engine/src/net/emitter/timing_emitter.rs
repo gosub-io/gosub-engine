@@ -32,6 +32,13 @@ pub struct TimingEmitter {
     /// duration. `Started` normally sets it; requests served from cache may never emit
     /// `Started`, in which case TTFB is skipped rather than guessed.
     started: parking_lot::Mutex<Option<Instant>>,
+    /// Duration of this request's DNS lookup, if one happened.
+    ///
+    /// sonar resolves *inside* the connector, so `Connected` encloses `DnsResolved`
+    /// rather than following it. Recording both as they arrive would count resolution
+    /// twice - once in `net.dns` and again inside `net.connect`. This is kept so the
+    /// connect span can have it subtracted back out, leaving socket + TLS.
+    last_dns: parking_lot::Mutex<Option<std::time::Duration>>,
 }
 
 impl TimingEmitter {
@@ -50,6 +57,18 @@ impl TimingEmitter {
             kind,
             scope,
             started: parking_lot::Mutex::new(None),
+            last_dns: parking_lot::Mutex::new(None),
+        }
+    }
+
+    /// File `duration` under `namespace` with an arbitrary context string, scoped when this
+    /// request belongs to a navigation.
+    fn record_raw(&self, namespace: &str, duration: std::time::Duration, context: String) {
+        let us = duration.as_micros() as u64;
+        let ctx = (!context.is_empty()).then_some(context);
+        match self.scope {
+            Some(scope) => gosub_shared::timing::record_in(scope, namespace, us, ctx),
+            None => gosub_shared::timing::record(namespace, us, ctx),
         }
     }
 
@@ -89,6 +108,18 @@ impl NetObserver for TimingEmitter {
                 if let Some(started) = *self.started.lock() {
                     self.record("net.ttfb", started.elapsed(), url);
                 }
+            }
+            NetEvent::DnsResolved { host, elapsed, .. } => {
+                *self.last_dns.lock() = Some(*elapsed);
+                self.record_raw("net.dns", *elapsed, host.clone());
+            }
+            NetEvent::Connected { elapsed } => {
+                // `Connected` encloses the lookup, so take it back out: net.connect is
+                // socket + TLS, and net.dns already carries resolution. With no lookup
+                // (pooled connection, or no resolver configured so sonar resolved below
+                // its own visibility) there is nothing to subtract.
+                let dns = self.last_dns.lock().take().unwrap_or_default();
+                self.record_raw("net.connect", elapsed.saturating_sub(dns), String::new());
             }
             NetEvent::Finished { elapsed, url, .. } => {
                 // sonar measured this itself - use its number rather than re-deriving one

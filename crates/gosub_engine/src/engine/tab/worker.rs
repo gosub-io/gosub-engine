@@ -1801,14 +1801,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             req_id,
             cancel: parent_cancel.child_token(),
         };
-        let meta = FetchResultMeta {
-            final_url: url.clone(),
-            status: 200,
-            status_text: "OK".into(),
-            headers: HeaderMap::new(),
-            content_length: Some(html.len() as u64),
-            content_type: Some("text/html".into()),
-            has_body: true,
+        let meta = {
+            let mut meta = FetchResultMeta::synthetic(url.clone());
+            meta.content_length = Some(html.len() as u64);
+            meta.content_type = Some("text/html".into());
+            meta.has_body = true;
+            meta
         };
 
         spawn_named("tab-load-html", async move {

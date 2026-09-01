@@ -3023,37 +3023,9 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.2.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "680c8da58b4a9f5ac7b1f822c88c3fad564acb695c7a040581f3b5d905318c41"
-dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "cookie",
- "cow-utils",
- "dashmap 6.2.1",
- "futures-core",
- "futures-util",
- "http",
- "log",
- "parking_lot",
- "reqwest",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "gosub-sonar"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee39d8a24112d929543f3e9d1fab83abf8fb718c48f512f87c99ce5ff36290a"
+checksum = "2b43da2b6294fc271bb55d23de4cc5e4805cbb200f53b2133a7066c0b554b3f6"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3076,6 +3048,8 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tower-layer",
+ "tower-service",
  "tracing",
  "url",
  "uuid",
@@ -3097,7 +3071,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
- "gosub-sonar 0.4.0",
+ "gosub-sonar",
  "gosub_config",
  "gosub_css3",
  "gosub_engine",
@@ -3182,7 +3156,7 @@ dependencies = [
  "dashmap 7.0.0-rc2",
  "futures",
  "futures-util",
- "gosub-sonar 0.2.0",
+ "gosub-sonar",
  "gosub_config",
  "gosub_css3",
  "gosub_fontmanager",
@@ -3241,7 +3215,7 @@ dependencies = [
  "cow-utils",
  "criterion",
  "flate2",
- "gosub-sonar 0.2.0",
+ "gosub-sonar",
  "gosub_css3",
  "gosub_interface",
  "gosub_shared",
@@ -3297,7 +3271,7 @@ dependencies = [
  "bytes",
  "cow-utils",
  "csscolorparser",
- "gosub-sonar 0.2.0",
+ "gosub-sonar",
  "gosub_css3",
  "gosub_fontmanager",
  "gosub_html5",

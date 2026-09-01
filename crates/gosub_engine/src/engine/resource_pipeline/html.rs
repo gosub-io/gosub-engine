@@ -252,15 +252,9 @@ mod tests {
     "#;
 
     fn test_meta(base: &str) -> FetchResultMeta {
-        FetchResultMeta {
-            final_url: Url::parse(base).expect("valid url"),
-            status: 200,
-            status_text: "OK".into(),
-            headers: http::HeaderMap::new(),
-            content_length: None,
-            content_type: None,
-            has_body: true,
-        }
+        let mut meta = FetchResultMeta::synthetic(Url::parse(base).expect("valid url"));
+        meta.has_body = true;
+        meta
     }
 
     fn test_request(base: &str) -> (FetchRequest, FetchHandle) {
