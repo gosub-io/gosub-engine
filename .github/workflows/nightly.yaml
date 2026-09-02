@@ -71,3 +71,95 @@ jobs:
             --title "Nightly Build ($(date -u '+%Y-%m-%d'))" \
             --notes "Automated nightly build from \`main\` · $(date -u '+%Y-%m-%d %H:%M UTC')" \
             gosub-linux-x86_64.tar.gz
+
+  wpt-full:
+    name: Whole-corpus WPT run (testharness suites)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Checks out third-party content (web-platform-tests); keep the token read-only
+    # and out of .git/config
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wpt
+          save-if: 'false'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            sqlite3 libsqlite3-dev \
+            libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev \
+            libgtk-4-dev
+
+      # The whole corpus, not the pinned sparse slice the `wpt` gate uses: this job
+      # is a snapshot of where the engine stands, so it tracks wpt HEAD and is not
+      # compared against tests/wpt/expectations.txt.
+      - name: Checkout web-platform-tests (full, at HEAD)
+        run: |
+          git clone --filter=blob:none https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
+          cd "$RUNNER_TEMP/wpt"
+          echo "WPT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Collect the test list
+        run: |
+          cd "$RUNNER_TEMP/wpt"
+          # Only testharness.js suites. Two thirds of wpt's .html files are reftests,
+          # conformance-checker fixtures or manual tests: this harness reports zero
+          # subtests for them, so they are runtime and report noise, not coverage.
+          # (-ref/-notref are the reference halves of a reftest, not tests at all.)
+          grep -lFr --include='*.html' 'resources/testharness.js' . \
+            | sed 's|^\./||' \
+            | grep -vE '(-ref|-notref)\.html$' \
+            | sort > "$RUNNER_TEMP/all-tests.txt"
+          echo "collected $(wc -l < "$RUNNER_TEMP/all-tests.txt") testharness suites at $WPT_SHA"
+
+      # No --expect: nothing is gated here, so a failing subtest must not fail the job.
+      # 27k paths is past ARG_MAX, hence --tests-from.
+      - name: Run the corpus
+        run: |
+          cargo run --release --locked -p gosub-wpt -- "$RUNNER_TEMP/wpt" \
+              --tests-from "$RUNNER_TEMP/all-tests.txt" \
+              --report "$RUNNER_TEMP/wpt-full.html" \
+              > "$RUNNER_TEMP/wpt-full.txt" || true
+
+      - name: Summarise
+        run: |
+          # POSIX awk only - the runner's default awk is mawk, which has no 3-arg match().
+          {
+            echo "### Whole-corpus WPT — wpt @ $WPT_SHA"
+            echo ""
+            awk '/: [0-9]+ passed/ {
+                   n = split($0, a, ": "); m = split(a[n], b, ", ")
+                   for (i = 1; i <= m; i++) {
+                     split(b[i], c, " ")
+                     if (c[2] == "passed")      p += c[1]
+                     else if (c[2] == "failed") f += c[1]
+                   }
+                   suites++
+                 }
+                 END {
+                   t = p + f
+                   printf "%d suites, %d subtests - **%d passed** (%.2f%%), %d failed\\n",
+                          suites, t, p, t ? 100 * p / t : 0, f
+                 }' "$RUNNER_TEMP/wpt-full.txt"
+            echo ""
+            echo "Full breakdown in the \\`wpt-full-report\\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wpt-full-report
+          path: ${{ runner.temp }}/wpt-full.html
+          retention-days: 30
+          if-no-files-found: warn
