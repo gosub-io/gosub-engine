@@ -1,9 +1,14 @@
 # Running web-platform-tests
 
-The engine has no scripting environment yet, so most of the WPT suites that matter for form
-controls — `html/semantics/forms/`, ~427 `testharness.js` files — cannot run against it.
-`gosub_domjs` is a stopgap: a **test-only** DOM binding over a small JavaScript engine
-(QuickJS, through `rquickjs`), enough to let those tests drive the engine's own DOM.
+The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
+against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
+small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
+engine's own DOM.
+
+CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
+The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.
+Form controls are **not** covered here. That work lives on its own branch and needs engine
+modules (`edit`, `form`, `focus`) that are not on main yet.
 
 It exists to find bugs, not to run websites.
 
@@ -15,7 +20,7 @@ only comparable against that one.
 ```bash
 git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
 cd wpt
-git sparse-checkout set resources html/semantics/forms
+git sparse-checkout set resources common dom/nodes dom/events html/dom
 git checkout "$(cat …/tests/wpt/wpt-commit.txt)"
 ```
 
@@ -28,7 +33,7 @@ non-zero if any subtest failed.
 
 ## The expectations file
 
-`tests/wpt/forms-expectations.txt` is the committed baseline: which suites are covered, and
+`tests/wpt/expectations.txt` is the committed baseline: which suites are covered, and
 which subtests are known to fail. Four record types - `FILE`, `FAIL <path> :: <name>`,
 `HARNESS` (the harness itself did not finish cleanly) and `ERROR` (the suite cannot run at
 all, usually a support file outside the sparse checkout).
@@ -37,11 +42,11 @@ Files are listed explicitly rather than globbed, so adding tests to a wpt checko
 silently change what is covered.
 
 ```bash
-cargo run -p gosub-wpt -- <wpt-root> --all --expect tests/wpt/forms-expectations.txt
+cargo run -p gosub-wpt -- <wpt-root> --all --expect tests/wpt/expectations.txt
 ```
 
 That is what `cargo test -p gosub-wpt --test wpt_conformance` runs when `WPT_ROOT` is set,
-and what the `wpt-forms` CI job runs at the pinned commit. Without `WPT_ROOT` the test skips,
+and what the `wpt` CI job runs at the pinned commit. Without `WPT_ROOT` the test skips,
 so an ordinary `cargo test` needs no checkout.
 
 ## The overview page
@@ -52,7 +57,7 @@ Suites that could not run at all, or whose harness did not finish cleanly, carry
 
 ```bash
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all \
-    --expect tests/wpt/forms-expectations.txt --report wpt-forms.html
+    --expect tests/wpt/expectations.txt --report wpt-report.html
 ```
 
 Rates are subtests, not files, and known failures count as failures - the page shows the
@@ -65,7 +70,7 @@ the diff, so the file always says what the engine actually does.
 
 ```bash
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations $(paths...) \
-    > tests/wpt/forms-expectations.txt
+    > tests/wpt/expectations.txt
 ```
 
 Diagnostics (console output, listener and timer exceptions, scripts that threw) go to

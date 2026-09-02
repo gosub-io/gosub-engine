@@ -1,5 +1,5 @@
-//! Runs the WPT forms suites through the `gosub-wpt` binary and compares the result against
-//! the committed expectations.
+//! Runs the covered WPT suites through the `gosub-wpt` binary and compares the result
+//! against the committed expectations.
 //!
 //! Point `WPT_ROOT` at a web-platform-tests checkout on the commit in
 //! `tests/wpt/wpt-commit.txt`. Without `WPT_ROOT` the test skips, so a normal `cargo test`
@@ -10,8 +10,8 @@
 //!
 //! ```text
 //! cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations \
-//!     $(cd "$WPT_ROOT" && find html/semantics/forms -name '*.html' | sort) \
-//!     > tests/wpt/forms-expectations.txt
+//!     $(cd "$WPT_ROOT" && find dom/events html/dom -name '*.html' | sort) \
+//!     > tests/wpt/expectations.txt
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -22,12 +22,12 @@ fn workspace_file(relative: &str) -> PathBuf {
 }
 
 #[test]
-fn forms_suites_match_the_expectations() {
+fn suites_match_the_expectations() {
     let Ok(wpt_root) = std::env::var("WPT_ROOT") else {
-        eprintln!("WPT_ROOT is not set, skipping the WPT forms conformance run");
+        eprintln!("WPT_ROOT is not set, skipping the WPT conformance run");
         return;
     };
-    let expectations = workspace_file("tests/wpt/forms-expectations.txt");
+    let expectations = workspace_file("tests/wpt/expectations.txt");
     assert!(
         expectations.exists(),
         "missing {} - the expectations file lists the suites to run",
@@ -56,7 +56,7 @@ fn forms_suites_match_the_expectations() {
             })
             .collect();
         panic!(
-            "WPT forms results no longer match tests/wpt/forms-expectations.txt:\n{}",
+            "WPT results no longer match tests/wpt/expectations.txt:\n{}",
             interesting.join("\n")
         );
     }

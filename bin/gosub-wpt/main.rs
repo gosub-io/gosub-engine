@@ -400,6 +400,31 @@ struct Row {
     error: bool,
 }
 
+/// What the run covered, for the page subtitle: the distinct two-segment prefixes of the
+/// suites in it, so a run over `dom/events` and `html/dom` says so rather than naming
+/// whichever directory the template was written against.
+fn scope_of(rows: &[Row]) -> String {
+    let mut prefixes: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let mut parts = row.path.split('/');
+            match (parts.next(), parts.next()) {
+                (Some(a), Some(b)) => format!("{a}/{b}"),
+                (Some(a), None) => a.to_string(),
+                _ => String::new(),
+            }
+        })
+        .collect();
+    prefixes.sort_unstable();
+    prefixes.dedup();
+    // A long tail of directories would push the header around; past a handful just count.
+    match prefixes.len() {
+        0 => "nothing".to_string(),
+        1..=4 => prefixes.join(", "),
+        n => format!("{} directories", n),
+    }
+}
+
 /// Write the overview page: the template with this run's rows inlined.
 fn write_report(path: &Path, rows: &[Row], wpt_root: &Path) -> anyhow::Result<()> {
     let commit = std::fs::read_to_string(wpt_root.join(".git/HEAD"))
@@ -418,6 +443,7 @@ fn write_report(path: &Path, rows: &[Row], wpt_root: &Path) -> anyhow::Result<()
     let page = REPORT_TEMPLATE
         .cow_replace("__DATA__", &data)
         .cow_replace("__COMMIT__", &commit)
+        .cow_replace("__SCOPE__", &scope_of(rows))
         .cow_replace("__DATE__", &today())
         .into_owned();
     std::fs::write(path, page).with_context(|| format!("writing {}", path.display()))?;
