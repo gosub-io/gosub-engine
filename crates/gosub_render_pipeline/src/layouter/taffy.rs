@@ -10,7 +10,7 @@ use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
-use crate::layouter::float::post_process_floats;
+use crate::layouter::float::{line_box_insets, post_process_floats};
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
@@ -90,6 +90,10 @@ pub struct TaffyLayouter {
     measure_cache: HashMap<MeasureKey, Size<f32>>,
     /// Reverse index used by the table post-processing pass.
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
+    /// Per-block `(left inset, line width)` line-box geometry that clears the floats beside that
+    /// block, in CSS pixels. Empty on the first layout pass, since a float's position is not known
+    /// until that pass has run; filled in from its result for the second.
+    float_insets: HashMap<DomNodeId, (f32, f32)>,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -202,6 +206,7 @@ impl TaffyLayouter {
             font_system,
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
+            float_insets: HashMap::new(),
         }
     }
 
@@ -245,7 +250,38 @@ impl CanLayout for TaffyLayouter {
                 root_dimension: geo::Dimension::ZERO,
             };
         };
-        // let root_id = RenderNodeId::new(2);
+
+        // A float's position is only known once the page has been laid out, but text has to be
+        // wrapped to avoid it - so the first pass places the floats and the second re-wraps text
+        // around where they landed. Pages without floats (most modern ones) pay for one pass.
+        self.float_insets.clear();
+        let (mut layout_tree, placed) = self.layout_pass(render_tree, root_id, viewport);
+        if placed.is_empty() {
+            return layout_tree;
+        }
+
+        let insets = line_box_insets(&layout_tree, &placed);
+        if insets.is_empty() {
+            return layout_tree;
+        }
+
+        self.float_insets = insets;
+        let (layout_tree_2, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        layout_tree = layout_tree_2;
+        self.float_insets.clear();
+        layout_tree
+    }
+}
+
+impl TaffyLayouter {
+    /// One full layout: build the taffy tree, compute it, convert to box models and place floats.
+    /// Returns the tree and the floats that were placed.
+    fn layout_pass(
+        &mut self,
+        render_tree: RenderTree,
+        root_id: RenderNodeId,
+        viewport: Option<geo::Dimension>,
+    ) -> (LayoutTree, Vec<crate::layouter::float::PlacedFloat>) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
         // // Compute the layout based on the viewport
@@ -349,7 +385,7 @@ impl CanLayout for TaffyLayouter {
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
-            return layout_tree;
+            return (layout_tree, Vec::new());
         }
         self.measure_cache = measure_cache;
 
@@ -362,7 +398,7 @@ impl CanLayout for TaffyLayouter {
         post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
-        post_process_floats(&mut layout_tree);
+        let placed = post_process_floats(&mut layout_tree);
 
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
@@ -370,11 +406,9 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
-        layout_tree
+        (layout_tree, placed)
     }
-}
 
-impl TaffyLayouter {
     fn populate_boxmodel(
         &self,
         layout_tree: &mut LayoutTree,
@@ -392,16 +426,25 @@ impl TaffyLayouter {
         };
         let layout = *layout;
 
+        // The anonymous flex container wrapping this node *is* its line box.
+        let line_box_width = self
+            .anon_container_map
+            .get(&layout_node_id)
+            .and_then(|anon| self.tree.layout(*anon).ok())
+            .map(|l| l.size.width as f64);
+
         let Some(el) = layout_tree.get_node_by_id_mut(layout_node_id) else {
             log::warn!("Layout node {:?} not found in arena", layout_node_id);
             return;
         };
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
-        // For text nodes, available_width is the wrap limit passed to the renderer.
-        // Use the parent element's content width (supplied by our caller), which is the
-        // most accurate available constraint for text that lives directly in a block box.
+        // For text nodes, available_width is the wrap limit passed to the renderer, so it has to
+        // be the width of the *line box*, not of the block. The two differ when a float shortens
+        // the line boxes: shaping at the block's width there would lay the text out in one long
+        // run straight through the float. Fall back to the block's content width for text that is
+        // not inside an anonymous line container.
         if let ElementContext::Text(ref mut text_ctx) = el.context {
-            text_ctx.available_width = parent_content_width;
+            text_ctx.available_width = line_box_width.unwrap_or(parent_content_width);
         }
         let my_content_width = el.box_model.content_box.width;
         let child_ids = el.children.clone();
@@ -528,6 +571,10 @@ impl TaffyLayouter {
         leaf_id: TaffyNodeId,
         justify: Option<taffy::JustifyContent>,
     ) {
+        // Line boxes - not the block itself - are what a float shortens, and the anonymous
+        // container *is* the line box here, so the inset goes on its margins. The block keeps its
+        // full width, so its background and borders still span the float, as CSS requires.
+        let float_inset = self.float_insets.get(&element_node.dom_node_id).copied();
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
         // This ensures the text measure function always receives AvailableSpace::Definite from
         // the flex algorithm, preventing single-child text nodes from getting MaxContent width
@@ -553,6 +600,10 @@ impl TaffyLayouter {
             },
             ..Default::default()
         };
+        if let Some((inset_left, line_width)) = float_inset {
+            style.margin.left = LengthPercentageAuto::length(inset_left);
+            style.size.width = Dimension::from_length(line_width);
+        }
         if items.is_empty() {
             match empty_line_height {
                 // No child can give the line height, so pin it to the break's line-height.

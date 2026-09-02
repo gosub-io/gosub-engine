@@ -10,15 +10,23 @@
 //! as it fits at its current vertical offset, never above the top of an earlier float in the same
 //! block, and drops below the floats already there when it does not fit beside them.
 //!
-//! Not implemented yet, and deliberately so - each needs its own pass over the inline layer:
-//! line boxes are not shortened next to a float (text overlaps rather than wrapping around it),
-//! and `clear` is parsed but not applied.
+//! Text flows around a float rather than under it: [`line_box_insets`] turns the placed floats
+//! into per-block insets that the layouter's second pass applies to its line boxes. A float's
+//! position is only known after layout, so the insets are derived from the first pass and fed
+//! back into a second one. The block itself keeps its full width - it is the line boxes that
+//! narrow, so backgrounds and borders still span the float, as CSS requires.
+//!
+//! The inset is per block, not per line: every line box in a block clears the floats beside that
+//! block, so lines that hang below a float's bottom edge stay narrower than CSS would have them.
+//! Making those lines widen again means splitting a text node at the float's bottom, and the
+//! pipeline keeps one layout element per DOM node, so a text box cannot yet be broken in two.
 
 use crate::common::document::node::NodeId as DomNodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{lookup, StyleProperty, Value};
 use crate::common::geo::Rect;
-use crate::layouter::{LayoutElementId, LayoutTree};
+use crate::layouter::{ElementContext, LayoutElementId, LayoutTree};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Which edge a float is pinned to.
@@ -136,9 +144,22 @@ impl FloatContext {
     }
 }
 
-/// Place every float in the tree and write the result back into the arena.
-pub fn post_process_floats(layout_tree: &mut LayoutTree) {
+/// A float after placement: what it is, which edge it took, and the area in-flow content has to
+/// keep clear of. Used by the second layout pass to shorten line boxes beside it.
+#[derive(Debug, Clone, Copy)]
+pub struct PlacedFloat {
+    pub layout_id: LayoutElementId,
+    pub dom_id: DomNodeId,
+    pub side: FloatSide,
+    /// The exclusion area, in absolute page coordinates.
+    pub rect: Rect,
+}
+
+/// Place every float in the tree and write the result back into the arena, returning what was
+/// placed so a later pass can flow text around it.
+pub fn post_process_floats(layout_tree: &mut LayoutTree) -> Vec<PlacedFloat> {
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
+    let mut placed: Vec<PlacedFloat> = Vec::new();
 
     // Innermost containers first. A container that contains its floats grows to fit them, and an
     // outer container's clearfix has to see that final height - so every descendant must settle
@@ -156,7 +177,7 @@ pub fn post_process_floats(layout_tree: &mut LayoutTree) {
 
     let mut deepest_float_bottom = f64::NEG_INFINITY;
     for id in order.into_iter().rev() {
-        if let Some(bottom) = place_floats_in(&*doc, layout_tree, id) {
+        if let Some(bottom) = place_floats_in(&*doc, layout_tree, id, &mut placed) {
             deepest_float_bottom = deepest_float_bottom.max(bottom);
         }
     }
@@ -165,7 +186,7 @@ pub fn post_process_floats(layout_tree: &mut LayoutTree) {
     // so the page can be scrolled to the bottom of it. Grow the root to cover the lowest one
     // rather than clipping the page short.
     if !deepest_float_bottom.is_finite() {
-        return;
+        return placed;
     }
     let root_id = layout_tree.root_id;
     if let Some(root) = layout_tree.arena.get(&root_id) {
@@ -175,6 +196,8 @@ pub fn post_process_floats(layout_tree: &mut LayoutTree) {
             grow_and_propagate(&*doc, layout_tree, root_id, growth);
         }
     }
+
+    placed
 }
 
 /// Place the direct floated children of one block container.
@@ -183,6 +206,7 @@ fn place_floats_in(
     doc: &dyn PipelineDocument,
     layout_tree: &mut LayoutTree,
     container_id: LayoutElementId,
+    placed: &mut Vec<PlacedFloat>,
 ) -> Option<f64> {
     let container = layout_tree.arena.get(&container_id)?;
 
@@ -296,6 +320,24 @@ fn place_floats_in(
         }
 
         shift_subtree(layout_tree, child_id, placed_x - margin_box.x, y - margin_box.y);
+
+        // Record the area in-flow content must avoid. Backgrounds paint the border box and a
+        // negative margin can shrink the margin box below it, so exclude the union of the two.
+        if let Some(el) = layout_tree.arena.get(&child_id) {
+            let bm = &el.box_model;
+            let m = bm.margin_box;
+            let b = bm.border_box;
+            let x = m.x.min(b.x);
+            let top = m.y.min(b.y);
+            let right = (m.x + m.width).max(b.x + b.width);
+            let bottom = (m.y + m.height).max(b.y + b.height);
+            placed.push(PlacedFloat {
+                layout_id: child_id,
+                dom_id: el.dom_node_id,
+                side,
+                rect: Rect::new(x, top, right - x, bottom - top),
+            });
+        }
     }
 
     let lowest = ctx.lowest_bottom();
@@ -442,6 +484,122 @@ fn shift_subtree(layout_tree: &mut LayoutTree, id: LayoutElementId, dx: f64, dy:
 fn shift_rect(rect: &mut Rect, dx: f64, dy: f64) {
     rect.x += dx;
     rect.y += dy;
+}
+
+/// The line-box geometry a block needs in order to clear the floats beside it, as
+/// `(left inset, line width)` in CSS pixels, keyed by the block's DOM node.
+///
+/// A float's exclusion area is known only after layout, so this reads the geometry of a completed
+/// pass and the caller applies it while building the next one. The inset covers the block as a
+/// whole: every line box in it clears the float, not only the lines actually beside it. Lines that
+/// hang below the float's bottom therefore stay narrower than CSS requires - correcting that needs
+/// the text split at the float's bottom edge, which the atomic text boxes do not currently allow.
+pub fn line_box_insets(layout_tree: &LayoutTree, placed: &[PlacedFloat]) -> HashMap<DomNodeId, (f32, f32)> {
+    let mut insets: HashMap<DomNodeId, (f32, f32)> = HashMap::new();
+    if placed.is_empty() {
+        return insets;
+    }
+
+    for (&block_id, block) in layout_tree.arena.iter() {
+        // Only blocks that actually hold text need an inset; a wrapper contributes nothing and
+        // would double-count against its children.
+        if !has_inline_content(layout_tree, block_id) {
+            continue;
+        }
+
+        let content = block.box_model.content_box;
+        if content.width <= 0.0 || content.height <= 0.0 {
+            continue;
+        }
+        let block_top = content.y;
+        let block_bottom = content.y + content.height;
+        let block_left = content.x;
+        let block_right = content.x + content.width;
+
+        let mut left_inset: f64 = 0.0;
+        let mut right_inset: f64 = 0.0;
+        let mut float_cover: f64 = 0.0;
+
+        for float in placed {
+            // A float never displaces its own contents, nor the contents of anything inside it.
+            if float.layout_id == block_id || is_ancestor(layout_tree, float.layout_id, block_id) {
+                continue;
+            }
+            let r = float.rect;
+            let overlaps_vertically = r.y < block_bottom && r.y + r.height > block_top;
+            let overlaps_horizontally = r.x < block_right && r.x + r.width > block_left;
+            if !overlaps_vertically || !overlaps_horizontally {
+                continue;
+            }
+            float_cover = float_cover.max((r.y + r.height).min(block_bottom) - r.y.max(block_top));
+            match float.side {
+                FloatSide::Left => left_inset = left_inset.max(r.x + r.width - block_left),
+                FloatSide::Right => right_inset = right_inset.max(block_right - r.x),
+            }
+        }
+
+        if left_inset <= 0.0 && right_inset <= 0.0 {
+            continue;
+        }
+
+        // One inset has to stand in for every line in the block, so only take it where it is
+        // close to what per-line shortening would produce. Two guards bound the error:
+        //
+        // The float must cover most of the block. The inset is exact when the float spans the
+        // whole block and drifts as more lines hang below it, so a float clipping the corner of a
+        // long block is left alone rather than narrowing all of it.
+        if float_cover < content.height * MIN_FLOAT_COVERAGE {
+            continue;
+        }
+
+        // Enough width has to survive to be worth using. CSS puts a line that cannot fit beside a
+        // float *below* it, which this model cannot express - it can only narrow. Squeezing text
+        // into the sliver left by a near-full-width float would wrap it a word at a time and grow
+        // the page enormously, so leave those lines full width instead.
+        let line_width = content.width - left_inset - right_inset;
+        if line_width < content.width * MIN_LINE_BOX_FRACTION {
+            continue;
+        }
+
+        // Hand the caller the resolved line-box width rather than just the insets: an auto width
+        // would have to be resolved against the block again, and the block's own width is already
+        // known from this pass.
+        insets.insert(block.dom_node_id, (left_inset as f32, line_width as f32));
+    }
+
+    insets
+}
+
+/// How much of a block's height a float must cover before the block's line boxes are inset.
+const MIN_FLOAT_COVERAGE: f64 = 0.6;
+
+/// How much of a block's width must survive the inset for it to be applied at all.
+const MIN_LINE_BOX_FRACTION: f64 = 0.4;
+
+/// Whether `node` holds inline content directly (text, or an inline box), meaning it is the block
+/// whose line boxes a neighbouring float shortens.
+fn has_inline_content(layout_tree: &LayoutTree, node: LayoutElementId) -> bool {
+    let Some(el) = layout_tree.arena.get(&node) else {
+        return false;
+    };
+    el.children.iter().any(|child| {
+        layout_tree
+            .arena
+            .get(child)
+            .is_some_and(|c| matches!(c.context, ElementContext::Text(_)))
+    })
+}
+
+/// Whether `ancestor` is `node` or one of its ancestors.
+fn is_ancestor(layout_tree: &LayoutTree, ancestor: LayoutElementId, node: LayoutElementId) -> bool {
+    let mut current = Some(node);
+    while let Some(id) = current {
+        if id == ancestor {
+            return true;
+        }
+        current = layout_tree.arena.get(&id).and_then(|el| el.parent);
+    }
+    false
 }
 
 #[cfg(test)]

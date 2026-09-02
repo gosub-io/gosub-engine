@@ -85,10 +85,13 @@ mod rendertree_from_engine {
 
     #[test]
     fn head_and_script_are_excluded() {
+        // `noscript` is here because it is hidden by a user-agent `display: none` rule rather than
+        // by the render tree's hardcoded list. With scripting enabled its contents are parsed as
+        // raw text, so if the element survives, that text is drawn on the page verbatim.
         let html = r#"
             <html>
             <head><title>Test</title><style>body{color:red}</style></head>
-            <body><p>Content</p></body>
+            <body><p>Content</p><noscript><img src="//example.org/x.gif"></noscript></body>
             </html>
         "#;
 
@@ -102,7 +105,7 @@ mod rendertree_from_engine {
                     use cow_utils::CowUtils;
                     let tag = data.tag_name.cow_to_ascii_lowercase();
                     assert!(
-                        !matches!(&*tag, "head" | "style" | "script" | "title"),
+                        !matches!(&*tag, "head" | "style" | "script" | "title" | "noscript"),
                         "invisible element <{tag}> must not appear in render tree"
                     );
                 }
