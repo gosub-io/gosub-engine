@@ -70,6 +70,139 @@ fn is_legacy_pseudo_element(name: &str) -> bool {
         || name.eq_ignore_ascii_case("first-letter")
 }
 
+/// Convert a functional pseudo-class's selector-list argument (as `:not()` takes) into one
+/// compound per comma-separated selector.
+fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelectorPart>>> {
+    let mut out: Vec<Vec<CssSelectorPart>> = vec![vec![]];
+    for argument in arguments {
+        let selectors = match argument.node_type {
+            NodeType::SelectorList { selectors } => selectors,
+            // A single selector with no comma parses as a bare `Selector`.
+            NodeType::Selector { children } => {
+                convert_selector_children(children, &mut out)?;
+                continue;
+            }
+            _ => continue,
+        };
+        for selector in selectors {
+            if let NodeType::Selector { children } = selector.node_type {
+                convert_selector_children(children, &mut out)?;
+            }
+        }
+    }
+
+    out.retain(|compound| !compound.is_empty());
+    Ok(out)
+}
+
+/// Convert the children of one `Selector` AST node into selector parts, appending to the compound
+/// currently being built in `out`. A comma starts a new compound.
+fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
+    for node in children {
+        let part = match node.node_type {
+            NodeType::Ident { value } => CssSelectorPart::Type(value),
+            NodeType::ClassSelector { value } => CssSelectorPart::Class(value),
+            NodeType::Combinator { value } => {
+                let combinator = match value.as_str() {
+                    ">" => Combinator::Child,
+                    "+" => Combinator::NextSibling,
+                    "~" => Combinator::SubsequentSibling,
+                    " " => Combinator::Descendant,
+                    "||" => Combinator::Column,
+                    "|" => Combinator::Namespace,
+                    _ => return Err(CssError::new(format!("Unknown combinator: {value}").as_str())),
+                };
+
+                CssSelectorPart::Combinator(combinator)
+            }
+            NodeType::IdSelector { value } => CssSelectorPart::Id(value),
+            NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
+            // CSS2 spelled the pseudo-*elements* with a single colon, and that is still
+            // what most older stylesheets use (`.container:after` for the clearfix
+            // idiom). The tokenizer can only see one colon and reports a pseudo-class,
+            // so re-classify the four legacy names here - matching them as pseudo-classes
+            // would silently generate no box at all.
+            NodeType::PseudoClassSelector { value, .. } => {
+                // `:not()` carries a real selector list, which the parser has already built. Keep
+                // it structured instead of flattening it to the string ":not(.foo)": matched as an
+                // opaque name it can never be evaluated, and the whole rule silently applies to
+                // nothing.
+                if let NodeType::Function { name, arguments } = value.node_type {
+                    if name.eq_ignore_ascii_case("not") {
+                        CssSelectorPart::Not(convert_selector_list(arguments)?)
+                    } else {
+                        // Any other functional pseudo-class keeps its serialized form, which is
+                        // what the matcher's name-based arms expect.
+                        CssSelectorPart::PseudoClass(
+                            CssNode::new(NodeType::Function { name, arguments }, node.location).to_string(),
+                        )
+                    }
+                } else {
+                    let name = value.to_string();
+                    if is_legacy_pseudo_element(&name) {
+                        CssSelectorPart::PseudoElement(name)
+                    } else {
+                        CssSelectorPart::PseudoClass(name)
+                    }
+                }
+            }
+            NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value),
+            NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
+            NodeType::AttributeSelector {
+                name,
+                value,
+                flags,
+                matcher,
+            } => {
+                let matcher = match matcher {
+                    None => MatcherType::None,
+
+                    Some(matcher) => {
+                        if let NodeType::Operator(op) = &matcher.node_type {
+                            match op.as_str() {
+                                "=" => MatcherType::Equals,
+                                "~=" => MatcherType::Includes,
+                                "|=" => MatcherType::DashMatch,
+                                "^=" => MatcherType::PrefixMatch,
+                                "$=" => MatcherType::SuffixMatch,
+                                "*=" => MatcherType::SubstringMatch,
+                                _ => {
+                                    warn!("Unsupported matcher: {matcher:?}");
+                                    MatcherType::Equals
+                                }
+                            }
+                        } else {
+                            warn!("Unsupported matcher: {matcher:?}");
+                            MatcherType::Equals
+                        }
+                    }
+                };
+
+                CssSelectorPart::Attribute(Box::new(AttributeSelector {
+                    name,
+                    matcher,
+                    value,
+                    case_insensitive: flags.eq_ignore_ascii_case("i"),
+                }))
+            }
+            NodeType::Comma => {
+                out.push(vec![]);
+                continue;
+            }
+            other => {
+                return Err(CssError::new(format!("Unsupported selector part: {other:?}").as_str()));
+            }
+        };
+        if let Some(x) = out.last_mut() {
+            x.push(part);
+        } else {
+            out.push(vec![part]); //unreachable, but still, we handle it
+        }
+    }
+
+    Ok(())
+}
+
 fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
@@ -87,91 +220,7 @@ fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> C
                 continue;
             };
 
-            for node in children {
-                let part = match node.node_type {
-                    NodeType::Ident { value } => CssSelectorPart::Type(value),
-                    NodeType::ClassSelector { value } => CssSelectorPart::Class(value),
-                    NodeType::Combinator { value } => {
-                        let combinator = match value.as_str() {
-                            ">" => Combinator::Child,
-                            "+" => Combinator::NextSibling,
-                            "~" => Combinator::SubsequentSibling,
-                            " " => Combinator::Descendant,
-                            "||" => Combinator::Column,
-                            "|" => Combinator::Namespace,
-                            _ => return Err(CssError::new(format!("Unknown combinator: {value}").as_str())),
-                        };
-
-                        CssSelectorPart::Combinator(combinator)
-                    }
-                    NodeType::IdSelector { value } => CssSelectorPart::Id(value),
-                    NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
-                    // CSS2 spelled the pseudo-*elements* with a single colon, and that is still
-                    // what most older stylesheets use (`.container:after` for the clearfix
-                    // idiom). The tokenizer can only see one colon and reports a pseudo-class,
-                    // so re-classify the four legacy names here - matching them as pseudo-classes
-                    // would silently generate no box at all.
-                    NodeType::PseudoClassSelector { value, .. } => {
-                        let name = value.to_string();
-                        if is_legacy_pseudo_element(&name) {
-                            CssSelectorPart::PseudoElement(name)
-                        } else {
-                            CssSelectorPart::PseudoClass(name)
-                        }
-                    }
-                    NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value),
-                    NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
-                    NodeType::AttributeSelector {
-                        name,
-                        value,
-                        flags,
-                        matcher,
-                    } => {
-                        let matcher = match matcher {
-                            None => MatcherType::None,
-
-                            Some(matcher) => {
-                                if let NodeType::Operator(op) = &matcher.node_type {
-                                    match op.as_str() {
-                                        "=" => MatcherType::Equals,
-                                        "~=" => MatcherType::Includes,
-                                        "|=" => MatcherType::DashMatch,
-                                        "^=" => MatcherType::PrefixMatch,
-                                        "$=" => MatcherType::SuffixMatch,
-                                        "*=" => MatcherType::SubstringMatch,
-                                        _ => {
-                                            warn!("Unsupported matcher: {matcher:?}");
-                                            MatcherType::Equals
-                                        }
-                                    }
-                                } else {
-                                    warn!("Unsupported matcher: {matcher:?}");
-                                    MatcherType::Equals
-                                }
-                            }
-                        };
-
-                        CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                            name,
-                            matcher,
-                            value,
-                            case_insensitive: flags.eq_ignore_ascii_case("i"),
-                        }))
-                    }
-                    NodeType::Comma => {
-                        selector.parts.push(vec![]);
-                        continue;
-                    }
-                    other => {
-                        return Err(CssError::new(format!("Unsupported selector part: {other:?}").as_str()));
-                    }
-                };
-                if let Some(x) = selector.parts.last_mut() {
-                    x.push(part);
-                } else {
-                    selector.parts.push(vec![part]); //unreachable, but still, we handle it
-                }
-            }
+            convert_selector_children(children, &mut selector.parts)?;
         }
 
         // A compound with no parts matches every element vacuously, so an empty prelude
@@ -406,6 +455,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stylesheet::Specificity;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
 
@@ -525,6 +575,60 @@ mod tests {
         .unwrap();
 
         assert_eq!(stylesheet.font_faces[0].sources, vec!["a.woff2", "b.ttf", "c.bin"]);
+    }
+
+    #[test]
+    fn not_keeps_its_argument_as_a_selector() {
+        // Flattened to the string ":not(.skip)" this can never be evaluated, and the rule silently
+        // matches nothing - which is how slashdot's badge styling disappeared.
+        let stylesheet = Css3::parse_str(
+            ".box > span:not(.skip) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let Some(CssSelectorPart::Not(inner)) = parts.last() else {
+            panic!("expected a Not part, got {parts:?}");
+        };
+        assert_eq!(inner.len(), 1, "one compound in the argument");
+        assert_eq!(inner[0], vec![CssSelectorPart::Class("skip".to_string())]);
+    }
+
+    #[test]
+    fn not_accepts_a_selector_list() {
+        let stylesheet = Css3::parse_str(
+            "span:not(.a, .b) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let Some(CssSelectorPart::Not(inner)) = parts.last() else {
+            panic!("expected a Not part, got {parts:?}");
+        };
+        assert_eq!(inner.len(), 2, "one compound per comma-separated argument");
+    }
+
+    #[test]
+    fn not_contributes_its_most_specific_argument() {
+        // Selectors L4 §17: `:not()` adds nothing itself, but its most specific argument counts.
+        let stylesheet = Css3::parse_str(
+            "b:not(#nope) { color: red } i:not(.c) { color: red } u:not(s) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].parts[0].as_slice());
+        assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
+        assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
+        assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
     }
 
     #[test]

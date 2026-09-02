@@ -281,6 +281,9 @@ pub enum CssSelectorPart {
     PseudoElement(String),
     Combinator(Combinator),
     Type(String),
+    /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
+    /// selectors match the element.
+    Not(Vec<Vec<CssSelectorPart>>),
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]
@@ -345,6 +348,18 @@ impl Debug for CssSelectorPart {
             CssSelectorPart::Type(name) => {
                 write!(f, "{name}")
             }
+            CssSelectorPart::Not(inner) => {
+                write!(f, ":not(")?;
+                for (i, compound) in inner.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    for part in compound {
+                        write!(f, "{part:?}")?;
+                    }
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -399,6 +414,21 @@ impl Specificity {
     pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
+
+    #[must_use]
+    pub const fn id_count(&self) -> u32 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn class_count(&self) -> u32 {
+        self.1
+    }
+
+    #[must_use]
+    pub const fn element_count(&self) -> u32 {
+        self.2
+    }
 }
 
 impl From<&[CssSelectorPart]> for Specificity {
@@ -416,6 +446,15 @@ impl From<&[CssSelectorPart]> for Specificity {
                 }
                 CssSelectorPart::Type(_) => {
                     element_count += 1;
+                }
+                // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
+                // argument counts as if it were written in place of the `:not()`.
+                CssSelectorPart::Not(inner) => {
+                    if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
                 }
                 _ => {}
             }
