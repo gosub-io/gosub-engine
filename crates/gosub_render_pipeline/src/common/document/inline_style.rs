@@ -199,6 +199,8 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
     match key {
         "display" => style.set(StyleProperty::Display, parse_display(value)),
         "position" => style.set(StyleProperty::Position, parse_position(value)),
+        "float" => style.set(StyleProperty::Float, parse_style_str(value)),
+        "clear" => style.set(StyleProperty::Clear, parse_style_str(value)),
 
         "width" => style.set(StyleProperty::Width, parse_style_value(value)),
         "height" => style.set(StyleProperty::Height, parse_style_value(value)),

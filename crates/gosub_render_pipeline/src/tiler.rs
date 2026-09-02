@@ -14,6 +14,16 @@ use std::fmt::Debug;
 use std::ops::AddAssign;
 use std::sync::Arc;
 
+/// The smallest rect containing both inputs. A zero-area rect still contributes its origin, which
+/// is what keeps a collapsed margin box from pulling the union away from the border box.
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    let x = a.x.min(b.x);
+    let y = a.y.min(b.y);
+    let right = (a.x + a.width).max(b.x + b.width);
+    let bottom = (a.y + a.height).max(b.y + b.height);
+    Rect::new(x, y, right - x, bottom - y)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(u64);
 
@@ -342,7 +352,12 @@ impl TileList {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
-                let margin_box = element.box_model.margin_box;
+                // Cull on the union of the margin and border boxes. Backgrounds and borders paint
+                // the *border* box, and a negative margin can make the margin box smaller than it
+                // - a `margin-left: -320px` float has a zero-width margin box off to one side.
+                // Culling on the margin box alone then assigns the element to too few tiles and
+                // its background is clipped away at the tile boundary.
+                let margin_box = union_rect(element.box_model.margin_box, element.box_model.border_box);
 
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {

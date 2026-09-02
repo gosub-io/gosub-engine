@@ -157,6 +157,18 @@ impl<'a> CssTaffyConverter<'a> {
             _ => {}
         }
 
+        // CSS 2.1 §9.7: `float` blockifies the box and takes it out of normal flow. Taffy has no
+        // float support, so model only the out-of-flow half here - as an absolutely positioned
+        // box, which is the one thing Taffy does that a float also does: siblings lay out as if
+        // it were not there, and an `auto` width shrinks to fit. `post_process_floats` then puts
+        // it where the float rules say it goes. `float` does not apply to an absolutely
+        // positioned box, so leave those alone.
+        if ts.position != Position::Absolute && crate::layouter::float::float_side(self.doc, self.node_id).is_some() {
+            ts.position = Position::Absolute;
+            ts.display = Display::Block;
+            ts.inset = Rect::auto();
+        }
+
         ts
     }
 

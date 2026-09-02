@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod box_model;
 mod css_taffy_converter;
+pub mod float;
 mod inline_run;
 pub mod table;
 pub mod taffy;

@@ -10,6 +10,7 @@ use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
+use crate::layouter::float::post_process_floats;
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
@@ -359,6 +360,9 @@ impl CanLayout for TaffyLayouter {
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
         post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
+        // After tables: a float inside a table cell must be placed against the cell's final
+        // position, which lattice only fixes during the table pass.
+        post_process_floats(&mut layout_tree);
 
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;

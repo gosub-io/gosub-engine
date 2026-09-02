@@ -61,6 +61,15 @@ vs
     h4 { color: rebeccapurple; }
 */
 
+/// The four pseudo-elements CSS2 allowed to be written with a single colon. Selectors Level 4
+/// keeps them valid for compatibility; every other `:name` is a pseudo-class.
+fn is_legacy_pseudo_element(name: &str) -> bool {
+    name.eq_ignore_ascii_case("before")
+        || name.eq_ignore_ascii_case("after")
+        || name.eq_ignore_ascii_case("first-line")
+        || name.eq_ignore_ascii_case("first-letter")
+}
+
 fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
@@ -97,7 +106,19 @@ fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> C
                     }
                     NodeType::IdSelector { value } => CssSelectorPart::Id(value),
                     NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
-                    NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
+                    // CSS2 spelled the pseudo-*elements* with a single colon, and that is still
+                    // what most older stylesheets use (`.container:after` for the clearfix
+                    // idiom). The tokenizer can only see one colon and reports a pseudo-class,
+                    // so re-classify the four legacy names here - matching them as pseudo-classes
+                    // would silently generate no box at all.
+                    NodeType::PseudoClassSelector { value, .. } => {
+                        let name = value.to_string();
+                        if is_legacy_pseudo_element(&name) {
+                            CssSelectorPart::PseudoElement(name)
+                        } else {
+                            CssSelectorPart::PseudoClass(name)
+                        }
+                    }
                     NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value),
                     NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
                     NodeType::AttributeSelector {
@@ -392,6 +413,35 @@ mod tests {
             stylesheet.rules[0].selectors.first().unwrap().parts.len(),
             3,
             "dropping empty compounds must not drop real ones"
+        );
+    }
+
+    #[test]
+    fn single_colon_before_after_are_pseudo_elements() {
+        // The clearfix idiom `.container:after { clear: both }` depends on this: matched as a
+        // pseudo-*class* the rule generates no box, and nothing contains the floats.
+        let stylesheet = Css3::parse_str(
+            ".a:after { content: \"\" } .b:hover { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let parts: Vec<_> = stylesheet.rules[0].selectors[0].parts[0].clone();
+        assert!(
+            parts
+                .iter()
+                .any(|p| matches!(p, CssSelectorPart::PseudoElement(n) if n == "after")),
+            "`:after` must become a pseudo-element, got {parts:?}"
+        );
+
+        let parts: Vec<_> = stylesheet.rules[1].selectors[0].parts[0].clone();
+        assert!(
+            parts
+                .iter()
+                .any(|p| matches!(p, CssSelectorPart::PseudoClass(n) if n == "hover")),
+            "a real pseudo-class must stay one, got {parts:?}"
         );
     }
 
