@@ -132,9 +132,17 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         tag: doc.tag_name(id),
     };
     let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity)> = Vec::new();
+    // Media conditions hold for the whole pass, so read the environment once rather than per
+    // rule. Unconditional rules never look at it.
+    let media_env = crate::media_query::media_environment();
     for sheet in sheets {
         for rule_idx in sheet.candidate_rules(&keys) {
             let rule = &sheet.rules[rule_idx];
+            // Cheaper than selector matching, so it goes first: a rule inside a `@media` block
+            // that does not apply to this device contributes nothing to the cascade.
+            if !rule.media_matches(&media_env) {
+                continue;
+            }
             // A rule applies with the highest specificity among its matching selectors.
             let best = rule
                 .selectors()

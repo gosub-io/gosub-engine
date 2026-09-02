@@ -5,33 +5,35 @@ use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
-
-thread_local! {
-    /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
-    /// during style computation. Set per layout pass via [`set_layout_viewport`]; defaults to a
-    /// 1280×800 fallback so units still resolve before any real viewport is known.
-    static LAYOUT_VIEWPORT: Cell<(f32, f32)> = const { Cell::new((1280.0, 800.0)) };
-}
+use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
 
 /// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
 /// computations on this thread. The render flow calls this before building and laying out the
 /// render tree so viewport units (including those inside `clamp()`) track the real window size
 /// instead of a fixed fallback. Non-positive dimensions are ignored.
+///
+/// This updates the viewport half of the thread's [`MediaEnvironment`], which media queries
+/// read too - the two must never disagree. Callers that also care about colour scheme or
+/// resolution should build a whole environment and use [`set_media_environment`] instead.
 pub fn set_layout_viewport(width: f32, height: f32) {
     if width > 0.0 && height > 0.0 {
-        LAYOUT_VIEWPORT.with(|vp| vp.set((width, height)));
+        let mut env = media_environment();
+        env.width = width;
+        env.height = height;
+        set_media_environment(env);
     }
 }
 
 /// The current viewport (CSS px) for resolving viewport-relative units on this thread.
 fn layout_viewport() -> (f32, f32) {
-    LAYOUT_VIEWPORT.with(Cell::get)
+    let env = media_environment();
+    (env.width, env.height)
 }
 
 /// Severity of a CSS error
@@ -226,6 +228,12 @@ pub struct CssRule {
     pub selectors: Vec<CssSelector>,
     /// Actual declarations that will be applied if the selectors match
     pub declarations: Vec<CssDeclaration>,
+    /// The `@media` conditions enclosing this rule, outermost first - all of them must match
+    /// before the rule applies. `None` for the overwhelmingly common unconditional rule, so
+    /// the check costs a null test. Each list is shared by every rule in its block.
+    ///
+    /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
+    pub media: Option<Vec<Arc<MediaQueryList>>>,
 }
 
 impl CssRule {
@@ -237,6 +245,15 @@ impl CssRule {
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
+    }
+
+    /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules
+    /// always match.
+    #[must_use]
+    pub fn media_matches(&self, env: &MediaEnvironment) -> bool {
+        self.media
+            .as_ref()
+            .is_none_or(|conditions| conditions.iter().all(|list| list.matches(env)))
     }
 }
 
@@ -987,6 +1004,7 @@ mod test {
                 value: CssValue::String("red".to_string()),
                 important: false,
             }],
+            media: None,
         };
 
         assert_eq!(rule.selectors().len(), 1);

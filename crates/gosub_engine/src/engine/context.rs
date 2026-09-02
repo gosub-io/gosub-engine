@@ -19,6 +19,7 @@ use gosub_render_pipeline::tile_budget::TileBudget;
 use std::sync::Arc;
 
 use crate::html::RenderConfiguration;
+use gosub_css3::media_query::{ColorScheme, MediaEnvironment, MediaType, ReducedMotion};
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
@@ -348,6 +349,44 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         &self.viewport
     }
 
+    /// The device description that `@media` conditions - and viewport-relative units - resolve
+    /// against for this tab. Rebuilt per style pass rather than cached, so a settings change
+    /// takes effect on the next render without any invalidation plumbing.
+    ///
+    /// `device-width`/`device-height` report the viewport: the engine renders into an embedder-
+    /// owned surface and is never told the screen size. That makes the legacy `device-*`
+    /// features behave like their modern counterparts, which is the right answer for a
+    /// maximised window and a harmless one otherwise.
+    fn media_environment(&self) -> MediaEnvironment {
+        let color_scheme = match self.config_store.get_string("renderer.prefers_color_scheme").as_str() {
+            "dark" => ColorScheme::Dark,
+            _ => ColorScheme::Light,
+        };
+        let reduced_motion = if self.config_store.get_bool("renderer.prefers_reduced_motion") {
+            ReducedMotion::Reduce
+        } else {
+            ReducedMotion::NoPreference
+        };
+        // The live ratio the rasterizer draws at, which the embedder stores on every scale
+        // change. Note this is process-wide today, so `resolution` follows the most recently
+        // updated window when several are open at different scales.
+        let dpr = gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+
+        MediaEnvironment {
+            width: self.viewport.width as f32,
+            height: self.viewport.height as f32,
+            device_width: self.viewport.width as f32,
+            device_height: self.viewport.height as f32,
+            device_pixel_ratio: dpr.max(1) as f32,
+            media_type: MediaType::Screen,
+            color_scheme,
+            reduced_motion,
+            // Flip to `true` when the JS runtime is wired in (M2), so `@media (scripting)`
+            // and the `no-js` class pattern report the truth.
+            scripting: false,
+        }
+    }
+
     #[inline]
     /// Attribute this context's pipeline timings to `scope` (one navigation).
     pub(crate) fn set_timing_scope(&mut self, scope: Option<gosub_shared::timing::ScopeId>) {
@@ -386,6 +425,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // par_iter), to the navigation that owns the document.
         let _scope = self.timing_scope.map(gosub_shared::timing::enter_scope);
 
+        let media_env = self.media_environment();
         if let Some(doc) = &self.document {
             let prev_tile_cache = self
                 .pipeline_cache
@@ -401,6 +441,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 prev_tile_cache,
                 self.media_store.clone(),
                 self.config_store.get_uint("renderer.tile.size") as f64,
+                media_env,
             ));
         }
         self.note_rastered_window();
@@ -525,6 +566,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.enforce_tile_budget(false);
             } else {
                 // No cached layout yet - fall back to a full rebuild.
+                let media_env = self.media_environment();
                 if let Some(doc) = &self.document {
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
@@ -535,6 +577,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         std::collections::HashMap::new(),
                         self.media_store.clone(),
                         self.config_store.get_uint("renderer.tile.size") as f64,
+                        media_env,
                     ));
                     self.note_rastered_window();
                     self.enforce_tile_budget(true);
@@ -609,6 +652,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.scene_cache = Some(pipeline_build_scene(
                     doc.clone(),
                     &self.viewport,
+                    self.media_environment(),
                     self.rasterizer.as_deref(),
                     self.media_store.clone(),
                 ));
@@ -1084,12 +1128,14 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
 fn pipeline_build_scene<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
+    media_env: MediaEnvironment,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     media_store: Arc<MediaStore>,
 ) -> SceneCache {
-    // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
-    // real viewport. Must precede parse(), which computes styles for display:none filtering.
-    gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
+    // Install the environment that `@media` conditions and viewport-relative CSS units
+    // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
+    // computes styles for display:none filtering.
+    gosub_css3::media_query::set_media_environment(media_env);
 
     // Stage 1: render tree
     let adapter = GosubDocumentAdapter::<C>::new(doc);
@@ -1160,12 +1206,14 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     prev_tile_cache: TilePixelCache,
     media_store: Arc<MediaStore>,
     tile_size: f64,
+    media_env: MediaEnvironment,
 ) -> PipelineCache {
     let ts_total = timing_start!("pipeline.total");
 
-    // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
-    // real viewport. Must precede parse(), which computes styles for display:none filtering.
-    gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
+    // Install the environment that `@media` conditions and viewport-relative CSS units
+    // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
+    // computes styles for display:none filtering.
+    gosub_css3::media_query::set_media_environment(media_env);
 
     // Stage 1: render tree
     let ts1 = timing_start!("pipeline.render_tree");
@@ -1793,6 +1841,90 @@ mod tests {
             assert_eq!(ctx.fragment_target_y("section-2"), None);
             // Top-of-document needs no layout.
             assert_eq!(ctx.fragment_target_y(""), Some(0.0));
+        }
+    }
+
+    mod media_queries {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_css3::system::Css3System;
+
+        /// A page whose only content is 100px tall below the breakpoint and 1000px tall above
+        /// it, so the laid-out page height reports which branch of the `@media` block won.
+        fn context_at_width(width: u32) -> BrowsingContext<DefaultRenderConfig> {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> =
+                BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width,
+                height: 300,
+            });
+            let html = r#"<html><head><style>
+                    #box { display: block; height: 100px; }
+                    @media (min-width: 600px) { #box { height: 1000px; } }
+                </style></head>
+                <body style="margin:0"><div id="box"></div></body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx
+        }
+
+        /// The context must feed its own viewport into the media environment, so the same
+        /// document lays out differently in a narrow and a wide tab.
+        #[test]
+        fn viewport_width_selects_the_media_branch() {
+            let narrow = context_at_width(400);
+            assert!(
+                (narrow.page_height() - 100.0).abs() < 1.0,
+                "below the breakpoint: expected ~100, got {}",
+                narrow.page_height()
+            );
+
+            let wide = context_at_width(800);
+            assert!(
+                (wide.page_height() - 1000.0).abs() < 1.0,
+                "above the breakpoint: expected ~1000, got {}",
+                wide.page_height()
+            );
+        }
+
+        /// Resizing an existing tab across the breakpoint must re-resolve styles, not just
+        /// re-run layout against the cached ones.
+        #[test]
+        fn resizing_across_the_breakpoint_restyles() {
+            let mut ctx = context_at_width(400);
+            assert!((ctx.page_height() - 100.0).abs() < 1.0);
+
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 300,
+            });
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(
+                (ctx.page_height() - 1000.0).abs() < 1.0,
+                "after widening: expected ~1000, got {}",
+                ctx.page_height()
+            );
+
+            // And back again.
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(
+                (ctx.page_height() - 100.0).abs() < 1.0,
+                "after narrowing: expected ~100, got {}",
+                ctx.page_height()
+            );
         }
     }
 

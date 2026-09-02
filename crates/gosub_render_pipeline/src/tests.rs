@@ -497,4 +497,161 @@ mod rendertree_from_engine {
             other => panic!("expected a px width on ::before, got {other:?}"),
         }
     }
+
+    /// Resolve `#target`'s width with the given viewport installed as the media environment.
+    /// Each test runs on its own thread, so the thread-local environment does not leak.
+    fn width_px_at_viewport(html: &str, width: f32, height: f32) -> f32 {
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width,
+            height,
+            device_width: width,
+            device_height: height,
+            ..Default::default()
+        });
+        width_px_of(html, "target")
+    }
+
+    /// The headline case: a mobile-first stylesheet whose desktop rules live in a `@media`
+    /// block. Before media evaluation existed those rules were dropped when the stylesheet
+    /// was built, so the desktop layout could never appear at any window size.
+    #[test]
+    fn media_block_applies_only_above_its_breakpoint() {
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media (min-width: 768px) {
+                    #target { width: 300px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let narrow = width_px_at_viewport(html, 500.0, 800.0);
+        assert!(
+            (narrow - 100.0).abs() < 0.5,
+            "below the breakpoint: expected 100px, got {narrow}"
+        );
+
+        let wide = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (wide - 300.0).abs() < 0.5,
+            "above the breakpoint: expected 300px, got {wide}"
+        );
+    }
+
+    /// A rule inside a matching `@media` block cascades by its own specificity and source
+    /// position - the block itself adds nothing. Here a later, equally specific rule outside
+    /// the block must win even though the media condition holds.
+    #[test]
+    fn media_block_adds_no_specificity() {
+        let html = r#"
+            <html><head><style>
+                @media (min-width: 768px) {
+                    #target { width: 300px; display: block; }
+                }
+                #target { width: 250px; }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let w = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (w - 250.0).abs() < 0.5,
+            "the later rule should win: expected 250px, got {w}"
+        );
+    }
+
+    /// Nested blocks must both hold, and the rules inside a `@media` still flatten out of an
+    /// enclosing `@layer`.
+    #[test]
+    fn nested_and_layered_media_blocks() {
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media (min-width: 700px) {
+                    @media (max-width: 900px) {
+                        #target { width: 200px; }
+                    }
+                }
+                @layer desktop {
+                    @media (min-width: 1200px) {
+                        #target { width: 400px; }
+                    }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        // Only the inner range matches.
+        let inside = width_px_at_viewport(html, 800.0, 600.0);
+        assert!(
+            (inside - 200.0).abs() < 0.5,
+            "inside both bounds: expected 200px, got {inside}"
+        );
+
+        // Outside the nested range and below the layered one.
+        let between = width_px_at_viewport(html, 1000.0, 600.0);
+        assert!(
+            (between - 100.0).abs() < 0.5,
+            "between the blocks: expected 100px, got {between}"
+        );
+
+        // The rule inside `@layer` + `@media` is reachable.
+        let widest = width_px_at_viewport(html, 1400.0, 600.0);
+        assert!(
+            (widest - 400.0).abs() < 0.5,
+            "layered media block: expected 400px, got {widest}"
+        );
+    }
+
+    /// Non-length features reach the cascade too, and read the environment rather than the
+    /// viewport.
+    #[test]
+    fn prefers_color_scheme_selects_a_rule() {
+        use gosub_css3::media_query::{ColorScheme, MediaEnvironment};
+
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media (prefers-color-scheme: dark) {
+                    #target { width: 300px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        gosub_css3::media_query::set_media_environment(MediaEnvironment {
+            color_scheme: ColorScheme::Dark,
+            ..Default::default()
+        });
+        let dark = width_px_of(html, "target");
+        assert!((dark - 300.0).abs() < 0.5, "dark scheme: expected 300px, got {dark}");
+
+        gosub_css3::media_query::set_media_environment(MediaEnvironment {
+            color_scheme: ColorScheme::Light,
+            ..Default::default()
+        });
+        let light = width_px_of(html, "target");
+        assert!((light - 100.0).abs() < 0.5, "light scheme: expected 100px, got {light}");
+    }
+
+    /// `print`-only rules must not reach a screen render.
+    #[test]
+    fn print_only_rules_are_inert_on_screen() {
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media print {
+                    #target { width: 999px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let w = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "print rules must not apply: expected 100px, got {w}"
+        );
+    }
 }

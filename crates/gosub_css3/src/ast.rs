@@ -1,6 +1,7 @@
 use cow_utils::CowUtils;
 use log::warn;
 
+use crate::media_query::MediaQueryList;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
@@ -8,6 +9,7 @@ use crate::stylesheet::{
 };
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
+use std::sync::Arc;
 
 /*
 
@@ -61,10 +63,15 @@ vs
     h4 { color: rebeccapurple; }
 */
 
-fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> CssResult<Option<CssRule>> {
+fn collect_rule(
+    prelude: Option<Box<CssNode>>,
+    block: Option<Box<CssNode>>,
+    media: &[Arc<MediaQueryList>],
+) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
         declarations: vec![],
+        media: (!media.is_empty()).then(|| media.to_vec()),
     };
 
     if let Some(node) = prelude {
@@ -201,12 +208,37 @@ fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> C
     Ok(Some(rule))
 }
 
-fn collect_rules(nodes: Vec<CssNode>, rules: &mut Vec<CssRule>, font_faces: &mut Vec<FontFace>) -> CssResult<()> {
+/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
+///
+/// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
+/// collected while it is non-empty records it and is evaluated against the live
+/// [`MediaEnvironment`](crate::media_query::MediaEnvironment) at match time rather than here.
+fn collect_rules(
+    nodes: Vec<CssNode>,
+    rules: &mut Vec<CssRule>,
+    font_faces: &mut Vec<FontFace>,
+    media: &mut Vec<Arc<MediaQueryList>>,
+) -> CssResult<()> {
     for node in nodes {
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(prelude, block)? {
+                if let Some(rule) = collect_rule(prelude, block, media)? {
                     rules.push(rule);
+                }
+            }
+            NodeType::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+            } if name.eq_ignore_ascii_case("media") => {
+                if let NodeType::Block { children } = block.node_type {
+                    // A missing or unparseable prelude yields an empty (always-matching) list,
+                    // so the block's rules stay visible rather than disappearing.
+                    let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
+                    media.push(Arc::new(list));
+                    let result = collect_rules(children, rules, font_faces, media);
+                    media.pop();
+                    result?;
                 }
             }
             NodeType::AtRule {
@@ -215,7 +247,7 @@ fn collect_rules(nodes: Vec<CssNode>, rules: &mut Vec<CssRule>, font_faces: &mut
                 ..
             } if name.eq_ignore_ascii_case("layer") => {
                 if let NodeType::Block { children } = block.node_type {
-                    collect_rules(children, rules, font_faces)?;
+                    collect_rules(children, rules, font_faces, media)?;
                 }
             }
             NodeType::AtRule {
@@ -336,7 +368,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
 
     let mut sheet = CssStylesheet::new(origin, url);
 
-    collect_rules(children, &mut sheet.rules, &mut sheet.font_faces)?;
+    collect_rules(children, &mut sheet.rules, &mut sheet.font_faces, &mut Vec::new())?;
     Ok(sheet)
 }
 

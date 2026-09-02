@@ -18,6 +18,7 @@ pub mod ast;
 pub mod colors;
 mod functions;
 pub mod matcher;
+pub mod media_query;
 // The as_* accessors panic by contract when called on the wrong node type;
 // callers are expected to check the matching is_* predicate first.
 #[allow(clippy::panic)]
