@@ -61,6 +61,12 @@ struct Args {
     /// Run every file the expectations list covers, instead of naming them on the command line
     #[arg(long)]
     all: bool,
+    /// Read the test paths from a file, one per line (`-` for stdin). Blank lines and lines
+    /// starting with `#` are skipped. The whole corpus does not fit in a command line - 57k
+    /// paths is past ARG_MAX - and splitting the run into batches to get under it would give
+    /// a separate `--report` per batch, so a run that big has to take its list this way.
+    #[arg(long, value_name = "FILE")]
+    tests_from: Option<PathBuf>,
     /// Write an HTML overview of the run - a coverage-report view of the whole corpus.
     #[arg(long)]
     report: Option<PathBuf>,
@@ -518,6 +524,29 @@ fn run_or_expect_error(
     }
 }
 
+/// Read test paths from a file, one per line, or from stdin when the path is `-`.
+///
+/// Blank lines and `#` comments are skipped so a list can carry a note about what it selects,
+/// but nothing else is trimmed: a path may legitimately contain leading or trailing spaces.
+fn read_test_list(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    use std::io::Read as _;
+
+    let text = if path == Path::new("-") {
+        let mut buffer = String::new();
+        std::io::stdin().read_to_string(&mut buffer).context("reading stdin")?;
+        buffer
+    } else {
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+    };
+
+    Ok(text
+        .lines()
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .map(PathBuf::from)
+        .collect())
+}
+
 fn main() -> ExitCode {
     eprintln!(
         "{} v{} — run WPT testharness tests against the gosub DOM",
@@ -534,13 +563,22 @@ fn main() -> ExitCode {
         }
     };
 
-    let tests: Vec<PathBuf> = if args.all {
+    let mut tests: Vec<PathBuf> = if args.all {
         expect.files.iter().map(PathBuf::from).collect()
     } else {
         args.tests.clone()
     };
+    if let Some(list) = args.tests_from.as_deref() {
+        match read_test_list(list) {
+            Ok(from_file) => tests.extend(from_file),
+            Err(e) => {
+                println!("could not read the test list: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
     if tests.is_empty() {
-        println!("no tests given (pass paths, or --all with --expect)");
+        println!("no tests given (pass paths, --tests-from a file, or --all with --expect)");
         return ExitCode::FAILURE;
     }
 

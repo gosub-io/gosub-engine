@@ -49,6 +49,24 @@ That is what `cargo test -p gosub-wpt --test wpt_conformance` runs when `WPT_ROO
 and what the `wpt` CI job runs at the pinned commit. Without `WPT_ROOT` the test skips,
 so an ordinary `cargo test` needs no checkout.
 
+## Running a list of tests
+
+`--tests-from <file>` takes the paths from a file, one per line (`-` reads stdin); blank
+lines and `#` comments are skipped. It is the only way to run a corpus of any size: the
+whole of wpt is ~57k `testharness.js`-eligible files, which is well past `ARG_MAX`, and
+batching the run with `xargs` to get under the limit would write a separate `--report` per
+batch instead of one page for the run.
+
+```bash
+cd "$WPT_ROOT" && find . -name '*.html' | sed 's|^\./||' \
+    | grep -vE '(-ref|-notref)\.html$' | sort > /tmp/all.txt
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --tests-from /tmp/all.txt --report all.html
+```
+
+Two thirds of those files are not testharness suites at all - reftests, the
+`conformance-checkers/` fixtures, manual tests - and report zero subtests. Filtering them
+out first is worth it for both the runtime and the readability of the page.
+
 ## The overview page
 
 `--report page.html` writes a coverage-report view of the whole run: the headline rate, then
