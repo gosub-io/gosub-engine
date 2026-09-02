@@ -152,6 +152,17 @@ fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> C
                 }
             }
         }
+
+        // A compound with no parts matches every element vacuously, so an empty prelude
+        // (e.g. `/*.a, .b*/{ ... }`, where the whole selector list is commented out) would
+        // apply its declarations to the entire document. Per CSS Syntax a style rule with an
+        // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
+        // and the rule with them if nothing is left.
+        selector.parts.retain(|part| !part.is_empty());
+        if selector.parts.is_empty() {
+            return Ok(None);
+        }
+
         rule.selectors.push(selector);
     }
 
@@ -345,6 +356,44 @@ mod tests {
     use super::*;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
+
+    #[test]
+    fn rule_with_fully_commented_out_selector_is_dropped() {
+        // slashdot.org's classic.css ships `/*.a, .b*/{ ... }`. The empty prelude used to
+        // survive as a single empty compound, which matches every element vacuously and
+        // applied `height:64px; position:absolute` to the whole document.
+        let stylesheet = Css3::parse_str(
+            r#"
+            /*#editor header .topic, #firehose article header .topic */{ height: 64px; position: absolute; }
+            h1 { color: red; }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1, "only the h1 rule survives");
+        assert_eq!(stylesheet.rules[0].declarations.first().unwrap().property, "color");
+    }
+
+    #[test]
+    fn selector_list_keeps_every_compound() {
+        let stylesheet = Css3::parse_str(
+            "h3, h4, .foo > .bar { color: red; }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1);
+        assert_eq!(
+            stylesheet.rules[0].selectors.first().unwrap().parts.len(),
+            3,
+            "dropping empty compounds must not drop real ones"
+        );
+    }
 
     #[test]
     fn font_face_rules_are_collected() {
