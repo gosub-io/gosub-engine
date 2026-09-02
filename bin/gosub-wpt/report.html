@@ -1,0 +1,326 @@
+<title>Gosub WPT Conformance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --ground: #f4f6f8;
+    --panel: #ffffff;
+    --line: #dde3ea;
+    --ink: #171c24;
+    --ink-soft: #5a6472;
+    --ink-faint: #8a94a3;
+    --accent: #2382eb;
+    --pass: #2f9e63;
+    --pass-soft: #d7ecdf;
+    --fail: #c0563f;
+    --fail-soft: #f2ddd7;
+    --flag: #b0812a;
+    --radius: 6px;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10141b;
+      --panel: #171c25;
+      --line: #262e3a;
+      --ink: #e6eaf1;
+      --ink-soft: #98a3b3;
+      --ink-faint: #6b7686;
+      --accent: #4d9bf0;
+      --pass: #43b57b;
+      --pass-soft: #1c3a2a;
+      --fail: #d9705a;
+      --fail-soft: #3a2019;
+      --flag: #d0a044;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10141b;
+    --panel: #171c25;
+    --line: #262e3a;
+    --ink: #e6eaf1;
+    --ink-soft: #98a3b3;
+    --ink-faint: #6b7686;
+    --accent: #4d9bf0;
+    --pass: #43b57b;
+    --pass-soft: #1c3a2a;
+    --fail: #d9705a;
+    --fail-soft: #3a2019;
+    --flag: #d0a044;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  header { display: flex; flex-direction: column; gap: 6px; margin-bottom: 28px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+  .sub { color: var(--ink-soft); font-size: 14px; }
+  .sub code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; }
+
+  .summary {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+  .headline { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .pct { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+  .headline .of { color: var(--ink-soft); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+  .bar { height: 12px; border-radius: 99px; overflow: hidden; display: flex; background: var(--line); }
+  .bar span { display: block; height: 100%; }
+  .bar .p { background: var(--pass); }
+  .bar .f { background: var(--fail); }
+
+  .facts { display: flex; flex-wrap: wrap; gap: 26px; }
+  .fact { display: flex; flex-direction: column; gap: 1px; }
+  .fact b { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .fact span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); }
+
+  .controls { display: flex; gap: 10px; align-items: center; margin: 22px 0 10px; flex-wrap: wrap; }
+  input[type="search"] {
+    flex: 1 1 220px;
+    min-width: 180px;
+    padding: 8px 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+  }
+  input[type="search"]:focus-visible, button:focus-visible, .group:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button {
+    padding: 8px 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+
+  .group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 74px 74px 116px 52px;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-bottom: none;
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .group:first-of-type { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
+  .list > :last-child { border-bottom: 1px solid var(--line); border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+  .group:hover { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+  .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .caret { color: var(--ink-faint); font-size: 11px; width: 9px; flex: none; transition: transform 120ms; }
+  .open .caret { transform: rotate(90deg); }
+  .name b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+  .num.p { color: var(--pass); }
+  .num.f { color: var(--fail); }
+  .rate { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+  .files { display: none; border: 1px solid var(--line); border-bottom: none; background: var(--ground); }
+  .open + .files { display: block; }
+  .file {
+    display: grid;
+    grid-template-columns: 1fr 74px 74px 116px 52px;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px 6px 37px;
+    border-top: 1px solid var(--line);
+  }
+  .file:first-child { border-top: none; }
+  .file .path {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file.green .path { color: var(--ink); }
+
+  .flag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: var(--flag);
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+  .legend { color: var(--ink-faint); font-size: 12.5px; margin-top: 18px; line-height: 1.7; }
+  .legend b { color: var(--ink-soft); font-weight: 600; }
+  .empty { padding: 30px 16px; text-align: center; color: var(--ink-faint); font-size: 14px; }
+
+  @media (max-width: 660px) {
+    .group, .file { grid-template-columns: 1fr 56px 96px 46px; }
+    .group .num.f, .file .num.f { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Gosub WPT Conformance</h1>
+    <p class="sub">web-platform-tests <code>__SCOPE__</code> · pinned at <code>__COMMIT__</code> · generated __DATE__</p>
+  </header>
+
+  <section class="summary">
+    <div class="headline">
+      <div class="pct" id="pct"></div>
+      <div class="of" id="of"></div>
+    </div>
+    <div class="bar" id="bar"></div>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <div class="controls">
+    <input type="search" id="filter" placeholder="Filter by path — try “select”, “valueas”, “constraints”" aria-label="Filter suites by path">
+    <button id="byfail" aria-pressed="false">Sort by failures</button>
+    <button id="expand" aria-pressed="false">Expand all</button>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <p class="legend">
+    <b>Harness</b> — the suite ran but its harness did not finish cleanly: it timed out, or aborted.
+    <b>Cannot run</b> — the suite needs a support file outside the sparse checkout, so it never starts.
+    Rates are subtests, not files. Regenerate with
+    <code style="font-family:'JetBrains Mono',monospace;font-size:12px">gosub-wpt &lt;wpt-root&gt; --all --expect … --report page.html</code>.
+  </p>
+</div>
+
+<script>
+  const DATA = __DATA__;
+
+  const groups = new Map();
+  for (const f of DATA.files) {
+    const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "(top level)";
+    if (!groups.has(dir)) groups.set(dir, { dir, files: [], pass: 0, fail: 0 });
+    const g = groups.get(dir);
+    g.files.push(f);
+    g.pass += f.pass;
+    g.fail += f.fail;
+  }
+
+  const totals = { pass: 0, fail: 0, harness: 0, error: 0, green: 0 };
+  for (const f of DATA.files) {
+    totals.pass += f.pass;
+    totals.fail += f.fail;
+    if (f.harness) totals.harness++;
+    if (f.error) totals.error++;
+    if (f.fail === 0 && f.pass > 0) totals.green++;
+  }
+  const rate = n => (n.pass + n.fail) ? Math.round((100 * n.pass) / (n.pass + n.fail)) : 0;
+
+  document.getElementById("pct").textContent = rate(totals) + "%";
+  document.getElementById("pct").style.color = "var(--pass)";
+  document.getElementById("of").textContent =
+    totals.pass.toLocaleString() + " of " + (totals.pass + totals.fail).toLocaleString() + " subtests passing";
+  document.getElementById("bar").innerHTML =
+    '<span class="p" style="width:' + rate(totals) + '%"></span><span class="f" style="width:' + (100 - rate(totals)) + '%"></span>';
+  document.getElementById("facts").innerHTML = [
+    [DATA.files.length, "suites"],
+    [totals.green, "fully passing"],
+    [totals.fail.toLocaleString(), "failing subtests"],
+    [totals.harness, "harness unclean"],
+    [totals.error, "cannot run"],
+  ].map(([n, label]) => '<div class="fact"><b>' + n + "</b><span>" + label + "</span></div>").join("");
+
+  function miniBar(n) {
+    const r = rate(n);
+    return '<div class="bar" style="height:7px"><span class="p" style="width:' + r + '%"></span>' +
+           '<span class="f" style="width:' + (100 - r) + '%"></span></div>';
+  }
+
+  const list = document.getElementById("list");
+  let sortByFail = false;
+  let expandAll = false;
+
+  function render() {
+    const q = document.getElementById("filter").value.trim().toLowerCase();
+    let shown = [...groups.values()]
+      .map(g => ({ ...g, files: q ? g.files.filter(f => f.path.toLowerCase().includes(q)) : g.files }))
+      .filter(g => g.files.length);
+    for (const g of shown) {
+      g.pass = g.files.reduce((a, f) => a + f.pass, 0);
+      g.fail = g.files.reduce((a, f) => a + f.fail, 0);
+    }
+    shown.sort(sortByFail ? (a, b) => b.fail - a.fail : (a, b) => a.dir.localeCompare(b.dir));
+
+    if (!shown.length) {
+      list.innerHTML = '<p class="empty">No suite path matches that.</p>';
+      return;
+    }
+    list.innerHTML = shown.map((g, i) => {
+      const files = g.files.slice().sort((a, b) => b.fail - a.fail).map(f =>
+        '<div class="file' + (f.fail === 0 && f.pass > 0 ? " green" : "") + '">' +
+          '<div class="path" title="' + f.path + '">' + f.path.slice(f.path.lastIndexOf("/") + 1) +
+            (f.error ? '<span class="flag">cannot run</span>' : f.harness ? '<span class="flag">harness</span>' : "") +
+          "</div>" +
+          '<div class="num p">' + (f.pass || "") + "</div>" +
+          '<div class="num f">' + (f.fail || "") + "</div>" +
+          miniBar(f) +
+          '<div class="rate">' + (f.pass + f.fail ? rate(f) + "%" : "—") + "</div>" +
+        "</div>"
+      ).join("");
+      return '<button class="group' + (expandAll ? " open" : "") + '" data-i="' + i + '" aria-expanded="' + expandAll + '">' +
+        '<div class="name"><span class="caret">▶</span><b>' + g.dir + "</b></div>" +
+        '<div class="num p">' + g.pass + "</div>" +
+        '<div class="num f">' + g.fail + "</div>" +
+        miniBar(g) +
+        '<div class="rate">' + rate(g) + "%</div>" +
+      "</button>" +
+      '<div class="files">' + files + "</div>";
+    }).join("");
+  }
+
+  list.addEventListener("click", e => {
+    const group = e.target.closest(".group");
+    if (!group) return;
+    const open = group.classList.toggle("open");
+    group.setAttribute("aria-expanded", String(open));
+  });
+  document.getElementById("filter").addEventListener("input", render);
+  document.getElementById("byfail").addEventListener("click", e => {
+    sortByFail = !sortByFail;
+    e.currentTarget.setAttribute("aria-pressed", String(sortByFail));
+    render();
+  });
+  document.getElementById("expand").addEventListener("click", e => {
+    expandAll = !expandAll;
+    e.currentTarget.setAttribute("aria-pressed", String(expandAll));
+    render();
+  });
+  render();
+</script>
