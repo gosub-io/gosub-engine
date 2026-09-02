@@ -319,7 +319,7 @@ fn place_floats_in(
             FloatSide::Right => ctx.right.push(band),
         }
 
-        shift_subtree(layout_tree, child_id, placed_x - margin_box.x, y - margin_box.y);
+        layout_tree.shift_subtree(child_id, placed_x - margin_box.x, y - margin_box.y);
 
         // Record the area in-flow content must avoid. Backgrounds paint the border box and a
         // negative margin can shrink the margin box below it, so exclude the union of the two.
@@ -393,7 +393,7 @@ fn apply_clear(
         return;
     }
 
-    shift_subtree(layout_tree, child_id, 0.0, delta);
+    layout_tree.shift_subtree(child_id, 0.0, delta);
     shift_following_siblings(layout_tree, child_id, delta);
     if let Some(parent) = layout_tree.arena.get(&child_id).and_then(|el| el.parent) {
         grow_and_propagate(doc, layout_tree, parent, delta);
@@ -452,38 +452,8 @@ fn shift_following_siblings(layout_tree: &mut LayoutTree, id: LayoutElementId, d
         return;
     };
     for &sibling in &siblings[pos + 1..] {
-        shift_subtree(layout_tree, sibling, 0.0, delta);
+        layout_tree.shift_subtree(sibling, 0.0, delta);
     }
-}
-
-/// Move an element and everything under it by `(dx, dy)`. Box models hold absolute coordinates,
-/// so a float that moves takes its whole subtree with it.
-fn shift_subtree(layout_tree: &mut LayoutTree, id: LayoutElementId, dx: f64, dy: f64) {
-    if dx == 0.0 && dy == 0.0 {
-        return;
-    }
-
-    let mut stack = vec![id];
-    while let Some(current) = stack.pop() {
-        let Some(el) = layout_tree.arena.get_mut(&current) else {
-            continue;
-        };
-        let bm = &mut el.box_model;
-        for rect in [
-            &mut bm.content_box,
-            &mut bm.padding_box,
-            &mut bm.border_box,
-            &mut bm.margin_box,
-        ] {
-            shift_rect(rect, dx, dy);
-        }
-        stack.extend(el.children.iter().copied());
-    }
-}
-
-fn shift_rect(rect: &mut Rect, dx: f64, dy: f64) {
-    rect.x += dx;
-    rect.y += dy;
 }
 
 /// The line-box geometry a block needs in order to clear the floats beside it, as

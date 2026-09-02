@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::Arc;
 
+pub mod abspos;
 mod box_model;
 mod css_taffy_converter;
 pub mod float;
@@ -179,6 +180,35 @@ pub struct LayoutTree {
 }
 
 impl LayoutTree {
+    /// Move an element and everything under it by `(dx, dy)`.
+    ///
+    /// Box models hold absolute page coordinates, so a box that moves after layout - a float being
+    /// placed, an absolutely positioned box being re-resolved against its real containing block -
+    /// has to take its whole subtree with it.
+    pub(crate) fn shift_subtree(&mut self, id: LayoutElementId, dx: f64, dy: f64) {
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+
+        let mut stack = vec![id];
+        while let Some(current) = stack.pop() {
+            let Some(el) = self.arena.get_mut(&current) else {
+                continue;
+            };
+            let bm = &mut el.box_model;
+            for rect in [
+                &mut bm.content_box,
+                &mut bm.padding_box,
+                &mut bm.border_box,
+                &mut bm.margin_box,
+            ] {
+                rect.x += dx;
+                rect.y += dy;
+            }
+            stack.extend(el.children.iter().copied());
+        }
+    }
+
     pub fn get_node_by_id(&self, node_id: LayoutElementId) -> Option<&LayoutElementNode> {
         self.arena.get(&node_id)
     }

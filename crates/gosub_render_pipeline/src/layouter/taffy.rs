@@ -8,6 +8,7 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
+use crate::layouter::abspos::post_process_abspos;
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::float::{line_box_insets, post_process_floats};
@@ -399,6 +400,13 @@ impl TaffyLayouter {
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(&mut layout_tree);
+        // Last: an absolutely positioned box is measured from its containing block's *final*
+        // position, so every ancestor - tables and floats included - must have settled first.
+        let icb = viewport.unwrap_or(geo::Dimension::new(
+            layout_tree.root_dimension.width,
+            layout_tree.root_dimension.height,
+        ));
+        post_process_abspos(&mut layout_tree, icb);
 
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
