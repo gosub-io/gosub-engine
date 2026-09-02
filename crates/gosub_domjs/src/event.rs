@@ -297,12 +297,12 @@ fn propagation_path<'js>(ctx: &Ctx<'js>, doc: &DocHandle, target: NodeId) -> Res
     Ok(path)
 }
 
-/// Which listeners run at this step: only capture ones, only bubble ones, or both.
+/// Which listeners run at this step. Every phase, the target included, picks one of the two:
+/// nothing ever runs capture and bubble listeners together.
 #[derive(Clone, Copy, PartialEq)]
 enum Which {
     Capture,
     Bubble,
-    Both,
 }
 
 fn run_listeners<'js>(
@@ -328,7 +328,6 @@ fn run_listeners<'js>(
                     && match which {
                         Which::Capture => e.capture,
                         Which::Bubble => !e.capture,
-                        Which::Both => true,
                     }
             })
             .map(|(index, _)| index)
@@ -394,8 +393,15 @@ pub fn dispatch<'js>(
         run_listeners(ctx, &event, entry, Which::Capture, PHASE_CAPTURING)?;
     }
 
+    // At the target the spec invokes the node twice - once on the way down, once on the way
+    // back up - so its capture listeners run before its bubble ones however they were
+    // registered. Running them together in registration order instead would reverse the pair
+    // whenever a bubble listener was added first.
     if !event.borrow().stopped {
-        run_listeners(ctx, &event, &path[0], Which::Both, PHASE_AT_TARGET)?;
+        run_listeners(ctx, &event, &path[0], Which::Capture, PHASE_AT_TARGET)?;
+    }
+    if !event.borrow().stopped_immediately {
+        run_listeners(ctx, &event, &path[0], Which::Bubble, PHASE_AT_TARGET)?;
     }
 
     if event.borrow().bubbles {
@@ -414,6 +420,14 @@ pub fn dispatch<'js>(
 }
 
 /// Pin every argument of a closure to the same `'js` lifetime - see `timers::schedule_fn`.
+/// Same lifetime-pinning trick as `add_fn`, for the one-argument dispatch binding.
+fn dispatch_fn<F>(f: F) -> F
+where
+    F: for<'js> Fn(Ctx<'js>, Class<'js, DomEvent<'js>>) -> Result<bool>,
+{
+    f
+}
+
 fn add_fn<F>(f: F) -> F
 where
     F: for<'js> Fn(Ctx<'js>, String, Function<'js>, Opt<Value<'js>>) -> Result<()>,
@@ -422,6 +436,32 @@ where
 }
 
 /// Install `Event` plus the global object's own `EventTarget` methods.
+/// `self.dispatchEvent(...)`: the global object is a listener target in its own right, but it
+/// is not a node, so it has no propagation path - the event is at its target immediately and
+/// nothing captures or bubbles past it.
+pub fn dispatch_at_window<'js>(ctx: &Ctx<'js>, event: Class<'js, DomEvent<'js>>) -> Result<bool> {
+    let entry = PathEntry {
+        key: WINDOW_KEY,
+        value: ctx.globals().into_value(),
+    };
+    {
+        let mut event_mut = event.borrow_mut();
+        event_mut.target = Some(entry.value.clone());
+        event_mut.stopped = false;
+        event_mut.stopped_immediately = false;
+    }
+
+    run_listeners(ctx, &event, &entry, Which::Capture, PHASE_AT_TARGET)?;
+    if !event.borrow().stopped_immediately {
+        run_listeners(ctx, &event, &entry, Which::Bubble, PHASE_AT_TARGET)?;
+    }
+
+    let mut event_mut = event.borrow_mut();
+    event_mut.phase = PHASE_NONE;
+    event_mut.current_target = None;
+    Ok(!event_mut.canceled)
+}
+
 pub fn install(ctx: &Ctx<'_>) -> Result<()> {
     let globals = ctx.globals();
     globals.set(
@@ -441,6 +481,10 @@ pub fn install(ctx: &Ctx<'_>) -> Result<()> {
         rquickjs::prelude::Func::from(add_fn(|ctx, event_type, callback, options| {
             remove(&ctx, WINDOW_KEY, &event_type, &callback, options)
         })),
+    )?;
+    globals.set(
+        "dispatchEvent",
+        rquickjs::prelude::Func::from(dispatch_fn(|ctx, event| dispatch_at_window(&ctx, event))),
     )?;
     Ok(())
 }

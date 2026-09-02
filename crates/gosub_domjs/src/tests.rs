@@ -177,3 +177,82 @@ fn click_reaches_a_listener_on_an_ancestor() {
     );
     assert_eq!(seen, "BUTTON");
 }
+
+#[test]
+fn get_elements_by_tag_name_takes_the_wildcard() {
+    // "*" is every element, not an element whose tag name is literally "*".
+    let value = eval(
+        "<div><p>a</p><span>b</span></div>",
+        "[document.getElementsByTagName('*').length, \
+          document.getElementById('d') ? 0 : document.body.getElementsByTagName('*').length].join(',')",
+    );
+    let (all, in_body) = value.split_once(',').expect("two counts");
+    // html, head, body, div, p, span - the document form must see more than the body form.
+    assert!(all.parse::<u32>().expect("all") >= 6, "document-scoped saw {all}");
+    assert_eq!(in_body, "3", "body-scoped should see div, p, span");
+}
+
+#[test]
+fn setting_text_content_detaches_children_rather_than_freeing_them() {
+    // A test that holds a child across the assignment must still be able to read it.
+    let value = eval(
+        "<div id=host><span id=kid>keep</span></div>",
+        "const kid = document.getElementById('kid'); \
+         document.getElementById('host').textContent = 'replaced'; \
+         kid.textContent + '|' + document.getElementById('host').textContent",
+    );
+    assert_eq!(value, "keep|replaced");
+}
+
+#[test]
+fn a_repeated_id_in_one_compound_matches_nothing() {
+    // #a#b is legal CSS and can never match: an element has a single id.
+    let value = eval(
+        "<div id=first></div><div id=second></div>",
+        "String(document.querySelector('#first#second'))",
+    );
+    assert_eq!(value, "null");
+}
+
+#[test]
+fn timer_delays_and_ids_are_coerced_like_javascript() {
+    // setTimeout(f, "0") is a number after ToNumber, and clearTimeout accepts the id as a
+    // string. Both answered None before, so the delay became 0 and the clear did nothing.
+    let value = eval_after_timers(
+        "<div></div>",
+        "globalThis.log = ''; \
+         setTimeout(() => { globalThis.log += 'late'; }, '20'); \
+         const id = setTimeout(() => { globalThis.log += 'cancelled'; }, '10'); \
+         clearTimeout(String(id));",
+        "globalThis.log",
+    );
+    assert_eq!(value, "late");
+}
+
+#[test]
+fn the_target_runs_capture_listeners_before_bubble_listeners() {
+    // Registration order is bubble-then-capture; the spec invokes the target twice, so
+    // capture still has to run first.
+    let value = eval_after_timers(
+        "<div id=target></div>",
+        "globalThis.log = ''; \
+         const el = document.getElementById('target'); \
+         el.addEventListener('x', () => { globalThis.log += 'bubble'; }, false); \
+         el.addEventListener('x', () => { globalThis.log += 'capture'; }, true); \
+         el.dispatchEvent(new Event('x'));",
+        "globalThis.log",
+    );
+    assert_eq!(value, "capturebubble");
+}
+
+#[test]
+fn the_global_object_can_dispatch_to_its_own_listeners() {
+    let value = eval_after_timers(
+        "<div></div>",
+        "globalThis.log = ''; \
+         self.addEventListener('x', () => { globalThis.log += 'heard'; }); \
+         globalThis.result = String(self.dispatchEvent(new Event('x')));",
+        "globalThis.log + ':' + globalThis.result",
+    );
+    assert_eq!(value, "heard:true");
+}

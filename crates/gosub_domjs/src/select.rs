@@ -12,7 +12,9 @@ use crate::Doc;
 
 pub struct Compound {
     tag: Option<String>,
-    id: Option<String>,
+    /// Every `#id` in the compound, not just the last. `#a#b` is legal CSS that simply never
+    /// matches, since an element has one id - keeping only the last would make it match `#b`.
+    ids: Vec<String>,
     classes: Vec<String>,
 }
 
@@ -24,7 +26,7 @@ pub fn parse(selector: &str) -> Result<Compound, String> {
 
     let mut compound = Compound {
         tag: None,
-        id: None,
+        ids: Vec::new(),
         classes: Vec::new(),
     };
     let mut rest = selector;
@@ -43,7 +45,7 @@ pub fn parse(selector: &str) -> Result<Compound, String> {
             return Err(format!("unsupported selector: {selector:?}"));
         }
         match kind {
-            '#' => compound.id = Some(name.to_string()),
+            '#' => compound.ids.push(name.to_string()),
             _ => compound.classes.push(name.to_string()),
         }
         rest = &body[end..];
@@ -62,12 +64,11 @@ pub fn matches(doc: &Doc, id: NodeId, compound: &Compound) -> bool {
     {
         return false;
     }
-    if compound
-        .id
-        .as_ref()
-        .is_some_and(|want| doc.attribute(id, "id") != Some(want))
-    {
-        return false;
+    if !compound.ids.is_empty() {
+        let have = doc.attribute(id, "id");
+        if !compound.ids.iter().all(|want| have == Some(want)) {
+            return false;
+        }
     }
     compound.classes.iter().all(|class| doc.has_class(id, class))
 }

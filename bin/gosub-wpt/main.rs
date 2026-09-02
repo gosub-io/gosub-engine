@@ -101,8 +101,9 @@ impl Expectations {
             match line.split_once(' ') {
                 Some(("FILE", rest)) => out.files.push(rest.to_string()),
                 Some(("ERROR", rest)) => {
+                    // A FILE record is written alongside, so only note that it errors -
+                    // pushing here too would run the suite twice under --all.
                     out.erroring.insert(rest.to_string());
-                    out.files.push(rest.to_string());
                 }
                 Some(("FAIL", rest)) => {
                     out.failing.insert(rest.to_string());
@@ -511,6 +512,11 @@ fn run_or_expect_error(
         }
         Err(e) => {
             if record {
+                // FILE as well as ERROR: the FILE records are what names the covered set, so
+                // a suite that only ever errors still has to appear among them. Without it,
+                // regenerating from the file's own FILE lines drops the suite silently and
+                // coverage shrinks a little every time.
+                println!("FILE {key}");
                 println!("ERROR {key}");
                 return (true, row(0, 0, false, true));
             }
@@ -585,10 +591,19 @@ fn main() -> ExitCode {
     let mut all_ok = true;
     let mut rows = Vec::with_capacity(tests.len());
     for test in &tests {
-        let path = if test.is_absolute() || test.exists() {
+        // A relative path means "inside the wpt root", so try there first. Taking it as
+        // given whenever it happened to exist in the working directory let a same-named
+        // local file shadow the real suite, and its scripts would then resolve against the
+        // wrong directory - only to fall back to the cwd when the root has no such file.
+        let path = if test.is_absolute() {
             test.clone()
         } else {
-            args.wpt_root.join(test)
+            let in_root = args.wpt_root.join(test);
+            if in_root.exists() {
+                in_root
+            } else {
+                test.clone()
+            }
         };
         let (ok, row) = run_or_expect_error(&args.wpt_root, &path, args.verbose, &expect, args.write_expectations);
         all_ok &= ok;

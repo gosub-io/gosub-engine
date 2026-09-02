@@ -69,7 +69,8 @@ impl GosubDocument {
         let root = doc.root();
         let found: Vec<NodeId> = select::descendants(&doc, root)
             .into_iter()
-            .filter(|&id| doc.tag_name(id).is_some_and(|tag| tag.eq_ignore_ascii_case(&name)))
+            // "*" is the wildcard: every element, not an element whose tag is literally "*".
+            .filter(|&id| name == "*" || doc.tag_name(id).is_some_and(|tag| tag.eq_ignore_ascii_case(&name)))
             .collect();
         drop(doc);
         wrap_list(&ctx, &self.doc, &found)

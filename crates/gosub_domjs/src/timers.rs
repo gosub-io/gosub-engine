@@ -8,8 +8,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rquickjs::prelude::{Func, Opt, Rest};
-use rquickjs::{Array, Ctx, Function, Object, Result, Value};
+use rquickjs::prelude::{Coerced, Func, Opt, Rest};
+use rquickjs::{Array, Ctx, FromJs, Function, Object, Result, Value};
 
 /// Callbacks live in a JS object rather than in Rust so the GC keeps them alive.
 const CALLBACKS: &str = "__gosub_timer_callbacks";
@@ -111,14 +111,23 @@ where
 
 /// testharness passes `null` for both delays and timer ids, which is not the same thing as
 /// omitting the argument - take the raw value and coerce it here.
+///
+/// Coercion is ECMAScript `ToNumber`, not rquickjs's `as_number`: a page is entitled to say
+/// `setTimeout(f, "100")` or `clearTimeout(someStringId)`, and `as_number` answers `None` for
+/// both, which would silently turn the delay into 0 and make the clear a no-op. `NaN` is
+/// treated as absent, the way `ToNumber` failure is everywhere else here.
 fn as_number(value: Opt<Value<'_>>) -> Option<f64> {
     let value = value.0?;
-    value.as_number().or_else(|| value.as_int().map(f64::from))
+    let ctx = value.ctx().clone();
+    let Ok(Coerced(number)) = FromJs::from_js(&ctx, value) else {
+        return None;
+    };
+    (!f64::is_nan(number)).then_some(number)
 }
 
-fn clear_fn<F>(f: F) -> F
+fn clear_ctx_fn<F>(f: F) -> F
 where
-    F: for<'js> Fn(Opt<Value<'js>>),
+    F: for<'js> Fn(Ctx<'js>, Opt<Value<'js>>),
 {
     f
 }
@@ -148,10 +157,17 @@ pub fn install(ctx: &Ctx<'_>, timers: &Timers) -> Result<()> {
     globals.set("setTimeout", Func::from(set_timer(timers.clone(), false)))?;
     globals.set("setInterval", Func::from(set_timer(timers.clone(), true)))?;
 
+    // Cancelling has to drop the stored callback too: the timer goes out of TimerState but
+    // its entry in CALLBACKS would otherwise pin the function and its arguments for the life
+    // of the context, and a page that sets and clears in a loop leaks every one of them.
     let clear = |timers: Timers| {
-        clear_fn(move |id| {
+        clear_ctx_fn(move |ctx: Ctx<'_>, id| {
             if let Some(id) = as_number(id) {
-                timers.borrow_mut().cancel(id as u32);
+                let id = id as u32;
+                timers.borrow_mut().cancel(id);
+                if let Ok(callbacks) = ctx.globals().get::<_, Object<'_>>(CALLBACKS) {
+                    let _ = callbacks.remove(id);
+                }
             }
         })
     };

@@ -330,7 +330,6 @@ FAIL dom/events/EventTarget-dispatchEvent.html :: If the event's initialized fla
 FAIL dom/events/EventTarget-dispatchEvent.html :: If the event's initialized flag is not set, an InvalidStateError must be thrown (UIEvents).
 FAIL dom/events/EventTarget-dispatchEvent.html :: If the event's dispatch flag is set, an InvalidStateError must be thrown.
 FAIL dom/events/EventTarget-dispatchEvent.html :: Exceptions from event listeners must not be propagated.
-FAIL dom/events/EventTarget-dispatchEvent.html :: Capturing event listeners should be called before non-capturing ones
 FILE dom/events/EventTarget-dispatchEvent-returnvalue.html
 FAIL dom/events/EventTarget-dispatchEvent-returnvalue.html :: Return value of EventTarget.dispatchEvent() affected by preventDefault().
 FAIL dom/events/EventTarget-dispatchEvent-returnvalue.html :: Return value of EventTarget.dispatchEvent() affected by returnValue.
@@ -459,17 +458,11 @@ FILE dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-wind
 HARNESS dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-window.html
 FILE dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic wheel event with interface WheelEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic wheel event with interface Event is not cancelable
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic mousewheel event with interface WheelEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic mousewheel event with interface Event is not cancelable
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchstart event with interface TouchEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchstart event with interface Event is not cancelable
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchmove event with interface TouchEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchmove event with interface Event is not cancelable
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchend event with interface TouchEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchend event with interface Event is not cancelable
 FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchcancel event with interface TouchEvent is not cancelable
-FAIL dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html :: Synthetic touchcancel event with interface Event is not cancelable
 FILE dom/events/pointer-event-document-move.html
 HARNESS dom/events/pointer-event-document-move.html
 FILE dom/events/preventDefault-during-activation-behavior.html
@@ -519,6 +512,7 @@ FILE dom/events/scrolling/scrollend-event-fired-to-window.html
 HARNESS dom/events/scrolling/scrollend-event-fired-to-window.html
 FILE dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html
 HARNESS dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html
+FILE dom/events/scrolling/scrollend-event-fires-on-visual-viewport.html
 ERROR dom/events/scrolling/scrollend-event-fires-on-visual-viewport.html
 FILE dom/events/scrolling/scrollend-event-fires-to-iframe-inner-frame.html
 HARNESS dom/events/scrolling/scrollend-event-fires-to-iframe-inner-frame.html
@@ -705,6 +699,7 @@ FAIL html/dom/documents/dom-tree-accessors/Document.body.html :: Setting documen
 FAIL html/dom/documents/dom-tree-accessors/Document.body.html :: Setting document.body to a frameset will replace an existing body if there is one.
 FAIL html/dom/documents/dom-tree-accessors/Document.body.html :: Setting document.body to a frameset will replace the first existing body/frameset.
 FAIL html/dom/documents/dom-tree-accessors/Document.body.html :: Setting document.body to a new body element when the root element is a test element.
+FILE html/dom/documents/dom-tree-accessors/Document.currentScript.html
 ERROR html/dom/documents/dom-tree-accessors/Document.currentScript.html
 FILE html/dom/documents/dom-tree-accessors/document.embeds-document.plugins-01.html
 FAIL html/dom/documents/dom-tree-accessors/document.embeds-document.plugins-01.html :: No plugins
@@ -1492,6 +1487,7 @@ FAIL html/dom/elements/global-attributes/translate-non-html-translation-mode.htm
 FAIL html/dom/elements/global-attributes/translate-non-html-translation-mode.html :: Non-HTML elements inherit their parent's no-translation state
 FILE html/dom/elements/images/bypass-cache-revalidation.html
 FAIL html/dom/elements/images/bypass-cache-revalidation.html :: Images can bypass no-cache
+FILE html/dom/elements/name-content-attribute-and-property.html
 ERROR html/dom/elements/name-content-attribute-and-property.html
 FILE html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
 HARNESS html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
@@ -1860,6 +1856,7 @@ FAIL html/dom/historical.html :: <nolayer> is HTMLUnknownElement
 FAIL html/dom/historical.html :: document.all cannot find applet
 FAIL html/dom/historical.html :: applet is not styled
 FAIL html/dom/historical.html :: HashChangeEvent's initHashChangeEvent method is removed
+FILE html/dom/idlharness.https.html
 ERROR html/dom/idlharness.https.html
 FILE html/dom/partial-updates/tentative/chained-streaming-templates-with-custom-element.html
 FAIL html/dom/partial-updates/tentative/chained-streaming-templates-with-custom-element.html :: Chained streaming templates and OwnerDocument
@@ -2079,4 +2076,5 @@ FILE html/dom/resources/self-origin-subframe.html
 HARNESS html/dom/resources/self-origin-subframe.html
 FILE html/dom/self-origin.sub.html
 FAIL html/dom/self-origin.sub.html :: Assigning blob url
+FILE html/dom/usvstring-reflection.https.html
 ERROR html/dom/usvstring-reflection.https.html
