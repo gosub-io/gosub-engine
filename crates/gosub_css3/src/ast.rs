@@ -300,11 +300,22 @@ fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
                 }
             }
             "src" => {
+                // `src` is a descriptor, so a later declaration replaces an earlier one rather
+                // than adding to it. The "bulletproof @font-face" idiom depends on that: it puts
+                // a bare `src: url(...eot)` first for IE<9 and a full `src:` list after it for
+                // everyone else. Appending instead of replacing leaves the IE-only EOT at the
+                // head of the list, where it is fetched and rejected before any usable format.
+                let mut entries: Vec<(String, Option<String>)> = Vec::new();
                 for n in value_nodes {
                     if let Ok(v) = CssValue::parse_ast_node(n) {
-                        collect_src_urls(&v, &mut sources);
+                        collect_src_entries(&v, &mut entries);
                     }
                 }
+                sources = entries
+                    .into_iter()
+                    .filter(|(_, format)| format.as_deref().is_none_or(font_format_is_usable))
+                    .map(|(url, _)| url)
+                    .collect();
             }
             "unicode-range" => {
                 // Reconstruct the raw range list; consumers scan it for `U+xxxx` tokens, so
@@ -338,8 +349,18 @@ fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
     })
 }
 
-/// Recursively collect `url(...)` targets from an `@font-face` `src` value.
-fn collect_src_urls(value: &CssValue, out: &mut Vec<String>) {
+/// Whether a `format()` hint names something the font backends can actually decode.
+///
+/// Only the two formats no backend here reads are rejected: `embedded-opentype` (EOT, an IE-only
+/// container) and `svg` (SVG fonts, long dropped from every engine). An unrecognised hint is kept
+/// and tried, so a format we have not heard of never costs us a usable face.
+fn font_format_is_usable(format: &str) -> bool {
+    !matches!(format, "embedded-opentype" | "svg")
+}
+
+/// Recursively collect `url(...)` targets from an `@font-face` `src` value, each paired with the
+/// `format(...)` hint that follows it, if any.
+fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>) {
     match value {
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("url") => {
             if let Some(url) = args.iter().find_map(|a| match a {
@@ -347,13 +368,23 @@ fn collect_src_urls(value: &CssValue, out: &mut Vec<String>) {
                 _ => None,
             }) {
                 if !url.is_empty() {
-                    out.push(url);
+                    out.push((url, None));
                 }
+            }
+        }
+        // A `format()` always follows the url it describes, so it belongs to the last one seen.
+        CssValue::Function(name, args) if name.eq_ignore_ascii_case("format") => {
+            let hint = args.iter().find_map(|a| match a {
+                CssValue::String(s) => Some(s.trim_matches(['"', '\'']).cow_to_ascii_lowercase().into_owned()),
+                _ => None,
+            });
+            if let (Some(hint), Some(last)) = (hint, out.last_mut()) {
+                last.1 = Some(hint);
             }
         }
         CssValue::List(list) => {
             for item in list {
-                collect_src_urls(item, out);
+                collect_src_entries(item, out);
             }
         }
         _ => {}
@@ -443,6 +474,57 @@ mod tests {
                 .any(|p| matches!(p, CssSelectorPart::PseudoClass(n) if n == "hover")),
             "a real pseudo-class must stay one, got {parts:?}"
         );
+    }
+
+    #[test]
+    fn bulletproof_font_face_drops_the_ie_only_sources() {
+        // slashdot's sdicon face, in the "bulletproof @font-face" shape: a bare EOT `src` for
+        // IE<9 followed by a full list. The second `src` replaces the first, and the EOT and SVG
+        // entries are dropped by their format hints, so the first source tried is one that works.
+        let stylesheet = Css3::parse_str(
+            r#"
+            @font-face {
+              font-family: 'sdicon';
+              src: url("//example.org/sdicon.eot");
+              src: url("//example.org/sdicon.eot#iefix") format("embedded-opentype"),
+                   url("//example.org/sdicon.woff") format("woff"),
+                   url("//example.org/sdicon.ttf") format("truetype"),
+                   url("//example.org/sdicon.svg#sdicon") format("svg");
+            }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let face = &stylesheet.font_faces[0];
+        assert_eq!(face.family, "sdicon");
+        assert_eq!(
+            face.sources,
+            vec!["//example.org/sdicon.woff", "//example.org/sdicon.ttf"]
+        );
+    }
+
+    #[test]
+    fn sources_without_a_format_hint_are_kept() {
+        // No hint means no reason to reject it, and an unrecognised hint is tried too.
+        let stylesheet = Css3::parse_str(
+            r#"
+            @font-face {
+              font-family: 'x';
+              src: url("a.woff2") format("woff2"),
+                   url("b.ttf"),
+                   url("c.bin") format("some-future-format");
+            }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.font_faces[0].sources, vec!["a.woff2", "b.ttf", "c.bin"]);
     }
 
     #[test]
