@@ -780,7 +780,16 @@ impl TaffyLayouter {
         // Trailing whitespace (e.g. "\n" after the last text node inside a <p>) would otherwise
         // produce an empty flex row in the anonymous container, adding a spurious blank line.
         let mut trailing_ws_count = 0usize;
-        let render_node_children = render_node.children.clone();
+        // An inline `<svg>` is a replaced element: usvg has already parsed the whole subtree and
+        // the painter draws the graphic from that tree, so laying the children out again would
+        // both duplicate them and stop taffy seeing the `<svg>` as a leaf - and a non-leaf never
+        // has its measure function called, which is the only thing that gives the element its
+        // intrinsic size. Without this the graphic collapses to nothing unless CSS sizes it.
+        let render_node_children = if matches!(element_node.context, ElementContext::Svg(_)) {
+            Vec::new()
+        } else {
+            render_node.children.clone()
+        };
 
         // A "mixed" inline run - a (non-flex/grid) element with at least one inline-level *element*
         // child, not just text - needs its text nodes split into per-word boxes so text flows and
