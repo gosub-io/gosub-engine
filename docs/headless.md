@@ -37,7 +37,7 @@ The tool runs three phases:
 
 1.  **Wait for content** --- spin on the event stream until `NavigationEvent::Finished`, then wait for the first redraw signal after that (the first frame that actually contains the page). Both waits have timeouts (`--nav-timeout`, `--render-timeout`).
 2.  **Obtain the tile cache** --- ask the compositor for the tab's latest frame (`compositor.frame_for(tab_id) -> Option<ExternalHandle>`, with `ExternalHandle` in `gosub_render_pipeline::render::backend`) and expect an `ExternalHandle::TileCache { tiles, page_height, dpr, scroll_x, scroll_y, .. }`, which carries the tiles, the laid-out `page_height`, and the scroll offset the engine rendered at. A 1-px synthetic scroll (`TabCommand::MouseScroll`) nudges the engine into publishing a fresh tile-cache frame if needed.
-3.  **Composite** --- allocate an opaque-white RGBA buffer at `viewport_width × page_height` and blend every tile into it. This is a miniature version of what every host compositor does (see [layering-and-compositing.md](render-pipeline/layering-and-compositing.md)). A windowed UA that only needs the *visible* region can skip writing this itself: `gosub_render_pipeline::render::composite_tiles(&tiles, dpr, (scroll_x, scroll_y), &mut TileTarget { buf, stride, origin_x, origin_y, width, height })` composites the tiles into a `&mut [u32]` 0RGB buffer (the layout softbuffer and most CPU presenters use) --- see `examples/winit-skia/main.rs`. The screenshot tool does the full-page version by hand:
+3.  **Composite** --- allocate an opaque-white RGBA buffer at `viewport_width × page_height` (or `--min-height`, whichever is taller) and blend every tile into it. This is a miniature version of what every host compositor does (see [layering-and-compositing.md](render-pipeline/layering-and-compositing.md)). A windowed UA that only needs the *visible* region can skip writing this itself: `gosub_render_pipeline::render::composite_tiles(&tiles, dpr, (scroll_x, scroll_y), &mut TileTarget { buf, stride, origin_x, origin_y, width, height })` composites the tiles into a `&mut [u32]` 0RGB buffer (the layout softbuffer and most CPU presenters use) --- see `examples/winit-skia/main.rs`. The screenshot tool does the full-page version by hand:
     -   normalize the tile's pixel format to RGBA via `PixelFormat::to_rgba` (tiles are self-describing; Skia produces premultiplied `[B,G,R,A]`);
     -   scale by the tile's layer **group opacity** (a translucent navbar fades as a unit);
     -   **source-over blend** into the buffer rather than overwrite --- a promoted `position: fixed` layer's transparent tile regions must reveal the rows already composited beneath, not erase them.
@@ -50,6 +50,17 @@ Scroll anchors are irrelevant here because the capture is the full page at scrol
 gosub-screenshot <url> [output.png] [width]
     --nav-timeout <s>      wait for navigation (default 30)
     --render-timeout <s>   wait for first render after navigation (default 120)
+    --settle <s>           extra wait after the first render, so async media
+                           decodes and repaints before the capture (default 0)
+    --min-height <px>      capture at least this tall (default 0 - the page's
+                           own flow height)
+    --timings              print the per-stage pipeline timing table
 ```
+
+`--min-height` matters for comparison rendering: the capture is otherwise cut at the
+page's flow height, so absolutely-positioned content below it - which WPT reftest
+references routinely have - is lost, and the comparison fails for the wrong reason. Pass
+the comparison canvas height. The composited buffer is capped at 1 GiB; above that the
+capture is refused rather than truncated.
 
 `https://` is prepended when the URL has no scheme. The build embeds the git SHA and date via `build.rs` (`gosub-screenshot --version`).
