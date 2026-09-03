@@ -501,6 +501,50 @@ mod rendertree_from_engine {
         }
     }
 
+    /// The initial containing block sits at the canvas origin, not inside the root's padding.
+    ///
+    /// It used to be anchored on the root element's *content* box, so any padding on the root
+    /// pushed it inwards and `top: 0; left: 0` on an unanchored absolute box - or on anything
+    /// `fixed` - missed the corner by exactly that padding.
+    #[test]
+    fn initial_containing_block_is_anchored_at_the_origin() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // Padding on the root, and no positioned ancestor above `#pinned`.
+        let html = r#"
+            <html><head><style>
+                html { padding: 20px; }
+                #pinned { position: absolute; left: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="pinned"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        let mb = pinned.box_model.margin_box;
+        assert!(
+            mb.x.abs() < 0.5 && mb.y.abs() < 0.5,
+            "`top: 0; left: 0` with no positioned ancestor should reach the canvas corner, got ({}, {})",
+            mb.x,
+            mb.y
+        );
+    }
+
     /// A font-relative inset must place the box, not be discarded as `auto`.
     ///
     /// The converter feeding taffy resolves `em`/`rem`, but the absolute-positioning pass read

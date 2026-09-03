@@ -118,14 +118,11 @@ fn containing_block(
     kind: PositionKind,
     viewport: Dimension,
 ) -> Rect {
-    let initial = || {
-        let origin = layout_tree
-            .arena
-            .get(&layout_tree.root_id)
-            .map(|r| (r.box_model.content_box.x, r.box_model.content_box.y))
-            .unwrap_or((0.0, 0.0));
-        Rect::new(origin.0, origin.1, viewport.width, viewport.height)
-    };
+    // The initial containing block is anchored at the canvas origin and sized like the viewport
+    // (CSS 2.1 §10.1) - it is not the root element's box. Taking the root's content box put the
+    // origin *inside* the root's border and padding, so `top: 0; left: 0` on a page with
+    // `html { padding: 20px }` landed at (20, 20) instead of the top-left corner.
+    let initial = || Rect::new(0.0, 0.0, viewport.width, viewport.height);
 
     // `fixed` is measured from the viewport, never from an ancestor.
     if kind == PositionKind::Fixed {
