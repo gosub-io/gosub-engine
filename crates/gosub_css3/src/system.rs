@@ -92,6 +92,14 @@ impl CssSystem for Css3System {
         Some(map)
     }
 
+    fn resolve_imports(sheet: &mut Self::Stylesheet, fetch: &mut gosub_interface::css3::ImportFetcher<'_>) {
+        crate::imports::resolve_imports(sheet, fetch);
+    }
+
+    fn style_environment_fingerprint(sheets: &[Self::Stylesheet]) -> Option<u64> {
+        Some(style_environment_fingerprint_impl(sheets))
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
     }
@@ -99,6 +107,48 @@ impl CssSystem for Css3System {
     fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints {
         hover_fingerprints_impl(sheets)
     }
+}
+
+/// Hash the parts of the environment the cascade reads, so a caller can tell whether a
+/// viewport change actually invalidates computed styles.
+///
+/// Two inputs matter. Media conditions: a resize only restyles if some `@media` condition
+/// flipped. Viewport units: `vw`/`vh` resolve when a declaration is computed, so a sheet
+/// using them is stale after any resize at all.
+///
+/// Distinct `MediaQueryList`s are shared by every rule in their block, so they are evaluated
+/// once each by address rather than once per rule - on a real-world sheet that is ~590
+/// evaluations instead of ~7500.
+fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
+    use std::collections::HashSet;
+    use std::hash::{Hash, Hasher};
+
+    let env = crate::media_query::media_environment();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    let mut uses_viewport_units = false;
+
+    for sheet in sheets {
+        uses_viewport_units |= sheet.uses_viewport_units;
+        for rule in &sheet.rules {
+            let Some(conditions) = &rule.media else {
+                continue;
+            };
+            for list in conditions {
+                // Hash each distinct condition once, in first-seen (rule) order, so the
+                // result is deterministic across runs.
+                if seen.insert(Arc::as_ptr(list) as usize) {
+                    list.matches(&env).hash(&mut hasher);
+                }
+            }
+        }
+    }
+
+    if uses_viewport_units {
+        env.width.to_bits().hash(&mut hasher);
+        env.height.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Shared style-collection core for both real elements (`pseudo == None`) and pseudo-elements
@@ -132,9 +182,17 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         tag: doc.tag_name(id),
     };
     let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity)> = Vec::new();
+    // Media conditions hold for the whole pass, so read the environment once rather than per
+    // rule. Unconditional rules never look at it.
+    let media_env = crate::media_query::media_environment();
     for sheet in sheets {
         for rule_idx in sheet.candidate_rules(&keys) {
             let rule = &sheet.rules[rule_idx];
+            // Cheaper than selector matching, so it goes first: a rule inside a `@media` block
+            // that does not apply to this device contributes nothing to the cascade.
+            if !rule.media_matches(&media_env) {
+                continue;
+            }
             // A rule applies with the highest specificity among its matching selectors.
             let best = rule
                 .selectors()

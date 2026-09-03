@@ -1,13 +1,16 @@
 use cow_utils::CowUtils;
 use log::warn;
 
+use crate::media_query::MediaQueryList;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
-    FontFace, MatcherType,
+    FontFace, ImportRule, MatcherType,
 };
+use crate::supports::SupportsCondition;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
+use std::sync::Arc;
 
 /*
 
@@ -61,10 +64,15 @@ vs
     h4 { color: rebeccapurple; }
 */
 
-fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> CssResult<Option<CssRule>> {
+fn collect_rule(
+    prelude: Option<Box<CssNode>>,
+    block: Option<Box<CssNode>>,
+    media: &[Arc<MediaQueryList>],
+) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
         declarations: vec![],
+        media: (!media.is_empty()).then(|| media.to_vec()),
     };
 
     if let Some(node) = prelude {
@@ -201,12 +209,117 @@ fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> C
     Ok(Some(rule))
 }
 
-fn collect_rules(nodes: Vec<CssNode>, rules: &mut Vec<CssRule>, font_faces: &mut Vec<FontFace>) -> CssResult<()> {
+/// Build an [`ImportRule`] from an `@import` prelude ([`NodeType::ImportList`]).
+///
+/// The children arrive in grammar order: the target, then an optional layer, an optional
+/// `supports()`, and an optional media query list. Returns `None` when no target is present.
+fn collect_import(prelude: &CssNode) -> Option<ImportRule> {
+    let NodeType::ImportList { children } = &prelude.node_type else {
+        return None;
+    };
+
+    let mut url = None;
+    let mut layer = None;
+    let mut supports = None;
+    let mut media = None;
+
+    for child in children {
+        match &child.node_type {
+            NodeType::String { value } if url.is_none() => url = Some(value.clone()),
+            NodeType::Url { url: value } if url.is_none() => url = Some(value.clone()),
+            NodeType::Ident { value } if value.eq_ignore_ascii_case("layer") => layer = Some(None),
+            NodeType::Function { name, arguments } if name.eq_ignore_ascii_case("layer") => {
+                let named = arguments.iter().find_map(|arg| match &arg.node_type {
+                    NodeType::Ident { value } => Some(value.clone()),
+                    _ => None,
+                });
+                layer = Some(named);
+            }
+            // The parser hands the `supports(...)` interior back as raw text.
+            NodeType::Raw { value } => supports = Some(SupportsCondition::parse_import_condition(value)),
+            NodeType::MediaQueryList { .. } => media = Some(MediaQueryList::from_ast(child)),
+            _ => {}
+        }
+    }
+
+    Some(ImportRule {
+        url: url?,
+        layer,
+        supports,
+        media,
+    })
+}
+
+/// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
+///
+/// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
+/// collected while it is non-empty records it and is evaluated against the live
+/// [`MediaEnvironment`](crate::media_query::MediaEnvironment) at match time rather than here.
+fn collect_rules(
+    nodes: Vec<CssNode>,
+    rules: &mut Vec<CssRule>,
+    font_faces: &mut Vec<FontFace>,
+    imports: &mut Vec<ImportRule>,
+    media: &mut Vec<Arc<MediaQueryList>>,
+) -> CssResult<()> {
     for node in nodes {
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(prelude, block)? {
+                if let Some(rule) = collect_rule(prelude, block, media)? {
                     rules.push(rule);
+                }
+            }
+            NodeType::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+            } if name.eq_ignore_ascii_case("media") => {
+                if let NodeType::Block { children } = block.node_type {
+                    // A missing or unparseable prelude yields an empty (always-matching) list,
+                    // so the block's rules stay visible rather than disappearing.
+                    let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
+                    media.push(Arc::new(list));
+                    let result = collect_rules(children, rules, font_faces, imports, media);
+                    media.pop();
+                    result?;
+                }
+            }
+            NodeType::AtRule {
+                name,
+                prelude: Some(prelude),
+                block: None,
+            } if name.eq_ignore_ascii_case("import") => {
+                // Per spec `@import` may only appear before any style rule; a later one is
+                // invalid and ignored. Enforcing that keeps `splice_import`'s "imported rules
+                // go in front" contract honest.
+                if rules.is_empty() {
+                    if let Some(import) = collect_import(&prelude) {
+                        imports.push(import);
+                    }
+                } else {
+                    warn!("Ignoring @import that follows a style rule");
+                }
+            }
+            NodeType::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+            } if name.eq_ignore_ascii_case("supports") => {
+                // A supports condition asks about the engine, never the device, so it can be
+                // settled here: a false block contributes no rules at all, and a true one
+                // flattens away exactly like `@layer`.
+                let holds = match prelude.as_deref() {
+                    Some(CssNode {
+                        node_type: NodeType::Raw { value },
+                        ..
+                    }) => SupportsCondition::parse(value).matches(),
+                    // No prelude at all is not a valid `@supports`; drop the block.
+                    _ => false,
+                };
+                if holds {
+                    if let NodeType::Block { children } = block.node_type {
+                        collect_rules(children, rules, font_faces, imports, media)?;
+                    }
                 }
             }
             NodeType::AtRule {
@@ -215,7 +328,7 @@ fn collect_rules(nodes: Vec<CssNode>, rules: &mut Vec<CssRule>, font_faces: &mut
                 ..
             } if name.eq_ignore_ascii_case("layer") => {
                 if let NodeType::Block { children } = block.node_type {
-                    collect_rules(children, rules, font_faces)?;
+                    collect_rules(children, rules, font_faces, imports, media)?;
                 }
             }
             NodeType::AtRule {
@@ -336,13 +449,28 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
 
     let mut sheet = CssStylesheet::new(origin, url);
 
-    collect_rules(children, &mut sheet.rules, &mut sheet.font_faces)?;
+    collect_rules(
+        children,
+        &mut sheet.rules,
+        &mut sheet.font_faces,
+        &mut sheet.imports,
+        &mut Vec::new(),
+    )?;
+    // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
+    // restyled whenever the viewport changes, while one that does not can keep its cached
+    // computed values (see `CssStylesheet::uses_viewport_units`).
+    sheet.uses_viewport_units = sheet
+        .rules
+        .iter()
+        .flat_map(|rule| rule.declarations.iter())
+        .any(|decl| decl.value.uses_viewport_units());
     Ok(sheet)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::media_query::MediaEnvironment;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
 
@@ -420,6 +548,170 @@ mod tests {
         .unwrap();
 
         assert_eq!(stylesheet.rules.len(), 1);
+    }
+
+    /// Parse `css` and return its collected imports.
+    fn imports_of(css: &str) -> Vec<crate::stylesheet::ImportRule> {
+        Css3::parse_str(
+            css,
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .expect("stylesheet should parse")
+        .imports
+    }
+
+    #[test]
+    fn imports_are_collected_in_every_target_form() {
+        let imports = imports_of(
+            r#"
+            @import "plain.css";
+            @import url("quoted.css");
+            @import url(bare.css);
+            "#,
+        );
+        let urls: Vec<&str> = imports.iter().map(|i| i.url.as_str()).collect();
+        assert_eq!(urls, vec!["plain.css", "quoted.css", "bare.css"]);
+    }
+
+    /// The common real-world form. Before the parser learned to read the trailing media query
+    /// list, the leftover tokens failed the caller's semicolon check and the whole rule was
+    /// discarded.
+    #[test]
+    fn import_carries_its_media_query_list() {
+        let imports = imports_of(r#"@import url("mobile.css") screen and (max-width: 600px);"#);
+        assert_eq!(imports.len(), 1, "the import must survive the trailing media query");
+        assert_eq!(imports[0].url, "mobile.css");
+
+        let media = imports[0].media.as_ref().expect("media query list recorded");
+        let narrow = MediaEnvironment {
+            width: 400.0,
+            ..Default::default()
+        };
+        let wide = MediaEnvironment {
+            width: 1200.0,
+            ..Default::default()
+        };
+        assert!(media.matches(&narrow));
+        assert!(!media.matches(&wide));
+    }
+
+    #[test]
+    fn import_layer_forms() {
+        // The bare keyword used to be peeked at but never consumed, which dropped the rule.
+        let imports = imports_of(r#"@import "a.css" layer;"#);
+        assert_eq!(imports.len(), 1, "bare `layer` must not drop the import");
+        assert_eq!(imports[0].layer, Some(None));
+
+        let imports = imports_of(r#"@import "a.css" layer(base);"#);
+        assert_eq!(imports[0].layer, Some(Some("base".to_string())));
+
+        let imports = imports_of(r#"@import "a.css";"#);
+        assert_eq!(imports[0].layer, None);
+    }
+
+    /// `supports(display: grid)` contains a colon, which `parse_function` rejects - and the
+    /// error used to take the whole `@import` with it. The interior is captured raw and run
+    /// through the same evaluator `@supports` uses.
+    #[test]
+    fn import_supports_condition_is_evaluated() {
+        let imports = imports_of(r#"@import "a.css" supports(display: grid);"#);
+        assert_eq!(imports.len(), 1, "the import must survive its supports() condition");
+        assert!(imports[0].supports.as_ref().expect("condition recorded").matches());
+
+        let imports = imports_of(r#"@import "a.css" supports(display: bogus-value);"#);
+        assert!(!imports[0].supports.as_ref().expect("condition recorded").matches());
+    }
+
+    /// All four optional parts at once, in grammar order.
+    #[test]
+    fn import_with_every_optional_part() {
+        let imports =
+            imports_of(r#"@import url("a.css") layer(base) supports(display: grid) screen and (min-width: 40em);"#);
+        assert_eq!(imports.len(), 1);
+        let import = &imports[0];
+        assert_eq!(import.url, "a.css");
+        assert_eq!(import.layer, Some(Some("base".to_string())));
+        assert!(import.supports.as_ref().expect("supports").matches());
+        assert!(import.media.as_ref().expect("media").matches(&MediaEnvironment {
+            width: 800.0,
+            ..Default::default()
+        }));
+    }
+
+    /// `@import` is only valid before any style rule; a later one is ignored, which is what
+    /// lets imported rules always be spliced in at the front.
+    #[test]
+    fn import_after_a_style_rule_is_ignored() {
+        let imports = imports_of(
+            r#"
+            @import "first.css";
+            h1 { color: red; }
+            @import "too-late.css";
+            "#,
+        );
+        let urls: Vec<&str> = imports.iter().map(|i| i.url.as_str()).collect();
+        assert_eq!(urls, vec!["first.css"]);
+    }
+
+    #[test]
+    fn supports_block_is_kept_or_dropped_by_its_condition() {
+        // A condition the engine satisfies: the inner rules flatten out, like `@layer`.
+        let sheet = Css3::parse_str(
+            r"
+            @supports (display: grid) {
+                h1 { color: red; }
+            }
+            @supports (display: bogus-value) {
+                h2 { color: blue; }
+            }
+            ",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(sheet.rules.len(), 1, "only the satisfied block contributes rules");
+        assert_eq!(
+            sheet.rules[0].selectors[0].parts[0][0],
+            CssSelectorPart::Type("h1".into())
+        );
+    }
+
+    /// `@media` inside `@supports` keeps its condition; the supports gate is resolved here and
+    /// leaves no trace on the rule.
+    #[test]
+    fn media_nested_in_supports() {
+        let sheet = Css3::parse_str(
+            r"
+            @supports (display: grid) {
+                @media (min-width: 600px) {
+                    h1 { color: red; }
+                }
+            }
+            ",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(sheet.rules.len(), 1);
+        let media = sheet.rules[0].media.as_ref().expect("media condition survives");
+        assert_eq!(media.len(), 1);
+        assert!(media[0].matches(&MediaEnvironment {
+            width: 800.0,
+            ..Default::default()
+        }));
+        assert!(!media[0].matches(&MediaEnvironment {
+            width: 400.0,
+            ..Default::default()
+        }));
     }
 
     #[test]
