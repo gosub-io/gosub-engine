@@ -501,6 +501,69 @@ mod rendertree_from_engine {
         }
     }
 
+    /// A font-relative inset must place the box, not be discarded as `auto`.
+    ///
+    /// The converter feeding taffy resolves `em`/`rem`, but the absolute-positioning pass read
+    /// the raw value and matched only `px` and `%`. A box whose only specified side was an `em`
+    /// inset was therefore treated as `auto` on that axis and left wherever taffy had put it,
+    /// rather than placed against its containing block.
+    #[test]
+    fn font_relative_insets_are_honoured() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// x of `#target`'s margin box, laid out at 800x600.
+        fn target_x(html: &str) -> f64 {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == target_dom)
+                .expect("#target in the layout tree")
+                .box_model
+                .margin_box
+                .x
+        }
+
+        // The static `#wrap` in between is what makes this observable: taffy places an absolute
+        // child against its *immediate parent*, so it puts `#target` at 150 + 64, while CSS
+        // measures from `#cb` and wants 100 + 64. Dropping the inset left taffy's answer standing.
+        // Without the wrapper the two agree and the bug hides.
+        // 4em at the default 16px font size; `left: 64px` is the same distance spelled in px.
+        let page = |left: &str| {
+            format!(
+                r#"<html><head><style>
+                    #cb {{ position: relative; margin-left: 100px; width: 400px; height: 200px; }}
+                    #wrap {{ margin-left: 50px; }}
+                    #target {{ position: absolute; left: {left}; width: 50px; height: 10px; }}
+                </style></head>
+                <body style="margin:0">
+                    <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+                </body></html>"#
+            )
+        };
+
+        let em_x = target_x(&page("4em"));
+        let px_x = target_x(&page("64px"));
+        assert!(
+            (em_x - px_x).abs() < 0.5,
+            "`left: 4em` should place identically to `left: 64px`, got {em_x} vs {px_x}"
+        );
+        assert!(
+            (em_x - 164.0).abs() < 1.0,
+            "expected x ~164 (containing block at 100px + 4em), got {em_x}"
+        );
+    }
+
     /// With no viewport, the initial containing block comes from the root's settled size.
     ///
     /// `root_dimension` is zero until the layout pass publishes it, and that used to happen

@@ -45,9 +45,15 @@ fn position_kind(doc: &dyn PipelineDocument, id: DomNodeId) -> PositionKind {
 /// An inset (`top`/`right`/`bottom`/`left`) resolved against the containing block's size, or
 /// `None` for `auto` - which means "leave the box where the flow put it" on that axis.
 fn inset(doc: &dyn PipelineDocument, id: DomNodeId, prop: StyleProperty, basis: f64) -> Option<f64> {
-    match doc.get_own_style(id, &prop) {
-        Some(Value::Unit(v, Unit::Px)) => Some(v as f64),
-        Some(Value::Unit(v, Unit::Percent)) => Some(basis * v as f64 / 100.0),
+    // `get_style`, not `get_own_style`: it resolves `em`/`rem` to px, which the converter feeding
+    // taffy already does (`CssTaffyConverter::get_inset`). Reading the raw value here dropped
+    // font-relative insets on the floor, and a box whose only specified side was one of them was
+    // then treated as `auto` on that axis - left wherever taffy had put it rather than placed
+    // against its containing block. The initial value of every inset is the keyword `auto`, so an
+    // unspecified side still falls through to `None`.
+    match doc.get_style(id, &prop) {
+        Value::Unit(v, Unit::Px) => Some(v as f64),
+        Value::Unit(v, Unit::Percent) => Some(basis * v as f64 / 100.0),
         _ => None,
     }
 }
