@@ -569,11 +569,37 @@ impl CssValue {
     pub fn uses_viewport_units(&self) -> bool {
         match self {
             CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
+            // `calc()` alone keeps its body as raw text (see `parse_ast_node`), so the units
+            // inside it never become `Unit` values and the arm above cannot see them. Scan the
+            // text instead. Other functions - `clamp()` included - parse their arguments into
+            // real values and are handled by the recursion below.
+            //
+            // Only `calc()` is scanned, deliberately: a blanket string scan would also match
+            // `url(https://example.org/100vw.png)` or `content: "100vw"`, and every one of those
+            // false positives costs a full style recompute on each resize.
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => args.iter().any(|arg| match arg {
+                CssValue::String(body) => text_uses_viewport_units(body),
+                other => other.uses_viewport_units(),
+            }),
             CssValue::Function(_, args) => args.iter().any(CssValue::uses_viewport_units),
             CssValue::List(values) => values.iter().any(CssValue::uses_viewport_units),
             _ => false,
         }
     }
+}
+
+/// Whether raw value text contains a viewport-relative unit token, for the `calc()` body that
+/// never gets parsed into [`CssValue::Unit`].
+///
+/// Splits on anything that cannot appear in a unit token, then strips the numeric part, so
+/// `100vw` yields `vw` while `overview` (no leading digits) is left whole and matches nothing.
+fn text_uses_viewport_units(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+        .any(|word| {
+            let unit = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
+            // A bare identifier is not a unit: it has to follow a number.
+            unit.len() != word.len() && VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u))
+        })
 }
 
 impl Display for CssValue {
@@ -1085,6 +1111,59 @@ mod test {
     use std::vec;
 
     use super::*;
+
+    /// `calc()` keeps its body as raw text, so the units in it never become `CssValue::Unit`.
+    /// Missing them leaves `uses_viewport_units` false, the style fingerprint then omits the
+    /// viewport, and a resize never invalidates the values resolved against the old one.
+    #[test]
+    fn calc_bodies_are_scanned_for_viewport_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
+        };
+
+        assert!(calc("100vw - 2rem"));
+        assert!(calc("100% - 10DVH"), "unit matching is case-insensitive");
+        assert!(calc("(50vmin + 1px) / 2"));
+        assert!(!calc("100% - 2rem"));
+    }
+
+    /// Only `calc()` is scanned. A blanket string scan would fire on these, and each false
+    /// positive costs a full style recompute on every resize.
+    #[test]
+    fn other_functions_do_not_scan_raw_text() {
+        let url = CssValue::Function(
+            "url".to_string(),
+            vec![CssValue::String("https://example.org/100vw.png".to_string())],
+        );
+        assert!(!url.uses_viewport_units());
+
+        assert!(!CssValue::String("100vw".to_string()).uses_viewport_units());
+    }
+
+    /// A viewport unit has to follow a number; a bare identifier that merely contains those
+    /// letters is not one.
+    #[test]
+    fn identifiers_containing_unit_letters_are_not_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
+        };
+        assert!(!calc("var(--overview) + 1px"));
+        assert!(!calc("vh"));
+    }
+
+    /// Functions whose arguments are parsed properly still work through the recursion.
+    #[test]
+    fn parsed_function_arguments_still_match() {
+        let clamp = CssValue::Function(
+            "clamp".to_string(),
+            vec![
+                CssValue::Unit(1.0, "rem".to_string()),
+                CssValue::Unit(50.0, "vw".to_string()),
+                CssValue::Unit(9.0, "rem".to_string()),
+            ],
+        );
+        assert!(clamp.uses_viewport_units());
+    }
 
     #[test]
     fn test_css_rule() {

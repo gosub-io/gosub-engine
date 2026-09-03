@@ -41,6 +41,19 @@ pub mod tree_builder;
 
 // ------------------------------------------------------------
 
+/// Whether a stylesheet loaded from `base` may import `resolved`.
+///
+/// `Url::join` returns the request unchanged when it carries its own scheme, so an `@import` can
+/// name any URL it likes - including `file:`, which the fetch path would read straight off disk.
+/// A document fetched over the network must never be able to reach the local filesystem that way,
+/// so a remote sheet may only import over the network. A local sheet is left unrestricted: it can
+/// already read the filesystem it came from.
+#[cfg(not(target_arch = "wasm32"))]
+fn import_scheme_allowed(base: Option<&Url>, resolved: &Url) -> bool {
+    let base_is_remote = base.is_some_and(|u| matches!(u.scheme(), "http" | "https"));
+    !base_is_remote || matches!(resolved.scheme(), "http" | "https")
+}
+
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum InsertionMode {
@@ -4196,10 +4209,21 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     fn resolve_stylesheet_imports(&self, sheet: &mut <C::CssSystem as CssSystem>::Stylesheet) {
         let mut fetch = |base: &str, requested: &str| {
             // A relative import resolves against the importing sheet, not the document.
-            let resolved = Url::parse(base)
-                .ok()
+            let base_url = Url::parse(base).ok();
+            let resolved = base_url
+                .as_ref()
                 .and_then(|base| base.join(requested).ok())
                 .or_else(|| Url::parse(requested).ok())?;
+
+            if !import_scheme_allowed(base_url.as_ref(), &resolved) {
+                warn!(
+                    "Refusing '{}' import from remote stylesheet {}: only http(s) is allowed",
+                    resolved.scheme(),
+                    base
+                );
+                return None;
+            }
+
             let text = self.fetch_css_text(&resolved)?;
             Some((resolved.to_string(), text))
         };
@@ -4278,6 +4302,61 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.parse_error(format!("link element with rel attribute '{rel}' is not supported").as_str());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod import_scheme_tests {
+    use super::import_scheme_allowed;
+    use url::Url;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    /// The one that matters: a sheet served over the network must not be able to name a local
+    /// file. `Url::join` hands back the absolute `file:` URL, and the fetch path would read it.
+    #[test]
+    fn a_remote_sheet_cannot_import_a_local_file() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+
+        let base = url("http://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+    }
+
+    #[test]
+    fn a_remote_sheet_may_import_over_the_network() {
+        let base = url("https://example.org/a.css");
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+        assert!(import_scheme_allowed(Some(&base), &url("http://cdn.example.org/b.css")));
+    }
+
+    /// A local sheet keeps working: it can already read the filesystem it came from.
+    #[test]
+    fn a_local_sheet_is_unrestricted() {
+        let base = url("file:///home/u/site/a.css");
+        assert!(import_scheme_allowed(Some(&base), &url("file:///home/u/site/b.css")));
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+    }
+
+    /// An unparseable base is not known to be remote, so it is not treated as one.
+    #[test]
+    fn an_unknown_base_is_not_treated_as_remote() {
+        assert!(import_scheme_allowed(None, &url("file:///etc/passwd")));
+    }
+
+    /// Other non-network schemes are refused from a remote sheet too, not just `file:`.
+    #[test]
+    fn other_non_network_schemes_are_refused_from_remote() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("data:text/css,body{}")));
     }
 }
 

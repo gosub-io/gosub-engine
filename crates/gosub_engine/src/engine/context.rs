@@ -806,6 +806,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // the partial-repaint bookkeeping; revisit if it proves hot.
         if !self.damage.is_none() {
             let media_env = self.media_environment();
+            // Release the previous scene's handle on the retained layout tree before laying out.
+            // It is the other owner, and a geometry-only pass has to be sole owner or
+            // `Arc::make_mut` copies the whole tree instead of reusing it - a copy thrown away
+            // moments later when the cache below replaces it. `rebuild_full_pipeline` drops its
+            // own cache first for the same reason.
+            self.scene_cache = None;
             if let Some((layer_list, page_height)) = self.build_layer_list(media_env) {
                 self.scene_cache = Some(pipeline_build_scene(
                     layer_list,
