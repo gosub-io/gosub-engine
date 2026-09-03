@@ -31,7 +31,7 @@ use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TilePixels;
 use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
-use gosub_render_pipeline::layouter::{CanLayout, LayoutElementId};
+use gosub_render_pipeline::layouter::{CanLayout, LayoutElementId, LayoutTree};
 use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
 use gosub_render_pipeline::rendertree_builder::RenderTree;
@@ -127,6 +127,21 @@ struct PipelineCache {
     tile_pixel_cache: TilePixelCache,
 }
 
+/// The layouter and the layout tree it produced, kept across frames.
+///
+/// About half of layout time goes into *building* the taffy tree rather than computing with it
+/// (36 ms of 74 ms on a Wikipedia article), and a viewport resize changes none of its inputs:
+/// same nodes, same styles - percentages and `auto` reach taffy unresolved, and a sheet using
+/// `vw`/`vh` forces a restyle instead (see `style_environment_fingerprint`) - and the same
+/// intrinsic sizes. So a resize re-runs taffy over the tree that is already there.
+///
+/// Dropped whenever the tree itself must be rebuilt: a restyle, a new document, or an image
+/// whose intrinsic size arrives after the tree was generated.
+struct RetainedLayout {
+    layouter: TaffyLayouter,
+    layout_tree: Arc<LayoutTree>,
+}
+
 /// BrowsingContext dedicated to a specific tab
 ///
 /// A BrowsingContext is a single instance of the engine that deals with a specific tab. Each tab
@@ -177,6 +192,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// the whole document even when nothing about the cascade had changed. Cleared only when
     /// the document itself changes.
     document_adapter: Option<Arc<GosubDocumentAdapter<C>>>,
+    /// Layout state reused across frames; see [`RetainedLayout`].
+    retained_layout: Option<RetainedLayout>,
     /// The style environment the currently cached computed styles were produced under
     /// (see `CssSystem::style_environment_fingerprint`). A resize that leaves this unchanged
     /// needs layout but no restyle. `None` before the first frame.
@@ -231,6 +248,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_layout_element: None,
             hover_fingerprints: None,
             document_adapter: None,
+            retained_layout: None,
             style_fingerprint: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
@@ -279,6 +297,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.document_adapter = None;
+        self.retained_layout = None;
         self.style_fingerprint = None;
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
@@ -401,8 +420,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     fn viewport_change_level(&self) -> DamageLevel {
         match (self.style_environment_fingerprint(), self.style_fingerprint) {
             // Same environment: no `@media` condition flipped and no sheet reads the viewport,
-            // so every cached computed style is still correct and only boxes need redoing.
-            (Some(new), Some(old)) if new == old => DamageLevel::Layout,
+            // so every cached computed style is still correct. Nothing that feeds the layout
+            // tree changed either - percentages and `auto` reach taffy unresolved - so the tree
+            // itself stands and only its geometry has to be recomputed.
+            (Some(new), Some(old)) if new == old => DamageLevel::Geometry,
             _ => DamageLevel::Style,
         }
     }
@@ -451,6 +472,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
         };
 
+        Some(adapter)
+    }
+
+    /// Drop exactly as much of the cached computed styles as the accumulated damage requires.
+    ///
+    /// Runs on *every* frame that rebuilds, including the geometry-only path. That path does not
+    /// re-read styles for layout - it reuses the taffy tree - but painting still reads them, so
+    /// a `:hover` change landing in the same frame as a resize would otherwise repaint from a
+    /// stale cache.
+    fn invalidate_damaged_styles(&mut self) {
+        let Some(adapter) = self.document_adapter.as_ref() else {
+            return;
+        };
         if self.damage.level().needs_restyle() {
             // The cascade would answer differently now, so nothing cached survives.
             adapter.clear_style_cache();
@@ -458,7 +492,85 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // Only what the damage names needs re-evaluating; everything else keeps its styles.
             adapter.invalidate_style_for_nodes(self.damage.nodes());
         }
-        Some(adapter)
+    }
+
+    /// Stages 1-3: produce this frame's layer list, and the page height that falls out of it.
+    ///
+    /// Two paths. When the damage is only [`DamageLevel::Geometry`] and a layout tree is
+    /// retained, taffy is re-run over that tree - skipping the render-tree build and the tree
+    /// construction inside layout, which together are the larger half of the pipeline. Anything
+    /// stronger rebuilds from the document.
+    fn build_layer_list(&mut self, media_env: MediaEnvironment) -> Option<(Arc<LayerList>, f64)> {
+        // Install the environment that `@media` conditions and viewport-relative CSS units
+        // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
+        // computes styles for display:none filtering.
+        gosub_css3::media_query::set_media_environment(media_env);
+        self.invalidate_damaged_styles();
+
+        let vp_dim = if self.viewport.width > 0 && self.viewport.height > 0 {
+            Some(PipelineDimension::new(
+                self.viewport.width as f64,
+                self.viewport.height as f64,
+            ))
+        } else {
+            None
+        };
+
+        if !self.damage.level().needs_layout_tree() {
+            if let Some(retained) = self.retained_layout.as_mut() {
+                let ts2 = timing_start!("pipeline.layout");
+                // Free while nothing else holds the tree, which is why the caller drops the
+                // previous frame's caches first: they are what would otherwise share it.
+                let tree = Arc::make_mut(&mut retained.layout_tree);
+                retained.layouter.relayout(tree, vp_dim);
+                timing_stop!(ts2);
+
+                let layout_tree = Arc::clone(&retained.layout_tree);
+                let page_height = layout_tree.root_dimension.height;
+                let ts3 = timing_start!("pipeline.layering");
+                let layer_list = Arc::new(LayerList::new(layout_tree));
+                timing_stop!(ts3);
+                return Some((layer_list, page_height));
+            }
+        }
+
+        let adapter = self.prepare_adapter()?;
+
+        // Stage 1: render tree
+        let ts1 = timing_start!("pipeline.render_tree");
+        let mut render_tree = RenderTree::new(adapter);
+        if let Err(e) = render_tree.parse() {
+            // The layouter tolerates a tree without a root; the frame degrades to empty.
+            log::error!("Failed to build render tree: {e}");
+        }
+        timing_stop!(ts1);
+
+        // Stage 2: layout
+        let ts2 = timing_start!("pipeline.layout");
+        // Share the rasterizer's font system so layout and rendering measure/draw against the
+        // same font collection (and it's created once, not per layout pass). Backends without a
+        // FontSystem (null, Cairo/Pango) fall back to the layouter's own instance.
+        let mut layouter = match self.rasterizer.as_deref().and_then(|r| r.font_system()) {
+            Some(font_system) => TaffyLayouter::with_font_system(font_system),
+            None => TaffyLayouter::new(),
+        };
+        // Share the persistent media store so resources loaded during layout are visible to the
+        // rasterizer (which resolves them by id). Otherwise every image renders as a placeholder.
+        layouter.set_media_store(Arc::clone(&self.media_store));
+        let layout_tree = Arc::new(layouter.layout(render_tree, vp_dim, 1.0));
+        timing_stop!(ts2);
+
+        let page_height = layout_tree.root_dimension.height;
+        self.retained_layout = Some(RetainedLayout {
+            layouter,
+            layout_tree: Arc::clone(&layout_tree),
+        });
+
+        // Stage 3: layering
+        let ts3 = timing_start!("pipeline.layering");
+        let layer_list = Arc::new(LayerList::new(layout_tree));
+        timing_stop!(ts3);
+        Some((layer_list, page_height))
     }
 
     /// Full pipeline rebuild (stages 1–6): re-tiles and re-rasterizes the whole page,
@@ -473,14 +585,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let _scope = self.timing_scope.map(gosub_shared::timing::enter_scope);
 
         let media_env = self.media_environment();
-        if let Some(adapter) = self.prepare_adapter() {
-            let prev_tile_cache = self
-                .pipeline_cache
-                .as_mut()
-                .map(|c| std::mem::take(&mut c.tile_pixel_cache))
-                .unwrap_or_default();
+
+        // Drop the previous frame's cache before laying out, keeping only its pixels. It holds
+        // the other handle on the retained layout tree, and a geometry-only pass has to be the
+        // sole owner or `Arc::make_mut` copies the whole tree instead of reusing it.
+        let prev_tile_cache = self
+            .pipeline_cache
+            .take()
+            .map(|mut c| std::mem::take(&mut c.tile_pixel_cache))
+            .unwrap_or_default();
+
+        if let Some((layer_list, page_height)) = self.build_layer_list(media_env) {
             self.pipeline_cache = Some(pipeline_build_cache(
-                adapter,
+                layer_list,
+                page_height,
                 &self.viewport,
                 self.scroll_y,
                 self.rasterizer.as_deref(),
@@ -488,7 +606,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 prev_tile_cache,
                 self.media_store.clone(),
                 self.config_store.get_uint("renderer.tile.size") as f64,
-                media_env,
             ));
         }
         self.note_rastered_window();
@@ -582,7 +699,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// [`Self::rebuild_render_list_if_needed`] so both backends make the same choice.
     fn refresh_pipeline_cache(&mut self) {
         let level = self.damage.level();
-        if level.needs_layout() {
+        if level.needs_geometry() {
             self.rebuild_full_pipeline();
         } else if self.raster_dirty {
             self.extend_raster_window();
@@ -689,11 +806,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // the partial-repaint bookkeeping; revisit if it proves hot.
         if !self.damage.is_none() {
             let media_env = self.media_environment();
-            if let Some(adapter) = self.prepare_adapter() {
+            if let Some((layer_list, page_height)) = self.build_layer_list(media_env) {
                 self.scene_cache = Some(pipeline_build_scene(
-                    adapter,
+                    layer_list,
+                    page_height,
                     &self.viewport,
-                    media_env,
                     self.rasterizer.as_deref(),
                     self.media_store.clone(),
                 ));
@@ -1209,45 +1326,19 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     }
 }
 
-/// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
-/// element, producing one ordered paint-command list for the whole page. Skips tiling,
-/// rasterization, and compositing - the backend renders the commands into a GPU texture.
-fn pipeline_build_scene<C: RenderConfiguration>(
-    adapter: Arc<GosubDocumentAdapter<C>>,
+/// GPU-scene build: a paint pass over every element in `layer_list`, producing one ordered
+/// paint-command list for the whole page. Skips tiling, rasterization, and compositing - the
+/// backend renders the commands into a GPU texture.
+///
+/// Stages 1-3 happen in [`BrowsingContext::build_layer_list`], which is where the retained
+/// layout tree lives.
+fn pipeline_build_scene(
+    layer_list: Arc<LayerList>,
+    page_height: f64,
     viewport: &Viewport,
-    media_env: MediaEnvironment,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     media_store: Arc<MediaStore>,
 ) -> SceneCache {
-    // Install the environment that `@media` conditions and viewport-relative CSS units
-    // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
-    // computes styles for display:none filtering.
-    gosub_css3::media_query::set_media_environment(media_env);
-
-    // Stage 1: render tree
-    let mut render_tree = RenderTree::new(adapter);
-    if let Err(e) = render_tree.parse() {
-        log::error!("Failed to build render tree: {e}");
-    }
-
-    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
-        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
-    } else {
-        None
-    };
-
-    // Stage 2: layout (share the rasterizer's font system, as the tile path does)
-    let mut layouter = match rasterizer.and_then(|r| r.font_system()) {
-        Some(font_system) => TaffyLayouter::with_font_system(font_system),
-        None => TaffyLayouter::new(),
-    };
-    layouter.set_media_store(Arc::clone(&media_store));
-    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
-    let page_height = layout_tree.root_dimension.height;
-
-    // Stage 3: layering
-    let layer_list = Arc::new(LayerList::new(layout_tree));
-
     // Stage 5′: paint every element into one ordered list (no tiling). Paint over the full page
     // so scrolling reveals already-painted content without a rebuild.
     let layer_count = layer_list.layer_ids.read().len();
@@ -1276,15 +1367,12 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     }
 }
 
-/// Runs pipeline stages 1–6 and returns a `PipelineCache` of rasterized tiles ready for repeated
-/// compositing. Layout and tiling cover the whole page, but painting and rasterization cover only
-/// the raster window around `scroll_y`, so first paint never pays for content nobody scrolls to.
-///
-/// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
-/// re-running layout or rasterization.
+/// Stages 4-6: tile the layer list, paint the dirty tiles, and rasterize them into the tile
+/// cache. Stages 1-3 happen in [`BrowsingContext::build_layer_list`].
 #[allow(clippy::too_many_arguments)]
-fn pipeline_build_cache<C: RenderConfiguration>(
-    adapter: Arc<GosubDocumentAdapter<C>>,
+fn pipeline_build_cache(
+    layer_list: Arc<LayerList>,
+    page_height: f64,
     viewport: &Viewport,
     scroll_y: f64,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
@@ -1292,54 +1380,12 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     prev_tile_cache: TilePixelCache,
     media_store: Arc<MediaStore>,
     tile_size: f64,
-    media_env: MediaEnvironment,
 ) -> PipelineCache {
     let ts_total = timing_start!("pipeline.total");
 
-    // Install the environment that `@media` conditions and viewport-relative CSS units
-    // (vw/vh/vmin/vmax, incl. inside clamp()) resolve against. Must precede parse(), which
-    // computes styles for display:none filtering.
-    gosub_css3::media_query::set_media_environment(media_env);
-
-    // Stage 1: render tree
-    let ts1 = timing_start!("pipeline.render_tree");
-    let mut render_tree = RenderTree::new(adapter);
-    if let Err(e) = render_tree.parse() {
-        // The layouter tolerates a tree without a root; the frame degrades to empty.
-        log::error!("Failed to build render tree: {e}");
-    }
-    timing_stop!(ts1);
-
-    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
-        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
-    } else {
-        None
-    };
-
-    // Stage 2: layout
-    let ts2 = timing_start!("pipeline.layout");
-    // Share the rasterizer's font system so layout and rendering measure/draw against the
-    // same font collection (and it's created once, not per layout pass). Backends without a
-    // FontSystem (null, Cairo/Pango) fall back to the layouter's own instance.
-    let mut layouter = match rasterizer.and_then(|r| r.font_system()) {
-        Some(font_system) => TaffyLayouter::with_font_system(font_system),
-        None => TaffyLayouter::new(),
-    };
-    // Share the persistent media store so resources loaded during layout are visible to the
-    // rasterizer (which resolves them by id). Otherwise every image renders as a placeholder.
-    layouter.set_media_store(Arc::clone(&media_store));
-    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
-    timing_stop!(ts2);
-    let page_height = layout_tree.root_dimension.height;
-
-    // Stage 3: layering
-    let ts3 = timing_start!("pipeline.layering");
-    let layer_list = LayerList::new(layout_tree);
-    timing_stop!(ts3);
-
     // Stage 4: tiling
     let ts4 = timing_start!("pipeline.tiling");
-    let mut tile_list = TileList::new(layer_list, PipelineDimension::new(tile_size, tile_size));
+    let mut tile_list = TileList::from_arc(layer_list, PipelineDimension::new(tile_size, tile_size));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
     timing_stop!(ts4);
@@ -2046,8 +2092,9 @@ mod tests {
             resize(&mut ctx, 900);
             assert_eq!(
                 ctx.damage.level(),
-                DamageLevel::Layout,
-                "no @media condition flipped and no sheet reads the viewport"
+                DamageLevel::Geometry,
+                "no @media condition flipped and no sheet reads the viewport, so neither the \
+                 styles nor the layout tree need rebuilding - only the geometry"
             );
         }
 
@@ -2065,8 +2112,8 @@ mod tests {
             resize(&mut ctx, 820);
             assert_eq!(
                 ctx.damage.level(),
-                DamageLevel::Layout,
-                "same side of the breakpoint: styles still hold"
+                DamageLevel::Geometry,
+                "same side of the breakpoint: styles and the layout tree both still hold"
             );
 
             ctx.rebuild_pipeline_cache_if_needed();
@@ -2149,7 +2196,9 @@ mod tests {
         fn decoded_media_needs_layout_but_not_restyle() {
             let mut ctx = built_context(PLAIN);
             ctx.damage.escalate(DamageLevel::Layout);
-            assert!(ctx.damage.level().needs_layout());
+            // The tree must be rebuilt (the new intrinsic size is baked into it) but the
+            // computed styles behind it are untouched.
+            assert!(ctx.damage.level().needs_layout_tree());
             assert!(!ctx.damage.level().needs_restyle());
         }
 
@@ -2245,6 +2294,70 @@ mod tests {
                 full_keys,
                 "the repaint must leave exactly the tiles a full rebuild would - a dropped or \
                  duplicated tile shows up as a blank or corrupted band on screen"
+            );
+        }
+
+        /// A resize must re-run taffy over the tree it already has, not build a new one.
+        ///
+        /// Identity is the check: the retained `Arc<LayoutTree>` has to be the *same allocation*
+        /// afterwards. Comparing contents would pass even if the tree were rebuilt from scratch,
+        /// which is exactly the thing this is meant to catch. It also catches `Arc::make_mut`
+        /// silently deep-copying the tree because the previous frame's cache was still holding
+        /// it - that would turn the optimisation into a pessimisation, and the pointer changes.
+        #[test]
+        fn resize_reuses_the_layout_tree() {
+            let mut ctx = built_context(PLAIN);
+            let before = ctx
+                .retained_layout
+                .as_ref()
+                .map(|r| Arc::as_ptr(&r.layout_tree))
+                .expect("the first build retains a layout tree");
+
+            resize(&mut ctx, 900);
+            assert_eq!(ctx.damage.level(), DamageLevel::Geometry);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let after = ctx
+                .retained_layout
+                .as_ref()
+                .map(|r| Arc::as_ptr(&r.layout_tree))
+                .expect("still retained after the resize");
+            assert_eq!(
+                before, after,
+                "the resize rebuilt the layout tree instead of reusing it"
+            );
+
+            // And the geometry really was recomputed against the new width.
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("a resize must leave a pipeline cache");
+            };
+            assert!(cache.page_height > 0.0);
+        }
+
+        /// ...but anything stronger than `Geometry` must build a fresh tree, because the inputs
+        /// it was generated from have changed. An image finishing its decode is the case that
+        /// matters: its intrinsic size is baked into the tree at generation time.
+        #[test]
+        fn stronger_damage_rebuilds_the_layout_tree() {
+            let mut ctx = built_context(PLAIN);
+            let before = ctx
+                .retained_layout
+                .as_ref()
+                .map(|r| Arc::as_ptr(&r.layout_tree))
+                .expect("the first build retains a layout tree");
+
+            ctx.damage.escalate(DamageLevel::Layout);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let after = ctx
+                .retained_layout
+                .as_ref()
+                .map(|r| Arc::as_ptr(&r.layout_tree))
+                .expect("a new tree is retained");
+            assert_ne!(
+                before, after,
+                "Layout-level damage must rebuild the tree - reusing it would keep the stale \\
+                 intrinsic sizes that caused the damage in the first place"
             );
         }
 
@@ -2392,7 +2505,7 @@ mod tests {
             ctx.set_scroll(0.0, 5000.0);
             assert!(ctx.raster_dirty, "scrolling to unbaked content must raster");
             assert!(
-                !ctx.damage.level().needs_layout(),
+                !ctx.damage.level().needs_geometry(),
                 "extending the raster window must not force a re-layout"
             );
             assert!(

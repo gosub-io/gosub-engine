@@ -66,9 +66,69 @@ enum InlineEntry {
     Break(f64),
 }
 
+/// A [`TaffyTree`] that can move between threads.
+///
+/// # Why this is needed
+///
+/// The engine keeps a layouter across frames so a resize can re-run taffy over the tree it
+/// already built instead of constructing a new one - about half of layout time. That layouter
+/// lives on the tab's `BrowsingContext`, whose worker is a `tokio::spawn`ed task, and such a
+/// task may resume on a different thread after each await. So everything it holds must be
+/// `Send`. `TaffyTree` is not.
+///
+/// # Safety
+///
+/// `TaffyTree` is `!Send` because `CompactLength` packs its value into a tagged word declared
+/// `*const ()`, and Rust treats any raw pointer as non-thread-safe. That word only ever holds a
+/// real address for `calc()` values, which taffy stores as an *opaque handle* it never
+/// dereferences - its own docs say the value "may be a pointer, index, etc." and it is only
+/// ever handed back to a caller-supplied resolver. Taffy cannot promise `Send` because it
+/// cannot know what its callers put there; taffy's maintainer accordingly recommends exactly
+/// this wrapper, sound "so long as you are either not using `Calc`, or your calc type
+/// implements `Send + Sync`" (DioxusLabs/taffy#949, and see #823).
+///
+/// We are in the first case, and enforce it with the compiler rather than by convention: this
+/// crate builds taffy **without the `calc` feature** (see `Cargo.toml`), so
+/// `CompactLength::calc` does not exist and no code path can put an address in that word. Every
+/// `CompactLength` we construct is a tag plus an `f32`. There is therefore no pointer to
+/// invalidate by moving the tree, and no interior sharing: the wrapper is `Send` but
+/// deliberately **not** `Sync`, matching how it is used - owned by one tab, moved with its
+/// task, never shared between threads.
+///
+/// If taffy's `calc` feature is ever switched back on, this impl must be re-justified or
+/// removed. Upstream's proper fix is DioxusLabs/taffy#855 (generic over the calc type), a draft
+/// since 2025; when it lands this wrapper can go.
+struct SendTaffyTree(TaffyTree<TaffyContext>);
+
+// SAFETY: see the type's doc comment. Holds no pointer while taffy's `calc` feature is off,
+// which this crate enforces in Cargo.toml.
+#[allow(unsafe_code)]
+unsafe impl Send for SendTaffyTree {}
+
+/// The whole point of [`SendTaffyTree`]: the engine retains a `TaffyLayouter` on a tab worker
+/// whose future must be `Send`. Asserted at compile time, in every build, because losing it
+/// would silently drop the engine back to rebuilding the layout tree on every resize.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    let _ = assert_send::<TaffyLayouter>;
+};
+
+impl std::ops::Deref for SendTaffyTree {
+    type Target = TaffyTree<TaffyContext>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SendTaffyTree {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
-    tree: TaffyTree<TaffyContext>,
+    tree: SendTaffyTree,
     root_id: TaffyNodeId,
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
     /// Maps each layout element that lives inside an anonymous flex container to that
@@ -193,7 +253,7 @@ impl TaffyLayouter {
     /// Create a layouter that shares an existing font system.
     pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self {
-            tree: TaffyTree::new(),
+            tree: SendTaffyTree(TaffyTree::new()),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
             anon_container_map: HashMap::new(),
@@ -247,6 +307,26 @@ impl CanLayout for TaffyLayouter {
         // let root_id = RenderNodeId::new(2);
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
+        self.compute_and_populate(&mut layout_tree, viewport);
+        layout_tree
+    }
+}
+
+impl TaffyLayouter {
+    /// Recompute geometry on the taffy tree that is already built, without touching its
+    /// structure or any node's style.
+    ///
+    /// Valid only when nothing that feeds tree construction has changed - no restyle, no new
+    /// intrinsic sizes - which in practice means a viewport resize. Everything taffy needs is
+    /// already in the tree, so this skips the ~half of layout that goes into building it.
+    /// See `BrowsingContext`'s `DamageLevel::Geometry`.
+    pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
+        self.compute_and_populate(layout_tree, viewport);
+    }
+
+    /// Run taffy over the current tree and write the results back as box models: the half of
+    /// `layout` that does not depend on how the tree was built.
+    fn compute_and_populate(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         // // Compute the layout based on the viewport
         let size = match viewport {
             Some(viewport) => Size {
@@ -348,7 +428,7 @@ impl CanLayout for TaffyLayouter {
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
-            return layout_tree;
+            return;
         }
         self.measure_cache = measure_cache;
 
@@ -357,20 +437,16 @@ impl CanLayout for TaffyLayouter {
         // layout-engine agnostic.
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
-        self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
-        post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
+        self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
+        post_process_tables(layout_tree, &self.dom_to_layout_mapping);
 
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
             let h = root.box_model.margin_box.height as f32;
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
-
-        layout_tree
     }
-}
 
-impl TaffyLayouter {
     fn populate_boxmodel(
         &self,
         layout_tree: &mut LayoutTree,
@@ -442,7 +518,7 @@ impl TaffyLayouter {
 
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.measure_cache.clear();
-        self.tree = TaffyTree::new();
+        self.tree = SendTaffyTree(TaffyTree::new());
         // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
         // text containers to lose sub-pixel width (e.g. 52.344 → 52.0). This makes pango
         // render at a surface too narrow for the text and produces spurious line wraps.

@@ -30,8 +30,16 @@ pub enum DamageLevel {
     None,
     /// Layout still holds, but some pixels are wrong. `:hover` and `:focus` styling.
     Paint,
-    /// Boxes moved or resized, so layout has to run again. A resize, or an image whose
-    /// intrinsic size only became known once it decoded.
+    /// Boxes move, but every input to the layout tree is unchanged: same nodes, same styles,
+    /// same intrinsic sizes. Only the geometry has to be recomputed, on the taffy tree that
+    /// is already built. A viewport resize.
+    ///
+    /// Roughly half of layout time goes into *building* that tree (36ms of 74ms on a
+    /// Wikipedia article), so this tier is worth having distinct from `Layout`.
+    Geometry,
+    /// The layout tree itself must be rebuilt, though computed styles are still valid. An
+    /// image whose intrinsic size only became known once it decoded: that size is baked into
+    /// the tree when it is generated, so recomputing geometry alone would not pick it up.
     Layout,
     /// Computed styles are stale and must be recomputed before layout can run. A media
     /// breakpoint flipped, or a rule set changed.
@@ -47,10 +55,16 @@ impl DamageLevel {
         self >= DamageLevel::Style
     }
 
-    /// Whether this level requires layout to run again.
+    /// Whether the layout tree has to be built again, as opposed to merely recomputed.
     #[must_use]
-    pub fn needs_layout(self) -> bool {
+    pub fn needs_layout_tree(self) -> bool {
         self >= DamageLevel::Layout
+    }
+
+    /// Whether box geometry has to be recomputed at all.
+    #[must_use]
+    pub fn needs_geometry(self) -> bool {
+        self >= DamageLevel::Geometry
     }
 }
 
@@ -193,11 +207,18 @@ mod tests {
 
     #[test]
     fn levels_report_what_they_need() {
-        assert!(!DamageLevel::Paint.needs_layout());
+        assert!(!DamageLevel::Paint.needs_geometry());
+        assert!(!DamageLevel::Paint.needs_layout_tree());
         assert!(!DamageLevel::Paint.needs_restyle());
-        assert!(DamageLevel::Layout.needs_layout());
+
+        // A resize recomputes geometry on the tree it already has.
+        assert!(DamageLevel::Geometry.needs_geometry());
+        assert!(!DamageLevel::Geometry.needs_layout_tree());
+        assert!(!DamageLevel::Geometry.needs_restyle());
+
+        assert!(DamageLevel::Layout.needs_layout_tree());
         assert!(!DamageLevel::Layout.needs_restyle());
-        assert!(DamageLevel::Style.needs_layout());
+        assert!(DamageLevel::Style.needs_layout_tree());
         assert!(DamageLevel::Style.needs_restyle());
         assert!(DamageLevel::Rebuild.needs_restyle());
     }
