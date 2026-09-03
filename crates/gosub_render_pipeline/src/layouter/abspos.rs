@@ -17,6 +17,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
 use crate::common::geo::{Dimension, Rect};
 use crate::layouter::{LayoutElementId, LayoutTree};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// How a box is positioned, as far as this pass is concerned.
@@ -58,9 +59,41 @@ fn inset(doc: &dyn PipelineDocument, id: DomNodeId, prop: StyleProperty, basis: 
     }
 }
 
+/// Taffy insets for one absolutely positioned box, rebased from its CSS containing block onto
+/// its immediate parent - which is the box taffy actually measures from.
+///
+/// Only produced for an axis where CSS gives *both* insets and leaves the size `auto`, i.e. the
+/// box is meant to stretch between them. Placing such a box is not enough: taffy sized it
+/// against the wrong ancestor, and this pass only moves boxes, it does not resize them. Handing
+/// taffy the rebased insets on a second pass lets its own algorithm do the stretching - and
+/// re-lay-out the children at the corrected width, which patching the box model could not.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RebasedInsets {
+    pub left: Option<f32>,
+    pub right: Option<f32>,
+    pub top: Option<f32>,
+    pub bottom: Option<f32>,
+}
+
+impl RebasedInsets {
+    fn is_empty(&self) -> bool {
+        self.left.is_none() && self.right.is_none() && self.top.is_none() && self.bottom.is_none()
+    }
+}
+
+/// Whether an axis is `auto`-sized, so that opposing insets should stretch the box.
+fn is_auto_size(doc: &dyn PipelineDocument, id: DomNodeId, prop: StyleProperty) -> bool {
+    !matches!(doc.get_style(id, &prop), Value::Unit(..) | Value::Number(_))
+}
+
 /// Re-place every absolutely positioned box against the containing block CSS gives it.
-pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) {
+///
+/// Returns the boxes that also need *resizing*, keyed by DOM node - see [`RebasedInsets`]. The
+/// caller feeds these back through a second layout pass; on that pass the map comes back empty
+/// because taffy has already put the boxes where this pass would.
+pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) -> HashMap<DomNodeId, RebasedInsets> {
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
+    let mut stretched: HashMap<DomNodeId, RebasedInsets> = HashMap::new();
 
     // Parents before children: a nested absolutely positioned box measures against its ancestor's
     // corrected position, so the ancestor has to be corrected first.
@@ -105,8 +138,50 @@ pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) {
             (None, None) => margin_box.y,
         };
 
+        // Both insets on an axis with an `auto` size means "stretch between them". Taffy already
+        // does that, but against the immediate parent rather than the CSS containing block, so
+        // record insets rebased onto the parent for the caller to replay. `parent_reference`
+        // returns `None` at the root, where the two coincide and nothing needs rebasing.
+        if let Some(pb) = parent_reference(layout_tree, id) {
+            let mut rebased = RebasedInsets::default();
+            if let (Some(l), Some(r)) = (left, right) {
+                // Only worth replaying when the parent is *not* the containing block. When it is -
+                // the common `position: relative` parent holding its own absolute child - taffy
+                // already measured from the right box and a second pass would buy nothing.
+                if is_auto_size(&*doc, dom_id, StyleProperty::Width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
+                    rebased.left = Some((cb.x + l - pb.x) as f32);
+                    rebased.right = Some(((pb.x + pb.width) - (cb.x + cb.width - r)) as f32);
+                }
+            }
+            if let (Some(t), Some(b)) = (top, bottom) {
+                if is_auto_size(&*doc, dom_id, StyleProperty::Height) && !spans_match(pb.y, pb.height, cb.y, cb.height)
+                {
+                    rebased.top = Some((cb.y + t - pb.y) as f32);
+                    rebased.bottom = Some(((pb.y + pb.height) - (cb.y + cb.height - b)) as f32);
+                }
+            }
+            if !rebased.is_empty() {
+                stretched.insert(dom_id, rebased);
+            }
+        }
+
         layout_tree.shift_subtree(id, x - margin_box.x, y - margin_box.y);
     }
+
+    stretched
+}
+
+/// Whether two spans cover the same range, to within a sub-pixel tolerance. Used to spot the case
+/// where the parent already *is* the containing block, so nothing needs rebasing.
+fn spans_match(a_start: f64, a_len: f64, b_start: f64, b_len: f64) -> bool {
+    const EPSILON: f64 = 0.01;
+    (a_start - b_start).abs() < EPSILON && (a_len - b_len).abs() < EPSILON
+}
+
+/// The box taffy measures an absolutely positioned child's insets from: its parent's padding box.
+fn parent_reference(layout_tree: &LayoutTree, id: LayoutElementId) -> Option<Rect> {
+    let parent = layout_tree.arena.get(&id)?.parent?;
+    Some(layout_tree.arena.get(&parent)?.box_model.padding_box)
 }
 
 /// The containing block of an absolutely positioned box: the padding box of its nearest positioned

@@ -501,6 +501,98 @@ mod rendertree_from_engine {
         }
     }
 
+    /// `left: 0; right: 0` stretches across the containing block, not across taffy's parent.
+    ///
+    /// Taffy does stretch a box between opposing insets, but it measures from the immediate
+    /// parent. With a narrow static wrapper between the box and its positioned ancestor, that
+    /// gave the wrapper's width - and the placement pass only moved the box, so the wrong width
+    /// survived. The second layout pass hands taffy insets rebased onto the parent so its own
+    /// algorithm produces the right size, and re-lays-out the children at that size.
+    #[test]
+    fn opposing_insets_stretch_across_the_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // 300px positioned ancestor, 100px static wrapper in between - CodeRabbit's example.
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #wrap { width: 100px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+
+        assert!(
+            (mb.width - 300.0).abs() < 1.0,
+            "expected the box to span the 300px containing block, got width {} (the 100px wrapper?)",
+            mb.width
+        );
+        assert!(
+            (mb.x - 40.0).abs() < 1.0,
+            "expected x ~40 (the containing block's left edge), got {}",
+            mb.x
+        );
+    }
+
+    /// The common shape - an absolute child directly inside its positioned ancestor - must still
+    /// come out right, and is the case the second pass deliberately skips.
+    #[test]
+    fn opposing_insets_with_the_parent_as_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="cb"><div id="target"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+        assert!((mb.width - 300.0).abs() < 1.0, "expected width ~300, got {}", mb.width);
+        assert!((mb.x - 40.0).abs() < 1.0, "expected x ~40, got {}", mb.x);
+    }
+
     /// The initial containing block sits at the canvas origin, not inside the root's padding.
     ///
     /// It used to be anchored on the root element's *content* box, so any padding on the root

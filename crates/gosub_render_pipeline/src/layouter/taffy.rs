@@ -8,7 +8,7 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
-use crate::layouter::abspos::post_process_abspos;
+use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::float::{line_box_insets, post_process_floats};
@@ -95,6 +95,11 @@ pub struct TaffyLayouter {
     /// block, in CSS pixels. Empty on the first layout pass, since a float's position is not known
     /// until that pass has run; filled in from its result for the second.
     float_insets: HashMap<DomNodeId, (f32, f32)>,
+    /// Taffy insets for absolutely positioned boxes that stretch between opposing insets,
+    /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
+    /// first pass - a box's containing block is only known once the page has been laid out - and
+    /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
+    abspos_insets: HashMap<DomNodeId, RebasedInsets>,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -208,6 +213,7 @@ impl TaffyLayouter {
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
             float_insets: HashMap::new(),
+            abspos_insets: HashMap::new(),
         }
     }
 
@@ -252,24 +258,26 @@ impl CanLayout for TaffyLayouter {
             };
         };
 
-        // A float's position is only known once the page has been laid out, but text has to be
-        // wrapped to avoid it - so the first pass places the floats and the second re-wraps text
-        // around where they landed. Pages without floats (most modern ones) pay for one pass.
+        // Two things are only knowable once the page has been laid out once: where a float landed
+        // (text has to be wrapped around it) and which containing block an absolutely positioned
+        // box actually belongs to (a box stretching between opposing insets has to be sized
+        // against it). Both are collected on the first pass and replayed on a second. A page that
+        // needs neither - most of them - pays for one pass.
         self.float_insets.clear();
-        let (mut layout_tree, placed) = self.layout_pass(render_tree, root_id, viewport);
-        if placed.is_empty() {
-            return layout_tree;
-        }
+        self.abspos_insets.clear();
+        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
 
         let insets = line_box_insets(&layout_tree, &placed);
-        if insets.is_empty() {
+        if insets.is_empty() && stretched.is_empty() {
             return layout_tree;
         }
 
         self.float_insets = insets;
-        let (layout_tree_2, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        self.abspos_insets = stretched;
+        let (layout_tree_2, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
         layout_tree = layout_tree_2;
         self.float_insets.clear();
+        self.abspos_insets.clear();
         layout_tree
     }
 }
@@ -282,7 +290,11 @@ impl TaffyLayouter {
         render_tree: RenderTree,
         root_id: RenderNodeId,
         viewport: Option<geo::Dimension>,
-    ) -> (LayoutTree, Vec<crate::layouter::float::PlacedFloat>) {
+    ) -> (
+        LayoutTree,
+        Vec<crate::layouter::float::PlacedFloat>,
+        HashMap<DomNodeId, RebasedInsets>,
+    ) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
         // // Compute the layout based on the viewport
@@ -386,7 +398,7 @@ impl TaffyLayouter {
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
-            return (layout_tree, Vec::new());
+            return (layout_tree, Vec::new(), HashMap::new());
         }
         self.measure_cache = measure_cache;
 
@@ -416,9 +428,9 @@ impl TaffyLayouter {
         // Last: an absolutely positioned box is measured from its containing block's *final*
         // position, so every ancestor - tables and floats included - must have settled first.
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
-        post_process_abspos(&mut layout_tree, icb);
+        let stretched = post_process_abspos(&mut layout_tree, icb);
 
-        (layout_tree, placed)
+        (layout_tree, placed, stretched)
     }
 
     fn populate_boxmodel(
@@ -1013,6 +1025,21 @@ impl TaffyLayouter {
             NodeType::Element(data) => {
                 let conv = CssTaffyConverter::new(dom_node.node_id, &*layout_tree.render_tree.doc);
                 taffy_style = conv.convert(false);
+
+                // Second pass only: replace the CSS insets of an absolutely positioned box that
+                // stretches between opposing insets with ones rebased onto its parent, so taffy
+                // sizes it against the CSS containing block rather than whatever ancestor happens
+                // to be its parent. Empty on the first pass. See `abspos::RebasedInsets`.
+                if let Some(rebased) = self.abspos_insets.get(&dom_node.node_id) {
+                    if let (Some(l), Some(r)) = (rebased.left, rebased.right) {
+                        taffy_style.inset.left = LengthPercentageAuto::length(l);
+                        taffy_style.inset.right = LengthPercentageAuto::length(r);
+                    }
+                    if let (Some(t), Some(b)) = (rebased.top, rebased.bottom) {
+                        taffy_style.inset.top = LengthPercentageAuto::length(t);
+                        taffy_style.inset.bottom = LengthPercentageAuto::length(b);
+                    }
+                }
 
                 // Images get a taffy context so their intrinsic size participates in layout.
                 if data.tag_name.eq_ignore_ascii_case("img") {
