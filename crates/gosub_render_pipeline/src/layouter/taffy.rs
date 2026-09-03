@@ -400,19 +400,23 @@ impl TaffyLayouter {
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(&mut layout_tree);
-        // Last: an absolutely positioned box is measured from its containing block's *final*
-        // position, so every ancestor - tables and floats included - must have settled first.
-        let icb = viewport.unwrap_or(geo::Dimension::new(
-            layout_tree.root_dimension.width,
-            layout_tree.root_dimension.height,
-        ));
-        post_process_abspos(&mut layout_tree, icb);
 
+        // Publish the root's settled size *before* the absolute-positioning pass. That pass falls
+        // back to it for the initial containing block when no viewport is given, and
+        // `root_dimension` is still `ZERO` from `generate_tree` until this runs - so percentage
+        // insets resolved against zero and `right`/`bottom` placement came out at negative
+        // offsets. The root is not absolutely positioned, so `post_process_abspos` cannot change
+        // its box; moving this up is safe.
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
             let h = root.box_model.margin_box.height as f32;
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
+
+        // Last: an absolutely positioned box is measured from its containing block's *final*
+        // position, so every ancestor - tables and floats included - must have settled first.
+        let icb = viewport.unwrap_or(layout_tree.root_dimension);
+        post_process_abspos(&mut layout_tree, icb);
 
         (layout_tree, placed)
     }

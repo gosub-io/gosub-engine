@@ -501,6 +501,67 @@ mod rendertree_from_engine {
         }
     }
 
+    /// With no viewport, the initial containing block comes from the root's settled size.
+    ///
+    /// `root_dimension` is zero until the layout pass publishes it, and that used to happen
+    /// *after* the absolute-positioning pass ran - so the fallback containing block was 0x0,
+    /// percentage insets resolved to zero and `right`/`bottom` placed boxes at negative offsets.
+    #[test]
+    fn absolute_placement_without_a_viewport_uses_the_root_size() {
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // No positioned ancestor anywhere, so `#pinned` measures against the *initial*
+        // containing block - the fallback this test is about. The in-flow sibling is what gives
+        // the root a width to fall back to; without a viewport its size is content-driven.
+        let html = r#"
+            <html><head><style>
+                #pinned { position: absolute; right: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div style="width:400px;height:20px"></div>
+                <div id="pinned"></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        // No viewport: the initial containing block has to fall back to the root's own size.
+        let layout_tree = TaffyLayouter::new().layout(render_tree, None, 1.0);
+
+        assert!(
+            layout_tree.root_dimension.width > 0.0,
+            "the root's settled size must be published before it is used"
+        );
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        // `right: 0` puts the box's right edge on the containing block's right edge, so its
+        // left edge lands at (containing block width - 50). With the zero fallback that came out
+        // at -50: flush against nothing, off the left of the canvas.
+        let expected = layout_tree.root_dimension.width - 50.0;
+        assert!(
+            pinned.box_model.margin_box.x >= 0.0,
+            "right-edge placement produced a negative offset: x = {}",
+            pinned.box_model.margin_box.x
+        );
+        assert!(
+            (pinned.box_model.margin_box.x - expected).abs() < 1.0,
+            "expected x ~{expected} (root width {} minus the 50px box), got {}",
+            layout_tree.root_dimension.width,
+            pinned.box_model.margin_box.x
+        );
+    }
+
     /// A promoted layer whose element has a collapsed margin box must still get tiles.
     ///
     /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
