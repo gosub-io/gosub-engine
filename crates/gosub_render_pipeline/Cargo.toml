@@ -6,7 +6,12 @@ license = "MIT"
 autobins = false
 
 [dependencies]
-taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+# `calc` is deliberately OFF. CSS calc() is resolved in gosub_css3 (functions/math.rs) long
+# before values reach taffy, so the feature buys nothing here - and leaving it off is what makes
+# the `unsafe impl Send` on `SendTaffyTree` (layouter/taffy.rs) provable rather than merely
+# probable: without it `CompactLength::calc` does not exist, so taffy's tagged word can never
+# hold a real pointer. Do not re-enable without reading that safety comment.
+taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 log = { workspace = true }
 image = { workspace = true, features = ["png", "jpeg", "gif"] }
 png = { workspace = true }
@@ -33,6 +38,7 @@ gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosu
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
+tempfile = { workspace = true }
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,

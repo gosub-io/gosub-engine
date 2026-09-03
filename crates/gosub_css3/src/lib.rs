@@ -17,13 +17,16 @@ use gosub_shared::{timing_start, timing_stop};
 pub mod ast;
 pub mod colors;
 mod functions;
+pub mod imports;
 pub mod matcher;
+pub mod media_query;
 // The as_* accessors panic by contract when called on the wrong node type;
 // callers are expected to check the matching is_* predicate first.
 #[allow(clippy::panic)]
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
+pub mod supports;
 pub mod system;
 pub mod tokenizer;
 mod unicode;

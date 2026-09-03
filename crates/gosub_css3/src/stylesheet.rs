@@ -5,33 +5,36 @@ use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
-
-thread_local! {
-    /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
-    /// during style computation. Set per layout pass via [`set_layout_viewport`]; defaults to a
-    /// 1280×800 fallback so units still resolve before any real viewport is known.
-    static LAYOUT_VIEWPORT: Cell<(f32, f32)> = const { Cell::new((1280.0, 800.0)) };
-}
+use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
+use crate::supports::SupportsCondition;
 
 /// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
 /// computations on this thread. The render flow calls this before building and laying out the
 /// render tree so viewport units (including those inside `clamp()`) track the real window size
 /// instead of a fixed fallback. Non-positive dimensions are ignored.
+///
+/// This updates the viewport half of the thread's [`MediaEnvironment`], which media queries
+/// read too - the two must never disagree. Callers that also care about colour scheme or
+/// resolution should build a whole environment and use [`set_media_environment`] instead.
 pub fn set_layout_viewport(width: f32, height: f32) {
     if width > 0.0 && height > 0.0 {
-        LAYOUT_VIEWPORT.with(|vp| vp.set((width, height)));
+        let mut env = media_environment();
+        env.width = width;
+        env.height = height;
+        set_media_environment(env);
     }
 }
 
 /// The current viewport (CSS px) for resolving viewport-relative units on this thread.
 fn layout_viewport() -> (f32, f32) {
-    LAYOUT_VIEWPORT.with(Cell::get)
+    let env = media_environment();
+    (env.width, env.height)
 }
 
 /// Severity of a CSS error
@@ -137,6 +140,25 @@ pub struct FontFace {
     pub unicode_range: Option<String>,
 }
 
+/// An `@import` rule: another stylesheet whose rules belong ahead of this one's own.
+///
+/// Recorded unresolved. Fetching is the host's job (only it has a network stack and a URL
+/// resolver); see [`CssStylesheet::splice_import`] for the merge back.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ImportRule {
+    /// The requested URL exactly as written, relative to the importing sheet's own URL.
+    pub url: String,
+    /// `layer` (as `Some(None)`) or `layer(name)` (as `Some(Some(name))`). Cascade layers are
+    /// flattened by this engine, so this is recorded for fidelity but does not affect order.
+    pub layer: Option<Option<String>>,
+    /// `supports(...)` condition. The import is skipped entirely when it does not hold, so
+    /// a sheet guarded on a feature this engine lacks is never fetched.
+    pub supports: Option<SupportsCondition>,
+    /// Trailing media query list. Every imported rule inherits it, so
+    /// `@import "print.css" print;` cannot leak into screen rendering.
+    pub media: Option<MediaQueryList>,
+}
+
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug)]
 pub struct CssStylesheet {
@@ -144,6 +166,15 @@ pub struct CssStylesheet {
     pub rules: Vec<CssRule>,
     /// `@font-face` rules found in this stylesheet (web fonts).
     pub font_faces: Vec<FontFace>,
+    /// `@import` rules, in source order, still unresolved.
+    pub imports: Vec<ImportRule>,
+    /// Whether any declaration in this sheet uses a viewport-relative unit (`vw`, `vh`,
+    /// `vmin`, `vmax` and their `s`/`l`/`d` variants).
+    ///
+    /// Those resolve against the layout viewport *at style-computation time*, so a sheet
+    /// that uses them has to be restyled on every resize, while one that does not can keep
+    /// its cached computed values. Recorded once when the stylesheet is built.
+    pub uses_viewport_units: bool,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
     /// Url or file path where the stylesheet was found
@@ -159,6 +190,8 @@ impl PartialEq for CssStylesheet {
     fn eq(&self, other: &Self) -> bool {
         self.rules == other.rules
             && self.font_faces == other.font_faces
+            && self.imports == other.imports
+            && self.uses_viewport_units == other.uses_viewport_units
             && self.origin == other.origin
             && self.url == other.url
             && self.parse_log == other.parse_log
@@ -171,11 +204,54 @@ impl CssStylesheet {
         Self {
             rules: vec![],
             font_faces: vec![],
+            imports: vec![],
+            uses_viewport_units: false,
             origin,
             url: url.to_string(),
             parse_log: vec![],
             index: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Splice an imported stylesheet into this one, ahead of the rules already present.
+    ///
+    /// `@import` must precede every other rule, so an imported sheet's rules always cascade
+    /// below the importing sheet's own; prepending in import order reproduces that. Repeated
+    /// calls therefore have to append to the imported block rather than the front, which
+    /// `insert_at` tracks for the caller.
+    ///
+    /// `media` is the import's own media query list; it is pushed onto every incoming rule so
+    /// the condition travels with the rules rather than being lost at the seam. Font faces
+    /// come along unconditionally - they are not media-scoped.
+    pub fn splice_import(
+        &mut self,
+        imported: CssStylesheet,
+        media: Option<&Arc<MediaQueryList>>,
+        insert_at: usize,
+    ) -> usize {
+        let CssStylesheet {
+            rules,
+            font_faces,
+            uses_viewport_units,
+            ..
+        } = imported;
+
+        // An imported sheet's viewport-unit usage becomes the importing sheet's too: its
+        // rules now live here, and the resize fingerprint is computed per sheet.
+        self.uses_viewport_units |= uses_viewport_units;
+        let count = rules.len();
+        let rules = rules.into_iter().map(|mut rule| {
+            if let Some(media) = media {
+                // Outermost first: the import's condition gates everything inside it.
+                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            }
+            rule
+        });
+        self.rules.splice(insert_at..insert_at, rules);
+        self.font_faces.extend(font_faces);
+        // The index is keyed by rule position, so it has to be rebuilt.
+        self.invalidate_index();
+        insert_at + count
     }
 
     /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a
@@ -226,6 +302,12 @@ pub struct CssRule {
     pub selectors: Vec<CssSelector>,
     /// Actual declarations that will be applied if the selectors match
     pub declarations: Vec<CssDeclaration>,
+    /// The `@media` conditions enclosing this rule, outermost first - all of them must match
+    /// before the rule applies. `None` for the overwhelmingly common unconditional rule, so
+    /// the check costs a null test. Each list is shared by every rule in its block.
+    ///
+    /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
+    pub media: Option<Vec<Arc<MediaQueryList>>>,
 }
 
 impl CssRule {
@@ -237,6 +319,15 @@ impl CssRule {
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
+    }
+
+    /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules
+    /// always match.
+    #[must_use]
+    pub fn media_matches(&self, env: &MediaEnvironment) -> bool {
+        self.media
+            .as_ref()
+            .is_none_or(|conditions| conditions.iter().all(|list| list.matches(env)))
     }
 }
 
@@ -535,6 +626,51 @@ pub enum CssValue {
     Inherit,
     Comma,
     List(Vec<CssValue>),
+}
+
+/// The viewport-relative length units, which resolve against the layout viewport when a
+/// declaration is computed rather than when it is used. Kept in step with the `unit_to_px`
+/// match below.
+const VIEWPORT_UNITS: &[&str] = &["vw", "svw", "lvw", "dvw", "vh", "svh", "lvh", "dvh", "vmin", "vmax"];
+
+impl CssValue {
+    /// Whether this value (or anything nested inside it) is expressed in a viewport-relative
+    /// unit, and so has to be recomputed when the viewport resizes.
+    #[must_use]
+    pub fn uses_viewport_units(&self) -> bool {
+        match self {
+            CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
+            // `calc()` alone keeps its body as raw text (see `parse_ast_node`), so the units
+            // inside it never become `Unit` values and the arm above cannot see them. Scan the
+            // text instead. Other functions - `clamp()` included - parse their arguments into
+            // real values and are handled by the recursion below.
+            //
+            // Only `calc()` is scanned, deliberately: a blanket string scan would also match
+            // `url(https://example.org/100vw.png)` or `content: "100vw"`, and every one of those
+            // false positives costs a full style recompute on each resize.
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => args.iter().any(|arg| match arg {
+                CssValue::String(body) => text_uses_viewport_units(body),
+                other => other.uses_viewport_units(),
+            }),
+            CssValue::Function(_, args) => args.iter().any(CssValue::uses_viewport_units),
+            CssValue::List(values) => values.iter().any(CssValue::uses_viewport_units),
+            _ => false,
+        }
+    }
+}
+
+/// Whether raw value text contains a viewport-relative unit token, for the `calc()` body that
+/// never gets parsed into [`CssValue::Unit`].
+///
+/// Splits on anything that cannot appear in a unit token, then strips the numeric part, so
+/// `100vw` yields `vw` while `overview` (no leading digits) is left whole and matches nothing.
+fn text_uses_viewport_units(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+        .any(|word| {
+            let unit = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
+            // A bare identifier is not a unit: it has to follow a number.
+            unit.len() != word.len() && VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u))
+        })
 }
 
 impl Display for CssValue {
@@ -1047,6 +1183,59 @@ mod test {
 
     use super::*;
 
+    /// `calc()` keeps its body as raw text, so the units in it never become `CssValue::Unit`.
+    /// Missing them leaves `uses_viewport_units` false, the style fingerprint then omits the
+    /// viewport, and a resize never invalidates the values resolved against the old one.
+    #[test]
+    fn calc_bodies_are_scanned_for_viewport_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
+        };
+
+        assert!(calc("100vw - 2rem"));
+        assert!(calc("100% - 10DVH"), "unit matching is case-insensitive");
+        assert!(calc("(50vmin + 1px) / 2"));
+        assert!(!calc("100% - 2rem"));
+    }
+
+    /// Only `calc()` is scanned. A blanket string scan would fire on these, and each false
+    /// positive costs a full style recompute on every resize.
+    #[test]
+    fn other_functions_do_not_scan_raw_text() {
+        let url = CssValue::Function(
+            "url".to_string(),
+            vec![CssValue::String("https://example.org/100vw.png".to_string())],
+        );
+        assert!(!url.uses_viewport_units());
+
+        assert!(!CssValue::String("100vw".to_string()).uses_viewport_units());
+    }
+
+    /// A viewport unit has to follow a number; a bare identifier that merely contains those
+    /// letters is not one.
+    #[test]
+    fn identifiers_containing_unit_letters_are_not_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
+        };
+        assert!(!calc("var(--overview) + 1px"));
+        assert!(!calc("vh"));
+    }
+
+    /// Functions whose arguments are parsed properly still work through the recursion.
+    #[test]
+    fn parsed_function_arguments_still_match() {
+        let clamp = CssValue::Function(
+            "clamp".to_string(),
+            vec![
+                CssValue::Unit(1.0, "rem".to_string()),
+                CssValue::Unit(50.0, "vw".to_string()),
+                CssValue::Unit(9.0, "rem".to_string()),
+            ],
+        );
+        assert!(clamp.uses_viewport_units());
+    }
+
     #[test]
     fn test_css_rule() {
         let rule = CssRule {
@@ -1058,6 +1247,7 @@ mod test {
                 value: CssValue::String("red".to_string()),
                 important: false,
             }],
+            media: None,
         };
 
         assert_eq!(rule.selectors().len(), 1);
