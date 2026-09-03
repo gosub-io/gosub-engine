@@ -165,8 +165,37 @@ impl<'a> CssTaffyConverter<'a> {
         // positioned box, so leave those alone.
         if ts.position != Position::Absolute && crate::layouter::float::float_side(self.doc, self.node_id).is_some() {
             ts.position = Position::Absolute;
-            ts.display = Display::Block;
             ts.inset = Rect::auto();
+
+            // Blockification (CSS Display §2.7) only touches *inline-level* boxes, and maps each
+            // to its block-level equivalent: `inline` and `inline-block` become `block`, but
+            // `inline-flex` becomes `flex` and `inline-grid` becomes `grid`. Anything already
+            // block-level - `block`, `flex`, `grid`, the table displays - is left alone. Forcing
+            // `Display::Block` here laid a floated flex or grid container's children out as
+            // blocks instead of as items.
+            //
+            // This has to read the CSS display rather than `ts.display`: by now the converter has
+            // mapped `inline`, `inline-block` and every table part onto `Display::Flex` as well,
+            // so the taffy value no longer distinguishes them from a real flex container.
+            let keeps_its_formatting_context = matches!(
+                self.get_own(&StyleProperty::Display),
+                Some(Value::Display(
+                    CssDisplay::Flex
+                        | CssDisplay::InlineFlex
+                        | CssDisplay::Grid
+                        | CssDisplay::InlineGrid
+                        | CssDisplay::Table
+                        | CssDisplay::TableCaption
+                        | CssDisplay::TableCell
+                        | CssDisplay::TableFooterGroup
+                        | CssDisplay::TableHeaderGroup
+                        | CssDisplay::TableRow
+                        | CssDisplay::TableRowGroup
+                ))
+            );
+            if !keeps_its_formatting_context {
+                ts.display = Display::Block;
+            }
         }
 
         ts

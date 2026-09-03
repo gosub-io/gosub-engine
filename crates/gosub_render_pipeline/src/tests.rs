@@ -500,4 +500,67 @@ mod rendertree_from_engine {
             other => panic!("expected a px width on ::before, got {other:?}"),
         }
     }
+
+    /// Floating a flex container must not turn it into a block container.
+    ///
+    /// CSS blockification (Display §2.7) only maps *inline-level* boxes to their block-level
+    /// equivalent - `inline-flex` becomes `flex`, not `block`, and a box that is already
+    /// block-level is untouched. Forcing `Display::Block` on every float laid a floated flex
+    /// container's children out stacked instead of in a row.
+    #[test]
+    fn floated_flex_container_keeps_its_flex_children() {
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// Lay `html` out at 800x600 and return the margin boxes of `#row`'s children.
+        fn child_boxes(html: &str) -> Vec<Rect> {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let row_dom = find_node_by_id_attr(&adapter.doc, root, "row").expect("#row");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+            let row = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == row_dom)
+                .expect("#row in the layout tree");
+            row.children
+                .iter()
+                .filter_map(|id| layout_tree.get_node_by_id(*id))
+                .map(|el| el.box_model.margin_box)
+                .collect()
+        }
+
+        let html = r#"
+            <html><head><style>
+                #row { display: flex; float: left; }
+                #row > div { width: 50px; height: 20px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="row"><div id="a"></div><div id="b"></div></div>
+            </body></html>
+        "#;
+
+        let boxes = child_boxes(html);
+        assert_eq!(boxes.len(), 2, "expected the two flex items");
+        // Side by side (flex row), not stacked (block flow).
+        assert!(
+            (boxes[0].y - boxes[1].y).abs() < 0.5,
+            "floated flex children should share a row, got y = {} and {}",
+            boxes[0].y,
+            boxes[1].y
+        );
+        assert!(
+            boxes[1].x > boxes[0].x + 1.0,
+            "the second flex item should sit right of the first, got x = {} and {}",
+            boxes[0].x,
+            boxes[1].x
+        );
+    }
 }
