@@ -272,7 +272,13 @@ impl TileList {
                 let mut max_y = f64::MIN;
                 for &eid in &layer.elements {
                     if let Some(el) = self.layer_list.layout_tree.get_node_by_id(eid) {
-                        let m = el.box_model.margin_box;
+                        // Same union the per-element assignment below uses. Bounding the grid by
+                        // the margin box alone is not enough: a negative margin can collapse the
+                        // margin box to zero area - `margin-left: -320px` on a float - so the
+                        // positive-area check skipped the element entirely and the layer could
+                        // end up with no tiles for the assignment to pick from, or with a grid
+                        // too small to hold the border pixels that actually get painted.
+                        let m = union_rect(el.box_model.margin_box, el.box_model.border_box);
                         if m.width > 0.0 && m.height > 0.0 {
                             min_x = min_x.min(m.x);
                             min_y = min_y.min(m.y);

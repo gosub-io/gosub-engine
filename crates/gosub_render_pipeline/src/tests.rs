@@ -501,6 +501,76 @@ mod rendertree_from_engine {
         }
     }
 
+    /// A promoted layer whose element has a collapsed margin box must still get tiles.
+    ///
+    /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
+    /// was still bounded by margin boxes alone - and skipped any element with zero area. A
+    /// negative margin large enough to collapse the margin box (the `margin-left: -320px` float
+    /// the union was added for) therefore produced a layer with no tiles at all, so the union
+    /// had nothing to select and the element's background vanished.
+    #[test]
+    fn collapsed_margin_box_still_gets_tiles() {
+        use crate::common::geo::Dimension;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::tiler::TileList;
+
+        // `opacity` promotes the div to its own layer, so it goes through the bounds computation
+        // rather than layer 0's full-page coverage. `margin-left: -320px` against a 320px width
+        // leaves a zero-width margin box while the border box keeps its 320px.
+        let html = r#"
+            <html><head><style>
+                #ghost {
+                    display: block; width: 320px; height: 100px;
+                    margin-left: -320px; opacity: 0.5; background-color: #ff0000;
+                }
+            </style></head>
+            <body style="margin:0"><div style="padding-left:400px"><div id="ghost"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ghost_dom = find_node_by_id_attr(&adapter.doc, root, "ghost").expect("#ghost");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        // Confirm the setup really does collapse the margin box - if a layout change ever stops
+        // reproducing that, this test should say so rather than pass hollowly.
+        let ghost = layout_tree
+            .arena
+            .iter()
+            .find(|(_, el)| el.dom_node_id == ghost_dom)
+            .map(|(id, el)| (*id, el.box_model))
+            .expect("#ghost in the layout tree");
+        assert!(
+            ghost.1.margin_box.width <= 0.0,
+            "the negative margin should collapse the margin box, got {}",
+            ghost.1.margin_box.width
+        );
+        assert!(ghost.1.border_box.width > 0.0, "the border box should keep its width");
+
+        let layer_list = LayerList::new(layout_tree);
+        // More than one layer means the div really was promoted; layer 0 gets full-page coverage
+        // and would bypass the bounds computation this test is about.
+        assert!(
+            layer_list.layer_ids.read().len() > 1,
+            "the div should have been promoted to its own layer"
+        );
+
+        let mut tile_list = TileList::new(layer_list, Dimension::new(256.0, 256.0));
+        tile_list.generate();
+
+        assert!(
+            !tile_list.get_tiles_for_element(ghost.0).is_empty(),
+            "#ghost was assigned to no tile, so nothing paints its background"
+        );
+    }
+
     /// Floating a flex container must not turn it into a block container.
     ///
     /// CSS blockification (Display §2.7) only maps *inline-level* boxes to their block-level
