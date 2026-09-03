@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
 use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
+use crate::supports::SupportsCondition;
 
 /// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
 /// computations on this thread. The render flow calls this before building and laying out the
@@ -139,6 +140,25 @@ pub struct FontFace {
     pub unicode_range: Option<String>,
 }
 
+/// An `@import` rule: another stylesheet whose rules belong ahead of this one's own.
+///
+/// Recorded unresolved. Fetching is the host's job (only it has a network stack and a URL
+/// resolver); see [`CssStylesheet::splice_import`] for the merge back.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ImportRule {
+    /// The requested URL exactly as written, relative to the importing sheet's own URL.
+    pub url: String,
+    /// `layer` (as `Some(None)`) or `layer(name)` (as `Some(Some(name))`). Cascade layers are
+    /// flattened by this engine, so this is recorded for fidelity but does not affect order.
+    pub layer: Option<Option<String>>,
+    /// `supports(...)` condition. The import is skipped entirely when it does not hold, so
+    /// a sheet guarded on a feature this engine lacks is never fetched.
+    pub supports: Option<SupportsCondition>,
+    /// Trailing media query list. Every imported rule inherits it, so
+    /// `@import "print.css" print;` cannot leak into screen rendering.
+    pub media: Option<MediaQueryList>,
+}
+
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug)]
 pub struct CssStylesheet {
@@ -146,6 +166,8 @@ pub struct CssStylesheet {
     pub rules: Vec<CssRule>,
     /// `@font-face` rules found in this stylesheet (web fonts).
     pub font_faces: Vec<FontFace>,
+    /// `@import` rules, in source order, still unresolved.
+    pub imports: Vec<ImportRule>,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
     /// Url or file path where the stylesheet was found
@@ -161,6 +183,7 @@ impl PartialEq for CssStylesheet {
     fn eq(&self, other: &Self) -> bool {
         self.rules == other.rules
             && self.font_faces == other.font_faces
+            && self.imports == other.imports
             && self.origin == other.origin
             && self.url == other.url
             && self.parse_log == other.parse_log
@@ -173,11 +196,45 @@ impl CssStylesheet {
         Self {
             rules: vec![],
             font_faces: vec![],
+            imports: vec![],
             origin,
             url: url.to_string(),
             parse_log: vec![],
             index: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Splice an imported stylesheet into this one, ahead of the rules already present.
+    ///
+    /// `@import` must precede every other rule, so an imported sheet's rules always cascade
+    /// below the importing sheet's own; prepending in import order reproduces that. Repeated
+    /// calls therefore have to append to the imported block rather than the front, which
+    /// `insert_at` tracks for the caller.
+    ///
+    /// `media` is the import's own media query list; it is pushed onto every incoming rule so
+    /// the condition travels with the rules rather than being lost at the seam. Font faces
+    /// come along unconditionally - they are not media-scoped.
+    pub fn splice_import(
+        &mut self,
+        imported: CssStylesheet,
+        media: Option<&Arc<MediaQueryList>>,
+        insert_at: usize,
+    ) -> usize {
+        let CssStylesheet { rules, font_faces, .. } = imported;
+
+        let count = rules.len();
+        let rules = rules.into_iter().map(|mut rule| {
+            if let Some(media) = media {
+                // Outermost first: the import's condition gates everything inside it.
+                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            }
+            rule
+        });
+        self.rules.splice(insert_at..insert_at, rules);
+        self.font_faces.extend(font_faces);
+        // The index is keyed by rule position, so it has to be rebuilt.
+        self.invalidate_index();
+        insert_at + count
     }
 
     /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a

@@ -400,6 +400,22 @@ mod rendertree_from_engine {
         }
     }
 
+    /// As `width_px_of`, for a property the importing sheet in the `@import` tests leaves alone.
+    fn height_px_of(html: &str, id_attr: &str) -> f32 {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = find_node_by_id_attr(&adapter.doc, root, id_attr).expect("element not found");
+        match adapter.get_style(id, &StyleProperty::Height) {
+            Value::Unit(h, Unit::Px) => h,
+            _ => f32::NAN,
+        }
+    }
+
     #[test]
     fn rule_takes_the_highest_specificity_of_its_matching_selectors() {
         // `.item, #target` matches twice; the rule must cascade with the id's specificity,
@@ -633,6 +649,165 @@ mod rendertree_from_engine {
         });
         let light = width_px_of(html, "target");
         assert!((light - 100.0).abs() < 0.5, "light scheme: expected 100px, got {light}");
+    }
+
+    /// `@supports` gates a block on what the engine can actually do. The condition is settled
+    /// when the stylesheet is built, so nothing about it reaches the cascade.
+    #[test]
+    fn supports_block_gates_the_cascade() {
+        let satisfied = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @supports (display: grid) { #target { width: 300px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(satisfied, "target");
+        assert!(
+            (w - 300.0).abs() < 0.5,
+            "supported condition applies: expected 300px, got {w}"
+        );
+
+        let unsatisfied = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @supports (display: bogus-value) { #target { width: 300px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(unsatisfied, "target");
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "unsupported condition is inert: expected 100px, got {w}"
+        );
+    }
+
+    /// The `not (...)` fallback branch a site writes must be reachable for a feature the
+    /// engine parses but never renders - otherwise the page loses its working fallback.
+    #[test]
+    fn supports_fallback_branch_is_reachable_for_unimplemented_features() {
+        let html = r#"
+            <html><head><style>
+                #target { display: block; width: 100px; }
+                @supports (position: sticky) { #target { width: 300px; } }
+                @supports not (position: sticky) { #target { width: 200px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!(
+            (w - 200.0).abs() < 0.5,
+            "sticky is not implemented, so the fallback should win: expected 200px, got {w}"
+        );
+    }
+
+    /// End-to-end `@import`: the whole chain from an inline `<style>` through the html5
+    /// parser's fetcher, off disk, and back into the cascade in the right order.
+    #[test]
+    fn imported_stylesheet_is_fetched_and_cascades_below_the_importer() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let imported = dir.path().join("imported.css");
+        let nested = dir.path().join("nested.css");
+        std::fs::write(&nested, "#target { width: 400px; display: block; }").expect("write nested");
+        std::fs::write(
+            &imported,
+            format!(
+                "@import url(\"file://{}\");\n#target {{ width: 300px; }}",
+                nested.display()
+            ),
+        )
+        .expect("write imported");
+
+        // An absolute URL, because `html_compile` builds the document without one.
+        let html = format!(
+            r#"<html><head><style>
+                @import url("file://{}");
+                #target {{ width: 100px; display: block; }}
+            </style></head>
+            <body><div id="target">x</div></body></html>"#,
+            imported.display()
+        );
+
+        // The importing sheet's own rule wins over everything it pulled in, at equal
+        // specificity, because imported rules are spliced in ahead of it.
+        let w = width_px_of(&html, "target");
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "the importing sheet should win: expected 100px, got {w}"
+        );
+    }
+
+    /// The same chain, with the importing sheet declaring nothing of its own: the deepest
+    /// import still has to lose to the one that imported it.
+    #[test]
+    fn nested_imports_keep_their_relative_order() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let imported = dir.path().join("imported.css");
+        let nested = dir.path().join("nested.css");
+        std::fs::write(&nested, "#target { width: 400px; display: block; }").expect("write nested");
+        std::fs::write(
+            &imported,
+            format!(
+                "@import url(\"file://{}\");\n#target {{ width: 300px; }}",
+                nested.display()
+            ),
+        )
+        .expect("write imported");
+
+        let html = format!(
+            r#"<html><head><style>@import url("file://{}");</style></head>
+            <body><div id="target">x</div></body></html>"#,
+            imported.display()
+        );
+
+        let w = width_px_of(&html, "target");
+        assert!(
+            (w - 300.0).abs() < 0.5,
+            "the importer should beat what it imported: expected 300px, got {w}"
+        );
+    }
+
+    /// An import carrying a media query only contributes when that query holds.
+    #[test]
+    fn imported_stylesheet_respects_its_media_query() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let wide = dir.path().join("wide.css");
+        std::fs::write(&wide, "#target { width: 300px; }").expect("write wide");
+
+        let html = format!(
+            r#"<html><head><style>
+                @import url("file://{}") (min-width: 600px);
+                #target {{ width: 100px; display: block; }}
+            </style></head>
+            <body><div id="target">x</div></body></html>"#,
+            wide.display()
+        );
+
+        // Same document, two viewports: the imported rule is conditional, not dropped.
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 1000.0,
+            ..Default::default()
+        });
+        // `#target { width: 100px }` in the importing sheet still wins on source order, so
+        // assert on a property the importing sheet does not set instead.
+        std::fs::write(&wide, "#target { height: 300px; }").expect("rewrite wide");
+        let tall = height_px_of(&html, "target");
+        assert!(
+            (tall - 300.0).abs() < 0.5,
+            "wide viewport: expected 300px tall, got {tall}"
+        );
+
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 400.0,
+            ..Default::default()
+        });
+        // No height at all is the expected outcome here, and `NaN` compares false against
+        // everything - so test for the absence rather than for a difference.
+        let short = height_px_of(&html, "target");
+        assert!(
+            !(short.is_finite() && (short - 300.0).abs() < 0.5),
+            "narrow viewport: the import's media query should exclude its rule, got {short}"
+        );
     }
 
     /// `print`-only rules must not reach a screen render.

@@ -1853,8 +1853,7 @@ mod tests {
         /// A page whose only content is 100px tall below the breakpoint and 1000px tall above
         /// it, so the laid-out page height reports which branch of the `@media` block won.
         fn context_at_width(width: u32) -> BrowsingContext<DefaultRenderConfig> {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> =
-                BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,

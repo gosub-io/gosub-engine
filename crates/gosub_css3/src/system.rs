@@ -92,6 +92,10 @@ impl CssSystem for Css3System {
         Some(map)
     }
 
+    fn resolve_imports(sheet: &mut Self::Stylesheet, fetch: &mut gosub_interface::css3::ImportFetcher<'_>) {
+        crate::imports::resolve_imports(sheet, fetch);
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
     }

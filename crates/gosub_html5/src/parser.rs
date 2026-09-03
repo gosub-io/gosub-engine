@@ -4079,7 +4079,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         };
 
         match C::CssSystem::parse_str(text, config, origin, &source_url) {
-            Ok(stylesheet) => Some(stylesheet),
+            Ok(mut stylesheet) => {
+                self.resolve_stylesheet_imports(&mut stylesheet);
+                Some(stylesheet)
+            }
             Err(err) => {
                 warn!("Error while parsing CSS stylesheet: {err} ");
                 None
@@ -4097,15 +4100,17 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         None
     }
 
+    /// Fetch the text of a stylesheet, blocking. Shared by `<link rel=stylesheet>` and by
+    /// `@import` resolution, which needs the same three schemes and the same timing bookkeeping.
     #[cfg(not(target_arch = "wasm32"))]
-    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
+    fn fetch_css_text(&self, url: &Url) -> Option<String> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
             // Blocking HTTP in the middle of a parse. It goes through `simple::sync_fetch`
             // rather than the observed Fetcher, so nothing else records it. Time it here,
             // file it under `net.fetch.css`, and add it to the parser's running total so
             // `parse_document` can subtract it back out of `decode.html`.
             let mut ft = Timer::new(Some(url.to_string()));
-            let fetched = gosub_sonar::net::simple::sync_fetch(&url);
+            let fetched = gosub_sonar::net::simple::sync_fetch(url);
             ft.end();
             self.external_fetch_us.set(self.external_fetch_us.get() + ft.duration());
             timing::record("net.fetch.css", ft.duration(), Some(url.to_string()));
@@ -4156,6 +4161,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return None;
         };
 
+        Some(css)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
+        let css = self.fetch_css_text(&url)?;
+
         let config = ParserConfig {
             source: Some(url.to_string()),
             ignore_errors: true,
@@ -4163,13 +4175,40 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         };
 
         match C::CssSystem::parse_str(css.as_str(), config, origin, url.as_str()) {
-            Ok(stylesheet) => Some(stylesheet),
+            Ok(mut stylesheet) => {
+                self.resolve_stylesheet_imports(&mut stylesheet);
+                Some(stylesheet)
+            }
             Err(err) => {
                 warn!("Error while parsing CSS stylesheet: {err}");
                 None
             }
         }
     }
+
+    /// Pull in every `@import` the stylesheet declares.
+    ///
+    /// Each import is another blocking round trip on the parse path, the same way
+    /// `<link rel=stylesheet>` already is - and they are sequential, so a chain costs its
+    /// full depth in latency. Moving both onto the async resource pipeline is the fix; until
+    /// then an unresolved `@import` silently loses a whole stylesheet, which is worse.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn resolve_stylesheet_imports(&self, sheet: &mut <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut fetch = |base: &str, requested: &str| {
+            // A relative import resolves against the importing sheet, not the document.
+            let resolved = Url::parse(base)
+                .ok()
+                .and_then(|base| base.join(requested).ok())
+                .or_else(|| Url::parse(requested).ok())?;
+            let text = self.fetch_css_text(&resolved)?;
+            Some((resolved.to_string(), text))
+        };
+        C::CssSystem::resolve_imports(sheet, &mut fetch);
+    }
+
+    /// Imports are unresolved on wasm, where there is no blocking fetch to make.
+    #[cfg(target_arch = "wasm32")]
+    fn resolve_stylesheet_imports(&self, _sheet: &mut <C::CssSystem as CssSystem>::Stylesheet) {}
 
     fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
         if attributes.contains_key("rel") && attributes.contains_key("itemprop") {

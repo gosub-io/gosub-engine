@@ -153,18 +153,28 @@ impl Css3<'_> {
         }
     }
 
+    /// Capture the source text from the next token up to (not including) the block's `{`.
+    ///
+    /// Both ends come from token locations rather than [`Tokenizer::tell`]. The stream
+    /// position runs ahead of the parse whenever tokens are sitting in the lookahead queue,
+    /// so anchoring on it clipped the first token off the front and pulled the `{` in at the
+    /// back - `@supports (display: grid) {` captured as `display: grid) {`. The bug was
+    /// invisible while nothing consumed the result.
     pub fn consume_raw_condition(&mut self) -> CssResult<String> {
-        let start = self.tokenizer.tell();
+        let start = self.tokenizer.lookahead(0).location.offset;
 
+        let mut end = None;
         while !self.tokenizer.eof() {
             let t = self.tokenizer.consume();
             if let TokenType::LCurly = t.token_type {
+                end = Some(t.location.offset);
                 self.tokenizer.reconsume(t);
                 break;
             }
         }
-        let end = self.tokenizer.tell();
+        // No block followed, so the condition runs to the end of the input.
+        let end = end.unwrap_or_else(|| self.tokenizer.tell());
 
-        Ok(self.tokenizer.slice(start, end))
+        Ok(self.tokenizer.slice(start, end.max(start)))
     }
 }

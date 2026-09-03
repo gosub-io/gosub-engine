@@ -33,6 +33,7 @@ gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosu
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
+tempfile = { workspace = true }
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,
