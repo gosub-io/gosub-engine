@@ -365,8 +365,15 @@ fn parse_position(position: &str) -> Value {
     Value::Keyword(intern(position))
 }
 
+/// A CSS keyword value from an inline `style` attribute.
+///
+/// Interned lowercased: CSS keywords are ASCII case-insensitive, but every consumer compares
+/// against lowercase names (`float_side`, `clear_sides`, the flex/align/overflow readers), so
+/// `style="float: LEFT"` was silently falling through to the default. Every caller of this
+/// function stores a keyword-valued property - none carry case-sensitive text such as a font
+/// family or `content` string - so lowercasing here is safe for all of them.
 fn parse_style_str(val: &str) -> Value {
-    Value::Keyword(intern(val))
+    Value::Keyword(intern(val.cow_to_ascii_lowercase().as_ref()))
 }
 
 fn parse_text_align(val: &str) -> Value {
@@ -502,6 +509,39 @@ mod tests {
         assert_eq!(parse_css_url(r#"url("x.gif") no-repeat"#).as_deref(), Some("x.gif"));
         assert_eq!(parse_css_url("#fff no-repeat"), None);
         assert_eq!(parse_css_url("url()"), None);
+    }
+
+    /// CSS keywords are ASCII case-insensitive, but every consumer compares against lowercase
+    /// names, so an uppercase inline value used to fall through to the default - `float: LEFT`
+    /// simply did not float.
+    #[test]
+    fn keyword_values_are_case_insensitive() {
+        use crate::common::document::style::lookup;
+
+        let lower = parse_inline_style_attr("float: left");
+        let upper = parse_inline_style_attr("float: LEFT");
+        let mixed = parse_inline_style_attr("float: Left");
+        assert_eq!(
+            lower.get_own(&StyleProperty::Float),
+            upper.get_own(&StyleProperty::Float)
+        );
+        assert_eq!(
+            lower.get_own(&StyleProperty::Float),
+            mixed.get_own(&StyleProperty::Float)
+        );
+
+        // ...and the interned keyword really is the lowercase one the readers look for.
+        assert!(matches!(
+            upper.get_own(&StyleProperty::Float),
+            Some(Value::Keyword(id)) if lookup(*id) == "left"
+        ));
+
+        // Same treatment for the other keyword properties routed through `parse_style_str`.
+        let overflow = parse_inline_style_attr("overflow-x: HIDDEN");
+        assert!(matches!(
+            overflow.get_own(&StyleProperty::OverflowX),
+            Some(Value::Keyword(id)) if lookup(*id) == "hidden"
+        ));
     }
 
     #[test]
