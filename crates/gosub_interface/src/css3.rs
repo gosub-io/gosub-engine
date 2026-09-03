@@ -93,6 +93,18 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// The default implementation does nothing, leaving `@import` unresolved.
     fn resolve_imports(_sheet: &mut Self::Stylesheet, _fetch: &mut ImportFetcher<'_>) {}
 
+    /// A hash of everything *outside* the DOM that the cascade reads, under the environment
+    /// currently in force: which `@media` conditions hold, and the viewport when any sheet
+    /// uses viewport-relative units.
+    ///
+    /// Two frames whose fingerprints are equal compute identical styles for an unchanged DOM,
+    /// so a caller can keep every cached computed value across a viewport change instead of
+    /// restyling the document. `None` means the implementation cannot tell, and the caller
+    /// must assume styles went stale - which is the safe answer and the default.
+    fn style_environment_fingerprint(_sheets: &[Self::Stylesheet]) -> Option<u64> {
+        None
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 
     /// Scan `sheets` and collect the [`HoverFingerprints`] - the element types/classes/ids that

@@ -168,6 +168,13 @@ pub struct CssStylesheet {
     pub font_faces: Vec<FontFace>,
     /// `@import` rules, in source order, still unresolved.
     pub imports: Vec<ImportRule>,
+    /// Whether any declaration in this sheet uses a viewport-relative unit (`vw`, `vh`,
+    /// `vmin`, `vmax` and their `s`/`l`/`d` variants).
+    ///
+    /// Those resolve against the layout viewport *at style-computation time*, so a sheet
+    /// that uses them has to be restyled on every resize, while one that does not can keep
+    /// its cached computed values. Recorded once when the stylesheet is built.
+    pub uses_viewport_units: bool,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
     /// Url or file path where the stylesheet was found
@@ -184,6 +191,7 @@ impl PartialEq for CssStylesheet {
         self.rules == other.rules
             && self.font_faces == other.font_faces
             && self.imports == other.imports
+            && self.uses_viewport_units == other.uses_viewport_units
             && self.origin == other.origin
             && self.url == other.url
             && self.parse_log == other.parse_log
@@ -197,6 +205,7 @@ impl CssStylesheet {
             rules: vec![],
             font_faces: vec![],
             imports: vec![],
+            uses_viewport_units: false,
             origin,
             url: url.to_string(),
             parse_log: vec![],
@@ -220,8 +229,16 @@ impl CssStylesheet {
         media: Option<&Arc<MediaQueryList>>,
         insert_at: usize,
     ) -> usize {
-        let CssStylesheet { rules, font_faces, .. } = imported;
+        let CssStylesheet {
+            rules,
+            font_faces,
+            uses_viewport_units,
+            ..
+        } = imported;
 
+        // An imported sheet's viewport-unit usage becomes the importing sheet's too: its
+        // rules now live here, and the resize fingerprint is computed per sheet.
+        self.uses_viewport_units |= uses_viewport_units;
         let count = rules.len();
         let rules = rules.into_iter().map(|mut rule| {
             if let Some(media) = media {
@@ -538,6 +555,25 @@ pub enum CssValue {
     Inherit,
     Comma,
     List(Vec<CssValue>),
+}
+
+/// The viewport-relative length units, which resolve against the layout viewport when a
+/// declaration is computed rather than when it is used. Kept in step with the `unit_to_px`
+/// match below.
+const VIEWPORT_UNITS: &[&str] = &["vw", "svw", "lvw", "dvw", "vh", "svh", "lvh", "dvh", "vmin", "vmax"];
+
+impl CssValue {
+    /// Whether this value (or anything nested inside it) is expressed in a viewport-relative
+    /// unit, and so has to be recomputed when the viewport resizes.
+    #[must_use]
+    pub fn uses_viewport_units(&self) -> bool {
+        match self {
+            CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
+            CssValue::Function(_, args) => args.iter().any(CssValue::uses_viewport_units),
+            CssValue::List(values) => values.iter().any(CssValue::uses_viewport_units),
+            _ => false,
+        }
+    }
 }
 
 impl Display for CssValue {

@@ -6,6 +6,7 @@
 //! context via `set_document`, after which the context rebuilds whichever render
 //! representation the active backend consumes.
 
+use crate::engine::damage::{Damage, DamageLevel};
 use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
@@ -24,7 +25,7 @@ use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
-use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
 use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TilePixels;
@@ -139,8 +140,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 
     // Rendering commands to paint the tab onto a surface
     render_list: RenderList,
-    /// Render dirty flag, used to determine if the tab needs to be rendered
-    render_dirty: bool,
+    /// What changed since the last frame and how much of the pipeline that invalidates.
+    /// Replaces the former cluster of whole-document dirty booleans; see [`Damage`].
+    damage: Damage,
     /// Viewport size (width/height only - scroll offset lives in scroll_x/y)
     viewport: Viewport,
     /// Epoch of the scene, used to determine if the scene has changed
@@ -150,41 +152,35 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// first document, where samples stay unattributed rather than being misfiled.
     timing_scope: Option<gosub_shared::timing::ScopeId>,
 
-    /// DOM dirty flag, used to determine if the DOM has changed
-    dom_dirty: bool,
-    /// Style dirty flag, used to determine if the styles have changed
-    style_dirty: bool,
-    /// Layout dirty flag, used to determine if the layout has changed
-    layout_dirty: bool,
-
     /// Current scroll offset in CSS pixels.
     scroll_x: f64,
     scroll_y: f64,
     /// True when only the scroll offset changed (no full re-layout needed).
     scroll_dirty: bool,
     /// True when the scroll moved far enough that the raster window must be extended.
-    /// Cheaper than `render_dirty`: extending re-uses the cached layout.
+    /// Cheaper than a content rebuild: extending re-uses the cached layout.
     raster_dirty: bool,
 
-    /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
+    /// Cached rasterized tiles for the full page. Valid until content damage is recorded.
     pipeline_cache: Option<PipelineCache>,
     /// GPU-scene cache (paint commands + layer list) for GPU backends. Mutually exclusive in
     /// practice with `pipeline_cache`: a tab uses one path or the other per its backend.
     scene_cache: Option<SceneCache>,
-    /// Set when only hover state changed - triggers a paint-only repaint (stages 4–6),
-    /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
-    hover_dirty: bool,
     /// The DOM node currently under the pointer (for :hover matching).
     hover_leaf: Option<NodeId>,
-    /// Layout element ID from the PREVIOUS hover update (needed to find which tile to repaint).
-    hover_old_lei: Option<LayoutElementId>,
-    /// DOM nodes whose hover state changed in the last update (old chain ∪ new chain).
-    /// Only these nodes need their cached CSS invalidated; everything else in the tile stays cached.
-    hover_dirty_nodes: Vec<NodeId>,
     /// The layout element currently under the pointer, used for bounding-box pre-check.
     hover_layout_element: Option<LayoutElementId>,
     /// Cached :hover fingerprints for the current document; rebuilt on document change.
     hover_fingerprints: Option<HoverFingerprints>,
+    /// The document adapter, and with it the per-node computed-style cache, kept alive across
+    /// rebuilds. Rebuilding it per frame threw every cached style away, so a resize restyled
+    /// the whole document even when nothing about the cascade had changed. Cleared only when
+    /// the document itself changes.
+    document_adapter: Option<Arc<GosubDocumentAdapter<C>>>,
+    /// The style environment the currently cached computed styles were produced under
+    /// (see `CssSystem::style_environment_fingerprint`). A resize that leaves this unchanged
+    /// needs layout but no restyle. `None` before the first frame.
+    style_fingerprint: Option<u64>,
     /// True when the last hover chain contained a fingerprint-sensitive node.
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
@@ -221,25 +217,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document: None,
             storage: None,
             render_list: RenderList::new(),
-            render_dirty: false,
+            damage: Damage::none(),
             viewport: Viewport::default(),
             scene_epoch: 0,
             timing_scope: None,
-            dom_dirty: false,
-            style_dirty: false,
-            layout_dirty: false,
             scroll_x: 0.0,
             scroll_y: 0.0,
             scroll_dirty: false,
             raster_dirty: false,
             pipeline_cache: None,
             scene_cache: None,
-            hover_dirty: false,
             hover_leaf: None,
-            hover_old_lei: None,
-            hover_dirty_nodes: Vec::new(),
             hover_layout_element: None,
             hover_fingerprints: None,
+            document_adapter: None,
+            style_fingerprint: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
             focused_node: None,
@@ -278,18 +270,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Sets the parsed DOM document for the given tab.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>) {
         self.document = Some(doc);
-        self.dom_dirty = true;
-        self.style_dirty = true;
-        self.layout_dirty = true;
-        self.invalidate_render();
+        self.damage.rebuild();
         self.pipeline_cache = None;
         self.scene_cache = None;
         self.tile_budget.reset();
         self.raster_dirty = false;
-        self.hover_dirty = false;
         self.hover_leaf = None;
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
+        self.document_adapter = None;
+        self.style_fingerprint = None;
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
@@ -304,8 +294,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         self.viewport.width = vp.width;
         self.viewport.height = vp.height;
-        self.layout_dirty = true;
-        self.invalidate_render();
+        self.damage.escalate(self.viewport_change_level());
         self.pipeline_cache = None;
         self.scene_cache = None;
         self.tile_budget.reset();
@@ -397,8 +386,36 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch
     }
 
+    /// Force a full rebuild on the next frame. Embedders use this when something outside the
+    /// engine's knowledge changed; internal callers should record the narrowest [`Damage`] they
+    /// can instead.
     pub fn invalidate_render(&mut self) {
-        self.render_dirty = true;
+        self.damage.rebuild();
+    }
+
+    /// The damage a viewport resize causes.
+    ///
+    /// Boxes always move, so layout is the floor. Styles only go stale when the resize changes
+    /// what the cascade would produce - a `@media` condition flipping, or viewport-relative
+    /// units resolving differently - which [`Self::style_environment_fingerprint`] detects.
+    fn viewport_change_level(&self) -> DamageLevel {
+        match (self.style_environment_fingerprint(), self.style_fingerprint) {
+            // Same environment: no `@media` condition flipped and no sheet reads the viewport,
+            // so every cached computed style is still correct and only boxes need redoing.
+            (Some(new), Some(old)) if new == old => DamageLevel::Layout,
+            _ => DamageLevel::Style,
+        }
+    }
+
+    /// Hash the style-relevant environment for the *current* viewport.
+    ///
+    /// Installs that environment on the way, because the fingerprint has to be read under the
+    /// one the next frame will use; `pipeline_build_cache` installs the same value again
+    /// before it computes anything.
+    fn style_environment_fingerprint(&self) -> Option<u64> {
+        let doc = self.document.as_ref()?;
+        gosub_css3::media_query::set_media_environment(self.media_environment());
+        <C::CssSystem as CssSystem>::style_environment_fingerprint(doc.stylesheets())
     }
 
     /// Poll whether a background media fetch (e.g. an image download started during layout) has
@@ -407,11 +424,41 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// is consumed (cleared) by this call.
     pub fn poll_media_completed(&mut self) -> bool {
         if self.media_store.take_completed() {
-            self.render_dirty = true;
+            // The image's intrinsic size may only now be known, so boxes can move - but no
+            // selector's answer changed, so cached styles stay valid.
+            self.damage.escalate(DamageLevel::Layout);
             true
         } else {
             false
         }
+    }
+
+    /// The adapter this frame's render tree is built from, with its style cache invalidated to
+    /// exactly the extent the accumulated damage calls for.
+    ///
+    /// The adapter carries the per-node computed-style cache, so it is kept across frames: it
+    /// used to be rebuilt on every pass, which threw every cached style away and made a resize
+    /// restyle the whole document even when nothing about the cascade had changed. A new
+    /// document drops it (see [`Self::set_document`]).
+    fn prepare_adapter(&mut self) -> Option<Arc<GosubDocumentAdapter<C>>> {
+        let adapter = match &self.document_adapter {
+            Some(adapter) => Arc::clone(adapter),
+            None => {
+                let doc = self.document.as_ref()?;
+                let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(doc)));
+                self.document_adapter = Some(Arc::clone(&adapter));
+                adapter
+            }
+        };
+
+        if self.damage.level().needs_restyle() {
+            // The cascade would answer differently now, so nothing cached survives.
+            adapter.clear_style_cache();
+        } else {
+            // Only what the damage names needs re-evaluating; everything else keeps its styles.
+            adapter.invalidate_style_for_nodes(self.damage.nodes());
+        }
+        Some(adapter)
     }
 
     /// Full pipeline rebuild (stages 1–6): re-tiles and re-rasterizes the whole page,
@@ -426,14 +473,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let _scope = self.timing_scope.map(gosub_shared::timing::enter_scope);
 
         let media_env = self.media_environment();
-        if let Some(doc) = &self.document {
+        if let Some(adapter) = self.prepare_adapter() {
             let prev_tile_cache = self
                 .pipeline_cache
                 .as_mut()
                 .map(|c| std::mem::take(&mut c.tile_pixel_cache))
                 .unwrap_or_default();
             self.pipeline_cache = Some(pipeline_build_cache(
-                doc.clone(),
+                adapter,
                 &self.viewport,
                 self.scroll_y,
                 self.rasterizer.as_deref(),
@@ -447,11 +494,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.note_rastered_window();
         self.enforce_tile_budget(true);
         self.raster_dirty = false;
-        self.render_dirty = false;
-        self.hover_dirty = false;
-        self.dom_dirty = false;
-        self.style_dirty = false;
-        self.layout_dirty = false;
+        // Everything the damage described has now been redone, and the styles in the cache
+        // were computed under this environment.
+        self.damage = Damage::none();
+        self.style_fingerprint = self.style_environment_fingerprint();
     }
 
     /// Extend the raster window around the current scroll position, re-using the cached layout.
@@ -522,90 +568,84 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
-    /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
-    /// on the host thread and never consume the render list.
+    /// Bring the pipeline cache up to date with whatever damage has accumulated.
     ///
-    /// Two paths:
-    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page and caches
-    ///   tiles. Triggered by navigation, DOM/style changes, or viewport resize.
-    /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
-    ///   only the affected tiles, skipping stages 1–2.
-    pub fn rebuild_pipeline_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty && !self.raster_dirty {
-            return;
-        }
-        if self.render_dirty {
+    /// Three tiers, cheapest first:
+    /// - **Paint** ([`DamageLevel::Paint`]): reuse the cached layout tree and repaint only the
+    ///   tiles the damage rects cover, re-evaluating CSS for the damaged nodes alone. `:hover`
+    ///   and `:focus` land here.
+    /// - **Raster window**: layout and paint both still hold; the scroll just moved far enough
+    ///   that more of the page needs rasterizing.
+    /// - **Full pipeline** ([`DamageLevel::Layout`] and above): stages 1-6 over the whole page.
+    ///
+    /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
+    /// [`Self::rebuild_render_list_if_needed`] so both backends make the same choice.
+    fn refresh_pipeline_cache(&mut self) {
+        let level = self.damage.level();
+        if level.needs_layout() {
             self.rebuild_full_pipeline();
         } else if self.raster_dirty {
             self.extend_raster_window();
-        } else if self.hover_dirty {
-            // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
-            if let Some(old_cache) = self.pipeline_cache.take() {
-                let PipelineCache {
-                    layer_list,
-                    page_height,
-                    tile_pixel_cache: prev_tile_cache,
-                    tiles: prev_baked_tiles,
-                    ..
-                } = old_cache;
-                self.pipeline_cache = Some(pipeline_hover_repaint(
-                    layer_list,
-                    page_height,
-                    prev_baked_tiles,
-                    self.hover_old_lei,
-                    self.hover_layout_element,
-                    &self.hover_dirty_nodes,
-                    &self.viewport,
-                    self.rasterizer.as_deref(),
-                    self.raster_strategy,
-                    prev_tile_cache,
-                    self.media_store.clone(),
-                    self.config_store.get_uint("renderer.tile.size") as f64,
-                ));
-                self.enforce_tile_budget(false);
-            } else {
-                // No cached layout yet - fall back to a full rebuild.
-                let media_env = self.media_environment();
-                if let Some(doc) = &self.document {
-                    self.pipeline_cache = Some(pipeline_build_cache(
-                        doc.clone(),
-                        &self.viewport,
-                        self.scroll_y,
-                        self.rasterizer.as_deref(),
-                        self.raster_strategy,
-                        std::collections::HashMap::new(),
-                        self.media_store.clone(),
-                        self.config_store.get_uint("renderer.tile.size") as f64,
-                        media_env,
-                    ));
-                    self.note_rastered_window();
-                    self.enforce_tile_budget(true);
-                }
-            }
-            self.hover_dirty = false;
+        } else if level == DamageLevel::Paint {
+            self.repaint_damaged();
         }
+    }
+
+    /// Paint-only repaint: reuse the cached layout tree, skip stages 1-2, and touch only the
+    /// tiles the damage covers. Falls back to a full rebuild when there is no cache to reuse.
+    fn repaint_damaged(&mut self) {
+        let Some(old_cache) = self.pipeline_cache.take() else {
+            self.rebuild_full_pipeline();
+            return;
+        };
+        let PipelineCache {
+            layer_list,
+            page_height,
+            tile_pixel_cache: prev_tile_cache,
+            tiles: prev_baked_tiles,
+            ..
+        } = old_cache;
+
+        let damage = self.damage.take();
+        self.pipeline_cache = Some(pipeline_repaint_damaged(
+            layer_list,
+            page_height,
+            prev_baked_tiles,
+            damage.bounding_rect(),
+            damage.nodes(),
+            &self.viewport,
+            self.rasterizer.as_deref(),
+            self.raster_strategy,
+            prev_tile_cache,
+            self.media_store.clone(),
+            self.config_store.get_uint("renderer.tile.size") as f64,
+        ));
+        self.enforce_tile_budget(false);
+    }
+
+    /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
+    /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
+    /// on the host thread and never consume the render list.
+    pub fn rebuild_pipeline_cache_if_needed(&mut self) {
+        if self.damage.is_none() && !self.scroll_dirty && !self.raster_dirty {
+            return;
+        }
+        self.refresh_pipeline_cache();
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
     /// Build/refresh the device-agnostic render list if needed.
     ///
-    /// Two paths:
-    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
-    ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
-    /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
-    ///   the new scroll offset. No layout or rasterization work.
+    /// Content damage goes through [`Self::refresh_pipeline_cache`], which picks the cheapest
+    /// tier that covers it; a scroll-only change re-composites the cached tiles at the new
+    /// offset with no layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
-        if !self.render_dirty && !self.scroll_dirty && !self.raster_dirty {
+        if self.damage.is_none() && !self.scroll_dirty && !self.raster_dirty {
             return;
         }
 
-        if self.render_dirty {
-            self.rebuild_full_pipeline();
-        } else if self.raster_dirty {
-            self.extend_raster_window();
-        }
+        self.refresh_pipeline_cache();
 
         let mut rl = RenderList::default();
         rl.items.push(DisplayItem::Clear {
@@ -641,27 +681,25 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
     /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
+        if self.damage.is_none() && !self.scroll_dirty {
             return;
         }
-        // Both content changes and hover-style changes rebuild the command list. Hover could reuse
-        // the cached layout (it only changes paint), but a GPU re-paint is cheap and avoids the
-        // tile path's hover-repaint bookkeeping; revisit if hover proves hot.
-        if self.render_dirty || self.hover_dirty {
-            if let Some(doc) = &self.document {
+        // Any content damage rebuilds the whole command list. Paint-level damage could reuse
+        // the cached layout the way the tile path does, but a GPU re-paint is cheap and avoids
+        // the partial-repaint bookkeeping; revisit if it proves hot.
+        if !self.damage.is_none() {
+            let media_env = self.media_environment();
+            if let Some(adapter) = self.prepare_adapter() {
                 self.scene_cache = Some(pipeline_build_scene(
-                    doc.clone(),
+                    adapter,
                     &self.viewport,
-                    self.media_environment(),
+                    media_env,
                     self.rasterizer.as_deref(),
                     self.media_store.clone(),
                 ));
             }
-            self.render_dirty = false;
-            self.hover_dirty = false;
-            self.dom_dirty = false;
-            self.style_dirty = false;
-            self.layout_dirty = false;
+            self.damage = Damage::none();
+            self.style_fingerprint = self.style_environment_fingerprint();
         }
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
@@ -731,8 +769,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     ///
     /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
-        // With `raster_dirty` the cached tile list is missing tiles this frame needs.
-        if !self.scroll_dirty || self.render_dirty || self.hover_dirty || self.raster_dirty {
+        // With `raster_dirty` the cached tile list is missing tiles this frame needs, and any
+        // content damage means the tiles themselves are wrong.
+        if !self.scroll_dirty || !self.damage.is_none() || self.raster_dirty {
             return None;
         }
         let cache = self.pipeline_cache.as_ref()?;
@@ -833,14 +872,57 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if self.focused_node == node {
             return false;
         }
+        let previous = self.focused_node;
         self.focused_node = node;
         if let Some(doc) = &self.document {
             doc.set_focused_node(node);
         }
-        // Style-only change; the pipeline recomputes styles, layout and paint.
-        self.style_dirty = true;
-        self.invalidate_render();
+
+        // `:focus` only repaints the element itself - `:focus-within` is not implemented
+        // (`gosub_css3` matcher: "focus-within needs the focus chain; not tracked yet"), so no
+        // ancestor's styles can change. That makes this the same shape as a hover move: two
+        // elements' worth of paint damage rather than a whole-document rebuild.
+        self.damage.escalate(DamageLevel::Paint);
+        for id in [previous, node].into_iter().flatten() {
+            self.damage.add_node(id);
+        }
+        let leis = [previous, node].map(|id| id.and_then(|id| self.layout_element_for(id)));
+        self.record_element_damage(leis);
         true
+    }
+
+    /// Look up the layout element that renders `node`.
+    ///
+    /// A linear scan of the layout arena: there is no reverse index today, and the callers
+    /// are one-off input events rather than anything per-frame. Worth an index if that changes.
+    fn layout_element_for(&self, node: NodeId) -> Option<LayoutElementId> {
+        let layer_list = self.active_layer_list()?;
+        layer_list
+            .layout_tree
+            .arena
+            .iter()
+            .find(|(_, el)| el.dom_node_id == node)
+            .map(|(id, _)| *id)
+    }
+
+    /// Record paint damage covering the margin boxes of `elements`, so the repaint touches
+    /// every tile they overlap and no others.
+    fn record_element_damage(&mut self, elements: impl IntoIterator<Item = Option<LayoutElementId>>) {
+        let Some(layer_list) = self.active_layer_list() else {
+            return;
+        };
+        let rects: Vec<PipelineRect> = elements
+            .into_iter()
+            .flatten()
+            .filter_map(|lei| layer_list.layout_tree.get_node_by_id(lei))
+            .map(|el| {
+                let m = el.box_model.margin_box;
+                PipelineRect::new(m.x, m.y, m.width, m.height)
+            })
+            .collect();
+        for rect in rects {
+            self.damage.add_rect(rect);
+        }
     }
 
     /// Focus the nearest focusable ancestor of the element at viewport point `(x, y)`
@@ -986,17 +1068,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return (false, false, self.hover_link_url.clone());
         }
 
-        self.hover_old_lei = self.hover_layout_element;
+        let old_lei = self.hover_layout_element;
 
         // Collect old and new ancestor chains - only these nodes need CSS cache invalidation.
-        self.hover_dirty_nodes.clear();
+        // Held locally until it is clear the change is visually significant, since a pointer
+        // crossing elements that no `:hover` rule targets must record no damage at all.
+        let mut dirty_nodes: Vec<NodeId> = Vec::new();
         if let Some(doc) = &self.document {
             let mut seen = std::collections::HashSet::new();
             for start in [self.hover_leaf, new_leaf].into_iter().flatten() {
                 let mut id = start;
                 loop {
                     if seen.insert(id) {
-                        self.hover_dirty_nodes.push(id);
+                        dirty_nodes.push(id);
                     }
                     match doc.parent(id) {
                         Some(p) => id = p,
@@ -1071,9 +1155,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let _t = gosub_shared::timing_guard!("hover.set_hovered");
                 doc.set_hovered_nodes(new_leaf);
             }
-            // Hover-only changes are paint-only (color, background, box-shadow).
-            // Use the cheap hover-dirty path which skips render-tree + layout.
-            self.hover_dirty = true;
+            // Hover changes only paint (colour, background, outline): the boxes do not move,
+            // so record paint-level damage over the old and new hovered elements and let the
+            // pipeline repaint just those tiles.
+            self.damage.escalate(DamageLevel::Paint);
+            self.damage.add_nodes(dirty_nodes);
+            self.record_element_damage([old_lei, new_lei]);
         }
 
         (visual_dirty, url_changed, link_url)
@@ -1126,7 +1213,7 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
 /// element, producing one ordered paint-command list for the whole page. Skips tiling,
 /// rasterization, and compositing - the backend renders the commands into a GPU texture.
 fn pipeline_build_scene<C: RenderConfiguration>(
-    doc: Arc<EngineDocument<C>>,
+    adapter: Arc<GosubDocumentAdapter<C>>,
     viewport: &Viewport,
     media_env: MediaEnvironment,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
@@ -1138,8 +1225,7 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     gosub_css3::media_query::set_media_environment(media_env);
 
     // Stage 1: render tree
-    let adapter = GosubDocumentAdapter::<C>::new(doc);
-    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    let mut render_tree = RenderTree::new(adapter);
     if let Err(e) = render_tree.parse() {
         log::error!("Failed to build render tree: {e}");
     }
@@ -1198,7 +1284,7 @@ fn pipeline_build_scene<C: RenderConfiguration>(
 /// re-running layout or rasterization.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_build_cache<C: RenderConfiguration>(
-    doc: Arc<EngineDocument<C>>,
+    adapter: Arc<GosubDocumentAdapter<C>>,
     viewport: &Viewport,
     scroll_y: f64,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
@@ -1217,8 +1303,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
 
     // Stage 1: render tree
     let ts1 = timing_start!("pipeline.render_tree");
-    let adapter = GosubDocumentAdapter::<C>::new(doc);
-    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    let mut render_tree = RenderTree::new(adapter);
     if let Err(e) = render_tree.parse() {
         // The layouter tolerates a tree without a root; the frame degrades to empty.
         log::error!("Failed to build render tree: {e}");
@@ -1389,18 +1474,20 @@ fn pipeline_extend_raster(
     }
 }
 
-/// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
-/// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
-/// All other tiles are carried over from `prev_baked_tiles` unchanged - no CSS
-/// re-evaluation, no re-rasterization.
+/// Paint-only repaint: skip stages 1-2 (render-tree + layout), reuse the cached `LayerList`,
+/// and repaint only the tiles that intersect `damage_rect`. Every other tile is carried over
+/// from `prev_baked_tiles` unchanged - no CSS re-evaluation, no re-rasterization.
+///
+/// `dirty_nodes` are the DOM nodes whose cached styles are stale; only those are re-evaluated,
+/// so the rest of a repainted tile keeps its cached CSS. Used by `:hover` and `:focus`, and by
+/// anything else that changes appearance without moving a box.
 #[allow(clippy::too_many_arguments)]
-fn pipeline_hover_repaint(
+fn pipeline_repaint_damaged(
     layer_list: Arc<LayerList>,
     page_height: f64,
     prev_baked_tiles: Vec<BakedTile>,
-    old_hover_lei: Option<LayoutElementId>,
-    new_hover_lei: Option<LayoutElementId>,
-    hover_dirty_nodes: &[NodeId],
+    damage_rect: Option<PipelineRect>,
+    dirty_nodes: &[NodeId],
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
@@ -1426,29 +1513,6 @@ fn pipeline_hover_repaint(
         .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
         .collect();
 
-    // Compute the union bounding box of old and new hovered elements.  Tiles that
-    // don't intersect this region cannot have changed visually, so we skip them.
-    let hover_rect: Option<PipelineRect> = {
-        let mut union: Option<PipelineRect> = None;
-        for lei in [old_hover_lei, new_hover_lei].into_iter().flatten() {
-            if let Some(el) = layer_list.layout_tree.get_node_by_id(lei) {
-                let m = el.box_model.margin_box;
-                let r = PipelineRect::new(m.x, m.y, m.width, m.height);
-                union = Some(match union {
-                    None => r,
-                    Some(u) => {
-                        let x0 = u.x.min(r.x);
-                        let y0 = u.y.min(r.y);
-                        let x1 = (u.x + u.width).max(r.x + r.width);
-                        let y1 = (u.y + u.height).max(r.y + r.height);
-                        PipelineRect::new(x0, y0, x1 - x0, y1 - y0)
-                    }
-                });
-            }
-        }
-        union
-    };
-
     // Full-page paint rect and back-to-front layer order - used both to re-emit carried tiles in
     // order (below / in the early-return) and by stages 5–6 further down.
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
@@ -1457,20 +1521,27 @@ fn pipeline_hover_repaint(
     // Mark tiles that DON'T intersect the hover region as Clean.  For Clean tiles we
     // carry the previous BakedTile forward; for Dirty tiles we re-evaluate CSS only
     // for the elements they contain (targeted invalidation).
+    // Drop the stale styles once, up front, rather than once per overlapping tile: the node
+    // set is the same every time round the loop, and doing it here means it still happens when
+    // the damage bounds nothing paintable (a focused element with no box, say) and the loop
+    // below is skipped entirely.
+    layer_list
+        .layout_tree
+        .render_tree
+        .doc
+        .invalidate_style_for_nodes(dirty_nodes);
+
     let mut clean_baked: Vec<BakedTile> = Vec::with_capacity(total_tiles);
-    if let Some(hover_rect) = hover_rect {
-        let doc = &layer_list.layout_tree.render_tree.doc;
+    if let Some(damage_rect) = damage_rect {
         for tile in tile_list.arena.values_mut() {
             let tile_rect = tile.rect;
-            let overlaps = tile_rect.x < hover_rect.x + hover_rect.width
-                && tile_rect.x + tile_rect.width > hover_rect.x
-                && tile_rect.y < hover_rect.y + hover_rect.height
-                && tile_rect.y + tile_rect.height > hover_rect.y;
+            let overlaps = tile_rect.x < damage_rect.x + damage_rect.width
+                && tile_rect.x + tile_rect.width > damage_rect.x
+                && tile_rect.y < damage_rect.y + damage_rect.height
+                && tile_rect.y + tile_rect.height > damage_rect.y;
             if overlaps {
-                // Invalidate cached styles only for the hover-chain nodes (old + new ancestors).
-                // Non-hover elements in this tile keep their cached CSS - only the nodes that
-                // actually gained or lost :hover need re-evaluation.
-                doc.invalidate_style_for_nodes(hover_dirty_nodes);
+                // Leave it Dirty so stages 5-6 repaint it. Everything else in the tile keeps
+                // its cached CSS - only the damaged nodes were invalidated, above.
                 continue;
             }
 
@@ -1481,7 +1552,7 @@ fn pipeline_hover_repaint(
             }
         }
     } else {
-        // No hover element visible - carry every previous tile forward, but re-emit in
+        // Nothing localised to repaint - carry every previous tile forward, but re-emit in
         // back-to-front layer order (see order_baked_tiles_by_layer): `into_values()` is
         // unordered and would scramble overlapping-layer compositing.
         let all_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, prev_by_pos);
@@ -1927,6 +1998,276 @@ mod tests {
         }
     }
 
+    /// How much of the pipeline each kind of change actually invalidates. These assert on the
+    /// recorded [`DamageLevel`] rather than on timings, so they stay meaningful as the
+    /// pipeline gets faster.
+    mod invalidation {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_css3::system::Css3System;
+
+        /// Load `html` at 800x600 and run one full build, so there is a style cache and a
+        /// recorded style environment for the next change to be measured against.
+        fn built_context(html: &str) -> BrowsingContext<DefaultRenderConfig> {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(ctx.damage.is_none(), "the initial build should consume its damage");
+            ctx
+        }
+
+        fn resize(ctx: &mut BrowsingContext<DefaultRenderConfig>, width: u32) {
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width,
+                height: 600,
+            });
+        }
+
+        const PLAIN: &str = r#"<html><head><style>
+                #target { display: block; width: 100px; height: 50px; }
+            </style></head><body><div id="target">x</div></body></html>"#;
+
+        /// The Stage B payoff: a resize that changes nothing the cascade reads needs layout,
+        /// not a restyle, so every cached computed style survives it.
+        #[test]
+        fn resize_without_a_breakpoint_does_not_restyle() {
+            let mut ctx = built_context(PLAIN);
+            resize(&mut ctx, 900);
+            assert_eq!(
+                ctx.damage.level(),
+                DamageLevel::Layout,
+                "no @media condition flipped and no sheet reads the viewport"
+            );
+        }
+
+        /// ...but a resize that flips a media condition must restyle, or the page would keep
+        /// rendering the wrong branch.
+        #[test]
+        fn resize_across_a_breakpoint_restyles() {
+            let html = r#"<html><head><style>
+                    #target { display: block; width: 100px; }
+                    @media (min-width: 850px) { #target { width: 300px; } }
+                </style></head><body><div id="target">x</div></body></html>"#;
+            let mut ctx = built_context(html);
+
+            // 800 -> 820 stays on the same side of the 850px breakpoint.
+            resize(&mut ctx, 820);
+            assert_eq!(
+                ctx.damage.level(),
+                DamageLevel::Layout,
+                "same side of the breakpoint: styles still hold"
+            );
+
+            ctx.rebuild_pipeline_cache_if_needed();
+            // 820 -> 900 crosses it.
+            resize(&mut ctx, 900);
+            assert_eq!(ctx.damage.level(), DamageLevel::Style, "the breakpoint flipped");
+        }
+
+        /// A sheet using `vw`/`vh` resolves those at style-computation time, so every resize
+        /// invalidates its computed values no matter what the media conditions say.
+        #[test]
+        fn resize_with_viewport_units_always_restyles() {
+            let html = r#"<html><head><style>
+                    #target { display: block; width: 50vw; }
+                </style></head><body><div id="target">x</div></body></html>"#;
+            let mut ctx = built_context(html);
+            resize(&mut ctx, 900);
+            assert_eq!(
+                ctx.damage.level(),
+                DamageLevel::Style,
+                "viewport units make any resize a restyle"
+            );
+        }
+
+        /// Two resizes before a frame is drawn combine into the stronger of the two, so a
+        /// breakpoint crossing cannot be masked by a later harmless resize.
+        #[test]
+        fn damage_from_several_resizes_combines() {
+            let html = r#"<html><head><style>
+                    #target { display: block; width: 100px; }
+                    @media (min-width: 850px) { #target { width: 300px; } }
+                </style></head><body><div id="target">x</div></body></html>"#;
+            let mut ctx = built_context(html);
+
+            resize(&mut ctx, 900); // crosses the breakpoint -> Style
+            resize(&mut ctx, 810); // back over it; on its own this would be Layout
+            assert_eq!(
+                ctx.damage.level(),
+                DamageLevel::Style,
+                "the restyle the first resize needed must not be lost"
+            );
+        }
+
+        /// Focus used to force a full rebuild, re-rasterizing the whole page on every Tab.
+        /// `:focus` cannot move a box and `:focus-within` is not implemented, so it is
+        /// paint-level damage over the two elements involved.
+        #[test]
+        fn focus_change_is_paint_only() {
+            let html = r#"<html><head><style>
+                    a { display: block; height: 30px; }
+                    a:focus { background-color: #ff0000; }
+                </style></head><body style="margin:0">
+                    <a href="/one">first</a>
+                    <a href="/two">second</a>
+                </body></html>"#;
+            let mut ctx = built_context(html);
+
+            let first = ctx.focus_step(false).expect("a focusable link");
+            assert_eq!(
+                ctx.damage.level(),
+                DamageLevel::Paint,
+                "focus must not escalate to a rebuild"
+            );
+            assert_eq!(ctx.damage.nodes(), &[first], "only the newly focused element is stale");
+            assert!(
+                ctx.damage.bounding_rect().is_some(),
+                "the focused element's box should bound the repaint"
+            );
+
+            // Moving on records both the element losing focus and the one gaining it.
+            ctx.rebuild_pipeline_cache_if_needed();
+            let second = ctx.focus_step(false).expect("a second focusable link");
+            assert_eq!(ctx.damage.level(), DamageLevel::Paint);
+            assert_eq!(ctx.damage.nodes(), &[first, second]);
+        }
+
+        /// An image finishing its decode can move boxes but cannot change what any selector
+        /// matches, so it needs layout without a restyle.
+        #[test]
+        fn decoded_media_needs_layout_but_not_restyle() {
+            let mut ctx = built_context(PLAIN);
+            ctx.damage.escalate(DamageLevel::Layout);
+            assert!(ctx.damage.level().needs_layout());
+            assert!(!ctx.damage.level().needs_restyle());
+        }
+
+        /// The point of the whole exercise: a focus change must rasterize far fewer tiles than
+        /// a full rebuild, *and* still leave a complete tile set behind.
+        ///
+        /// The second half is the one that bites. A partial path that drops or reorders tiles
+        /// looks fine in a damage-level assertion and shows up as blank or corrupted regions on
+        /// screen, so this compares the resulting tile set against the full rebuild's.
+        #[test]
+        fn focus_repaint_touches_few_tiles_and_loses_none() {
+            use gosub_render_pipeline::common::texture::TextureId;
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::render::backend::PixelFormat;
+            use gosub_render_pipeline::tiler::Tile;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            struct CountingRasterizer {
+                calls: Arc<AtomicUsize>,
+            }
+            impl Rasterable for CountingRasterizer {
+                fn rasterize(&self, tile: &Tile, store: &mut TextureStore, _media: &MediaStore) -> Option<TextureId> {
+                    self.calls.fetch_add(1, Ordering::Relaxed);
+                    let (w, h) = (tile.rect.width as usize, tile.rect.height as usize);
+                    Some(store.add(w, h, vec![0xFFu8; w * h * 4], PixelFormat::PreMulArgb32))
+                }
+            }
+
+            /// Tile identity: position plus layer, the key the repaint path carries tiles by.
+            fn tile_keys(ctx: &BrowsingContext<DefaultRenderConfig>) -> Vec<(u64, u64, u64)> {
+                let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                    unreachable!("a build must leave a pipeline cache");
+                };
+                let mut keys: Vec<(u64, u64, u64)> = cache
+                    .tiles
+                    .iter()
+                    .map(|t| (t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id))
+                    .collect();
+                keys.sort_unstable();
+                keys
+            }
+
+            // A page several tile rows tall, so "repaint everything" and "repaint one element"
+            // are clearly different amounts of work.
+            let html = r#"<html><head><style>
+                    a { display: block; height: 40px; }
+                    a:focus { background-color: #ff0000; }
+                </style></head><body style="margin:0">
+                    <div style="height:900px;background:#eee"></div>
+                    <a href="/one">first</a>
+                    <a href="/two">second</a>
+                </body></html>"#;
+
+            let calls = Arc::new(AtomicUsize::new(0));
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_rasterizer(
+                Box::new(CountingRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 1024,
+            });
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+
+            ctx.rebuild_pipeline_cache_if_needed();
+            let full_rebuild_calls = calls.swap(0, Ordering::Relaxed);
+            let full_keys = tile_keys(&ctx);
+            assert!(full_rebuild_calls > 4, "the page should span several tiles");
+
+            // Focus the first link and repaint.
+            ctx.focus_step(false).expect("a focusable link");
+            assert_eq!(ctx.damage.level(), DamageLevel::Paint);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let repaint_calls = calls.swap(0, Ordering::Relaxed);
+
+            // Measured 2 of 8 here. The bound is deliberately loose - what it has to catch is
+            // a regression back to repainting the whole page, and the repaint cost is set by
+            // the focused element's size, so the margin only widens on a real page.
+            assert!(
+                repaint_calls * 2 <= full_rebuild_calls,
+                "a focus change rasterized {repaint_calls} of the full rebuild's \
+                 {full_rebuild_calls} tiles - the partial path is not doing its job"
+            );
+            assert_eq!(
+                tile_keys(&ctx),
+                full_keys,
+                "the repaint must leave exactly the tiles a full rebuild would - a dropped or \
+                 duplicated tile shows up as a blank or corrupted band on screen"
+            );
+        }
+
+        /// A new document invalidates everything, and drops the adapter so no stale computed
+        /// style can leak from the previous page.
+        #[test]
+        fn navigation_rebuilds_and_drops_the_style_cache() {
+            let mut ctx = built_context(PLAIN);
+            assert!(ctx.document_adapter.is_some(), "the first build creates an adapter");
+
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(PLAIN);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+
+            assert_eq!(ctx.damage.level(), DamageLevel::Rebuild);
+            assert!(
+                ctx.document_adapter.is_none(),
+                "the previous adapter must not be reused"
+            );
+            assert!(ctx.style_fingerprint.is_none());
+        }
+    }
+
     mod tile_budget_integration {
         use super::super::*;
         use crate::engine::settings_store;
@@ -2050,7 +2391,10 @@ mod tests {
             // Past it: an extension, not a full re-render.
             ctx.set_scroll(0.0, 5000.0);
             assert!(ctx.raster_dirty, "scrolling to unbaked content must raster");
-            assert!(!ctx.render_dirty, "extending must not force a re-layout");
+            assert!(
+                !ctx.damage.level().needs_layout(),
+                "extending the raster window must not force a re-layout"
+            );
             assert!(
                 ctx.take_scroll_handle(1).is_none(),
                 "the composite-only path must not serve a frame with unbaked tiles"

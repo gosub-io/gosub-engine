@@ -456,6 +456,14 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
         &mut sheet.imports,
         &mut Vec::new(),
     )?;
+    // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
+    // restyled whenever the viewport changes, while one that does not can keep its cached
+    // computed values (see `CssStylesheet::uses_viewport_units`).
+    sheet.uses_viewport_units = sheet
+        .rules
+        .iter()
+        .flat_map(|rule| rule.declarations.iter())
+        .any(|decl| decl.value.uses_viewport_units());
     Ok(sheet)
 }
 
