@@ -157,6 +157,68 @@ jobs:
       - name: Test with all features
         run: cargo nextest run --locked --all --all-features --no-fail-fast
 
+  # The process-isolation crates on the platforms the Linux jobs above never
+  # see. Ported from the proof of concept's CI, which type-checked darwin and
+  # windows-msvc rows for the same reason: `target_os` seams and PoC-imported
+  # platform backends break silently when only Linux ever compiles them (two
+  # such breaks sat unnoticed on the branch until a cross-check ran).
+  #
+  # Scoped to the three crates on purpose. The workspace as a whole cannot build
+  # here - V8 has no prebuilt for these rows and the GUI crates want GTK - and
+  # these are the crates whose behaviour differs per platform. Native runners,
+  # so no cross `cc`; each row runs twice: default features, and isolation off
+  # (`multi-process`/`process-isolation` disabled - what wasm and any platform
+  # without a sandbox build; the engine keeps its bundled sqlite so the row
+  # does not become a test of the runner's system libraries).
+  cross-compile:
+    name: check (${{ matrix.target }}, isolation ${{ matrix.isolation }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, isolation: enabled }
+          - { os: macos-latest, target: aarch64-apple-darwin, isolation: disabled }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: enabled }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: disabled }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cross-${{ matrix.target }}-${{ matrix.isolation }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check (isolation enabled)
+        if: matrix.isolation == 'enabled'
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }}
+      - name: Check (isolation disabled)
+        if: matrix.isolation == 'disabled'
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }} --no-default-features
+
+  # The platforms whose sandbox backend can be *run*, not only type-checked:
+  # the Seatbelt (macOS) and mitigation-policy (Windows) probes in
+  # gosub_sandbox, and the engine's network/decoder-process scenarios there.
+  # Linux is covered by `test`. Also from the proof of concept's CI.
+  native-tests:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@nextest
+      - name: Test
+        run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox --no-fail-fast
+
   fmt:
     runs-on: ubuntu-24.04
     steps:
