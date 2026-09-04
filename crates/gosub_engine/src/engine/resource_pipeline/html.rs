@@ -1,7 +1,7 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
 use crate::net::req_ref_tracker::REF_REGISTRY;
-use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
@@ -124,6 +124,7 @@ impl HtmlPipelineImpl {
             // The referrer serves double duty: gosub-sonar computes the Referer header from
             // it (never for non-http(s) referrers), and the file loader uses it to accept
             // subresources of file:// documents.
+            let sub_url = hint.url.clone();
             let sub_req = FetchRequest::builder(Method::GET, hint.url)
                 .with_req_id(sub_req_id)
                 .with_reference(parent_ref)
@@ -132,9 +133,17 @@ impl HtmlPipelineImpl {
                 .with_kind(hint.kind.to_net())
                 .with_headers(headers)
                 .with_referrer(doc_url.clone())
-                .with_streaming(true)
+                // Buffered rather than streamed: the body is the point now. It is handed to
+                // whichever consumer needs it -- the CSS parser, the media store, the font
+                // loader -- each of which used to fetch the same URL a second time over its
+                // own blocking client because these bytes were dropped on the floor.
+                .with_streaming(false)
                 .with_auto_decode(true)
                 .build();
+
+            // Announced before the fetch starts, so a consumer that asks for this URL in the
+            // meantime waits for it rather than racing it with a second request.
+            gosub_shared::subresource::begin(sub_url.as_str());
 
             let io_tx_cloned = io_tx.clone();
             let parent_cancel_cloned = parent_cancel.clone();
@@ -151,10 +160,24 @@ impl HtmlPipelineImpl {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
-                        let _ = rx.await;
+                        match rx.await {
+                            Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
+                                gosub_shared::subresource::complete(
+                                    sub_url.as_str(),
+                                    meta.content_type.clone(),
+                                    body.to_vec(),
+                                );
+                            }
+                            // Anything else -- a non-200, an empty body, a stream we did not
+                            // ask for, a cancellation -- leaves nothing to hand on. Say so
+                            // rather than staying silent, or a consumer waits out the timeout
+                            // for bytes that are never coming.
+                            _ => gosub_shared::subresource::abandon(sub_url.as_str()),
+                        }
                     }
                     Err(e) => {
                         log::warn!("Failed to submit discovered resource request: {:?}", e);
+                        gosub_shared::subresource::abandon(sub_url.as_str());
                     }
                 }
             });

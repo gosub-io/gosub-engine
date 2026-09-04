@@ -4105,36 +4105,47 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             // file it under `net.fetch.css`, and add it to the parser's running total so
             // `parse_document` can subtract it back out of `decode.html`.
             let mut ft = Timer::new(Some(url.to_string()));
-            let fetched = gosub_sonar::net::simple::sync_fetch(&url);
+
+            // The resource pipeline fetched this while the document was still being scanned,
+            // so the bytes are usually already here or on their way. Taking them is what
+            // stops every stylesheet being transferred twice; the fetch below is the fallback
+            // for a sheet the scan never saw.
+            let taken = gosub_shared::subresource::take(url.as_str());
+
+            let (content_type, body) = match taken {
+                Some((content_type, body)) => (content_type, body),
+                None => {
+                    let response = match gosub_sonar::net::simple::sync_fetch(&url) {
+                        Ok(r) => r,
+                        Err(err) => {
+                            warn!("Could not load external stylesheet from {}. Error: {}", url, err);
+                            return None;
+                        }
+                    };
+                    if response.status != 200 {
+                        warn!(
+                            "Could not load external stylesheet from {}. Status code {}",
+                            url, response.status
+                        );
+                        return None;
+                    }
+                    (response.headers.get("content-type").cloned(), response.body)
+                }
+            };
+
             ft.end();
             self.external_fetch_us.set(self.external_fetch_us.get() + ft.duration());
             timing::record("net.fetch.css", ft.duration(), Some(url.to_string()));
 
-            let response = match fetched {
-                Ok(r) => r,
-                Err(err) => {
-                    warn!("Could not load external stylesheet from {}. Error: {}", url, err);
-                    return None;
-                }
-            };
-
-            if response.status != 200 {
-                warn!(
-                    "Could not load external stylesheet from {}. Status code {}",
-                    url, response.status
-                );
-                return None;
-            }
-
-            match response.headers.get("content-type") {
-                Some(ct) if !ct.starts_with("text/css") => {
+            match content_type {
+                Some(ref ct) if !ct.starts_with("text/css") => {
                     warn!("External stylesheet has unexpected content type: {ct}");
                 }
                 None => warn!("External stylesheet has no content type: {url}"),
                 _ => {}
             }
 
-            match String::from_utf8(response.body) {
+            match String::from_utf8(body) {
                 Ok(css) => css,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {url}. Error: {err}");

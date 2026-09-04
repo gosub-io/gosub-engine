@@ -307,10 +307,20 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        // This is a blocking fetch on the caller's thread, and it goes through
-        // `simple::sync_fetch` rather than the observed Fetcher, so the net observer
-        // never sees it. Time it here or it is invisible.
         let _t = gosub_shared::timing_guard!("net.fetch.image", src);
+
+        // The resource pipeline already fetched this while the HTML was parsing. Taking its
+        // bytes is what stops every image on every page being transferred twice; it waits if
+        // that fetch is still running, and falls through to its own if there is nothing to
+        // take.
+        if let Some((content_type, body)) = gosub_shared::subresource::take(src) {
+            return Ok((content_type, Bytes::from(body)));
+        }
+
+        // Nothing preloaded: a `data:` URI's sibling, an image discovered after the scan, or
+        // a fetch that failed. This is a blocking fetch on the caller's thread and it goes
+        // through `simple::sync_fetch` rather than the observed Fetcher, so the net observer
+        // never sees it.
         let response = gosub_sonar::net::simple::sync_fetch(&url)?;
 
         if !response.is_ok() {

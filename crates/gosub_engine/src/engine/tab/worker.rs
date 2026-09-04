@@ -725,6 +725,28 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     // never sees it; the guard is the only record of the wait. Dropped
                     // at the end of this iteration, after the body has been read.
                     let _t = gosub_shared::timing_guard!("net.fetch.font", font_url.as_str());
+
+                    // A `@font-face` URL lives inside CSS, so the HTML scan never saw it and
+                    // there is usually nothing waiting -- but a `<link rel=preload as=font>`
+                    // does get scanned, and taking those bytes saves the second transfer.
+                    let preloaded = gosub_shared::subresource::take(font_url.as_str());
+                    if let Some((_, body)) = preloaded {
+                        let font_bytes = decode_web_font(body, &font_url);
+                        match self
+                            .zone_context
+                            .font_system
+                            .lock()
+                            .register_font(font_bytes, Some(&family))
+                        {
+                            Ok(()) => {
+                                log::debug!("Registered preloaded web font '{family}' from {font_url}");
+                                break;
+                            }
+                            Err(e) => log::warn!("Failed to register web font '{family}': {e:?}"),
+                        }
+                        continue;
+                    }
+
                     match gosub_sonar::net::simple::sync_fetch(&font_url) {
                         Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
                             // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
