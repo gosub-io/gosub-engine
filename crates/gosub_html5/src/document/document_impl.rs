@@ -14,8 +14,9 @@ use crate::node::data::doctype::DocTypeData;
 use crate::node::data::element::{ClassListImpl, ElementData};
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
+use crate::node::HTML_NAMESPACE;
 use gosub_interface::config::HasDocument;
-use gosub_interface::node::{NodeType, QuirksMode};
+use gosub_interface::node::{is_valid_shadow_host_name, NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 
@@ -256,6 +257,43 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
+    }
+
+    // ── shadow trees ───────────────────────────────────────────────────────
+
+    fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId> {
+        // The eligibility half of the spec's "attach a shadow root"; failing it is the
+        // NotSupportedError the caller is expected to recover from.
+        let host_node = self.arena.node_ref(host)?;
+        let NodeDataTypeInternal::Element(ref e) = host_node.data else {
+            return None;
+        };
+        if e.shadow_root.is_some() || !e.is_namespace(HTML_NAMESPACE) || !is_valid_shadow_host_name(e.name()) {
+            return None;
+        }
+
+        let root = self.register_node(NodeImpl::new_shadow_root(location, host, init));
+        if let Some(node) = self.arena.node_ref_mut(host) {
+            if let NodeDataTypeInternal::Element(ref mut e) = node.data {
+                e.set_shadow_root(root);
+            }
+        }
+        Some(root)
+    }
+
+    fn shadow_root(&self, id: NodeId) -> Option<NodeId> {
+        match self.arena.node_ref(id)?.data {
+            NodeDataTypeInternal::Element(ref e) => e.shadow_root,
+            _ => None,
+        }
+    }
+
+    fn shadow_host(&self, id: NodeId) -> Option<NodeId> {
+        Some(self.arena.node_ref(id)?.get_shadow_root_data()?.host)
+    }
+
+    fn shadow_root_init(&self, id: NodeId) -> Option<ShadowRootInit> {
+        Some(self.arena.node_ref(id)?.get_shadow_root_data()?.init)
     }
 
     // ── text / comment / doctype ───────────────────────────────────────────
@@ -691,6 +729,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 }
                 let _ = writeln!(f, ">");
             }
+            NodeDataTypeInternal::ShadowRoot(data) => {
+                let _ = writeln!(f, "{buffer}#shadow-root ({})", data.init.mode.as_attribute());
+            }
         }
 
         if prefix.len() > 40 {
@@ -705,8 +746,15 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             buffer.push_str("│  ");
         }
 
-        let len = node.children.len();
-        for (i, child_id) in node.children.iter().enumerate() {
+        // A shadow root is not among its host's children, so splice it in front of them.
+        let shadow_root = match &node.data {
+            NodeDataTypeInternal::Element(e) => e.shadow_root,
+            _ => None,
+        };
+        let subtrees: Vec<NodeId> = shadow_root.into_iter().chain(node.children.iter().copied()).collect();
+
+        let len = subtrees.len();
+        for (i, child_id) in subtrees.iter().enumerate() {
             let Some(child_node) = self.node_by_id(*child_id) else {
                 continue;
             };

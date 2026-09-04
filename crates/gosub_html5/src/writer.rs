@@ -88,6 +88,14 @@ fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
                 }
                 buf.push('>');
 
+                // A shadow host's tree is written back out as the declarative template that
+                // produced it, ahead of the light children - the form that reparses into the
+                // same document. `getHTML()` emits only shadow roots flagged serializable;
+                // this writer is a round-trip of the whole tree, so it emits every one.
+                if let Some(shadow_root) = doc.shadow_root(id) {
+                    write_shadow_root::<C>(shadow_root, doc, buf);
+                }
+
                 let children: Vec<NodeId> = doc.children(id).to_vec();
                 for child in children {
                     write_node::<C>(child, doc, buf);
@@ -98,7 +106,37 @@ fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
                 buf.push('>');
             }
         }
+        // Only reachable through a host's side pointer, which `write_shadow_root` follows.
+        NodeType::ShadowRootNode => {}
     }
+}
+
+/// Writes a shadow root as the `<template shadowrootmode=...>` that declares it.
+fn write_shadow_root<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
+    let Some(init) = doc.shadow_root_init(id) else {
+        return;
+    };
+
+    buf.push_str("<template shadowrootmode=\"");
+    buf.push_str(init.mode.as_attribute());
+    buf.push('"');
+    // The remaining declarative attributes are boolean; absent means the default.
+    if init.delegates_focus {
+        buf.push_str(" shadowrootdelegatesfocus=\"\"");
+    }
+    if init.clonable {
+        buf.push_str(" shadowrootclonable=\"\"");
+    }
+    if init.serializable {
+        buf.push_str(" shadowrootserializable=\"\"");
+    }
+    buf.push('>');
+
+    for child in doc.children(id).to_vec() {
+        write_node::<C>(child, doc, buf);
+    }
+
+    buf.push_str("</template>");
 }
 
 #[cfg(test)]

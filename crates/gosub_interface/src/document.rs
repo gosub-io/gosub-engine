@@ -1,6 +1,6 @@
 use crate::config::HasCssSystem;
 use crate::css3::CssSystem;
-use crate::node::{NodeType, QuirksMode};
+use crate::node::{NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
@@ -84,6 +84,29 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Contents of a `<template>` element (points to a fragment root node)
     fn template_contents(&self, id: NodeId) -> Option<NodeId>;
     fn set_template_contents(&mut self, id: NodeId, fragment: NodeId);
+
+    // Shadow trees
+    //
+    // A shadow root is a node in the same arena as everything else, but it is not among its
+    // host's `children` - the host points at it sideways, exactly like `template_contents`.
+    // Nothing that walks `children` can therefore wander into a shadow tree by accident; only
+    // code that asks for it explicitly sees one.
+
+    /// Create a shadow root for `host` and link the two.
+    ///
+    /// Returns `None` - the spec's `NotSupportedError` - when `host` is not an HTML-namespace
+    /// element, is not a [`valid shadow host name`](crate::node::is_valid_shadow_host_name),
+    /// or already has a shadow root.
+    fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId>;
+
+    /// The shadow root attached to element `id`, if it has one.
+    fn shadow_root(&self, id: NodeId) -> Option<NodeId>;
+
+    /// The host element of shadow root `id`. `None` when `id` is not a shadow root.
+    fn shadow_host(&self, id: NodeId) -> Option<NodeId>;
+
+    /// The flags shadow root `id` was created with. `None` when `id` is not a shadow root.
+    fn shadow_root_init(&self, id: NodeId) -> Option<ShadowRootInit>;
 
     // Text / comment / doctype data
 

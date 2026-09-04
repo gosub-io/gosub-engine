@@ -895,6 +895,91 @@ fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
 type CachedStyles<C> = Arc<<<C as gosub_interface::config::HasCssSystem>::CssSystem as CssSystem>::PropertyMap>;
 
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
+/// Which slottables ended up in which `<slot>`, for every shadow tree in the document.
+///
+/// Computed once, when the adapter is built. Without scripting neither the light DOM nor the
+/// shadow trees change after parsing, so an assignment can never go stale - there is no
+/// invalidation to run and no `slotchange` to fire.
+#[derive(Default)]
+struct SlotAssignment {
+    /// The slottables projected into each slot, in tree order. A slot that is absent here, or
+    /// present with an empty list, renders its own children as fallback content instead.
+    assigned: HashMap<NodeId, Vec<NodeId>>,
+    /// The slot each projected node landed in: the inverse of `assigned`, and the flat-tree
+    /// parent that style inheritance follows.
+    slot_of: HashMap<NodeId, NodeId>,
+}
+
+/// Assigns each shadow host's light children to the slots of its shadow tree.
+fn compute_slot_assignment<C: HasDocument>(doc: &C::Document) -> SlotAssignment {
+    let mut out = SlotAssignment::default();
+
+    let mut stack = vec![doc.root()];
+    while let Some(id) = stack.pop() {
+        stack.extend(doc.children(id).iter().copied());
+
+        let Some(shadow_root) = doc.shadow_root(id) else {
+            continue;
+        };
+        // A shadow tree can contain hosts of its own, so it joins the walk. It is not reached
+        // through `children`, which is exactly what keeps shadow trees out of everything that
+        // has not opted in.
+        stack.push(shadow_root);
+        assign_to_slots::<C>(doc, id, shadow_root, &mut out);
+    }
+
+    out
+}
+
+/// The slot-assignment algorithm for one host: find the shadow tree's slots, then hand each of
+/// the host's light children to the slot that claims it.
+fn assign_to_slots<C: HasDocument>(doc: &C::Document, host: NodeId, shadow_root: NodeId, out: &mut SlotAssignment) {
+    // Collect slots in tree order, first of a given name winning. The walk deliberately runs
+    // over the whole shadow tree: a `<slot>` sitting in a *nested* host's light DOM is still a
+    // descendant of this tree, and so is still one of this tree's slots.
+    let mut default_slot: Option<NodeId> = None;
+    let mut named_slots: HashMap<&str, NodeId> = HashMap::new();
+
+    let mut stack: Vec<NodeId> = doc.children(shadow_root).iter().rev().copied().collect();
+    while let Some(node) = stack.pop() {
+        stack.extend(doc.children(node).iter().rev().copied());
+
+        if doc.tag_name(node) != Some("slot") {
+            continue;
+        }
+        match doc.attribute(node, "name").unwrap_or("") {
+            "" => {
+                default_slot.get_or_insert(node);
+            }
+            name => {
+                named_slots.entry(name).or_insert(node);
+            }
+        }
+    }
+
+    for &child in doc.children(host) {
+        let slot = match doc.node_type(child) {
+            // Only elements and text are slottables. An element goes to the slot named by its
+            // `slot` attribute; text has no such attribute and always goes to the default
+            // slot - whitespace-only runs included, which is why an unslotted-looking gap can
+            // still push content around.
+            GosubNodeType::ElementNode => match doc.attribute(child, "slot").unwrap_or("") {
+                "" => default_slot,
+                name => named_slots.get(name).copied(),
+            },
+            GosubNodeType::TextNode => default_slot,
+            _ => None,
+        };
+
+        // No slot claimed it: the node stays in the light DOM and renders nowhere.
+        let Some(slot) = slot else {
+            continue;
+        };
+        out.assigned.entry(slot).or_default().push(child);
+        out.slot_of.insert(child, slot);
+    }
+}
+
 pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
@@ -909,6 +994,8 @@ where
     /// `None` means "no generated box". Populated lazily.
     #[allow(clippy::type_complexity)]
     pseudo_cache: Mutex<HashMap<(NodeId, bool), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
+    /// Flat-tree slot assignment, computed up front and then never touched again.
+    slots: SlotAssignment,
 }
 
 impl<C> GosubDocumentAdapter<C>
@@ -918,11 +1005,73 @@ where
     <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     pub fn new(doc: Arc<C::Document>) -> Self {
+        let slots = compute_slot_assignment::<C>(&doc);
         Self {
             doc,
             style_cache: Mutex::new(HashMap::new()),
             inline_style_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
+            slots,
+        }
+    }
+
+    /// Whether `id` is a `<slot>`. There is no `slot` element in any other namespace, so the
+    /// tag name settles it - as it does everywhere else in this adapter.
+    fn is_slot(&self, id: NodeId) -> bool {
+        self.doc.tag_name(id) == Some("slot")
+    }
+
+    /// The children of `id` in the flat tree - what actually generates boxes beneath it.
+    ///
+    /// Three rewrites, each of them purely local:
+    ///
+    ///  - a **shadow host** renders its shadow tree, so it yields the shadow root's children.
+    ///    The shadow root itself is spliced out: it generates no box and carries no styles.
+    ///  - a **`<slot>`** is replaced by the nodes projected into it, or by its own children as
+    ///    fallback when nothing was. Like `display: contents`, which this engine has no general
+    ///    support for, the slot generates no box - but it stays the *style* parent of what it
+    ///    projects, which [`parent`](Self::parent) is what makes true.
+    ///  - a **light child no slot claimed** is dropped, which is what makes unassigned content
+    ///    invisible rather than merely unstyled.
+    fn flat_children(&self, id: NodeId) -> Vec<NodeId> {
+        let source = self.doc.shadow_root(id).unwrap_or(id);
+
+        let children = self.doc.children(source);
+        // The overwhelmingly common case: no slot among them, so nothing to rewrite.
+        if !children.iter().any(|&child| self.is_slot(child)) {
+            return children.to_vec();
+        }
+
+        let mut out = Vec::with_capacity(children.len());
+        for &child in children {
+            self.push_flattened(child, &mut out);
+        }
+        out
+    }
+
+    /// Appends `node` to `out`, or - when it is a slot - whatever stands in its place.
+    ///
+    /// The expansion recurses because what a slot projects can be another slot: a `<slot>` in
+    /// the light DOM of a nested host is a slottable of the inner tree *and* a slot of the
+    /// outer one, so content flows through both. It always terminates - projection steps move
+    /// strictly outwards through the host nesting, fallback steps strictly down the tree.
+    fn push_flattened(&self, node: NodeId, out: &mut Vec<NodeId>) {
+        if !self.is_slot(node) {
+            out.push(node);
+            return;
+        }
+        match self.slots.assigned.get(&node) {
+            Some(assigned) if !assigned.is_empty() => {
+                for &n in assigned {
+                    self.push_flattened(n, out);
+                }
+            }
+            // Nothing was projected in, so the slot's own children are the fallback content.
+            _ => {
+                for &n in self.doc.children(node) {
+                    self.push_flattened(n, out);
+                }
+            }
         }
     }
 
@@ -1007,9 +1156,9 @@ where
         }
         let sheets = self.doc.stylesheets();
         // Styles resolve top-down: the parent's map carries the inherited custom properties.
-        let parent_styles = self
-            .doc
-            .parent(id)
+        // The *flat*-tree parent, so a slotted node picks them up from the slot it was
+        // projected into rather than from its light-DOM host.
+        let parent_styles = PipelineDocument::parent(self, id)
             .filter(|&p| self.doc.node_type(p) == GosubNodeType::ElementNode)
             .map(|p| self.cached_styles(p));
         let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets, parent_styles.as_deref())
@@ -1189,7 +1338,7 @@ where
         if self.pseudo_box(id, false).is_some() {
             out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
         }
-        out.extend(self.doc.children(id).iter().copied());
+        out.extend(self.flat_children(id));
         if self.pseudo_box(id, true).is_some() {
             out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
         }
@@ -1210,6 +1359,9 @@ where
             GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => PipelineNodeKind::Comment,
             GosubNodeType::ElementNode => PipelineNodeKind::Element,
             GosubNodeType::DocumentNode => PipelineNodeKind::Element,
+            // A shadow root generates no box of its own; the flattened traversal yields its
+            // children in the host's place, so this is only a belt-and-braces answer.
+            GosubNodeType::ShadowRootNode => PipelineNodeKind::Comment,
         }
     }
 
@@ -1245,7 +1397,21 @@ where
                 owner
             });
         }
-        self.doc.parent(id)
+
+        // The flat-tree parent, which is what inherited properties resolve through
+        // (`get_style` walks `parent`, not `children`).
+        if let Some(&slot) = self.slots.slot_of.get(&id) {
+            // A projected node inherits from the slot it landed in - so it picks up the shadow
+            // tree's chain, not the light DOM's, even though the DOM parent is still the host.
+            return Some(slot);
+        }
+        let parent = self.doc.parent(id)?;
+        if self.doc.node_type(parent) == GosubNodeType::ShadowRootNode {
+            // The shadow root generates no box and has no styles of its own; the host stands
+            // in for it, which is also where inheritance into a shadow tree comes from.
+            return self.doc.shadow_host(parent);
+        }
+        Some(parent)
     }
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
