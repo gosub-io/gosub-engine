@@ -538,8 +538,14 @@ pub fn add_property_to_map(
         .push(declaration);
 }
 
+/// Elements whose styles are never worth computing because they never render.
+///
+/// Careful: an element listed here gets *no* computed style at all, so a `display: none` rule in
+/// the user-agent stylesheet can never apply to it. Anything named here must therefore also be
+/// pruned by the render tree's own list, or it will render after all - `noscript` used to be
+/// listed here and nowhere else, which is exactly how its raw text ended up on the page.
 pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
-    const REMOVABLE_ELEMENTS: [&str; 6] = ["head", "script", "style", "svg", "noscript", "title"];
+    const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "title"];
 
     match doc.node_type(id) {
         NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),

@@ -200,6 +200,7 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                         CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
                         CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
                         CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
+                        CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
                     }
                 }
             }

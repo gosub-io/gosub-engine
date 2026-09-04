@@ -85,10 +85,13 @@ mod rendertree_from_engine {
 
     #[test]
     fn head_and_script_are_excluded() {
+        // `noscript` is here because it is hidden by a user-agent `display: none` rule rather than
+        // by the render tree's hardcoded list. With scripting enabled its contents are parsed as
+        // raw text, so if the element survives, that text is drawn on the page verbatim.
         let html = r#"
             <html>
             <head><title>Test</title><style>body{color:red}</style></head>
-            <body><p>Content</p></body>
+            <body><p>Content</p><noscript><img src="//example.org/x.gif"></noscript></body>
             </html>
         "#;
 
@@ -102,7 +105,7 @@ mod rendertree_from_engine {
                     use cow_utils::CowUtils;
                     let tag = data.tag_name.cow_to_ascii_lowercase();
                     assert!(
-                        !matches!(&*tag, "head" | "style" | "script" | "title"),
+                        !matches!(&*tag, "head" | "style" | "script" | "title" | "noscript"),
                         "invisible element <{tag}> must not appear in render tree"
                     );
                 }
@@ -512,6 +515,399 @@ mod rendertree_from_engine {
             Value::Unit(w, Unit::Px) => assert!((w - 90.0).abs() < 0.5, "expected 90px, got {w}"),
             other => panic!("expected a px width on ::before, got {other:?}"),
         }
+    }
+
+    /// `left: 0; right: 0` stretches across the containing block, not across taffy's parent.
+    ///
+    /// Taffy does stretch a box between opposing insets, but it measures from the immediate
+    /// parent. With a narrow static wrapper between the box and its positioned ancestor, that
+    /// gave the wrapper's width - and the placement pass only moved the box, so the wrong width
+    /// survived. The second layout pass hands taffy insets rebased onto the parent so its own
+    /// algorithm produces the right size, and re-lays-out the children at that size.
+    #[test]
+    fn opposing_insets_stretch_across_the_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // 300px positioned ancestor, 100px static wrapper in between - CodeRabbit's example.
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #wrap { width: 100px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+
+        assert!(
+            (mb.width - 300.0).abs() < 1.0,
+            "expected the box to span the 300px containing block, got width {} (the 100px wrapper?)",
+            mb.width
+        );
+        assert!(
+            (mb.x - 40.0).abs() < 1.0,
+            "expected x ~40 (the containing block's left edge), got {}",
+            mb.x
+        );
+    }
+
+    /// The common shape - an absolute child directly inside its positioned ancestor - must still
+    /// come out right, and is the case the second pass deliberately skips.
+    #[test]
+    fn opposing_insets_with_the_parent_as_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="cb"><div id="target"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+        assert!((mb.width - 300.0).abs() < 1.0, "expected width ~300, got {}", mb.width);
+        assert!((mb.x - 40.0).abs() < 1.0, "expected x ~40, got {}", mb.x);
+    }
+
+    /// The initial containing block sits at the canvas origin, not inside the root's padding.
+    ///
+    /// It used to be anchored on the root element's *content* box, so any padding on the root
+    /// pushed it inwards and `top: 0; left: 0` on an unanchored absolute box - or on anything
+    /// `fixed` - missed the corner by exactly that padding.
+    #[test]
+    fn initial_containing_block_is_anchored_at_the_origin() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // Padding on the root, and no positioned ancestor above `#pinned`.
+        let html = r#"
+            <html><head><style>
+                html { padding: 20px; }
+                #pinned { position: absolute; left: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="pinned"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        let mb = pinned.box_model.margin_box;
+        assert!(
+            mb.x.abs() < 0.5 && mb.y.abs() < 0.5,
+            "`top: 0; left: 0` with no positioned ancestor should reach the canvas corner, got ({}, {})",
+            mb.x,
+            mb.y
+        );
+    }
+
+    /// A font-relative inset must place the box, not be discarded as `auto`.
+    ///
+    /// The converter feeding taffy resolves `em`/`rem`, but the absolute-positioning pass read
+    /// the raw value and matched only `px` and `%`. A box whose only specified side was an `em`
+    /// inset was therefore treated as `auto` on that axis and left wherever taffy had put it,
+    /// rather than placed against its containing block.
+    #[test]
+    fn font_relative_insets_are_honoured() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// x of `#target`'s margin box, laid out at 800x600.
+        fn target_x(html: &str) -> f64 {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == target_dom)
+                .expect("#target in the layout tree")
+                .box_model
+                .margin_box
+                .x
+        }
+
+        // The static `#wrap` in between is what makes this observable: taffy places an absolute
+        // child against its *immediate parent*, so it puts `#target` at 150 + 64, while CSS
+        // measures from `#cb` and wants 100 + 64. Dropping the inset left taffy's answer standing.
+        // Without the wrapper the two agree and the bug hides.
+        // 4em at the default 16px font size; `left: 64px` is the same distance spelled in px.
+        let page = |left: &str| {
+            format!(
+                r#"<html><head><style>
+                    #cb {{ position: relative; margin-left: 100px; width: 400px; height: 200px; }}
+                    #wrap {{ margin-left: 50px; }}
+                    #target {{ position: absolute; left: {left}; width: 50px; height: 10px; }}
+                </style></head>
+                <body style="margin:0">
+                    <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+                </body></html>"#
+            )
+        };
+
+        let em_x = target_x(&page("4em"));
+        let px_x = target_x(&page("64px"));
+        assert!(
+            (em_x - px_x).abs() < 0.5,
+            "`left: 4em` should place identically to `left: 64px`, got {em_x} vs {px_x}"
+        );
+        assert!(
+            (em_x - 164.0).abs() < 1.0,
+            "expected x ~164 (containing block at 100px + 4em), got {em_x}"
+        );
+    }
+
+    /// With no viewport, the initial containing block comes from the root's settled size.
+    ///
+    /// `root_dimension` is zero until the layout pass publishes it, and that used to happen
+    /// *after* the absolute-positioning pass ran - so the fallback containing block was 0x0,
+    /// percentage insets resolved to zero and `right`/`bottom` placed boxes at negative offsets.
+    #[test]
+    fn absolute_placement_without_a_viewport_uses_the_root_size() {
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // No positioned ancestor anywhere, so `#pinned` measures against the *initial*
+        // containing block - the fallback this test is about. The in-flow sibling is what gives
+        // the root a width to fall back to; without a viewport its size is content-driven.
+        let html = r#"
+            <html><head><style>
+                #pinned { position: absolute; right: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div style="width:400px;height:20px"></div>
+                <div id="pinned"></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        // No viewport: the initial containing block has to fall back to the root's own size.
+        let layout_tree = TaffyLayouter::new().layout(render_tree, None, 1.0);
+
+        assert!(
+            layout_tree.root_dimension.width > 0.0,
+            "the root's settled size must be published before it is used"
+        );
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        // `right: 0` puts the box's right edge on the containing block's right edge, so its
+        // left edge lands at (containing block width - 50). With the zero fallback that came out
+        // at -50: flush against nothing, off the left of the canvas.
+        let expected = layout_tree.root_dimension.width - 50.0;
+        assert!(
+            pinned.box_model.margin_box.x >= 0.0,
+            "right-edge placement produced a negative offset: x = {}",
+            pinned.box_model.margin_box.x
+        );
+        assert!(
+            (pinned.box_model.margin_box.x - expected).abs() < 1.0,
+            "expected x ~{expected} (root width {} minus the 50px box), got {}",
+            layout_tree.root_dimension.width,
+            pinned.box_model.margin_box.x
+        );
+    }
+
+    /// A promoted layer whose element has a collapsed margin box must still get tiles.
+    ///
+    /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
+    /// was still bounded by margin boxes alone - and skipped any element with zero area. A
+    /// negative margin large enough to collapse the margin box (the `margin-left: -320px` float
+    /// the union was added for) therefore produced a layer with no tiles at all, so the union
+    /// had nothing to select and the element's background vanished.
+    #[test]
+    fn collapsed_margin_box_still_gets_tiles() {
+        use crate::common::geo::Dimension;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::tiler::TileList;
+
+        // `opacity` promotes the div to its own layer, so it goes through the bounds computation
+        // rather than layer 0's full-page coverage. `margin-left: -320px` against a 320px width
+        // leaves a zero-width margin box while the border box keeps its 320px.
+        let html = r#"
+            <html><head><style>
+                #ghost {
+                    display: block; width: 320px; height: 100px;
+                    margin-left: -320px; opacity: 0.5; background-color: #ff0000;
+                }
+            </style></head>
+            <body style="margin:0"><div style="padding-left:400px"><div id="ghost"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ghost_dom = find_node_by_id_attr(&adapter.doc, root, "ghost").expect("#ghost");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        // Confirm the setup really does collapse the margin box - if a layout change ever stops
+        // reproducing that, this test should say so rather than pass hollowly.
+        let ghost = layout_tree
+            .arena
+            .iter()
+            .find(|(_, el)| el.dom_node_id == ghost_dom)
+            .map(|(id, el)| (*id, el.box_model))
+            .expect("#ghost in the layout tree");
+        assert!(
+            ghost.1.margin_box.width <= 0.0,
+            "the negative margin should collapse the margin box, got {}",
+            ghost.1.margin_box.width
+        );
+        assert!(ghost.1.border_box.width > 0.0, "the border box should keep its width");
+
+        let layer_list = LayerList::new(Arc::new(layout_tree));
+        // More than one layer means the div really was promoted; layer 0 gets full-page coverage
+        // and would bypass the bounds computation this test is about.
+        assert!(
+            layer_list.layer_ids.read().len() > 1,
+            "the div should have been promoted to its own layer"
+        );
+
+        let mut tile_list = TileList::new(layer_list, Dimension::new(256.0, 256.0));
+        tile_list.generate();
+
+        assert!(
+            !tile_list.get_tiles_for_element(ghost.0).is_empty(),
+            "#ghost was assigned to no tile, so nothing paints its background"
+        );
+    }
+
+    /// Floating a flex container must not turn it into a block container.
+    ///
+    /// CSS blockification (Display §2.7) only maps *inline-level* boxes to their block-level
+    /// equivalent - `inline-flex` becomes `flex`, not `block`, and a box that is already
+    /// block-level is untouched. Forcing `Display::Block` on every float laid a floated flex
+    /// container's children out stacked instead of in a row.
+    #[test]
+    fn floated_flex_container_keeps_its_flex_children() {
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// Lay `html` out at 800x600 and return the margin boxes of `#row`'s children.
+        fn child_boxes(html: &str) -> Vec<Rect> {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let row_dom = find_node_by_id_attr(&adapter.doc, root, "row").expect("#row");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+            let row = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == row_dom)
+                .expect("#row in the layout tree");
+            row.children
+                .iter()
+                .filter_map(|id| layout_tree.get_node_by_id(*id))
+                .map(|el| el.box_model.margin_box)
+                .collect()
+        }
+
+        let html = r#"
+            <html><head><style>
+                #row { display: flex; float: left; }
+                #row > div { width: 50px; height: 20px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="row"><div id="a"></div><div id="b"></div></div>
+            </body></html>
+        "#;
+
+        let boxes = child_boxes(html);
+        assert_eq!(boxes.len(), 2, "expected the two flex items");
+        // Side by side (flex row), not stacked (block flow).
+        assert!(
+            (boxes[0].y - boxes[1].y).abs() < 0.5,
+            "floated flex children should share a row, got y = {} and {}",
+            boxes[0].y,
+            boxes[1].y
+        );
+        assert!(
+            boxes[1].x > boxes[0].x + 1.0,
+            "the second flex item should sit right of the first, got x = {} and {}",
+            boxes[0].x,
+            boxes[1].x
+        );
     }
 
     /// Resolve `#target`'s width with the given viewport installed as the media environment.

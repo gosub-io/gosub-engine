@@ -8,8 +8,10 @@ use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
+use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
+use crate::layouter::float::{line_box_insets, post_process_floats};
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
@@ -149,6 +151,15 @@ pub struct TaffyLayouter {
     measure_cache: HashMap<MeasureKey, Size<f32>>,
     /// Reverse index used by the table post-processing pass.
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
+    /// Per-block `(left inset, line width)` line-box geometry that clears the floats beside that
+    /// block, in CSS pixels. Empty on the first layout pass, since a float's position is not known
+    /// until that pass has run; filled in from its result for the second.
+    float_insets: HashMap<DomNodeId, (f32, f32)>,
+    /// Taffy insets for absolutely positioned boxes that stretch between opposing insets,
+    /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
+    /// first pass - a box's containing block is only known once the page has been laid out - and
+    /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
+    abspos_insets: HashMap<DomNodeId, RebasedInsets>,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -261,6 +272,8 @@ impl TaffyLayouter {
             font_system,
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
+            float_insets: HashMap::new(),
+            abspos_insets: HashMap::new(),
         }
     }
 
@@ -304,11 +317,48 @@ impl CanLayout for TaffyLayouter {
                 root_dimension: geo::Dimension::ZERO,
             };
         };
-        // let root_id = RenderNodeId::new(2);
+
+        // Two things are only knowable once the page has been laid out once: where a float landed
+        // (text has to be wrapped around it) and which containing block an absolutely positioned
+        // box actually belongs to (a box stretching between opposing insets has to be sized
+        // against it). Both are collected on the first pass and replayed on a second. A page that
+        // needs neither - most of them - pays for one pass.
+        self.float_insets.clear();
+        self.abspos_insets.clear();
+        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
+
+        let insets = line_box_insets(&layout_tree, &placed);
+        if insets.is_empty() && stretched.is_empty() {
+            return layout_tree;
+        }
+
+        self.float_insets = insets;
+        self.abspos_insets = stretched;
+        let (layout_tree_2, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        layout_tree = layout_tree_2;
+        self.float_insets.clear();
+        self.abspos_insets.clear();
+        layout_tree
+    }
+}
+
+impl TaffyLayouter {
+    /// One full layout: build the taffy tree, compute it, convert to box models and place floats.
+    /// Returns the tree and the floats that were placed.
+    fn layout_pass(
+        &mut self,
+        render_tree: RenderTree,
+        root_id: RenderNodeId,
+        viewport: Option<geo::Dimension>,
+    ) -> (
+        LayoutTree,
+        Vec<crate::layouter::float::PlacedFloat>,
+        HashMap<DomNodeId, RebasedInsets>,
+    ) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
-        self.compute_and_populate(&mut layout_tree, viewport);
-        layout_tree
+        let (placed, stretched) = self.compute_and_populate(&mut layout_tree, viewport);
+        (layout_tree, placed, stretched)
     }
 }
 
@@ -320,13 +370,29 @@ impl TaffyLayouter {
     /// intrinsic sizes - which in practice means a viewport resize. Everything taffy needs is
     /// already in the tree, so this skips the ~half of layout that goes into building it.
     /// See `BrowsingContext`'s `DamageLevel::Geometry`.
+    /// Floats and absolutely positioned boxes are re-placed against the new geometry, but the
+    /// two-pass feedback is discarded: this path deliberately does not rebuild the taffy tree, so
+    /// the rebased insets and float line-boxes baked into it on the last full layout are reused.
+    /// A change that invalidates those needs a full rebuild, which is what `DamageLevel::Layout`
+    /// and above ask for.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
-        self.compute_and_populate(layout_tree, viewport);
+        let _ = self.compute_and_populate(layout_tree, viewport);
     }
 
-    /// Run taffy over the current tree and write the results back as box models: the half of
+    /// Run taffy over the current tree and write the results back as box models, then run the
+    /// post-passes that need settled positions: tables, floats, absolute positioning. The half of
     /// `layout` that does not depend on how the tree was built.
-    fn compute_and_populate(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
+    ///
+    /// Returns what a second pass would need - the floats that were placed, and the absolutely
+    /// positioned boxes that have to be re-sized against their real containing block.
+    fn compute_and_populate(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        viewport: Option<geo::Dimension>,
+    ) -> (
+        Vec<crate::layouter::float::PlacedFloat>,
+        HashMap<DomNodeId, RebasedInsets>,
+    ) {
         // // Compute the layout based on the viewport
         let size = match viewport {
             Some(viewport) => Size {
@@ -428,7 +494,7 @@ impl TaffyLayouter {
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
-            return;
+            return (Vec::new(), HashMap::new());
         }
         self.measure_cache = measure_cache;
 
@@ -439,12 +505,28 @@ impl TaffyLayouter {
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
         post_process_tables(layout_tree, &self.dom_to_layout_mapping);
+        // After tables: a float inside a table cell must be placed against the cell's final
+        // position, which lattice only fixes during the table pass.
+        let placed = post_process_floats(layout_tree);
 
+        // Publish the root's settled size *before* the absolute-positioning pass. That pass falls
+        // back to it for the initial containing block when no viewport is given, and
+        // `root_dimension` is still `ZERO` from `generate_tree` until this runs - so percentage
+        // insets resolved against zero and `right`/`bottom` placement came out at negative
+        // offsets. The root is not absolutely positioned, so `post_process_abspos` cannot change
+        // its box; moving this up is safe.
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
             let h = root.box_model.margin_box.height as f32;
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
+
+        // Last: an absolutely positioned box is measured from its containing block's *final*
+        // position, so every ancestor - tables and floats included - must have settled first.
+        let icb = viewport.unwrap_or(layout_tree.root_dimension);
+        let stretched = post_process_abspos(layout_tree, icb);
+
+        (placed, stretched)
     }
 
     fn populate_boxmodel(
@@ -464,16 +546,25 @@ impl TaffyLayouter {
         };
         let layout = *layout;
 
+        // The anonymous flex container wrapping this node *is* its line box.
+        let line_box_width = self
+            .anon_container_map
+            .get(&layout_node_id)
+            .and_then(|anon| self.tree.layout(*anon).ok())
+            .map(|l| l.size.width as f64);
+
         let Some(el) = layout_tree.get_node_by_id_mut(layout_node_id) else {
             log::warn!("Layout node {:?} not found in arena", layout_node_id);
             return;
         };
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
-        // For text nodes, available_width is the wrap limit passed to the renderer.
-        // Use the parent element's content width (supplied by our caller), which is the
-        // most accurate available constraint for text that lives directly in a block box.
+        // For text nodes, available_width is the wrap limit passed to the renderer, so it has to
+        // be the width of the *line box*, not of the block. The two differ when a float shortens
+        // the line boxes: shaping at the block's width there would lay the text out in one long
+        // run straight through the float. Fall back to the block's content width for text that is
+        // not inside an anonymous line container.
         if let ElementContext::Text(ref mut text_ctx) = el.context {
-            text_ctx.available_width = parent_content_width;
+            text_ctx.available_width = line_box_width.unwrap_or(parent_content_width);
         }
         let my_content_width = el.box_model.content_box.width;
         let child_ids = el.children.clone();
@@ -600,6 +691,10 @@ impl TaffyLayouter {
         leaf_id: TaffyNodeId,
         justify: Option<taffy::JustifyContent>,
     ) {
+        // Line boxes - not the block itself - are what a float shortens, and the anonymous
+        // container *is* the line box here, so the inset goes on its margins. The block keeps its
+        // full width, so its background and borders still span the float, as CSS requires.
+        let float_inset = self.float_insets.get(&element_node.dom_node_id).copied();
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
         // This ensures the text measure function always receives AvailableSpace::Definite from
         // the flex algorithm, preventing single-child text nodes from getting MaxContent width
@@ -625,6 +720,10 @@ impl TaffyLayouter {
             },
             ..Default::default()
         };
+        if let Some((inset_left, line_width)) = float_inset {
+            style.margin.left = LengthPercentageAuto::length(inset_left);
+            style.size.width = Dimension::from_length(line_width);
+        }
         if items.is_empty() {
             match empty_line_height {
                 // No child can give the line height, so pin it to the break's line-height.
@@ -801,7 +900,16 @@ impl TaffyLayouter {
         // Trailing whitespace (e.g. "\n" after the last text node inside a <p>) would otherwise
         // produce an empty flex row in the anonymous container, adding a spurious blank line.
         let mut trailing_ws_count = 0usize;
-        let render_node_children = render_node.children.clone();
+        // An inline `<svg>` is a replaced element: usvg has already parsed the whole subtree and
+        // the painter draws the graphic from that tree, so laying the children out again would
+        // both duplicate them and stop taffy seeing the `<svg>` as a leaf - and a non-leaf never
+        // has its measure function called, which is the only thing that gives the element its
+        // intrinsic size. Without this the graphic collapses to nothing unless CSS sizes it.
+        let render_node_children = if matches!(element_node.context, ElementContext::Svg(_)) {
+            Vec::new()
+        } else {
+            render_node.children.clone()
+        };
 
         // A "mixed" inline run - a (non-flex/grid) element with at least one inline-level *element*
         // child, not just text - needs its text nodes split into per-word boxes so text flows and
@@ -1013,6 +1121,21 @@ impl TaffyLayouter {
             NodeType::Element(data) => {
                 let conv = CssTaffyConverter::new(dom_node.node_id, &*layout_tree.render_tree.doc);
                 taffy_style = conv.convert(false);
+
+                // Second pass only: replace the CSS insets of an absolutely positioned box that
+                // stretches between opposing insets with ones rebased onto its parent, so taffy
+                // sizes it against the CSS containing block rather than whatever ancestor happens
+                // to be its parent. Empty on the first pass. See `abspos::RebasedInsets`.
+                if let Some(rebased) = self.abspos_insets.get(&dom_node.node_id) {
+                    if let (Some(l), Some(r)) = (rebased.left, rebased.right) {
+                        taffy_style.inset.left = LengthPercentageAuto::length(l);
+                        taffy_style.inset.right = LengthPercentageAuto::length(r);
+                    }
+                    if let (Some(t), Some(b)) = (rebased.top, rebased.bottom) {
+                        taffy_style.inset.top = LengthPercentageAuto::length(t);
+                        taffy_style.inset.bottom = LengthPercentageAuto::length(b);
+                    }
+                }
 
                 // Images get a taffy context so their intrinsic size participates in layout.
                 if data.tag_name.eq_ignore_ascii_case("img") {
