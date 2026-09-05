@@ -1003,9 +1003,15 @@ pub trait PipelineDocument: Send + Sync {
             }
         }
 
-        let raw = if let Some(v) = self.get_own_style(id, prop) {
-            v
-        } else {
+        // Loop rather than recurse: a page can nest thousands of elements deep, and a frame per
+        // ancestor overflows the stack. `owner` is the element the value came from, which the
+        // unit resolution below needs - an inherited `em` resolves against that element's font
+        // size, which fell out for free while this recursed.
+        let mut owner = id;
+        let raw = loop {
+            if let Some(v) = self.get_own_style(owner, prop) {
+                break v;
+            }
             // border-*-color's initial value is `currentColor`, not black: an undeclared
             // border color renders in the element's computed `color`
             // (`td { border: solid; color: blue }` draws blue borders).
@@ -1016,7 +1022,7 @@ pub trait PipelineDocument: Send + Sync {
                     | StyleProperty::BorderBottomColor
                     | StyleProperty::BorderLeftColor
             ) {
-                return self.get_style(id, &StyleProperty::Color);
+                return self.get_style(owner, &StyleProperty::Color);
             }
             // Monospace default-size quirk (Chrome/Firefox both do this): the default
             // font-size is 13px instead of 16px for elements whose font-family is the bare
@@ -1024,7 +1030,7 @@ pub trait PipelineDocument: Send + Sync {
             // inheritance and re-evaluate it per family; we approximate by applying the
             // quirk when no ancestor declares a font-size at all.
             if matches!(prop, StyleProperty::FontSize) {
-                let family_is_monospace = match self.get_style(id, &StyleProperty::FontFamily) {
+                let family_is_monospace = match self.get_style(owner, &StyleProperty::FontFamily) {
                     Value::Keyword(fam) => lookup(fam)
                         .split(',')
                         .next()
@@ -1032,7 +1038,7 @@ pub trait PipelineDocument: Send + Sync {
                     _ => false,
                 };
                 if family_is_monospace {
-                    let mut cur = self.parent(id);
+                    let mut cur = self.parent(owner);
                     let mut declared = false;
                     while let Some(p) = cur {
                         if self.get_own_style(p, prop).is_some() {
@@ -1048,11 +1054,12 @@ pub trait PipelineDocument: Send + Sync {
             }
             let meta = prop.meta();
             if meta.inherited {
-                if let Some(parent) = self.parent(id) {
-                    return self.get_style(parent, prop);
+                if let Some(parent) = self.parent(owner) {
+                    owner = parent;
+                    continue;
                 }
             }
-            meta.initial_value()
+            break meta.initial_value();
         };
 
         // Resolve font-relative units (em/rem) to px. `rem` is always relative to the root
@@ -1068,7 +1075,10 @@ pub trait PipelineDocument: Send + Sync {
         // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
         // `medium` at 16px.
         if matches!(prop, StyleProperty::FontSize) {
-            let parent_size = || match self.parent(id) {
+            // `owner`, not `id`: a percentage or keyword font-size resolves against the parent of
+            // the element that *declared* it, and descendants inherit the computed result. That
+            // came for free while this walk recursed, since the tail ran in the ancestor's frame.
+            let parent_size = || match self.parent(owner) {
                 Some(parent) => self.font_size_px(parent),
                 None => 16.0,
             };
@@ -1099,12 +1109,12 @@ pub trait PipelineDocument: Send + Sync {
             Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
             Value::Unit(v, Unit::Em) => {
                 let basis = if matches!(prop, StyleProperty::FontSize) {
-                    match self.parent(id) {
+                    match self.parent(owner) {
                         Some(parent) => self.font_size_px(parent),
                         None => 16.0,
                     }
                 } else {
-                    self.font_size_px(id)
+                    self.font_size_px(owner)
                 };
                 Value::Unit(v * basis, Unit::Px)
             }
