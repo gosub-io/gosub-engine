@@ -31,6 +31,19 @@ use taffy::NodeId as TaffyNodeId;
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
+/// How deep the layout tree may nest before deeper content stops being laid out.
+///
+/// Building the taffy tree, taffy's own `compute_layout` and the paint walk all recurse, and a
+/// page controls how deep they go - a few hundred nested `<div>`s is enough. Measured, the
+/// pipeline overflows between 220 and 240 levels unoptimised on the 2 MiB stack a tokio worker
+/// gets, so this keeps a little under 2x margin. Wikipedia's main page, the deepest in
+/// tests/data, nests 20.
+///
+/// Not Blink's 512: our layout frames are much larger unoptimised, and the limit has to hold on
+/// the smallest stack an embedder might run us on. Raising it much further needs an iterative
+/// walk here plus a layout thread of our own - taffy's recursion is not ours to change.
+const MAX_LAYOUT_DEPTH: usize = 128;
+
 /// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
 /// Accepts a bare integer/float or a trailing `px`; ignores `%` and other units.
 fn parse_px_attr(v: &str) -> Option<f32> {
@@ -629,7 +642,7 @@ impl TaffyLayouter {
             root_dimension: geo::Dimension::ZERO,
         };
 
-        let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id)
+        let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id, 0)
         else {
             log::error!("Failed to generate taffy element for root node {:?}", root_id);
             return layout_tree;
@@ -841,6 +854,7 @@ impl TaffyLayouter {
         &mut self,
         layout_tree: &mut LayoutTree,
         render_node_id: RenderNodeId,
+        depth: usize,
     ) -> Option<(LayoutElementId, TaffyNodeId)> {
         let render_node = layout_tree.render_tree.get_node_by_id(render_node_id)?;
         let dom_node = layout_tree
@@ -907,6 +921,10 @@ impl TaffyLayouter {
         // intrinsic size. Without this the graphic collapses to nothing unless CSS sizes it.
         let render_node_children = if matches!(element_node.context, ElementContext::Svg(_)) {
             Vec::new()
+        } else if depth >= MAX_LAYOUT_DEPTH {
+            // Same treatment as an inline `<svg>`: keep the element, make it a leaf.
+            log::warn!("Layout nesting deeper than {MAX_LAYOUT_DEPTH} levels; not laying out the rest of the subtree");
+            Vec::new()
         } else {
             render_node.children.clone()
         };
@@ -943,7 +961,8 @@ impl TaffyLayouter {
                 }
             }
 
-            let Some((child_layout_element_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, *child_id)
+            let Some((child_layout_element_id, child_taffy_id)) =
+                self.generate_taffy_element(layout_tree, *child_id, depth + 1)
             else {
                 continue;
             };

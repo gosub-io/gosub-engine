@@ -524,6 +524,47 @@ mod rendertree_from_engine {
     /// gave the wrapper's width - and the placement pass only moved the box, so the wrong width
     /// survived. The second layout pass hands taffy insets rebased onto the parent so its own
     /// algorithm produces the right size, and re-lays-out the children at that size.
+    /// Building the taffy tree, taffy's layout and the paint walk all recurse, and before the
+    /// depth cap a few hundred nested `<div>`s overflowed the stack and aborted the process.
+    /// It is also where the SVG proof of concept ends up once the decoder rejects it: the `<g>`s
+    /// are left to lay out as ordinary elements. Part of GHSA-c762-mxfh-vwvp.
+    ///
+    /// On a 2 MiB stack, which is what a tokio worker gives layout.
+    #[test]
+    fn a_deeply_nested_page_is_capped() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const DEPTH: usize = 2000;
+
+        let laid_out = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body>{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0)
+            })
+            .expect("spawn")
+            .join()
+            .expect("layout must not abort the process");
+
+        // The element at the limit becomes a leaf, so the tree holds the levels above it and
+        // nothing below.
+        assert!(
+            laid_out.arena.len() < DEPTH,
+            "expected the subtree past the cap to be dropped, got {} boxes for {DEPTH} levels",
+            laid_out.arena.len()
+        );
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;

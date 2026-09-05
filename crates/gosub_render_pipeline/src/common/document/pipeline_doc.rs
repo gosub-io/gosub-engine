@@ -724,16 +724,23 @@ pub trait PipelineDocument: Send + Sync {
             }
         }
 
-        let raw = if let Some(v) = self.get_own_style(id, prop) {
-            v
-        } else {
+        // Loop rather than recurse: a page can nest thousands of elements deep, and a frame per
+        // ancestor overflows the stack. `owner` is the element the value came from, which the
+        // unit resolution below needs - an inherited `em` resolves against that element's font
+        // size, which fell out for free while this recursed.
+        let mut owner = id;
+        let raw = loop {
+            if let Some(v) = self.get_own_style(owner, prop) {
+                break v;
+            }
             let meta = prop.meta();
             if meta.inherited {
-                if let Some(parent) = self.parent(id) {
-                    return self.get_style(parent, prop);
+                if let Some(parent) = self.parent(owner) {
+                    owner = parent;
+                    continue;
                 }
             }
-            meta.initial_value()
+            break meta.initial_value();
         };
 
         // Resolve font-relative units (em/rem) to px. `rem` is always relative to the root
@@ -744,12 +751,12 @@ pub trait PipelineDocument: Send + Sync {
             Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
             Value::Unit(v, Unit::Em) => {
                 let basis = if matches!(prop, StyleProperty::FontSize) {
-                    match self.parent(id) {
+                    match self.parent(owner) {
                         Some(parent) => self.font_size_px(parent),
                         None => 16.0,
                     }
                 } else {
-                    self.font_size_px(id)
+                    self.font_size_px(owner)
                 };
                 Value::Unit(v * basis, Unit::Px)
             }
