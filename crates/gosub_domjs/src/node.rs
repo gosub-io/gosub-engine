@@ -48,6 +48,8 @@ impl GosubNode {
             NodeType::CommentNode => 8,
             NodeType::DocumentNode => 9,
             NodeType::DocTypeNode => 10,
+            // A shadow root is a DocumentFragment as far as the DOM API is concerned.
+            NodeType::ShadowRootNode => 11,
         }
     }
 
@@ -59,6 +61,7 @@ impl GosubNode {
             None => match doc.node_type(self.id) {
                 NodeType::TextNode => "#text".to_string(),
                 NodeType::CommentNode => "#comment".to_string(),
+                NodeType::ShadowRootNode => "#document-fragment".to_string(),
                 _ => "#document".to_string(),
             },
         }

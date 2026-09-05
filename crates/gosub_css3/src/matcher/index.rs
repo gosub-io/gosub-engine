@@ -91,6 +91,15 @@ fn rightmost_key(complex: &[CssSelectorPart]) -> Key<'_> {
         .map_or(0, |i| i + 1);
     let compound = &complex[start..];
 
+    // `::slotted()` breaks the assumption this index rests on: the compound's other simple
+    // selectors describe the *slot*, while the element being matched is the light-DOM node
+    // projected into it. Indexing `slot[name=x]::slotted(*)` under the tag `slot` would file it
+    // against an element it can never be tested on, so it goes in the universal bucket - where
+    // its own argument still gets checked by the full matcher.
+    if compound.iter().any(|p| matches!(p, CssSelectorPart::Slotted(_))) {
+        return Key::Universal;
+    }
+
     let mut class = None;
     let mut tag = None;
     for part in compound {

@@ -2,8 +2,9 @@ use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
 use crate::node::data::document::DocumentData;
 use crate::node::data::element::ElementData;
+use crate::node::data::shadow_root::ShadowRootData;
 use crate::node::data::text::TextData;
-use gosub_interface::node::{NodeType, QuirksMode};
+use gosub_interface::node::{NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ pub enum NodeDataTypeInternal {
     Text(TextData),
     Comment(CommentData),
     Element(ElementData),
+    ShadowRoot(ShadowRootData),
 }
 
 /// A DOM node stored in the arena
@@ -97,6 +99,14 @@ impl NodeImpl {
     }
 
     #[must_use]
+    pub fn new_shadow_root(location: Location, host: NodeId, init: ShadowRootInit) -> Self {
+        Self::new(
+            location,
+            NodeDataTypeInternal::ShadowRoot(ShadowRootData::new(host, init)),
+        )
+    }
+
+    #[must_use]
     pub fn new_comment(location: Location, value: &str) -> Self {
         Self::new(location, NodeDataTypeInternal::Comment(CommentData::with_value(value)))
     }
@@ -161,7 +171,15 @@ impl NodeImpl {
             NodeDataTypeInternal::Text(_) => NodeType::TextNode,
             NodeDataTypeInternal::Comment(_) => NodeType::CommentNode,
             NodeDataTypeInternal::Element(_) => NodeType::ElementNode,
+            NodeDataTypeInternal::ShadowRoot(_) => NodeType::ShadowRootNode,
         }
+    }
+
+    pub fn get_shadow_root_data(&self) -> Option<&ShadowRootData> {
+        if let NodeDataTypeInternal::ShadowRoot(data) = &self.data {
+            return Some(data);
+        }
+        None
     }
 
     pub fn is_element_node(&self) -> bool {

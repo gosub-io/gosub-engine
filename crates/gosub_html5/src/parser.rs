@@ -13,6 +13,7 @@ use crate::parser::attr_replacements::{
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::parser::helper::{
     is_html_integration_point, is_mathml_integration_point, is_special, matches_tag_and_attrs_without_order,
+    InsertionPositionMode,
 };
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
@@ -21,7 +22,7 @@ use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
 use gosub_interface::document::{Document, DocumentType};
-use gosub_interface::node::NodeType;
+use gosub_interface::node::{NodeType, ShadowRootInit, ShadowRootMode, SlotAssignmentMode};
 
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::QuirksMode;
@@ -204,6 +205,11 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     parser_finished: bool,
     /// Context node id for fragment parsing
     context_node_id: Option<NodeId>,
+    /// The document's "allow declarative shadow roots" flag. True when parsing a document, so
+    /// `<template shadowrootmode>` attaches a shadow root; false for fragment parsing, which is
+    /// what `innerHTML` uses - there, the same markup must stay an inert template.
+    /// (`setHTMLUnsafe()`/`parseHTMLUnsafe()` would set it true, but neither exists yet.)
+    allow_declarative_shadow_roots: bool,
 }
 
 impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
@@ -326,6 +332,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             ignore_lf: false,
             parser_finished: false,
             context_node_id: None,
+            allow_declarative_shadow_roots: true,
         }
     }
 
@@ -366,6 +373,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             ignore_lf: false,
             parser_finished: false,
             context_node_id: None,
+            allow_declarative_shadow_roots: true,
         }
     }
 
@@ -391,6 +399,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
+
+        // Fragment parsing is what `innerHTML` runs on, and that must not build shadow roots.
+        parser.allow_declarative_shadow_roots = false;
 
         // 4. / 12.
         parser.initialize_fragment_case(context_node_id);
@@ -1087,7 +1098,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                         // Load stylesheet from text node
                         if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
-                            self.document.add_stylesheet(stylesheet);
+                            self.add_stylesheet_for(style_node_id, stylesheet);
                         }
 
                         self.open_elements.pop();
@@ -3110,26 +3121,32 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::EndTag { name, .. } if name == "body" || name == "html" || name == "br" => {
                 anything_else = true;
             }
-            Token::StartTag { name, .. } if name == "template" => {
-                let node_id = self.insert_html_element(token);
-
+            Token::StartTag {
+                name,
+                attributes,
+                location,
+                ..
+            } if name == "template" => {
                 self.active_formatting_elements_push_marker();
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::InTemplate;
                 self.template_insertion_mode.push(InsertionMode::InTemplate);
 
-                // Let adjusted insert location
-                // intended parent
-                // document = indented parent's node document
+                if let Some(shadow_root_id) = self.attach_declarative_shadow_root(attributes, *location) {
+                    // The template declared a shadow root, so it never enters the tree itself -
+                    // only the shadow root it created does. The element is still created and
+                    // pushed onto the stack of open elements, because everything downstream keys
+                    // off it: the `</template>` end tag, "in template" insertion mode, and the
+                    // template-contents redirection in `appropriate_place_insert`. Pointing its
+                    // template contents at the shadow root is what routes the children in.
+                    let node_id = self.create_node(token, HTML_NAMESPACE);
+                    self.open_elements.push(node_id);
+                    self.document.set_template_contents(node_id, shadow_root_id);
+                } else {
+                    let node_id = self.insert_html_element(token);
 
-                // check shadow root != none
-                // or allow declarative shadow roots == true
-                // or adjusted current node is not topmost element in stack open elements
-                // then insert html element for token
-                // else:
-                //
-
-                {
+                    // An ordinary template holds its own contents: the redirection above then
+                    // lands back on the template element itself.
                     let cn_id = current_node_id!(self);
                     if self.document.node_type(node_id) == NodeType::ElementNode {
                         self.document.set_template_contents(node_id, cn_id);
@@ -3881,6 +3898,61 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Returns the NodeId of the adjusted current node.
+    /// The declarative-shadow-root branch of the "in head" `<template>` rules (HTML 13.2.6.4.4).
+    ///
+    /// Returns the shadow root when the token declares one and its intended parent can host it -
+    /// in which case the caller must *not* insert the template element into the tree. Every
+    /// failed check falls through to `None`, i.e. to ordinary inert-template behavior; that
+    /// includes the spec's "catch the `NotSupportedError`" recovery for a parent that is not a
+    /// valid shadow host or already has a shadow root.
+    fn attach_declarative_shadow_root(
+        &mut self,
+        attributes: &HashMap<String, String>,
+        location: Location,
+    ) -> Option<NodeId> {
+        if !self.allow_declarative_shadow_roots {
+            return None;
+        }
+        let mode = ShadowRootMode::from_attribute(attributes.get("shadowrootmode")?)?;
+
+        // The host is the adjusted current node, but never the topmost element on the stack of
+        // open elements - that would hang a shadow root off <html>.
+        let host = self.get_adjusted_current_node_id();
+        if self.open_elements.first() == Some(&host) {
+            return None;
+        }
+
+        let init = ShadowRootInit {
+            mode,
+            // The rest are boolean attributes: present at all means set.
+            delegates_focus: attributes.contains_key("shadowrootdelegatesfocus"),
+            clonable: attributes.contains_key("shadowrootclonable"),
+            serializable: attributes.contains_key("shadowrootserializable"),
+            // A declarative shadow root is always named; only `attachShadow()` can ask for
+            // manual assignment, and that does not exist yet.
+            slot_assignment: SlotAssignmentMode::Named,
+        };
+
+        self.document.attach_shadow_root(host, init, location)
+    }
+
+    /// Records the tree scope a freshly parsed stylesheet belongs to, then hands it to the
+    /// document.
+    ///
+    /// `owner` is the `<style>` or `<link>` element the sheet came from. Its scope is the shadow
+    /// root at the top of its ancestor chain, or `None` when that chain reaches the document -
+    /// a shadow root has no parent, so the walk stops there by itself.
+    fn add_stylesheet_for(&mut self, owner: NodeId, mut stylesheet: <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut root = owner;
+        while let Some(parent) = self.document.parent(root) {
+            root = parent;
+        }
+        let scope = (self.document.node_type(root) == NodeType::ShadowRootNode).then_some(root);
+
+        C::CssSystem::set_stylesheet_scope(&mut stylesheet, scope);
+        self.document.add_stylesheet(stylesheet);
+    }
+
     fn get_adjusted_current_node_id(&self) -> NodeId {
         if self.is_fragment_case && self.open_elements.len() == 1 {
             // fragment case: return context node
@@ -4293,7 +4365,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 };
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url) {
-                    self.document.add_stylesheet(stylesheet);
+                    // The <link> is not in the tree yet - it is inserted by the caller right
+                    // after this - so take the scope from where it is about to land. That also
+                    // follows the template-contents redirection, which is what puts a <link>
+                    // written inside a declarative shadow template into the shadow tree.
+                    let parent = match self.appropriate_place_insert(None) {
+                        InsertionPositionMode::LastChild { parent_id }
+                        | InsertionPositionMode::Sibling { parent_id, .. } => parent_id,
+                    };
+                    self.add_stylesheet_for(parent, stylesheet);
                 } else {
                     self.parse_error("failed to load external stylesheet");
                 }

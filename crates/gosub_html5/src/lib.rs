@@ -6,7 +6,6 @@ use gosub_interface::config::HasDocument;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 pub mod document;
-pub mod dom;
 pub mod errors;
 pub mod node;
 pub mod parser;

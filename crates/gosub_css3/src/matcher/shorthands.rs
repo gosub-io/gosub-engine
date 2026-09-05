@@ -119,16 +119,26 @@ pub struct FixListInfo {
     important: bool,
     location: String,
     specificity: Specificity,
+    /// Shadow depth of the declaring sheet, carried through shorthand expansion so the
+    /// longhands it produces keep the cross-tree half of the cascade.
+    shadow_depth: u16,
 }
 
 impl FixListInfo {
     #[must_use]
-    pub fn new(origin: CssOrigin, important: bool, location: String, specificity: Specificity) -> Self {
+    pub fn new(
+        origin: CssOrigin,
+        important: bool,
+        location: String,
+        specificity: Specificity,
+        shadow_depth: u16,
+    ) -> Self {
         Self {
             origin,
             important,
             location,
             specificity,
+            shadow_depth,
         }
     }
 }
@@ -369,6 +379,7 @@ impl FixList {
                 important: info.important,
                 specificity: info.specificity,
                 location: info.location.clone(),
+                shadow_depth: info.shadow_depth,
             }
         } else {
             DeclarationProperty {
@@ -377,6 +388,16 @@ impl FixList {
                 important: false,
                 specificity: Specificity::new(0, 0, 0),
                 location: String::new(),
+                // A declaration with no info is a synthesized default, not something an
+                // author wrote, and it carries no tree of its own. Depth 0 would read as
+                // "from the document" - the *winning* end of the cross-tree comparison for
+                // normal declarations - and would then outrank the real declarations of the
+                // shadow tree being expanded, which is how a shadow-tree `border-left` lost
+                // to its own `border` shorthand. These entries are never `important`, so
+                // parking them at the far end makes them lose that comparison instead and
+                // fall back to losing on specificity, exactly as they did before there was
+                // a cross-tree comparison at all.
+                shadow_depth: u16::MAX,
             }
         }
     }

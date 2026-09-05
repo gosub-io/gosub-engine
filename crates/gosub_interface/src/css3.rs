@@ -93,6 +93,14 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// The default implementation does nothing, leaving `@import` unresolved.
     fn resolve_imports(_sheet: &mut Self::Stylesheet, _fetch: &mut ImportFetcher<'_>) {}
 
+    /// Records which tree scope a stylesheet belongs to: `None` for the document, or the shadow
+    /// root whose shadow tree holds the `<style>` or `<link>` it came from.
+    ///
+    /// A scoped sheet applies only inside that shadow tree, apart from its `:host` and
+    /// `::slotted()` rules, which deliberately reach one step outwards. The default does
+    /// nothing, which means no scoping - every sheet applies to the whole document.
+    fn set_stylesheet_scope(_sheet: &mut Self::Stylesheet, _scope: Option<NodeId>) {}
+
     /// A hash of everything *outside* the DOM that the cascade reads, under the environment
     /// currently in force: which `@media` conditions hold, and the viewport when any sheet
     /// uses viewport-relative units.
