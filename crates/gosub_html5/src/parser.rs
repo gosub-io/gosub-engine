@@ -13,6 +13,7 @@ use crate::parser::attr_replacements::{
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::parser::helper::{
     is_html_integration_point, is_mathml_integration_point, is_special, matches_tag_and_attrs_without_order,
+    InsertionPositionMode,
 };
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
@@ -1097,7 +1098,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                         // Load stylesheet from text node
                         if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
-                            self.document.add_stylesheet(stylesheet);
+                            self.add_stylesheet_for(style_node_id, stylesheet);
                         }
 
                         self.open_elements.pop();
@@ -3935,6 +3936,23 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.document.attach_shadow_root(host, init, location)
     }
 
+    /// Records the tree scope a freshly parsed stylesheet belongs to, then hands it to the
+    /// document.
+    ///
+    /// `owner` is the `<style>` or `<link>` element the sheet came from. Its scope is the shadow
+    /// root at the top of its ancestor chain, or `None` when that chain reaches the document -
+    /// a shadow root has no parent, so the walk stops there by itself.
+    fn add_stylesheet_for(&mut self, owner: NodeId, mut stylesheet: <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut root = owner;
+        while let Some(parent) = self.document.parent(root) {
+            root = parent;
+        }
+        let scope = (self.document.node_type(root) == NodeType::ShadowRootNode).then_some(root);
+
+        C::CssSystem::set_stylesheet_scope(&mut stylesheet, scope);
+        self.document.add_stylesheet(stylesheet);
+    }
+
     fn get_adjusted_current_node_id(&self) -> NodeId {
         if self.is_fragment_case && self.open_elements.len() == 1 {
             // fragment case: return context node
@@ -4347,7 +4365,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 };
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url) {
-                    self.document.add_stylesheet(stylesheet);
+                    // The <link> is not in the tree yet - it is inserted by the caller right
+                    // after this - so take the scope from where it is about to land. That also
+                    // follows the template-contents redirection, which is what puts a <link>
+                    // written inside a declarative shadow template into the shadow tree.
+                    let parent = match self.appropriate_place_insert(None) {
+                        InsertionPositionMode::LastChild { parent_id }
+                        | InsertionPositionMode::Sibling { parent_id, .. } => parent_id,
+                    };
+                    self.add_stylesheet_for(parent, stylesheet);
                 } else {
                     self.parse_error("failed to load external stylesheet");
                 }

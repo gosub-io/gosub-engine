@@ -79,6 +79,8 @@ pub enum NodeType {
     },
     PseudoElementSelector {
         value: String,
+        /// Selector list of a functional pseudo-element, kept only for `::slotted()`.
+        arguments: Option<Box<Node>>,
     },
     PseudoClassSelector {
         value: Box<Node>,
@@ -356,7 +358,7 @@ impl Node {
     #[must_use]
     pub fn as_pseudo_element_selector(&self) -> Option<&String> {
         match &self.node_type {
-            NodeType::PseudoElementSelector { value } => Some(value),
+            NodeType::PseudoElementSelector { value, .. } => Some(value),
             _ => None,
         }
     }
@@ -456,7 +458,7 @@ impl Display for Node {
                 format!("[{name}{matcher}{value}{flags}]")
             }
             NodeType::PseudoClassSelector { value } => format!(":{value}"),
-            NodeType::PseudoElementSelector { value } => format!("::{value}"),
+            NodeType::PseudoElementSelector { value, .. } => format!("::{value}"),
             NodeType::Operator(value) => value.clone(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {

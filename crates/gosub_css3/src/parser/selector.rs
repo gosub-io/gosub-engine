@@ -210,10 +210,23 @@ impl Css3<'_> {
             TokenType::Function(name) => {
                 // Functional pseudo-element, e.g. `::part(foo)`, `::slotted(span)`,
                 // `::highlight(name)`. Parse and consume the arguments so the stream advances
-                // past the `)`; the selector model only retains the pseudo-element name.
+                // past the `)`.
                 let lower = name.cow_to_lowercase();
-                self.parse_pseudo_function(lower.as_ref())?;
+                let args = self.parse_pseudo_function(lower.as_ref())?;
                 self.consume(TokenType::RParen)?;
+
+                // `::slotted()` is the one functional pseudo-element whose argument is a real
+                // selector the matcher has to evaluate, so it is kept. The others' arguments
+                // are still dropped - nothing consumes them yet.
+                if lower == "slotted" {
+                    return Ok(Node::new(
+                        NodeType::PseudoElementSelector {
+                            value: name,
+                            arguments: Some(Box::new(args)),
+                        },
+                        loc,
+                    ));
+                }
                 name
             }
             _ => {
@@ -224,7 +237,10 @@ impl Css3<'_> {
             }
         };
 
-        Ok(Node::new(NodeType::PseudoElementSelector { value }, loc))
+        Ok(Node::new(
+            NodeType::PseudoElementSelector { value, arguments: None },
+            loc,
+        ))
     }
 
     fn parse_pseudo_selector(&mut self) -> CssResult<Node> {

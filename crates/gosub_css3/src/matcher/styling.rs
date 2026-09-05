@@ -29,6 +29,7 @@ pub(crate) fn match_selector<C: HasDocument>(
     node_id: NodeId,
     selector: &CssSelector,
     pseudo: Option<&str>,
+    scope: ScopeContext,
 ) -> (bool, Specificity) {
     // A selector list (`a, b`) matches with the highest specificity of its matching parts.
     let mut best: Option<Specificity> = None;
@@ -43,13 +44,149 @@ pub(crate) fn match_selector<C: HasDocument>(
             }
         }
 
-        if match_selector_parts::<C>(document, node_id, part, pseudo) {
+        // Which way this selector reaches has to agree with where the sheet sits relative to
+        // the element. A shadow tree's plain rules must not touch the host or the light DOM
+        // projected into it, and its `:host` / `::slotted()` rules must not touch anything else.
+        if subject_reach(part) != scope.mode {
+            continue;
+        }
+
+        if match_compound::<C>(document, node_id, part, pseudo, scope) {
             let specificity = Specificity::from(part.as_slice());
             best = Some(best.map_or(specificity, |b| b.max(specificity)));
         }
     }
 
     best.map_or((false, Specificity::new(0, 0, 0)), |s| (true, s))
+}
+
+/// Where a stylesheet sits relative to the element being matched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScopeMatch {
+    /// Same tree scope - or a user-agent sheet, which is not scoped at all. Ordinary matching.
+    Same,
+    /// The sheet belongs to the shadow tree that this element *hosts*, so only its `:host`
+    /// rules reach here.
+    Host,
+    /// The sheet belongs to a shadow tree that this element is *projected into*, so only its
+    /// `::slotted()` rules reach here.
+    Slotted,
+}
+
+/// The stylesheet's position relative to the element, plus the shadow tree it belongs to.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ScopeContext {
+    pub(crate) mode: ScopeMatch,
+    /// The shadow root whose tree the sheet was parsed into, if any. `:host` needs it to find
+    /// the host, `::slotted()` to find the slot.
+    pub(crate) tree: Option<NodeId>,
+}
+
+impl ScopeContext {
+    /// An unscoped context, for matching the inner selector of `:not()`, `:host()` or
+    /// `::slotted()` - those arguments are plain compounds and cannot nest scope-crossing parts.
+    pub(crate) fn plain() -> Self {
+        Self {
+            mode: ScopeMatch::Same,
+            tree: None,
+        }
+    }
+}
+
+/// Which way a selector reaches, read from its *subject* - the rightmost compound, i.e. the
+/// thing the rule actually styles. `:host p` styles `p` inside the tree; `:host(.a)` styles the
+/// host; `::slotted(p)` styles a projected node.
+fn subject_reach(parts: &[CssSelectorPart]) -> ScopeMatch {
+    let subject = match parts.iter().rposition(|p| matches!(p, CssSelectorPart::Combinator(_))) {
+        Some(i) => &parts[i + 1..],
+        None => parts,
+    };
+
+    if subject.iter().any(|p| matches!(p, CssSelectorPart::Slotted(_))) {
+        ScopeMatch::Slotted
+    } else if subject.iter().any(|p| matches!(p, CssSelectorPart::Host(_))) {
+        ScopeMatch::Host
+    } else {
+        ScopeMatch::Same
+    }
+}
+
+/// Matches one compound-selector sequence, handling a leading `:host` before the ordinary
+/// right-to-left walk takes over.
+fn match_compound<C: HasDocument>(
+    doc: &C::Document,
+    node_id: NodeId,
+    parts: &[CssSelectorPart],
+    pseudo: Option<&str>,
+    scope: ScopeContext,
+) -> bool {
+    // A leading `:host` is a condition on the tree's host, which lives *outside* the tree and so
+    // is unreachable by the ancestor walk - a shadow root has no parent, which is exactly what
+    // stops ordinary selectors crossing the boundary. Check it here, then match the remainder
+    // inside the tree as usual.
+    let Some(CssSelectorPart::Host(inner)) = parts.first() else {
+        return match_selector_parts::<C>(doc, node_id, parts, pseudo, scope);
+    };
+
+    let Some(tree) = scope.tree else {
+        return false;
+    };
+    let Some(host) = doc.shadow_host(tree) else {
+        return false;
+    };
+    if let Some(inner) = inner {
+        if !inner
+            .iter()
+            .any(|compound| match_selector_parts::<C>(doc, host, compound, None, ScopeContext::plain()))
+        {
+            return false;
+        }
+    }
+
+    let mut rest = &parts[1..];
+    if rest.is_empty() {
+        // `:host` on its own: the host is the subject.
+        return node_id == host;
+    }
+
+    // `:host > x` means x is a top-level node of the shadow tree, since the host is x's parent
+    // in the flattened tree. `:host x` puts no such constraint on it.
+    if let Some(CssSelectorPart::Combinator(combinator)) = rest.first() {
+        let direct_child = matches!(combinator, Combinator::Child);
+        rest = &rest[1..];
+        if direct_child && doc.parent(node_id) != Some(tree) {
+            return false;
+        }
+    }
+
+    match_selector_parts::<C>(doc, node_id, rest, pseudo, scope)
+}
+
+/// The slot in `tree` that `node` is projected into, mirroring the flat tree's assignment: an
+/// element goes to the slot named by its `slot` attribute, anything else to the first unnamed
+/// slot, first in tree order winning.
+///
+/// Only needed so a `slot[name=x]::slotted(y)` prefix has something to match against; the
+/// render pipeline computes the authoritative assignment for layout.
+fn assigned_slot<C: HasDocument>(doc: &C::Document, node: NodeId, tree: NodeId) -> Option<NodeId> {
+    let wanted = match doc.node_type(node) {
+        NodeType::ElementNode => doc.attribute(node, "slot").unwrap_or(""),
+        NodeType::TextNode => "",
+        _ => return None,
+    };
+
+    let mut stack: Vec<NodeId> = doc.children(tree).iter().rev().copied().collect();
+    while let Some(current) = stack.pop() {
+        stack.extend(doc.children(current).iter().rev().copied());
+
+        if doc.tag_name(current) != Some("slot") {
+            continue;
+        }
+        if doc.attribute(current, "name").unwrap_or("") == wanted {
+            return Some(current);
+        }
+    }
+    None
 }
 
 /// Case-insensitive compare of a pseudo-element name against a target (`before`/`after`).
@@ -73,6 +210,7 @@ fn match_selector_parts<C: HasDocument>(
     node_id: NodeId,
     mut parts: &[CssSelectorPart],
     pseudo: Option<&str>,
+    scope: ScopeContext,
 ) -> bool {
     let mut next_current_id: Option<NodeId> = Some(node_id);
 
@@ -85,7 +223,7 @@ fn match_selector_parts<C: HasDocument>(
             return false;
         }
 
-        if !match_selector_part::<C>(part, current_id, doc, &mut next_current_id, &mut parts, pseudo) {
+        if !match_selector_part::<C>(part, current_id, doc, &mut next_current_id, &mut parts, pseudo, scope) {
             return false;
         }
     }
@@ -93,6 +231,7 @@ fn match_selector_parts<C: HasDocument>(
     true
 }
 
+#[allow(clippy::too_many_arguments)] // one more than clippy's default, and every one is load-bearing
 fn match_selector_part<C: HasDocument>(
     part: &CssSelectorPart,
     current_id: NodeId,
@@ -100,6 +239,7 @@ fn match_selector_part<C: HasDocument>(
     next_id: &mut Option<NodeId>,
     parts: &mut &[CssSelectorPart],
     pseudo: Option<&str>,
+    scope: ScopeContext,
 ) -> bool {
     match part {
         CssSelectorPart::Universal => true,
@@ -108,7 +248,29 @@ fn match_selector_part<C: HasDocument>(
         // tree - `:not()` takes a compound, and a compound never crosses a combinator.
         CssSelectorPart::Not(inner) => !inner
             .iter()
-            .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo)),
+            .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo, ScopeContext::plain())),
+        // `:host` is only meaningful as the leftmost part, where `match_compound` handles it.
+        CssSelectorPart::Host(_) => false,
+        CssSelectorPart::Slotted(inner) => {
+            if scope.mode != ScopeMatch::Slotted {
+                return false;
+            }
+            let Some(tree) = scope.tree else {
+                return false;
+            };
+            // `::slotted()` matches the assigned node itself, never its descendants, so the
+            // argument is matched against this element and nothing is walked.
+            if !inner
+                .iter()
+                .any(|compound| match_selector_parts::<C>(doc, current_id, compound, None, ScopeContext::plain()))
+            {
+                return false;
+            }
+            // A `slot[name=x]` prefix selects the slot the node landed in, so the walk
+            // continues there rather than up the DOM.
+            *next_id = assigned_slot::<C>(doc, current_id, tree);
+            true
+        }
         CssSelectorPart::Type(name) => {
             doc.node_type(current_id) == NodeType::ElementNode && doc.tag_name(current_id).is_some_and(|t| t == name)
         }
@@ -228,15 +390,19 @@ fn match_selector_part<C: HasDocument>(
                     false
                 }
             }
-            // The document's root element (`<html>`): an element whose parent is absent or
-            // a non-element node (the Document). Checking `parent().is_none()` alone fails
-            // because `<html>`'s parent is the Document node, so `:root` would match nothing
-            // and `:root { --custom: … }` custom properties would never be collected.
+            // The document's root element (`<html>`): an element whose parent is absent or is
+            // the Document node. Checking `parent().is_none()` alone fails because `<html>`'s
+            // parent is the Document node, so `:root` would match nothing and
+            // `:root { --custom: … }` custom properties would never be collected.
+            //
+            // The parent must be the Document *specifically*, not merely a non-element: a
+            // shadow tree's top-level elements hang off a shadow root, which is not an element
+            // either, and a shadow tree has no root element at all for `:root` to select.
             "root" => {
                 doc.node_type(current_id) == NodeType::ElementNode
                     && doc
                         .parent(current_id)
-                        .is_none_or(|p| doc.node_type(p) != NodeType::ElementNode)
+                        .is_none_or(|p| doc.node_type(p) == NodeType::DocumentNode)
             }
             "checked" => doc.attribute(current_id, "checked").is_some(),
             "disabled" => doc.attribute(current_id, "disabled").is_some(),
@@ -273,7 +439,7 @@ fn match_selector_part<C: HasDocument>(
                 loop {
                     *next_id = Some(parent_id);
 
-                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo) {
+                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo, scope) {
                         return true;
                     }
 
@@ -295,7 +461,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(parent_id);
 
-                match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo)
+                match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo, scope)
             }
             Combinator::NextSibling => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -322,7 +488,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(prev_id);
 
-                match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo)
+                match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo, scope)
             }
             Combinator::SubsequentSibling => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -340,7 +506,7 @@ fn match_selector_part<C: HasDocument>(
                         break;
                     }
 
-                    if match_selector_part::<C>(last, child_id, doc, next_id, parts, pseudo) {
+                    if match_selector_part::<C>(last, child_id, doc, next_id, parts, pseudo, scope) {
                         return true;
                     }
                 }
@@ -382,6 +548,10 @@ pub struct DeclarationProperty {
     pub location: String,
     /// The specificity of the selector that declared this property
     pub specificity: Specificity,
+    /// How many shadow boundaries deep the declaring stylesheet sits: 0 for the document,
+    /// 1 for a sheet in a shadow tree hosted by a document element, and so on. Feeds the
+    /// cross-tree half of the cascade; see [`DeclarationProperty::tree_rank`].
+    pub shadow_depth: u16,
 }
 
 /// Cascade rank of a declaration from its origin and importance, as defined in
@@ -401,6 +571,21 @@ pub fn cascade_rank(origin: CssOrigin, important: bool) -> u8 {
 impl DeclarationProperty {
     fn priority(&self) -> u8 {
         cascade_rank(self.origin, self.important)
+    }
+
+    /// The cross-tree tiebreak, applied after origin and importance but before specificity.
+    ///
+    /// CSS Scoping §3.3: when two declarations of the same origin and importance come from
+    /// different trees, the *outer* one wins if they are normal and the *inner* one wins if
+    /// they are important. So a normal declaration ranks higher the shallower it is, and an
+    /// important one ranks higher the deeper it is. Declarations from the same tree tie here
+    /// and fall through to specificity, as they always did.
+    fn tree_rank(&self) -> u16 {
+        if self.important {
+            self.shadow_depth
+        } else {
+            u16::MAX - self.shadow_depth
+        }
     }
 }
 
@@ -422,6 +607,7 @@ impl Ord for DeclarationProperty {
     fn cmp(&self, other: &Self) -> Ordering {
         self.priority()
             .cmp(&other.priority())
+            .then_with(|| self.tree_rank().cmp(&other.tree_rank()))
             .then_with(|| self.specificity.cmp(&other.specificity))
     }
 }
@@ -576,6 +762,7 @@ impl From<CssValue> for CssProperty {
             value,
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
+            shadow_depth: 0,
         }];
 
         this.calculate_value();
@@ -592,6 +779,7 @@ impl From<CssValue> for DeclarationProperty {
             value,
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
+            shadow_depth: 0,
         }
     }
 }
@@ -786,6 +974,7 @@ mod tests {
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         });
 
         assert_eq!(
@@ -812,6 +1001,7 @@ mod tests {
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         });
 
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
@@ -829,6 +1019,7 @@ mod tests {
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
         let b = DeclarationProperty {
             value: CssValue::String("blue".into()),
@@ -836,6 +1027,7 @@ mod tests {
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
         let c = DeclarationProperty {
             value: CssValue::String("green".into()),
@@ -843,6 +1035,7 @@ mod tests {
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
         let d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
@@ -850,6 +1043,7 @@ mod tests {
             important: true,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
         let e = DeclarationProperty {
             value: CssValue::String("orange".into()),
@@ -857,6 +1051,7 @@ mod tests {
             important: true,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
         let f = DeclarationProperty {
             value: CssValue::String("purple".into()),
@@ -864,6 +1059,7 @@ mod tests {
             important: true,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
         };
 
         assert_eq!(3, a.priority());

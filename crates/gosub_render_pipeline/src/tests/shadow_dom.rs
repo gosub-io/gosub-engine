@@ -254,9 +254,14 @@ fn the_node_view_of_a_shadow_trees_text_reports_a_real_parent() {
 fn a_projected_node_inherits_from_the_slot_not_from_its_host() {
     // Both the host and the slot set `color`. The slot is the flat-tree parent, so it wins -
     // which is the whole point of flattening `parent` rather than only `children`.
+    //
+    // The slot's rule has to live in the shadow tree's own sheet: since CSS scoping landed, a
+    // document rule cannot reach a slot. This test used to write it in the document sheet and
+    // passed only because nothing stopped it.
     let a = adapter(
-        "<head><style>#host{color:red}#s{color:green}</style></head>\
-         <body><div id=host><template shadowrootmode=open><slot id=s></slot></template><p id=p>x</p></div>",
+        "<head><style>#host{color:red}</style></head>\
+         <body><div id=host><template shadowrootmode=open><style>#s{color:green}</style>\
+         <slot id=s></slot></template><p id=p>x</p></div>",
     );
 
     let projected = a.get_style(by_id(&a, "p"), &StyleProperty::Color);

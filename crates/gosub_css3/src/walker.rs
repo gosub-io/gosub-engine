@@ -123,7 +123,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::PseudoElementSelector { value } => {
+        NodeType::PseudoElementSelector { value, .. } => {
             writeln!(f, "{prefix}[PseudoElementSelector] {value}")?;
         }
         NodeType::PseudoClassSelector { value } => {
