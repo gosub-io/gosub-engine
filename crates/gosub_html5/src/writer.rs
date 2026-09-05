@@ -34,47 +34,96 @@ fn write_attribute_name(name: &str, buf: &mut String) {
     }
 }
 
-fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
-    match doc.node_type(id) {
-        NodeType::DocumentNode => {
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
+/// Work stack for [`write_node`].
+///
+/// This walk used to recurse, which a page can drive as deep as it likes - an inline `<svg>` of
+/// nested `<g>` comes back through here on the layout path, on a 2 MiB tokio worker. Keeping the
+/// pending work on the heap makes depth cost memory instead of stack.
+enum Step {
+    /// Emit this node's own text, then queue its children.
+    Enter(NodeId),
+    /// Emit the closing tag of an element whose children have all been written.
+    Close(NodeId),
+    /// Emit a shadow root as the `<template shadowrootmode=...>` that declares it, then its
+    /// children. Shadow trees can host further shadow trees, so this goes on the stack like
+    /// anything else rather than recursing.
+    ShadowRoot(NodeId),
+    /// Close the template opened by [`Step::ShadowRoot`].
+    CloseShadowRoot,
+}
+
+fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String) {
+    let mut stack = vec![Step::Enter(root)];
+
+    while let Some(step) = stack.pop() {
+        let id = match step {
+            Step::Close(id) => {
+                if let Some(name) = doc.tag_name(id) {
+                    buf.push_str("</");
+                    buf.push_str(name);
+                    buf.push('>');
+                }
+                continue;
             }
-        }
-        NodeType::DocTypeNode => {
-            if let Some(name) = doc.doctype_name(id) {
-                buf.push_str("<!DOCTYPE ");
-                buf.push_str(name);
+            Step::CloseShadowRoot => {
+                buf.push_str("</template>");
+                continue;
+            }
+            Step::ShadowRoot(id) => {
+                let Some(init) = doc.shadow_root_init(id) else {
+                    continue;
+                };
+                buf.push_str("<template shadowrootmode=\"");
+                buf.push_str(init.mode.as_attribute());
+                buf.push('"');
+                // The remaining declarative attributes are boolean; absent means the default.
+                if init.delegates_focus {
+                    buf.push_str(" shadowrootdelegatesfocus=\"\"");
+                }
+                if init.clonable {
+                    buf.push_str(" shadowrootclonable=\"\"");
+                }
+                if init.serializable {
+                    buf.push_str(" shadowrootserializable=\"\"");
+                }
                 buf.push('>');
+                stack.push(Step::CloseShadowRoot);
+                stack.extend(doc.children(id).iter().rev().copied().map(Step::Enter));
+                continue;
             }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
+            Step::Enter(id) => id,
+        };
+
+        // Set by an element that hosts a shadow tree; pushed after its light children below.
+        let mut shadow_root = None;
+
+        match doc.node_type(id) {
+            NodeType::DocumentNode => {}
+            NodeType::DocTypeNode => {
+                if let Some(name) = doc.doctype_name(id) {
+                    buf.push_str("<!DOCTYPE ");
+                    buf.push_str(name);
+                    buf.push('>');
+                }
             }
-        }
-        NodeType::TextNode => {
-            if let Some(value) = doc.text_value(id) {
-                buf.push_str(value);
+            NodeType::TextNode => {
+                if let Some(value) = doc.text_value(id) {
+                    buf.push_str(value);
+                }
             }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
+            NodeType::CommentNode => {
+                if let Some(value) = doc.comment_value(id) {
+                    buf.push_str("<!--");
+                    buf.push_str(value);
+                    buf.push_str("-->");
+                }
             }
-        }
-        NodeType::CommentNode => {
-            if let Some(value) = doc.comment_value(id) {
-                buf.push_str("<!--");
-                buf.push_str(value);
-                buf.push_str("-->");
-            }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
-            }
-        }
-        NodeType::ElementNode => {
-            if let Some(name) = doc.tag_name(id) {
+            NodeType::ElementNode => {
+                // A nameless element writes nothing, children included, as before: the `if let`
+                // used to guard the recursion too.
+                let Some(name) = doc.tag_name(id) else {
+                    continue;
+                };
                 buf.push('<');
                 buf.push_str(name);
                 if let Some(attrs) = doc.attributes(id) {
@@ -87,56 +136,26 @@ fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
                     }
                 }
                 buf.push('>');
+                stack.push(Step::Close(id));
 
                 // A shadow host's tree is written back out as the declarative template that
                 // produced it, ahead of the light children - the form that reparses into the
-                // same document. `getHTML()` emits only shadow roots flagged serializable;
-                // this writer is a round-trip of the whole tree, so it emits every one.
-                if let Some(shadow_root) = doc.shadow_root(id) {
-                    write_shadow_root::<C>(shadow_root, doc, buf);
-                }
-
-                let children: Vec<NodeId> = doc.children(id).to_vec();
-                for child in children {
-                    write_node::<C>(child, doc, buf);
-                }
-
-                buf.push_str("</");
-                buf.push_str(name);
-                buf.push('>');
+                // same document. `getHTML()` emits only shadow roots flagged serializable; this
+                // writer is a round-trip of the whole tree, so it emits every one.
+                shadow_root = doc.shadow_root(id);
             }
+            // Only reachable through a host's side pointer, which `Step::ShadowRoot` follows.
+            NodeType::ShadowRootNode => continue,
         }
-        // Only reachable through a host's side pointer, which `write_shadow_root` follows.
-        NodeType::ShadowRootNode => {}
-    }
-}
 
-/// Writes a shadow root as the `<template shadowrootmode=...>` that declares it.
-fn write_shadow_root<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
-    let Some(init) = doc.shadow_root_init(id) else {
-        return;
-    };
+        // Reversed, so they pop back in document order.
+        stack.extend(doc.children(id).iter().rev().copied().map(Step::Enter));
 
-    buf.push_str("<template shadowrootmode=\"");
-    buf.push_str(init.mode.as_attribute());
-    buf.push('"');
-    // The remaining declarative attributes are boolean; absent means the default.
-    if init.delegates_focus {
-        buf.push_str(" shadowrootdelegatesfocus=\"\"");
+        // Pushed last so it pops first: the shadow tree precedes the light children.
+        if let Some(shadow_root) = shadow_root {
+            stack.push(Step::ShadowRoot(shadow_root));
+        }
     }
-    if init.clonable {
-        buf.push_str(" shadowrootclonable=\"\"");
-    }
-    if init.serializable {
-        buf.push_str(" shadowrootserializable=\"\"");
-    }
-    buf.push('>');
-
-    for child in doc.children(id).to_vec() {
-        write_node::<C>(child, doc, buf);
-    }
-
-    buf.push_str("</template>");
 }
 
 #[cfg(test)]
