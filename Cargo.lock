@@ -3335,6 +3335,7 @@ dependencies = [
  "bytes",
  "cow-utils",
  "csscolorparser",
+ "flate2",
  "gosub-sonar",
  "gosub_css3",
  "gosub_fontmanager",
