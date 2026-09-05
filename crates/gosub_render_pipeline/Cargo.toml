@@ -36,6 +36,8 @@ gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosu
 
 [dev-dependencies]
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
+# Only to build an SVGZ fixture for the depth-limit regression test.
+flate2 = "1"
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
 tempfile = { workspace = true }
