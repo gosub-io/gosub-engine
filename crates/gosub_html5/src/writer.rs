@@ -34,47 +34,61 @@ fn write_attribute_name(name: &str, buf: &mut String) {
     }
 }
 
-fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
-    match doc.node_type(id) {
-        NodeType::DocumentNode => {
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
+/// Work stack for [`write_node`].
+///
+/// This walk used to recurse, which a page can drive as deep as it likes - an inline `<svg>` of
+/// nested `<g>` comes back through here on the layout path, on a 2 MiB tokio worker. Keeping the
+/// pending work on the heap makes depth cost memory instead of stack.
+enum Step {
+    /// Emit this node's own text, then queue its children.
+    Enter(NodeId),
+    /// Emit the closing tag of an element whose children have all been written.
+    Close(NodeId),
+}
+
+fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String) {
+    let mut stack = vec![Step::Enter(root)];
+
+    while let Some(step) = stack.pop() {
+        let id = match step {
+            Step::Close(id) => {
+                if let Some(name) = doc.tag_name(id) {
+                    buf.push_str("</");
+                    buf.push_str(name);
+                    buf.push('>');
+                }
+                continue;
             }
-        }
-        NodeType::DocTypeNode => {
-            if let Some(name) = doc.doctype_name(id) {
-                buf.push_str("<!DOCTYPE ");
-                buf.push_str(name);
-                buf.push('>');
+            Step::Enter(id) => id,
+        };
+
+        match doc.node_type(id) {
+            NodeType::DocumentNode => {}
+            NodeType::DocTypeNode => {
+                if let Some(name) = doc.doctype_name(id) {
+                    buf.push_str("<!DOCTYPE ");
+                    buf.push_str(name);
+                    buf.push('>');
+                }
             }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
+            NodeType::TextNode => {
+                if let Some(value) = doc.text_value(id) {
+                    buf.push_str(value);
+                }
             }
-        }
-        NodeType::TextNode => {
-            if let Some(value) = doc.text_value(id) {
-                buf.push_str(value);
+            NodeType::CommentNode => {
+                if let Some(value) = doc.comment_value(id) {
+                    buf.push_str("<!--");
+                    buf.push_str(value);
+                    buf.push_str("-->");
+                }
             }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
-            }
-        }
-        NodeType::CommentNode => {
-            if let Some(value) = doc.comment_value(id) {
-                buf.push_str("<!--");
-                buf.push_str(value);
-                buf.push_str("-->");
-            }
-            let children: Vec<NodeId> = doc.children(id).to_vec();
-            for child in children {
-                write_node::<C>(child, doc, buf);
-            }
-        }
-        NodeType::ElementNode => {
-            if let Some(name) = doc.tag_name(id) {
+            NodeType::ElementNode => {
+                // A nameless element writes nothing, children included, as before: the `if let`
+                // used to guard the recursion too.
+                let Some(name) = doc.tag_name(id) else {
+                    continue;
+                };
                 buf.push('<');
                 buf.push_str(name);
                 if let Some(attrs) = doc.attributes(id) {
@@ -87,17 +101,12 @@ fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
                     }
                 }
                 buf.push('>');
-
-                let children: Vec<NodeId> = doc.children(id).to_vec();
-                for child in children {
-                    write_node::<C>(child, doc, buf);
-                }
-
-                buf.push_str("</");
-                buf.push_str(name);
-                buf.push('>');
+                stack.push(Step::Close(id));
             }
         }
+
+        // Reversed, so they pop back in document order.
+        stack.extend(doc.children(id).iter().rev().copied().map(Step::Enter));
     }
 }
 
