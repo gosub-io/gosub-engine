@@ -150,6 +150,41 @@ fn text_children_go_to_the_default_slot() {
 }
 
 #[test]
+fn a_slot_the_author_gave_a_display_keeps_a_box_of_its_own() {
+    // The UA sheet gives a slot `display: contents`, so by default it is spliced away. An
+    // authored `display` overrides that, and the slot becomes a real box whose children are the
+    // nodes projected into it - which is what lets a slot be its own flex or grid container.
+    let a = adapter(
+        "<body><div id=host><template shadowrootmode=open>\
+         <style>slot{display:block}</style><slot id=s></slot></template><p id=p>x</p></div>",
+    );
+
+    let host = by_id(&a, "host");
+    let slot = by_id(&a, "s");
+
+    assert!(
+        a.children(host).contains(&slot),
+        "a slot with an authored display must survive into the flat tree"
+    );
+    assert_eq!(a.children(slot), vec![by_id(&a, "p")], "and project into itself");
+}
+
+#[test]
+fn a_slot_styled_without_a_display_is_still_spliced_away() {
+    // Padding and a border on a `display: contents` slot are inert: no box, nothing to paint.
+    let a = adapter(
+        "<body><div id=host><template shadowrootmode=open>\
+         <style>slot{padding:40px;border:4px solid red}</style><slot id=s></slot></template>\
+         <p id=p>x</p></div>",
+    );
+
+    // The shadow tree's <style> element is a child too; the render tree drops it later.
+    let children = a.children(by_id(&a, "host"));
+    assert!(!children.contains(&by_id(&a, "s")), "the slot must be spliced away");
+    assert!(children.contains(&by_id(&a, "p")), "and replaced by what it projects");
+}
+
+#[test]
 fn a_nested_host_inside_a_shadow_tree_flattens_too() {
     assert_eq!(
         flat_tree(
@@ -193,6 +228,26 @@ fn a_shadow_trees_top_level_nodes_have_the_host_as_parent() {
     // The shadow root itself never appears - it generates no box and has no styles.
     let a = adapter("<body><div id=host><template shadowrootmode=open><b id=in>x</b></template></div>");
     assert_eq!(PipelineDocument::parent(&a, by_id(&a, "in")), Some(by_id(&a, "host")));
+}
+
+#[test]
+fn the_node_view_of_a_shadow_trees_text_reports_a_real_parent() {
+    // Regression (tests.gosub.io 01-declarative-basic): `get_node_by_id` used to report the raw
+    // DOM parent, so a text node directly inside a shadow tree named the shadow root - which has
+    // no `Node` of its own. The layouter's text path bails out when it cannot fetch the parent
+    // node, so the text was silently never laid out. Element children were unaffected, which is
+    // why every earlier test missed it: they all wrapped their shadow content in an element.
+    let a = adapter("<body><div id=host><template shadowrootmode=open>bare text</template></div>");
+
+    let host = by_id(&a, "host");
+    let text = a.children(host)[0];
+
+    let node = a.get_node_by_id(text).expect("text node has a Node view");
+    assert_eq!(node.parent_id, Some(host));
+    assert!(
+        a.get_node_by_id(node.parent_id.expect("a parent")).is_some(),
+        "the reported parent must itself have a Node view, or layout drops the text"
+    );
 }
 
 #[test]

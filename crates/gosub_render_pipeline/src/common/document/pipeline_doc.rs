@@ -1034,6 +1034,14 @@ where
     ///  - a **light child no slot claimed** is dropped, which is what makes unassigned content
     ///    invisible rather than merely unstyled.
     fn flat_children(&self, id: NodeId) -> Vec<NodeId> {
+        // A slot the author gave a box of its own is an ordinary parent: its children are the
+        // nodes projected into it.
+        if self.is_slot(id) && self.slot_generates_a_box(id) {
+            let mut out = Vec::new();
+            self.push_slot_content(id, &mut out);
+            return out;
+        }
+
         let source = self.doc.shadow_root(id).unwrap_or(id);
 
         let children = self.doc.children(source);
@@ -1049,26 +1057,54 @@ where
         out
     }
 
-    /// Appends `node` to `out`, or - when it is a slot - whatever stands in its place.
+    /// Whether a `<slot>` keeps a box of its own instead of being spliced away.
+    ///
+    /// The user-agent sheet gives every slot `display: contents`, which this engine has no
+    /// `Display` variant for - it falls through to `Block` - so the *computed* value cannot
+    /// tell the UA default apart from an authored `display: block`. The raw declared keyword
+    /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
+    fn slot_generates_a_box(&self, slot: NodeId) -> bool {
+        // An inline `style` attribute is already mapped onto the `Display` enum, so its raw
+        // keyword is gone; any inline `display` at all is taken to mean "give me a box".
+        if let Some(inline) = self.inline_style_cache.lock().get(&slot) {
+            if inline.get_own(&StyleProperty::Display).is_some() {
+                return true;
+            }
+        }
+
+        let arc = self.cached_styles(slot);
+        match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
+            Some("contents") | None => false,
+            Some(_) => true,
+        }
+    }
+
+    /// Appends `node` to `out`, or - when it is a slot that generates no box - whatever stands
+    /// in its place.
     ///
     /// The expansion recurses because what a slot projects can be another slot: a `<slot>` in
     /// the light DOM of a nested host is a slottable of the inner tree *and* a slot of the
     /// outer one, so content flows through both. It always terminates - projection steps move
     /// strictly outwards through the host nesting, fallback steps strictly down the tree.
     fn push_flattened(&self, node: NodeId, out: &mut Vec<NodeId>) {
-        if !self.is_slot(node) {
+        if !self.is_slot(node) || self.slot_generates_a_box(node) {
             out.push(node);
             return;
         }
-        match self.slots.assigned.get(&node) {
+        self.push_slot_content(node, out);
+    }
+
+    /// Appends what a slot projects: the nodes assigned to it, or - when nothing was assigned -
+    /// its own children, which are the slot's fallback content.
+    fn push_slot_content(&self, slot: NodeId, out: &mut Vec<NodeId>) {
+        match self.slots.assigned.get(&slot) {
             Some(assigned) if !assigned.is_empty() => {
                 for &n in assigned {
                     self.push_flattened(n, out);
                 }
             }
-            // Nothing was projected in, so the slot's own children are the fallback content.
             _ => {
-                for &n in self.doc.children(node) {
+                for &n in self.doc.children(slot) {
                     self.push_flattened(n, out);
                 }
             }
@@ -1657,8 +1693,12 @@ where
             });
         }
 
-        let parent_id = self.doc.parent(id);
-        let children = self.doc.children(id).to_vec();
+        // The flat tree, like the pseudo-element branch above and like `parent`/`children`
+        // themselves. It has to be: a shadow root has no `Node` of its own (the match below ends
+        // in `return None`), so reporting one as a parent makes the layouter drop the child - a
+        // text node directly inside a shadow tree never got laid out.
+        let parent_id = PipelineDocument::parent(self, id);
+        let children = self.children(id);
 
         let node_type = match self.doc.node_type(id) {
             GosubNodeType::TextNode => {
