@@ -280,12 +280,76 @@ fn resolve(base: &Url, candidate: &str) -> Result<Url, url::ParseError> {
     if trimmed.is_empty() {
         return Err(url::ParseError::EmptyHost);
     }
-    base.join(trimmed)
+    base.join(&decode_ampersands(trimmed))
+}
+
+/// Turn escaped ampersands back into `&`.
+///
+/// This scanner reads raw HTML, so an attribute arrives exactly as it was written -- and HTML
+/// requires an ampersand in an attribute to be escaped. A URL with a query string therefore
+/// shows up as `load.php?lang=en&amp;only=scripts`, and fetching that literally asks the
+/// server for a parameter called `amp;only`. Wikipedia answers with a couple of hundred bytes
+/// of nothing, which is not an error anyone notices until they read the bytes.
+///
+/// Only the ampersand forms are decoded, not the full character-reference grammar. Every
+/// other reference is either invalid in a URL or already percent-encoded, and a partial
+/// decoder that pretended otherwise would be its own source of wrong URLs. The DOM path is
+/// unaffected: it gets properly decoded attribute values from the tokenizer.
+fn decode_ampersands(url: &str) -> std::borrow::Cow<'_, str> {
+    if !url.contains('&') {
+        return std::borrow::Cow::Borrowed(url);
+    }
+    use cow_utils::CowUtils;
+    let decoded = url
+        .cow_replace("&amp;", "&")
+        .cow_replace("&AMP;", "&")
+        .cow_replace("&#38;", "&")
+        .cow_replace("&#x26;", "&")
+        .cow_replace("&#X26;", "&")
+        .into_owned();
+    if decoded == url {
+        std::borrow::Cow::Borrowed(url)
+    } else {
+        std::borrow::Cow::Owned(decoded)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_escaped_ampersand_does_not_reach_the_network() {
+        let base = Url::parse("https://en.wikipedia.org/wiki/BASIC").unwrap();
+
+        // As it appears in real markup: HTML requires the ampersand to be escaped.
+        let resolved = resolve(&base, "/w/load.php?lang=en&amp;only=scripts").unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://en.wikipedia.org/w/load.php?lang=en&only=scripts"
+        );
+        assert_eq!(
+            resolved.query_pairs().count(),
+            2,
+            "two parameters, not one called amp;only"
+        );
+
+        // Numeric forms too.
+        assert_eq!(
+            resolve(&base, "/a?x=1&#38;y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+        assert_eq!(
+            resolve(&base, "/a?x=1&#x26;y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+
+        // A bare ampersand is already what it should be, and is left alone.
+        assert_eq!(
+            resolve(&base, "/a?x=1&y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+    }
     use crate::html::DefaultRenderConfig;
     use bytes::Bytes;
     use futures::stream;
