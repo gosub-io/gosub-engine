@@ -6,6 +6,7 @@ use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{Initiator, NetError, ResourceKind};
 use crate::tab::TabId;
+use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -24,6 +25,8 @@ pub struct EngineEventEmitter {
     /// Bytes at the last forwarded progress event (progress arrives per read chunk from
     /// the transport, which is too chatty for the event bus).
     last_progress: std::sync::atomic::AtomicU64,
+    /// Whether this request has already been reported as failed. See [`Self::report_failure`].
+    failure_reported: std::sync::atomic::AtomicBool,
 }
 
 impl EngineEventEmitter {
@@ -46,7 +49,31 @@ impl EngineEventEmitter {
             kind,
             initiator,
             last_progress: std::sync::atomic::AtomicU64::new(0),
+            failure_reported: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Report a failure once, keeping the first cause that arrives.
+    ///
+    /// The network stack names a specific cause first (`Blocked`, `TlsFailed`) and follows
+    /// it with a terminal `Failed` -- except when it does not: a request rejected by policy
+    /// *before it is sent* never reaches the code that emits the terminal event, so `Blocked`
+    /// is all there is. Reporting on both events would emit two failures for one request;
+    /// reporting only on the terminal one drops every pre-flight rejection on the floor.
+    /// First one wins settles both, and the first is always the more specific.
+    fn report_failure(&self, url: String, kind: FailureKind, error: anyhow::Error) {
+        use std::sync::atomic::Ordering;
+        if self.failure_reported.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        REF_REGISTRY.forget_request(self.req_id);
+        self.emit(ResourceEvent::Failed {
+            request_id: self.req_id,
+            reference: self.reference,
+            url,
+            kind,
+            error: Arc::new(error),
+        });
     }
 
     /// Forward at most one progress event per `STEP` bytes received (always forwarding
@@ -210,20 +237,23 @@ impl NetObserver for EngineEventEmitter {
                     elapsed: Some(elapsed),
                 });
             }
-            // `Blocked` and `TlsFailed` are not terminal: sonar turns each into the
-            // `NetError` that arrives as `Failed` a moment later, and that is where the
-            // failure is reported. Emitting here as well produced two `Failed` events for
-            // one request.
-            NetEvent::Blocked { .. } | NetEvent::TlsFailed { .. } => {}
+            NetEvent::Blocked { url, reason } => self.report_failure(
+                url.to_string(),
+                FailureKind::Blocked,
+                anyhow::anyhow!("blocked: {reason}"),
+            ),
+            NetEvent::TlsFailed { url, error } => self.report_failure(
+                url.to_string(),
+                FailureKind::Tls,
+                anyhow::anyhow!(
+                    "TLS handshake with {} failed: {:?} ({})",
+                    error.host,
+                    error.kind,
+                    error.message
+                ),
+            ),
             NetEvent::Failed { url, error } => {
-                REF_REGISTRY.forget_request(self.req_id);
-                self.emit(ResourceEvent::Failed {
-                    request_id: self.req_id,
-                    reference: self.reference,
-                    url: url.to_string(),
-                    kind: classify(&error),
-                    error: error.into(),
-                });
+                self.report_failure(url.to_string(), classify(&error), error);
             }
             NetEvent::Cancelled { url, reason } => {
                 REF_REGISTRY.forget_request(self.req_id);
@@ -301,7 +331,6 @@ fn from_client_error(error: &reqwest::Error) -> FailureKind {
 mod tests {
     use super::*;
     use gosub_sonar::net::types::BlockReason;
-    use std::sync::Arc;
 
     /// The whole point of `classify` is that the cause survives the trip through
     /// `anyhow`, including the extra context a caller may have attached on the way.
@@ -328,6 +357,68 @@ mod tests {
             "connection reset while reading body"
         ))));
         assert_eq!(classify(&err), FailureKind::Transfer);
+    }
+
+    /// Build an emitter wired to a channel the test can read back.
+    fn emitter() -> (EngineEventEmitter, tokio::sync::broadcast::Receiver<EngineEvent>) {
+        let (tx, rx) = tokio::sync::broadcast::channel(16);
+        let emitter = EngineEventEmitter::new(
+            TabId::new(),
+            RequestId::new(),
+            RequestReference::Document(1),
+            tx,
+            ResourceKind::Stylesheet,
+            Initiator::Parser,
+        );
+        (emitter, rx)
+    }
+
+    /// Every `ResourceEvent::Failed` the receiver saw, as `(kind, message)`.
+    fn failures(rx: &mut tokio::sync::broadcast::Receiver<EngineEvent>) -> Vec<(FailureKind, String)> {
+        let mut out = Vec::new();
+        while let Ok(EngineEvent::Resource { event, .. }) = rx.try_recv() {
+            if let ResourceEvent::Failed { kind, error, .. } = event {
+                out.push((kind, error.to_string()));
+            }
+        }
+        out
+    }
+
+    /// A request refused before it is sent gets a `Blocked` and nothing else -- the code
+    /// that emits the terminal `Failed` is downstream of the rejection and never runs. A
+    /// shell that only listened for the terminal event would show no row at all for it,
+    /// which is how three stylesheets on a page became two in the network panel.
+    #[test]
+    fn a_request_refused_before_it_is_sent_is_still_reported() {
+        let (emitter, mut rx) = emitter();
+        emitter.on_event(NetEvent::Blocked {
+            url: url::Url::parse("http://example.com/x.css").unwrap(),
+            reason: gosub_sonar::net::types::BlockReason::MixedContent,
+        });
+
+        let seen = failures(&mut rx);
+        assert_eq!(seen.len(), 1, "expected exactly one failure, got {seen:?}");
+        assert_eq!(seen[0].0, FailureKind::Blocked);
+    }
+
+    /// And when the terminal event *does* follow, the request has still failed once. The
+    /// first cause is kept because it is the specific one.
+    #[test]
+    fn a_cause_followed_by_the_terminal_event_is_reported_once() {
+        let (emitter, mut rx) = emitter();
+        let url = url::Url::parse("http://example.com/x.css").unwrap();
+        emitter.on_event(NetEvent::Blocked {
+            url: url.clone(),
+            reason: gosub_sonar::net::types::BlockReason::MixedContent,
+        });
+        emitter.on_event(NetEvent::Failed {
+            url,
+            error: anyhow::anyhow!("net.get_with_redirects request failed"),
+        });
+
+        let seen = failures(&mut rx);
+        assert_eq!(seen.len(), 1, "expected exactly one failure, got {seen:?}");
+        assert_eq!(seen[0].0, FailureKind::Blocked);
     }
 
     /// The case that made this worth doing: a host nothing is listening on comes back
