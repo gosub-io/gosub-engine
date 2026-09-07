@@ -34,6 +34,9 @@ pub struct MediaStore {
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
     completed: AtomicBool,
+    /// Whether the document being rendered was itself loaded from disk, which is the only
+    /// case in which it may load local files. See [`MediaStore::set_document_url`].
+    document_is_local: AtomicBool,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load
@@ -85,11 +88,24 @@ impl MediaStore {
             cache: RwLock::new(HashMap::new()),
             pending: RwLock::new(HashSet::new()),
             completed: AtomicBool::new(false),
+            // Denied until a document says otherwise: a store with no document has no
+            // grounds to read anything off disk.
+            document_is_local: AtomicBool::new(false),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
             decoders,
         }
+    }
+
+    /// Tell the store which document it is loading media for.
+    ///
+    /// Only the scheme matters, and only one question is asked of it: may this document read
+    /// local files? A document loaded from disk may; anything from the network may not. Called
+    /// when a navigation commits, and the answer is remembered until the next one.
+    pub fn set_document_url(&self, url: Option<&Url>) {
+        let local = url.is_some_and(|u| u.scheme() == "file");
+        self.document_is_local.store(local, Ordering::Relaxed);
     }
 
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
@@ -309,6 +325,19 @@ impl MediaStore {
         let url = Url::parse(src)?;
         let _t = gosub_shared::timing_guard!("net.fetch.image", src);
 
+        // A page from the network may not read the disk. The resource pipeline already
+        // refuses `file://` subresources for a remote document, before one is ever fetched
+        // (`resource_pipeline/html.rs`, `on_discover`) -- but this fallback never saw that
+        // decision, and the blocking fetch below opens a path perfectly happily. That gap was
+        // reachable: an `<img src="file:///...">` on an http page rendered the local file.
+        //
+        // This is the stopgap. The real fix is that this function stops fetching at all and
+        // takes bytes the pipeline fetched under policy, at which point the rule lives in one
+        // place instead of two.
+        if url.scheme() == "file" && !self.document_is_local.load(Ordering::Relaxed) {
+            anyhow::bail!("refusing to load {url} for a document that was not loaded from disk");
+        }
+
         // The resource pipeline already fetched this while the HTML was parsing. Taking its
         // bytes is what stops every image on every page being transferred twice; it waits if
         // that fetch is still running, and falls through to its own if there is nothing to
@@ -484,5 +513,50 @@ mod tests {
         let svg = store.get_svg(media_id);
         let size = svg.svg.tree.size();
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
+    }
+
+    /// Write a file to load through a `file://` URL, and return that URL.
+    fn a_file_on_disk(name: &str) -> Url {
+        let path = std::env::temp_dir().join(format!("gosub-media-guard-{name}"));
+        std::fs::write(&path, b"not really an image, and it does not need to be").expect("write temp file");
+        Url::from_file_path(&path).expect("file url")
+    }
+
+    /// The hole this guard closes: a page from the network asking for a local file. The
+    /// resource pipeline refuses to *preload* one, so the request lands here, and here is
+    /// where it used to succeed.
+    #[test]
+    fn a_document_from_the_network_may_not_read_the_disk() {
+        let store = MediaStore::new();
+        store.set_document_url(Url::parse("http://example.com/page.html").ok().as_ref());
+
+        let url = a_file_on_disk("remote");
+        let err = store.fetch_resource(url.as_str()).expect_err("should be refused");
+        assert!(
+            err.to_string().contains("not loaded from disk"),
+            "expected a refusal, got: {err}"
+        );
+    }
+
+    /// Deny by default: a store nobody has told about a document has no grounds to read
+    /// anything, and the safe answer to "I do not know" is no.
+    #[test]
+    fn a_store_with_no_document_may_not_read_the_disk() {
+        let store = MediaStore::new();
+        let url = a_file_on_disk("nodoc");
+        assert!(store.fetch_resource(url.as_str()).is_err());
+    }
+
+    /// And the case that must keep working: browsing a local file, whose images are local
+    /// files too.
+    #[test]
+    fn a_document_loaded_from_disk_may_read_the_disk() {
+        let store = MediaStore::new();
+        let doc = a_file_on_disk("local-doc.html");
+        store.set_document_url(Some(&doc));
+
+        let url = a_file_on_disk("local");
+        let (_, body) = store.fetch_resource(url.as_str()).expect("should be allowed");
+        assert!(!body.is_empty());
     }
 }

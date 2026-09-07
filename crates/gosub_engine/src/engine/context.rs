@@ -276,6 +276,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Sets the parsed DOM document for the given tab.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>) {
+        // Whether images may come off the disk is a property of the document, so the media
+        // store is told before the document is installed. A document with no URL, or one
+        // from the network, gets no local file access.
+        self.media_store.set_document_url(doc.url().as_ref());
         self.document = Some(doc);
         self.dom_dirty = true;
         self.style_dirty = true;
