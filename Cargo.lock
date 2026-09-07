@@ -3255,7 +3255,6 @@ dependencies = [
  "cow-utils",
  "criterion",
  "flate2",
- "gosub-sonar",
  "gosub_css3",
  "gosub_interface",
  "gosub_shared",

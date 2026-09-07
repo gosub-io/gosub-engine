@@ -60,6 +60,13 @@ pub struct HtmlParseConfig {
     /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
     /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
+    /// Where a blocking script's stylesheets come from.
+    ///
+    /// A classic `<script>` may not run until the sheets before it have applied, and the
+    /// parser no longer fetches them, so it asks this instead and waits. `None` means no
+    /// script waits for anything and the sheets are resolved after the parse.
+    pub stylesheets: Option<std::sync::Arc<dyn gosub_html5::parser::StylesheetSource>>,
+
     /// Navigation these timings belong to, if this parse is part of one.
     ///
     /// Entered around the synchronous parse below, which is where `decode.html` and the
@@ -73,6 +80,7 @@ impl Default for HtmlParseConfig {
         // Matches the `net.document.max_bytes` schema default.
         Self {
             max_bytes: 10 * 1024 * 1024,
+            stylesheets: None,
             timing_scope: None,
         }
     }
@@ -153,19 +161,56 @@ where
         tmp.read_from_bytes(&buf)?;
         tmp.detect_encoding()
     };
-    // From here down there are no awaits, so this task cannot move to another thread and
-    // a thread-local scope holds. It covers `decode.html` and, because the parser fetches
-    // external stylesheets inline, the `net.fetch.css` samples those produce.
-    let _scope = cfg.timing_scope.map(gosub_shared::timing::enter_scope);
+    // The parse below is synchronous, and because the parser fetches external stylesheets
+    // inline it can sit still for as long as a server cares to stay silent. Run on a
+    // runtime worker, that starves every task the worker owns -- and always at least one:
+    // tokio parks the most recently spawned task in a slot no other worker may steal from,
+    // so the last subresource this document just discovered is never polled. A page with
+    // three stylesheets fetched two, and the third was the one still missing when the
+    // parser went looking for it. So the parse goes to the blocking pool, where a thread
+    // is allowed to sit still.
+    //
+    // The timing scope is a thread-local, so it is entered inside the closure -- on the
+    // thread that actually does the work. It covers `decode.html` and the `net.fetch.css`
+    // samples the parser's own blocking fetches produce.
+    let timing_scope = cfg.timing_scope;
+    let stylesheets = cfg.stylesheets.clone();
+    let parse = move || -> Result<EngineDocument<C>, DocumentError> {
+        let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
-    let mut stream = ByteStream::new(encoding, None);
-    stream.read_from_bytes(&buf)?;
-    let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
-    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
-    let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
-    doc.add_stylesheet(ua);
+        let mut stream = ByteStream::new(encoding, None);
+        stream.read_from_bytes(&buf)?;
+        let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
+        let options = gosub_html5::parser::Html5ParserOptions {
+            stylesheets,
+            ..Default::default()
+        };
+        let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options));
+        let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
 
-    Ok(doc)
+        Ok(doc)
+    };
+
+    // No blocking pool on wasm, and no worker to starve either: nothing else was going to
+    // run on that thread anyway.
+    #[cfg(target_arch = "wasm32")]
+    {
+        parse()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match tokio::task::spawn_blocking(parse).await {
+            Ok(result) => result,
+            // The pool cancels its tasks at runtime shutdown, which is a cancelled
+            // navigation by another name; a panic in the parser is not, but there is no
+            // document either way.
+            Err(e) => {
+                log::error!("HTML parse task failed: {e}");
+                Err(DocumentError::Cancelled)
+            }
+        }
+    }
 }
 
 // ======== Forgiving resource discovery (regex-based) ========

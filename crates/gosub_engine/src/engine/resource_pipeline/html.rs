@@ -12,10 +12,35 @@ use futures_util::stream;
 use gosub_shared::timing_guard;
 use http::Method;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
+
+/// One `oneshot` per stylesheet this parse discovered, keyed by URL.
+type SheetBodies = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Receiver<SheetBody>>>>;
+
+/// A fetched stylesheet: its `Content-Type` and its bytes. `None` when it could not be had.
+type SheetBody = Option<(Option<String>, Vec<u8>)>;
+
+/// Hand a fetched stylesheet to the parse waiting for it, or tell the global hand-off what
+/// became of a resource somebody else may be waiting on. Exactly one of the two applies,
+/// which is why they share a function: every fetch has to end in one or the other, or a
+/// consumer waits for bytes that are never coming.
+fn deliver(sheet_tx: Option<tokio::sync::oneshot::Sender<SheetBody>>, url: &url::Url, body: SheetBody) {
+    match sheet_tx {
+        // The receiver is gone when the parse ended without wanting this sheet after all
+        // (a cancelled navigation, or a `<link>` the scanner saw and the parser did not).
+        Some(tx) => {
+            let _ = tx.send(body);
+        }
+        None => match body {
+            Some((content_type, bytes)) => gosub_shared::subresource::complete(url.as_str(), content_type, bytes),
+            None => gosub_shared::subresource::abandon(url.as_str()),
+        },
+    }
+}
 
 #[async_trait]
 pub trait HtmlPipeline<C: RenderConfiguration> {
@@ -80,8 +105,11 @@ impl HtmlPipelineImpl {
                 _ => None,
             });
 
-        let cfg = crate::html::HtmlParseConfig {
+        // Filled in below, once the pieces the gate needs exist. The parse only reaches for
+        // it when a blocking script forces the issue.
+        let mut cfg = crate::html::HtmlParseConfig {
             max_bytes: self.max_document_bytes,
+            stylesheets: None,
             timing_scope,
         };
 
@@ -93,8 +121,15 @@ impl HtmlPipelineImpl {
         let child_handles = Arc::new(Mutex::new(Vec::<FetchHandle>::new()));
         let child_tasks = Arc::new(Mutex::new(Vec::<JoinHandle<()>>::new()));
 
+        // Stylesheet bodies, delivered straight to the code below rather than through the
+        // global hand-off. The parser no longer fetches them, so this parse is the only
+        // consumer -- a per-parse channel says that, where a process-wide store keyed by URL
+        // would leave it looking like anyone's to take.
+        let sheet_bodies: SheetBodies = Arc::new(Mutex::new(HashMap::new()));
+
         let child_handles_for_closure = child_handles.clone();
         let child_tasks_for_closure = child_tasks.clone();
+        let sheet_bodies_for_closure = sheet_bodies.clone();
 
         let mut sub_headers = http::HeaderMap::new();
         if let Some(langs) = &self.accept_language {
@@ -141,9 +176,17 @@ impl HtmlPipelineImpl {
                 .with_auto_decode(true)
                 .build();
 
-            // Announced before the fetch starts, so a consumer that asks for this URL in the
-            // meantime waits for it rather than racing it with a second request.
-            gosub_shared::subresource::begin(sub_url.as_str());
+            // A stylesheet goes to this parse's own channel; everything else is announced in
+            // the global hand-off, where the media store and the font loader look for it.
+            let is_stylesheet = matches!(hint.kind, crate::net::types::ResourceKind::Stylesheet);
+            let sheet_tx = if is_stylesheet {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                sheet_bodies_for_closure.lock().insert(sub_url.to_string(), rx);
+                Some(tx)
+            } else {
+                gosub_shared::subresource::begin(sub_url.as_str());
+                None
+            };
 
             let io_tx_cloned = io_tx.clone();
             let parent_cancel_cloned = parent_cancel.clone();
@@ -160,30 +203,38 @@ impl HtmlPipelineImpl {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
-                        match rx.await {
+                        let delivered = match rx.await {
                             Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
-                                gosub_shared::subresource::complete(
-                                    sub_url.as_str(),
-                                    meta.content_type.clone(),
-                                    body.to_vec(),
-                                );
+                                Some((meta.content_type.clone(), body.to_vec()))
                             }
                             // Anything else -- a non-200, an empty body, a stream we did not
                             // ask for, a cancellation -- leaves nothing to hand on. Say so
                             // rather than staying silent, or a consumer waits out the timeout
                             // for bytes that are never coming.
-                            _ => gosub_shared::subresource::abandon(sub_url.as_str()),
-                        }
+                            _ => None,
+                        };
+                        deliver(sheet_tx, &sub_url, delivered);
                     }
                     Err(e) => {
                         log::warn!("Failed to submit discovered resource request: {:?}", e);
-                        gosub_shared::subresource::abandon(sub_url.as_str());
+                        deliver(sheet_tx, &sub_url, None);
                     }
                 }
             });
 
             child_tasks.lock().push(join_handle);
         };
+
+        cfg.stylesheets = Some(Arc::new(ParseSheetGate {
+            bodies: sheet_bodies.clone(),
+            runtime: tokio::runtime::Handle::current(),
+            zone_id,
+            io_tx: io_tx.clone(),
+            parent_ref,
+            parent_cancel: parent_cancel.clone(),
+            headers: sub_headers.clone(),
+            referrer: doc_url.clone(),
+        }));
 
         let was_cancelled = handle.cancel.is_cancelled();
 
@@ -196,6 +247,26 @@ impl HtmlPipelineImpl {
             &mut on_discover,
         )
         .await;
+
+        // Put the linked stylesheets in place. This runs *before* the cancellation below,
+        // which would otherwise take the fetches down with it -- and before the document is
+        // handed on, so what the tab receives is complete, exactly as it was when the parser
+        // fetched the sheets itself.
+        let res = match res {
+            Ok(mut doc) => {
+                let sheets = SheetFetch {
+                    zone_id,
+                    io_tx: &io_tx,
+                    parent_ref,
+                    parent_cancel: &parent_cancel,
+                    headers: &sub_headers,
+                    referrer: &doc_url,
+                };
+                resolve_pending_stylesheets::<C>(&mut doc, &sheet_bodies, &sheets).await;
+                Ok(doc)
+            }
+            Err(e) => Err(e),
+        };
 
         // Cancel the parent token so that all child fetch tokens (which are children of
         // parent_cancel via child_token()) are also cancelled. This works regardless of
@@ -244,6 +315,180 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
         self.parse_with_reader::<C, _>(request, handle, meta, reader).await
+    }
+}
+
+/// Serves stylesheets to a parse that has stopped at a script and cannot go on without them.
+///
+/// Holds everything needed to answer from a thread that is not the runtime's: the receivers
+/// for the fetches already in flight, and the means to start one for a link the document scan
+/// did not see.
+#[derive(Debug)]
+struct ParseSheetGate {
+    bodies: SheetBodies,
+    runtime: tokio::runtime::Handle,
+    zone_id: ZoneId,
+    io_tx: IoChannel,
+    parent_ref: gosub_sonar::RequestReference,
+    parent_cancel: tokio_util::sync::CancellationToken,
+    headers: http::HeaderMap,
+    referrer: url::Url,
+}
+
+impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
+    fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
+        // `block_on` from inside a `spawn_blocking` thread, which is allowed precisely
+        // because it is not a runtime worker: this thread is meant to sit still. The same
+        // call from a worker would deadlock the runtime it is waiting on.
+        self.runtime.block_on(async {
+            let mut out = Vec::with_capacity(urls.len());
+            for url in urls {
+                let waiting = self.bodies.lock().remove(url);
+                let body = match waiting {
+                    Some(rx) => rx.await.ok().flatten(),
+                    None => {
+                        fetch_stylesheet(
+                            url,
+                            &SheetFetch {
+                                zone_id: self.zone_id,
+                                io_tx: &self.io_tx,
+                                parent_ref: self.parent_ref,
+                                parent_cancel: &self.parent_cancel,
+                                headers: &self.headers,
+                                referrer: &self.referrer,
+                            },
+                        )
+                        .await
+                    }
+                };
+                out.push(body.map(|(_, bytes)| bytes));
+            }
+            out
+        })
+    }
+}
+
+/// What [`resolve_pending_stylesheets`] needs to fetch a sheet the document scan missed.
+struct SheetFetch<'a> {
+    zone_id: ZoneId,
+    io_tx: &'a IoChannel,
+    parent_ref: gosub_sonar::RequestReference,
+    parent_cancel: &'a tokio_util::sync::CancellationToken,
+    headers: &'a http::HeaderMap,
+    referrer: &'a url::Url,
+}
+
+/// Fetch and parse the stylesheets the parser recorded, and slot them into the cascade.
+///
+/// The parser records a `<link rel=stylesheet>` and moves on; this is where the sheet
+/// actually arrives. Nearly all of them are already in flight -- the document scan submits
+/// every link it can see before the parse even starts -- so this is usually a wait on a
+/// fetch that is nearly done, not the start of one.
+///
+/// A sheet that fails to load leaves no gap and no error: the document renders without it,
+/// which is what a browser does and what this code did when the parser fetched them itself.
+async fn resolve_pending_stylesheets<C: RenderConfiguration>(
+    doc: &mut EngineDocument<C>,
+    bodies: &SheetBodies,
+    fetch: &SheetFetch<'_>,
+) {
+    use gosub_interface::css3::{CssOrigin, CssSystem};
+    use gosub_interface::document::Document as _;
+
+    let mut pending = doc.take_pending_stylesheets();
+    if pending.is_empty() {
+        return;
+    }
+    // Ascending, so the running offset below is correct.
+    pending.sort_by_key(|(position, _)| *position);
+
+    let mut inserted = 0usize;
+    for (position, url) in pending {
+        // Taken before the await: holding the guard across it would make this future
+        // non-Send, and the whole pipeline with it.
+        let waiting = bodies.lock().remove(&url);
+        let body = match waiting {
+            // Already in flight from the document scan: wait for the bytes.
+            Some(rx) => rx.await.ok().flatten(),
+            // The scan did not see this link -- it reads raw HTML with a regex, and a
+            // `<link>` can be written in ways it does not match. Fetch it now, through the
+            // same path, rather than reaching for a client of our own.
+            None => fetch_stylesheet(&url, fetch).await,
+        };
+
+        let Some((content_type, bytes)) = body else {
+            log::warn!("Could not load external stylesheet from {url}");
+            continue;
+        };
+        match content_type {
+            Some(ref ct) if !ct.starts_with("text/css") => {
+                log::warn!("External stylesheet has unexpected content type: {ct}");
+            }
+            None => log::warn!("External stylesheet has no content type: {url}"),
+            _ => {}
+        }
+        let Ok(css) = String::from_utf8(bytes) else {
+            log::warn!("External stylesheet from {url} is not valid UTF-8");
+            continue;
+        };
+
+        let config = gosub_shared::config::ParserConfig {
+            source: Some(url.clone()),
+            ignore_errors: true,
+            ..Default::default()
+        };
+        match <C::CssSystem as CssSystem>::parse_str(&css, config, CssOrigin::Author, &url) {
+            Ok(sheet) => {
+                // Everything already slotted in sat at or before this position, so each one
+                // shifts this sheet one place further along.
+                doc.insert_stylesheet(position + inserted, sheet);
+                inserted += 1;
+            }
+            Err(err) => log::warn!("Error while parsing CSS stylesheet from {url}: {err}"),
+        }
+    }
+}
+
+/// Fetch one stylesheet through the zone's fetcher and wait for it.
+async fn fetch_stylesheet(url: &str, fetch: &SheetFetch<'_>) -> SheetBody {
+    let parsed = url::Url::parse(url).ok()?;
+    // The same refusal the document scan applies: a page from the network does not get to
+    // read the disk because it wrote the link in a shape the scanner could not see.
+    if parsed.scheme() == "file" && fetch.referrer.scheme() != "file" {
+        log::warn!(
+            "refusing file:// stylesheet {parsed} for remote document {}",
+            fetch.referrer
+        );
+        return None;
+    }
+
+    let req_id = RequestId::new();
+    REF_REGISTRY.register_request(req_id, crate::net::types::ResourceKind::Stylesheet, Initiator::Parser);
+    let req = FetchRequest::builder(Method::GET, parsed)
+        .with_req_id(req_id)
+        .with_reference(fetch.parent_ref)
+        .with_priority(crate::net::types::Priority::High)
+        .with_initiator(Initiator::Parser.to_net())
+        .with_kind(crate::net::types::ResourceKind::Stylesheet.to_net())
+        .with_headers(fetch.headers.clone())
+        .with_referrer(fetch.referrer.clone())
+        .with_streaming(false)
+        .with_auto_decode(true)
+        .build();
+
+    let (_handle, rx) = submit_to_io(
+        fetch.zone_id,
+        req,
+        fetch.io_tx.clone(),
+        Some(fetch.parent_cancel.clone()),
+    )
+    .await
+    .ok()?;
+    match rx.await {
+        Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
+            Some((meta.content_type.clone(), body.to_vec()))
+        }
+        _ => None,
     }
 }
 
