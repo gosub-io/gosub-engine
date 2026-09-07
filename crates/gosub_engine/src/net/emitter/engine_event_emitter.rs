@@ -1,12 +1,11 @@
-use crate::engine::events::{CancelReason, ResourceEvent};
+use crate::engine::events::{CancelReason, FailureKind, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId};
 use crate::events::EngineEvent;
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
-use crate::net::types::{Initiator, ResourceKind};
+use crate::net::types::{Initiator, NetError, ResourceKind};
 use crate::tab::TabId;
-use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -82,6 +81,21 @@ impl NetObserver for EngineEventEmitter {
 
     fn on_event(&self, ev: NetEvent) {
         match ev {
+            NetEvent::DnsResolved { host, elapsed, .. } => {
+                self.emit(ResourceEvent::DnsResolved {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    host,
+                    elapsed_us: elapsed.as_micros() as u64,
+                });
+            }
+            NetEvent::Connected { elapsed } => {
+                self.emit(ResourceEvent::Connected {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    elapsed_us: elapsed.as_micros() as u64,
+                });
+            }
             NetEvent::RequestSent { url, method, headers } => {
                 self.emit(ResourceEvent::RequestSent {
                     request_id: self.req_id,
@@ -196,21 +210,18 @@ impl NetObserver for EngineEventEmitter {
                     elapsed: Some(elapsed),
                 });
             }
-            NetEvent::Blocked { url, reason } => {
-                REF_REGISTRY.forget_request(self.req_id);
-                self.emit(ResourceEvent::Failed {
-                    request_id: self.req_id,
-                    reference: self.reference,
-                    url: url.to_string(),
-                    error: Arc::new(anyhow::anyhow!("blocked: {reason:?}")),
-                });
-            }
+            // `Blocked` and `TlsFailed` are not terminal: sonar turns each into the
+            // `NetError` that arrives as `Failed` a moment later, and that is where the
+            // failure is reported. Emitting here as well produced two `Failed` events for
+            // one request.
+            NetEvent::Blocked { .. } | NetEvent::TlsFailed { .. } => {}
             NetEvent::Failed { url, error } => {
                 REF_REGISTRY.forget_request(self.req_id);
                 self.emit(ResourceEvent::Failed {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
+                    kind: classify(&error),
                     error: error.into(),
                 });
             }
@@ -234,5 +245,124 @@ impl NetObserver for EngineEventEmitter {
             // later carry nothing the shell needs; the timing emitter reads them.
             _ => {}
         }
+    }
+}
+
+/// Read the network stack's own typed error rather than its message.
+///
+/// The error arrives wrapped in `anyhow`, but the `NetError` underneath is intact and
+/// already says what went wrong. Matching on it keeps this honest, where matching on the
+/// text of a message would quietly rot the first time one is reworded.
+fn classify(error: &anyhow::Error) -> FailureKind {
+    let Some(net) = error.downcast_ref::<NetError>() else {
+        return FailureKind::Other;
+    };
+    match net {
+        NetError::Blocked { .. } => FailureKind::Blocked,
+        NetError::Tls(_) => FailureKind::Tls,
+        NetError::Timeout(_) => FailureKind::Timeout,
+        NetError::Redirect(_) => FailureKind::Redirect,
+        NetError::Cancelled(_) => FailureKind::Cancelled,
+        NetError::Io(_) => FailureKind::Transfer,
+        // `Read` is the stack's catch-all: a `send()` that never got a connection is
+        // wrapped in it just as a body that died mid-stream is. The variant alone would
+        // report a dead host as a broken transfer, which sends you looking in the wrong
+        // place -- but the client's own error is one downcast further down.
+        NetError::Read(inner) => from_client(inner).unwrap_or(FailureKind::Transfer),
+        NetError::Other(inner) => from_client(inner).unwrap_or(FailureKind::Other),
+        NetError::Reqwest(e) => from_client_error(e),
+    }
+}
+
+/// Find the HTTP client's own error somewhere in the chain and read it.
+fn from_client(error: &anyhow::Error) -> Option<FailureKind> {
+    let client = error.chain().find_map(|e| e.downcast_ref::<reqwest::Error>())?;
+    Some(from_client_error(client))
+}
+
+/// The client knows whether it never got a connection, ran out of time, or lost one part
+/// way -- which is the difference between "the host is unreachable", "nothing answered in
+/// time" and "the transfer died".
+fn from_client_error(error: &reqwest::Error) -> FailureKind {
+    if error.is_timeout() {
+        FailureKind::Timeout
+    } else if error.is_connect() {
+        FailureKind::Connect
+    } else if error.is_redirect() {
+        FailureKind::Redirect
+    } else if error.is_body() || error.is_decode() {
+        FailureKind::Transfer
+    } else {
+        FailureKind::Other
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_sonar::net::types::BlockReason;
+    use std::sync::Arc;
+
+    /// The whole point of `classify` is that the cause survives the trip through
+    /// `anyhow`, including the extra context a caller may have attached on the way.
+    #[test]
+    fn a_typed_cause_survives_the_anyhow_wrapper() {
+        let err = anyhow::Error::from(NetError::Blocked {
+            reason: BlockReason::MixedContent,
+            url: url::Url::parse("http://example.com/x.css").unwrap(),
+        })
+        .context("loading stylesheet");
+
+        assert_eq!(classify(&err), FailureKind::Blocked);
+    }
+
+    #[test]
+    fn a_timeout_is_not_reported_as_a_transfer_failure() {
+        let err = anyhow::Error::from(NetError::Timeout("no response in 30s".into()));
+        assert_eq!(classify(&err), FailureKind::Timeout);
+    }
+
+    #[test]
+    fn a_broken_transfer_is_distinct_from_a_refusal() {
+        let err = anyhow::Error::from(NetError::Read(Arc::new(anyhow::anyhow!(
+            "connection reset while reading body"
+        ))));
+        assert_eq!(classify(&err), FailureKind::Transfer);
+    }
+
+    /// The case that made this worth doing: a host nothing is listening on comes back
+    /// wrapped in `Read`, the same variant a body that died mid-stream uses. Reported as
+    /// a broken transfer it sends you looking at the server; reported as a connection
+    /// failure it sends you at the address, which is where the problem is.
+    #[test]
+    fn a_host_that_never_connects_is_not_reported_as_a_broken_transfer() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        // Port 1 on loopback: nothing listens there, and nothing leaves the machine.
+        let client_error = runtime.block_on(async {
+            reqwest::Client::new()
+                .get("http://127.0.0.1:1/")
+                .send()
+                .await
+                .unwrap_err()
+        });
+        assert!(
+            client_error.is_connect(),
+            "expected a connect error, got {client_error:?}"
+        );
+
+        let err = anyhow::Error::from(NetError::Read(Arc::new(
+            anyhow::Error::from(client_error).context("net.get_with_redirects request failed"),
+        )));
+        assert_eq!(classify(&err), FailureKind::Connect);
+    }
+
+    /// An error from somewhere other than the network stack says nothing about the
+    /// cause, and claiming one would be worse than admitting we do not know.
+    #[test]
+    fn an_unrecognised_error_claims_nothing() {
+        assert_eq!(classify(&anyhow::anyhow!("something went wrong")), FailureKind::Other);
     }
 }

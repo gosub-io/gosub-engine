@@ -213,7 +213,7 @@ pub mod events {
         CursorShape, DownloadId, EngineCommand, EngineEvent, HitTestResponse, HitTestToken, IoCommand, Modifiers,
         MouseButton, TabCommand,
     };
-    pub use crate::engine::events::{NavigationEvent, ResourceEvent};
+    pub use crate::engine::events::{FailureKind, NavigationEvent, ResourceEvent};
 }
 
 /// Configuration options for the Gosub engine.
