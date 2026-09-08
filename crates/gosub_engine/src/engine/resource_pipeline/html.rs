@@ -246,7 +246,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
 
         let was_cancelled = handle.cancel.is_cancelled();
 
-        let _doc_timer = timing_guard!("html.document", meta.final_url.as_str());
+        let _doc_timer = timing_guard!(gosub_shared::timing::Timing::HtmlDocument, meta.final_url.as_str());
         let res = parse_main_document_stream(
             meta.final_url, // This is the base URL
             reader,

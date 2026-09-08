@@ -492,7 +492,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         wall.end();
 
         let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us);
-        timing::record("decode.html", parse_us, Some(context));
+        timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
 
         ret
     }
@@ -4147,7 +4147,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         // What a script waiting on CSS actually cost, which is the number worth having when
         // a page loads slowly and nobody can say why.
-        timing::record("script.blocked_on_css", waited.duration(), Some(urls.join(" ")));
+        timing::record(
+            gosub_shared::timing::Timing::ScriptBlockedOnCss,
+            waited.duration(),
+            Some(urls.join(" ")),
+        );
         self.blocked_on_css_us += waited.duration();
         log::debug!(
             "script blocked on {} stylesheet(s) for {:.1}ms",

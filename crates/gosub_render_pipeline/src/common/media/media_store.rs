@@ -161,7 +161,7 @@ impl MediaStore {
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         // Pure CPU: the bytes are already in hand, whether they came from the network,
         // a data: URI or inline markup. Fetching is timed separately as net.fetch.image.
-        let _t = gosub_shared::timing_guard!("decode.image", src);
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, src);
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -338,7 +338,7 @@ impl MediaStore {
     /// content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let _t = gosub_shared::timing_guard!("net.fetch.image", src);
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::NetFetchImage, src);
 
         // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
         // one the regex could not match), so ask for it. A resource the scan did see is

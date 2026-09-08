@@ -559,7 +559,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.timing_scope = Some(scope);
                 // Explicit scope rather than the thread-local one: this is the worker's
                 // async loop, where a thread-local scope is not reliable.
-                gosub_shared::timing::mark_in(scope, "page.dom_complete", Some(final_url.to_string()));
+                gosub_shared::timing::mark_in(
+                    scope,
+                    gosub_shared::timing::Timing::PageDomComplete,
+                    Some(final_url.to_string()),
+                );
                 self.context.set_media_navigation(
                     Some(final_url.clone()),
                     crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
@@ -1782,7 +1786,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 {
                     // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
                     // re-rasterized (it should not be - scroll only re-composites cached tiles).
-                    let _t = gosub_shared::timing_guard!("gputile.rebuild");
+                    let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileRebuild);
                     self.context.rebuild_pipeline_cache_if_needed();
                 }
                 let scene_epoch = self.context.scene_epoch();
@@ -1790,7 +1794,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     return Ok(());
                 }
                 if let Some(ref mut surf) = self.surface {
-                    let _t = gosub_shared::timing_guard!("gputile.composite");
+                    let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileComposite);
                     let tiles = self.context.placed_gpu_tiles();
                     let vp = (self.desired_viewport.width, self.desired_viewport.height);
                     let (sx, sy) = self.context.scroll_xy();
@@ -1910,7 +1914,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // than a per-frame sample; it is cleared when a navigation starts.
         if !self.first_paint_marked {
             if let Some(scope) = self.timing_scope {
-                gosub_shared::timing::mark_in(scope, "page.first_paint", None);
+                gosub_shared::timing::mark_in(scope, gosub_shared::timing::Timing::PageFirstPaint, None);
                 self.first_paint_marked = true;
             }
         }

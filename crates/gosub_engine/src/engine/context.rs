@@ -951,7 +951,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// The cursor shape for the hovered node is derived in the same pass; read it with
     /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
-        let _t_total = gosub_shared::timing_guard!("hover.total");
+        let _t_total = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverTotal);
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
 
@@ -966,7 +966,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_probe = Some((vp_x, vp_y, scroll_x, scroll_y));
 
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
-            let _t = gosub_shared::timing_guard!("hover.hit_test");
+            let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverHitTest);
             // find_element_at handles scroll per-layer (fixed layers ignore it).
             let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
                 return (None, None);
@@ -1019,7 +1019,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             let mut cursor = CursorShape::Default;
 
             if let (Some(leaf), Some(doc)) = (new_leaf, self.document.as_ref()) {
-                let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
+                let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverAncestorWalk);
                 // Text gets the I-beam unless an enclosing link (checked below) claims the
                 // pointer hand.
                 if doc.node_type(leaf) == NodeType::TextNode {
@@ -1062,7 +1062,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         if visual_dirty {
             if let Some(doc) = &self.document {
-                let _t = gosub_shared::timing_guard!("hover.set_hovered");
+                let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverSetHovered);
                 doc.set_hovered_nodes(new_leaf);
             }
             // Hover-only changes are paint-only (color, background, box-shadow).
@@ -1199,14 +1199,14 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    let ts_total = timing_start!("pipeline.total");
+    let ts_total = timing_start!(gosub_shared::timing::Timing::PipelineTotal);
 
     // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
     // real viewport. Must precede parse(), which computes styles for display:none filtering.
     gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
 
     // Stage 1: render tree
-    let ts1 = timing_start!("pipeline.render_tree");
+    let ts1 = timing_start!(gosub_shared::timing::Timing::PipelineRenderTree);
     let adapter = GosubDocumentAdapter::<C>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
     if let Err(e) = render_tree.parse() {
@@ -1222,7 +1222,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     };
 
     // Stage 2: layout
-    let ts2 = timing_start!("pipeline.layout");
+    let ts2 = timing_start!(gosub_shared::timing::Timing::PipelineLayout);
     // Share the rasterizer's font system so layout and rendering measure/draw against the
     // same font collection (and it's created once, not per layout pass). Backends without a
     // FontSystem (null, Cairo/Pango) fall back to the layouter's own instance.
@@ -1238,12 +1238,12 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     let page_height = layout_tree.root_dimension.height;
 
     // Stage 3: layering
-    let ts3 = timing_start!("pipeline.layering");
+    let ts3 = timing_start!(gosub_shared::timing::Timing::PipelineLayering);
     let layer_list = LayerList::new(layout_tree);
     timing_stop!(ts3);
 
     // Stage 4: tiling
-    let ts4 = timing_start!("pipeline.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineTiling);
     let mut tile_list = TileList::new(layer_list, PipelineDimension::new(tile_size, tile_size));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
@@ -1254,7 +1254,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
 
     let render_height = page_height;
-    let ts5 = timing_start!("pipeline.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelinePainting);
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
@@ -1272,7 +1272,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.rasterize",
+            gosub_shared::timing::Timing::PipelineRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1311,7 +1311,7 @@ fn pipeline_extend_raster(
     tile_size: f64,
 ) -> PipelineCache {
     // Stage 4: re-tile against the cached layout. No CSS, no layout.
-    let ts4 = timing_start!("pipeline.extend.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineExtendTiling);
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
     timing_stop!(ts4);
@@ -1337,7 +1337,7 @@ fn pipeline_extend_raster(
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
 
     // Stage 5: only the newly in-window tiles are still dirty.
-    let ts5 = timing_start!("pipeline.extend.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelineExtendPainting);
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
@@ -1350,7 +1350,7 @@ fn pipeline_extend_raster(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.extend.rasterize",
+            gosub_shared::timing::Timing::PipelineExtendRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1399,7 +1399,7 @@ fn pipeline_hover_repaint(
     tile_size: f64,
 ) -> PipelineCache {
     // Stage 4: tiling — reuse existing LayerList, no layout work.
-    let ts4 = timing_start!("pipeline.hover.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineHoverTiling);
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
@@ -1487,7 +1487,7 @@ fn pipeline_hover_repaint(
 
     // Stage 5: paint ONLY dirty (hover-affected) tiles. `full_page_rect` and `layer_ids` were
     // computed above (shared with the carry-over ordering).
-    let ts5 = timing_start!("pipeline.hover.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelineHoverPainting);
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
@@ -1500,7 +1500,7 @@ fn pipeline_hover_repaint(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.hover.rasterize",
+            gosub_shared::timing::Timing::PipelineHoverRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1598,7 +1598,7 @@ fn order_baked_tiles_by_layer(
 /// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
 /// screen-relative positions. This is the only work done on every scroll tick.
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
-    let ts7 = timing_start!("pipeline.composite");
+    let ts7 = timing_start!(gosub_shared::timing::Timing::PipelineComposite);
 
     for tile in &cache.tiles {
         // Resolve the tile's position in viewport space (fixed tiles ignore scroll), then cull

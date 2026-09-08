@@ -1,3 +1,6 @@
+mod namespace;
+pub use namespace::{Group, Kind, Timing};
+
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -60,6 +63,10 @@ pub struct Stats {
 #[derive(Debug, Clone)]
 pub struct NamespaceStats {
     pub namespace: String,
+    /// The measurement this is, when the engine knows it. `None` for an embedder's own,
+    /// which the engine cannot describe. Carried here so a panel showing a row does not have
+    /// to parse the name back into meaning.
+    pub timing: Option<Timing>,
     pub count: u64,
     pub total_us: u64,
     pub min_us: u64,
@@ -210,6 +217,7 @@ impl TimingTable {
                 }
                 let s = self.get_stats(&timer_ids);
                 Some(NamespaceStats {
+                    timing: Timing::from_name(ns),
                     namespace: ns.clone(),
                     count: s.count,
                     total_us: s.total,
@@ -380,13 +388,13 @@ pub fn clear_scope(scope: ScopeId) {
 /// feature check lives in this crate. A `cfg` inside a `#[macro_export]` body would be
 /// evaluated against the *calling* crate's features, which is not what we want.
 #[cfg(feature = "timing")]
-pub fn start(namespace: &str, context: Option<String>) -> TimerId {
-    TIMING_TABLE.lock().start_timer(namespace, context)
+pub fn start(namespace: Timing, context: Option<String>) -> TimerId {
+    TIMING_TABLE.lock().start_timer(namespace.name(), context)
 }
 
 /// Timing disabled: hand back a nil id and take no lock.
 #[cfg(not(feature = "timing"))]
-pub fn start(_namespace: &str, _context: Option<String>) -> TimerId {
+pub fn start(_namespace: Timing, _context: Option<String>) -> TimerId {
     TimerId::nil()
 }
 
@@ -402,29 +410,29 @@ pub fn stop(_timer_id: TimerId) {}
 
 /// File a duration measured elsewhere under `namespace`.
 #[cfg(feature = "timing")]
-pub fn record(namespace: &str, duration_us: u64, context: Option<String>) {
-    TIMING_TABLE.lock().record(namespace, duration_us, context);
+pub fn record(namespace: Timing, duration_us: u64, context: Option<String>) {
+    TIMING_TABLE.lock().record(namespace.name(), duration_us, context);
 }
 
 /// Timing disabled: drop the sample.
 #[cfg(not(feature = "timing"))]
-pub fn record(_namespace: &str, _duration_us: u64, _context: Option<String>) {}
+pub fn record(_namespace: Timing, _duration_us: u64, _context: Option<String>) {}
 
 /// File a duration against an explicitly named scope.
 ///
 /// Use this from async code, for the same reason as [`mark_in`]: the thread-local scope
 /// only holds inside a synchronous unit.
 #[cfg(feature = "timing")]
-pub fn record_in(scope: ScopeId, namespace: &str, duration_us: u64, context: Option<String>) {
+pub fn record_in(scope: ScopeId, namespace: Timing, duration_us: u64, context: Option<String>) {
     let mut table = TIMING_TABLE.lock();
     let mut timer = Timer::finished(context, duration_us);
     timer.scope = Some(scope);
-    table.insert_finished(namespace, timer);
+    table.insert_finished(namespace.name(), timer);
 }
 
 /// Timing disabled: drop the sample.
 #[cfg(not(feature = "timing"))]
-pub fn record_in(_scope: ScopeId, _namespace: &str, _duration_us: u64, _context: Option<String>) {}
+pub fn record_in(_scope: ScopeId, _namespace: Timing, _duration_us: u64, _context: Option<String>) {}
 
 /// Stamp the start of `scope` - the epoch its marks are measured from.
 #[cfg(feature = "timing")]
@@ -456,13 +464,13 @@ pub fn mark(_namespace: &str, _context: Option<String>) {}
 /// inside a synchronous unit; a task that resumed on another thread would either see no
 /// scope or, worse, someone else's.
 #[cfg(feature = "timing")]
-pub fn mark_in(scope: ScopeId, namespace: &str, context: Option<String>) {
-    TIMING_TABLE.lock().mark_in(scope, namespace, context);
+pub fn mark_in(scope: ScopeId, namespace: Timing, context: Option<String>) {
+    TIMING_TABLE.lock().mark_in(scope, namespace.name(), context);
 }
 
 /// Timing disabled: drop the mark.
 #[cfg(not(feature = "timing"))]
-pub fn mark_in(_scope: ScopeId, _namespace: &str, _context: Option<String>) {}
+pub fn mark_in(_scope: ScopeId, _namespace: Timing, _context: Option<String>) {}
 
 /// Returns a snapshot of all namespace statistics from the global timing table.
 pub fn snapshot_stats() -> Vec<NamespaceStats> {
@@ -491,13 +499,13 @@ pub struct TimerGuard {
 }
 
 impl TimerGuard {
-    pub fn start(namespace: &str, context: &str) -> Self {
+    pub fn start(namespace: Timing, context: &str) -> Self {
         Self {
             id: start(namespace, Some(context.to_string())),
         }
     }
 
-    pub fn start_anon(namespace: &str) -> Self {
+    pub fn start_anon(namespace: Timing) -> Self {
         Self {
             id: start(namespace, None),
         }
@@ -554,7 +562,7 @@ macro_rules! timing_record {
 /// block has multiple exit paths (early returns, `?`, etc.).
 ///
 /// ```rust,ignore
-/// let _t = timing_guard!("net.fetch", url.as_str());
+/// let _t = timing_guard!(Timing::NetFetch, url.as_str());
 /// // timer stops when `_t` goes out of scope, on any path
 /// ```
 #[allow(clippy::crate_in_macro_def)]
@@ -916,29 +924,29 @@ mod tests {
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     fn test_timing_defaults() {
-        let t = timing_start!("dns.lookup", "www.foo.bar");
+        let t = timing_start!(Timing::Other("dns.lookup"), "www.foo.bar");
         sleep(Duration::from_millis(10));
         timing_stop!(t);
 
         for _i in 0..10 {
-            let t = timing_start!("html5.parse", "index.html");
+            let t = timing_start!(crate::timing::Timing::Html5Parse, "index.html");
             sleep(Duration::from_millis(random::<u64>() % 50));
             timing_stop!(t);
         }
 
-        let t = timing_start!("html5.parse", "index.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "index.html");
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("html5.parse", "page2.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "page2.html");
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("html5.parse", "page3.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "page3.html");
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("css.parse");
+        let t = timing_start!(Timing::Other("css.parse"));
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
@@ -950,29 +958,29 @@ mod tests {
     fn test_timing_defaults_wasm() {
         let window = &window().expect("no global `window` exists");
 
-        let t = timing_start!("dns.lookup", "www.foo.bar");
+        let t = timing_start!(Timing::Other("dns.lookup"), "www.foo.bar");
         sleep(window, Duration::from_millis(10));
         timing_stop!(t);
 
         for _i in 0..10 {
-            let t = timing_start!("html5.parse", "index.html");
+            let t = timing_start!(crate::timing::Timing::Html5Parse, "index.html");
             sleep(window, Duration::from_millis(random::<u64>() % 50));
             timing_stop!(t);
         }
 
-        let t = timing_start!("html5.parse", "index.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "index.html");
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("html5.parse", "page2.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "page2.html");
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("html5.parse", "page3.html");
+        let t = timing_start!(crate::timing::Timing::Html5Parse, "page3.html");
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        let t = timing_start!("css.parse");
+        let t = timing_start!(Timing::Other("css.parse"));
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 

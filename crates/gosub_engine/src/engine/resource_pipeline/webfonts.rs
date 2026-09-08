@@ -107,8 +107,17 @@ async fn load_face(
         // Recorded against the navigation explicitly: this runs across awaits, where a
         // thread-local scope does not hold.
         match timing_scope {
-            Some(scope) => gosub_shared::timing::record_in(scope, "net.fetch.font", elapsed, Some(url.to_string())),
-            None => gosub_shared::timing::record("net.fetch.font", elapsed, Some(url.to_string())),
+            Some(scope) => gosub_shared::timing::record_in(
+                scope,
+                gosub_shared::timing::Timing::NetFetchFont,
+                elapsed,
+                Some(url.to_string()),
+            ),
+            None => gosub_shared::timing::record(
+                gosub_shared::timing::Timing::NetFetchFont,
+                elapsed,
+                Some(url.to_string()),
+            ),
         }
 
         match body {
