@@ -71,7 +71,7 @@ impl Css3<'_> {
                 TokenType::RCurly => {
                     if depth == 0 {
                         // Closing brace of an enclosing block we never opened; leave it.
-                        self.tokenizer.reconsume();
+                        self.tokenizer.reconsume(t);
                         break;
                     }
                     depth -= 1;
@@ -139,9 +139,8 @@ impl Css3<'_> {
             match t.token_type {
                 TokenType::RCurly => {
                     // End the block
-                    self.tokenizer.reconsume();
-
                     let n = Node::new(NodeType::Block { children }, t.location);
+                    self.tokenizer.reconsume(t);
                     return Ok(n);
                 }
                 TokenType::Whitespace(_) | TokenType::Comment(_) => {
@@ -149,7 +148,7 @@ impl Css3<'_> {
                 }
 
                 TokenType::AtKeyword(_) => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     if let Some(at_rule_node) = self.parse_at_rule(mode == BlockParseMode::StyleBlock)? {
                         children.push(at_rule_node);
                     }
@@ -169,7 +168,7 @@ impl Css3<'_> {
                                 // the remaining declarations in this block rather than aborting
                                 // the whole rule, which would desync block boundaries.
                                 log::warn!("Ignoring error in parse_block: Expected a ; got {t:?}");
-                                self.tokenizer.reconsume();
+                                self.tokenizer.reconsume(t);
                                 self.skip_to_declaration_end();
                                 semicolon_seperated = true;
                                 continue;
@@ -180,7 +179,7 @@ impl Css3<'_> {
                             ));
                         }
 
-                        self.tokenizer.reconsume();
+                        self.tokenizer.reconsume(t);
                         if self.starts_nested_rule() {
                             // CSS Nesting: a nested style rule (with or without a leading `&`).
                             if let Some(rule_node) = self.parse_consume_rule()? {
@@ -197,7 +196,7 @@ impl Css3<'_> {
                         }
                     }
                     BlockParseMode::RegularBlock => {
-                        self.tokenizer.reconsume();
+                        self.tokenizer.reconsume(t);
 
                         if let Some(rule_node) = self.parse_consume_rule()? {
                             children.push(rule_node);

@@ -115,20 +115,13 @@ mod tests {
 
     use bytes::Bytes;
 
-    use http::HeaderMap;
     use tokio::io::AsyncReadExt;
     use url::Url;
 
     fn dummy_meta() -> FetchResultMeta {
-        FetchResultMeta {
-            final_url: Url::parse("https://example.org/").unwrap(),
-            status: 200,
-            status_text: "OK".into(),
-            headers: HeaderMap::new(),
-            content_length: None,
-            content_type: None,
-            has_body: true,
-        }
+        let mut meta = FetchResultMeta::synthetic(Url::parse("https://example.org/").unwrap());
+        meta.has_body = true;
+        meta
     }
 
     #[tokio::test(flavor = "current_thread")]

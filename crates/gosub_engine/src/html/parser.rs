@@ -60,6 +60,12 @@ pub struct HtmlParseConfig {
     /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
     /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
+    /// Navigation these timings belong to, if this parse is part of one.
+    ///
+    /// Entered around the synchronous parse below, which is where `decode.html` and the
+    /// parser's own blocking `net.fetch.css` are recorded. `None` for parses with no
+    /// navigation behind them; those samples stay unattributed rather than misfiled.
+    pub timing_scope: Option<gosub_shared::timing::ScopeId>,
 }
 
 impl Default for HtmlParseConfig {
@@ -67,6 +73,7 @@ impl Default for HtmlParseConfig {
         // Matches the `net.document.max_bytes` schema default.
         Self {
             max_bytes: 10 * 1024 * 1024,
+            timing_scope: None,
         }
     }
 }
@@ -146,6 +153,11 @@ where
         tmp.read_from_bytes(&buf)?;
         tmp.detect_encoding()
     };
+    // From here down there are no awaits, so this task cannot move to another thread and
+    // a thread-local scope holds. It covers `decode.html` and, because the parser fetches
+    // external stylesheets inline, the `net.fetch.css` samples those produce.
+    let _scope = cfg.timing_scope.map(gosub_shared::timing::enter_scope);
+
     let mut stream = ByteStream::new(encoding, None);
     stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
@@ -357,7 +369,10 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig {
+            max_bytes: 64 * 1024, // 64 KiB
+            ..Default::default()
+        };
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(

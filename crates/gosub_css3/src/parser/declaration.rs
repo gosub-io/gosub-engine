@@ -17,7 +17,7 @@ impl Css3<'_> {
                 }
             }
             _ => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
             }
         }
 
@@ -95,7 +95,7 @@ impl Css3<'_> {
 
             important = true;
         } else {
-            self.tokenizer.reconsume();
+            self.tokenizer.reconsume(t);
         }
 
         Ok(Node::new(
@@ -164,11 +164,11 @@ impl Css3<'_> {
         while let Ok(t) = self.consume_any() {
             match t.token_type {
                 TokenType::Semicolon => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
                 TokenType::RCurly => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
                 TokenType::Eof => {

@@ -107,14 +107,13 @@ pub async fn serve(req: &FetchRequest, enabled: bool, observer: Arc<dyn NetObser
                 url: url.clone(),
             });
             FetchResult::Buffered {
-                meta: FetchResultMeta {
-                    final_url: url,
-                    status: 200,
-                    status_text: "OK".into(),
-                    headers,
-                    content_length: Some(len),
-                    content_type: Some(content_type.to_string()),
-                    has_body: len > 0,
+                meta: {
+                    let mut meta = FetchResultMeta::synthetic(url);
+                    meta.headers = headers;
+                    meta.content_length = Some(len);
+                    meta.content_type = Some(content_type.to_string());
+                    meta.has_body = len > 0;
+                    meta
                 },
                 body,
             }

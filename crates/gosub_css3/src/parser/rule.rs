@@ -36,8 +36,8 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::Rule {
-                prelude: Some(prelude),
-                block: Some(block),
+                prelude: Some(Box::new(prelude)),
+                block: Some(Box::new(block)),
             },
             loc,
         ))

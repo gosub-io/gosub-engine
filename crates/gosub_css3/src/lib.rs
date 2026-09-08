@@ -17,13 +17,16 @@ use gosub_shared::{timing_start, timing_stop};
 pub mod ast;
 pub mod colors;
 mod functions;
+pub mod imports;
 pub mod matcher;
+pub mod media_query;
 // The as_* accessors panic by contract when called on the wrong node type;
 // callers are expected to check the matching is_* predicate first.
 #[allow(clippy::panic)]
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
+pub mod supports;
 pub mod system;
 pub mod tokenizer;
 mod unicode;
@@ -113,7 +116,7 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("Expected a stylesheet context"));
         }
 
-        let t_id = timing_start!("css3.parse", self.config.source.as_deref().unwrap_or(""));
+        let t_id = timing_start!("decode.css", self.config.source.as_deref().unwrap_or(""));
 
         let node_tree = match self.config.context {
             Context::Stylesheet => self.parse_stylesheet_internal(),
@@ -126,7 +129,7 @@ impl<'stream> Css3<'stream> {
 
         match node_tree {
             Ok(None) => Err(CssError::new("No node tree found")),
-            Ok(Some(node)) => convert_ast_to_stylesheet(&node, self.origin, self.source.clone().as_str()),
+            Ok(Some(node)) => convert_ast_to_stylesheet(node, self.origin, self.source.clone().as_str()),
             Err(e) => Err(e),
         }
     }

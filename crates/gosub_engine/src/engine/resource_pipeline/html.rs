@@ -67,8 +67,22 @@ impl HtmlPipelineImpl {
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
+        // The main document's request is referenced by the navigation that started it, so
+        // its timings can be attributed without threading a scope through the fetch stack.
+        // Sub-resources reference a Document instead, which carries no navigation - those
+        // stay unattributed until that mapping exists.
+        let timing_scope = crate::net::req_ref_tracker::REF_REGISTRY
+            .from_net(request.reference)
+            .and_then(|r| match r {
+                crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
+                    Some(gosub_shared::timing::ScopeId(nav_id.0))
+                }
+                _ => None,
+            });
+
         let cfg = crate::html::HtmlParseConfig {
             max_bytes: self.max_document_bytes,
+            timing_scope,
         };
 
         let io_tx = self.io_tx.clone();
@@ -238,15 +252,9 @@ mod tests {
     "#;
 
     fn test_meta(base: &str) -> FetchResultMeta {
-        FetchResultMeta {
-            final_url: Url::parse(base).expect("valid url"),
-            status: 200,
-            status_text: "OK".into(),
-            headers: http::HeaderMap::new(),
-            content_length: None,
-            content_type: None,
-            has_body: true,
-        }
+        let mut meta = FetchResultMeta::synthetic(Url::parse(base).expect("valid url"));
+        meta.has_body = true;
+        meta
     }
 
     fn test_request(base: &str) -> (FetchRequest, FetchHandle) {

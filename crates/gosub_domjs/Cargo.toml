@@ -1,0 +1,20 @@
+[package]
+name = "gosub_domjs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Test-only DOM bindings for a JavaScript runtime, over the gosub document"
+publish = false
+
+[dependencies]
+gosub_shared = { path = "../gosub_shared" }
+gosub_interface = { path = "../gosub_interface" }
+gosub_html5 = { path = "../gosub_html5" }
+gosub_css3 = { path = "../gosub_css3" }
+rquickjs = { workspace = true }
+anyhow = { workspace = true }
+url = { workspace = true }
+cow-utils = { workspace = true }
+
+[lints]
+workspace = true
