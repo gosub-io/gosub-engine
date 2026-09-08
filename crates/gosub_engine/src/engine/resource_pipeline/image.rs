@@ -36,7 +36,7 @@ impl ImagePipeline for ImagePipelineImpl {
         // The guard starts here, not above: draining the body is transfer, and folding it
         // into decode.image would make the counter track the network the way html5.parse
         // used to.
-        let _t = gosub_shared::timing_guard!("decode.image", meta.final_url.as_str());
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, meta.final_url.as_str());
         ImageReader::new(Cursor::new(buf))
             .with_guessed_format()?
             .decode()
@@ -44,7 +44,7 @@ impl ImagePipeline for ImagePipelineImpl {
     }
 
     async fn parse_bytes(&mut self, meta: FetchResultMeta, body: &[u8]) -> anyhow::Result<image::DynamicImage> {
-        let _t = gosub_shared::timing_guard!("decode.image", meta.final_url.as_str());
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, meta.final_url.as_str());
         ImageReader::new(Cursor::new(body))
             .with_guessed_format()?
             .decode()

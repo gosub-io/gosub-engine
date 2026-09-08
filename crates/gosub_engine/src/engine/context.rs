@@ -207,6 +207,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
+    /// The last point hit-tested: the point, the scroll it was tested against, and the scene
+    /// it was tested in. Asking again with all of those the same can only produce the answer
+    /// already held.
+    ///
+    /// The scene is part of it because the geometry is what a hit test reads. A new document
+    /// or a re-layout under a pointer that has not moved answers the same question
+    /// differently, and without the epoch the cached answer -- hover styling, cursor shape,
+    /// link URL -- would stand until the reader moved the mouse.
+    hover_probe: Option<(f64, f64, f64, f64, u64)>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -217,6 +226,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
     /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
     media_store: std::sync::Arc<MediaStore>,
+
+    /// Where the media store asks for bytes. Held here as well so each navigation can tell
+    /// it which document its requests belong to. `None` until the tab wires it up.
+    media_source: Option<std::sync::Arc<crate::engine::media_source::EngineMediaSource>>,
 
     /// Per-engine settings store (cloned from the zone/engine). Read settings or subscribe to
     /// changes via [`HasConfig::config`].
@@ -254,9 +267,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_link_url: None,
             focused_node: None,
             hover_cursor: CursorShape::Default,
+            hover_probe: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
+            media_source: None,
             config_store,
             tile_budget: TileBudget::new(),
         }
@@ -269,6 +284,25 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Installs the active backend's per-tile rasterizer and raster strategy. Called once by the
     /// tab worker from `RenderBackend::create_rasterizer` / `raster_strategy`.
+    /// Tell the media source which navigation its requests belong to.
+    ///
+    /// The URL decides the `Referer` and whether a `file://` image may be loaded at all; the
+    /// reference is what makes the request visible, since the fetcher attaches a null
+    /// observer to a request it cannot place. Called when a navigation commits, before the
+    /// document is installed, so the first layout's requests already carry it.
+    pub fn set_media_navigation(&self, url: Option<Url>, reference: crate::net::req_ref_tracker::RequestReference) {
+        if let Some(source) = &self.media_source {
+            source.set_document(url, reference);
+        }
+    }
+
+    /// Wire the media store to the zone's fetcher. Without this the store has nowhere to ask
+    /// for bytes, so a page renders with placeholders and nothing is fetched.
+    pub fn set_media_source(&mut self, source: std::sync::Arc<crate::engine::media_source::EngineMediaSource>) {
+        self.media_store.set_source(source.clone());
+        self.media_source = Some(source);
+    }
+
     pub fn set_rasterizer(&mut self, rasterizer: Box<dyn Rasterable + Send + Sync>, strategy: RasterStrategy) {
         self.rasterizer = Some(rasterizer);
         self.raster_strategy = strategy;
@@ -518,7 +552,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         if !self.damage.level().needs_layout_tree() {
             if let Some(retained) = self.retained_layout.as_mut() {
-                let ts2 = timing_start!("pipeline.layout");
+                let ts2 = timing_start!(gosub_shared::timing::Timing::PipelineLayout);
                 // Free while nothing else holds the tree, which is why the caller drops the
                 // previous frame's caches first: they are what would otherwise share it.
                 let tree = Arc::make_mut(&mut retained.layout_tree);
@@ -527,7 +561,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
                 let layout_tree = Arc::clone(&retained.layout_tree);
                 let page_height = layout_tree.root_dimension.height;
-                let ts3 = timing_start!("pipeline.layering");
+                let ts3 = timing_start!(gosub_shared::timing::Timing::PipelineLayering);
                 let layer_list = Arc::new(LayerList::new(layout_tree));
                 timing_stop!(ts3);
                 return Some((layer_list, page_height));
@@ -537,7 +571,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let adapter = self.prepare_adapter()?;
 
         // Stage 1: render tree
-        let ts1 = timing_start!("pipeline.render_tree");
+        let ts1 = timing_start!(gosub_shared::timing::Timing::PipelineRenderTree);
         let mut render_tree = RenderTree::new(adapter);
         if let Err(e) = render_tree.parse() {
             // The layouter tolerates a tree without a root; the frame degrades to empty.
@@ -546,7 +580,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         timing_stop!(ts1);
 
         // Stage 2: layout
-        let ts2 = timing_start!("pipeline.layout");
+        let ts2 = timing_start!(gosub_shared::timing::Timing::PipelineLayout);
         // Share the rasterizer's font system so layout and rendering measure/draw against the
         // same font collection (and it's created once, not per layout pass). Backends without a
         // FontSystem (null, Cairo/Pango) fall back to the layouter's own instance.
@@ -567,7 +601,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         });
 
         // Stage 3: layering
-        let ts3 = timing_start!("pipeline.layering");
+        let ts3 = timing_start!(gosub_shared::timing::Timing::PipelineLayering);
         let layer_list = Arc::new(LayerList::new(layout_tree));
         timing_stop!(ts3);
         Some((layer_list, page_height))
@@ -1172,12 +1206,23 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// The cursor shape for the hovered node is derived in the same pass; read it with
     /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
-        let _t_total = gosub_shared::timing_guard!("hover.total");
+        let _t_total = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverTotal);
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
 
+        // The same point as last time cannot hover anything new, and a hit test is not free.
+        // Embedders send more of these than one might expect: a windowing system reports
+        // motion when the thing under a still pointer changes, so a page that keeps painting
+        // keeps asking. Scrolling moves the document under the cursor, so that counts as a
+        // move even when the pointer has not.
+        let probe = (vp_x, vp_y, scroll_x, scroll_y, self.scene_epoch);
+        if self.hover_probe == Some(probe) {
+            return (false, false, self.hover_link_url.clone());
+        }
+        self.hover_probe = Some(probe);
+
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
-            let _t = gosub_shared::timing_guard!("hover.hit_test");
+            let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverHitTest);
             // find_element_at handles scroll per-layer (fixed layers ignore it).
             let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
                 return (None, None);
@@ -1232,7 +1277,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             let mut cursor = CursorShape::Default;
 
             if let (Some(leaf), Some(doc)) = (new_leaf, self.document.as_ref()) {
-                let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
+                let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverAncestorWalk);
                 // Text gets the I-beam unless an enclosing link (checked below) claims the
                 // pointer hand.
                 if doc.node_type(leaf) == NodeType::TextNode {
@@ -1275,7 +1320,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         if visual_dirty {
             if let Some(doc) = &self.document {
-                let _t = gosub_shared::timing_guard!("hover.set_hovered");
+                let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverSetHovered);
                 doc.set_hovered_nodes(new_leaf);
             }
             // Hover changes only paint (colour, background, outline): the boxes do not move,
@@ -1395,10 +1440,10 @@ fn pipeline_build_cache(
     media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    let ts_total = timing_start!("pipeline.total");
+    let ts_total = timing_start!(gosub_shared::timing::Timing::PipelineTotal);
 
     // Stage 4: tiling
-    let ts4 = timing_start!("pipeline.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineTiling);
     let mut tile_list = TileList::from_arc(layer_list, PipelineDimension::new(tile_size, tile_size));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
@@ -1409,7 +1454,7 @@ fn pipeline_build_cache(
     defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
 
     let render_height = page_height;
-    let ts5 = timing_start!("pipeline.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelinePainting);
     // Paint across the full tile-grid width, not the viewport width: the grid's column count
     // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
     // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
@@ -1434,7 +1479,7 @@ fn pipeline_build_cache(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.rasterize",
+            gosub_shared::timing::Timing::PipelineRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1473,7 +1518,7 @@ fn pipeline_extend_raster(
     tile_size: f64,
 ) -> PipelineCache {
     // Stage 4: re-tile against the cached layout. No CSS, no layout.
-    let ts4 = timing_start!("pipeline.extend.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineExtendTiling);
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
     timing_stop!(ts4);
@@ -1504,7 +1549,7 @@ fn pipeline_extend_raster(
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
 
     // Stage 5: only the newly in-window tiles are still dirty.
-    let ts5 = timing_start!("pipeline.extend.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelineExtendPainting);
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
@@ -1517,7 +1562,7 @@ fn pipeline_extend_raster(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.extend.rasterize",
+            gosub_shared::timing::Timing::PipelineExtendRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1568,7 +1613,7 @@ fn pipeline_repaint_damaged(
     tile_size: f64,
 ) -> PipelineCache {
     // Stage 4: tiling — reuse existing LayerList, no layout work.
-    let ts4 = timing_start!("pipeline.hover.tiling");
+    let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineHoverTiling);
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
@@ -1645,7 +1690,7 @@ fn pipeline_repaint_damaged(
 
     // Stage 5: paint ONLY dirty (hover-affected) tiles. `full_page_rect` and `layer_ids` were
     // computed above (shared with the carry-over ordering).
-    let ts5 = timing_start!("pipeline.hover.painting");
+    let ts5 = timing_start!(gosub_shared::timing::Timing::PipelineHoverPainting);
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
@@ -1658,7 +1703,7 @@ fn pipeline_repaint_damaged(
             full_page_rect,
             &media_store,
             &prev_tile_cache,
-            "pipeline.hover.rasterize",
+            gosub_shared::timing::Timing::PipelineHoverRasterize,
         ),
         (RasterStrategy::Sequential, Some(rasterizer)) => {
             rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
@@ -1756,7 +1801,7 @@ fn order_baked_tiles_by_layer(
 /// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
 /// screen-relative positions. This is the only work done on every scroll tick.
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
-    let ts7 = timing_start!("pipeline.composite");
+    let ts7 = timing_start!(gosub_shared::timing::Timing::PipelineComposite);
 
     for tile in &cache.tiles {
         // Resolve the tile's position in viewport space (fixed tiles ignore scroll), then cull

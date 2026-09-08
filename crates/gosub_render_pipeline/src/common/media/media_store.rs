@@ -25,6 +25,30 @@ pub enum MediaRequest {
     Pending,
 }
 
+/// Whoever can put a URL's bytes into the resource handoff.
+///
+/// The media store does not fetch. It asks for what it needs and waits for the bytes to
+/// appear in [`gosub_shared::subresource`], which is where the engine's resource pipeline
+/// leaves everything it fetches. That keeps every request on one path -- with the policy,
+/// the cache and the network panel that come with it -- and is the only shape that survives
+/// the fetching moving to another process.
+pub trait MediaSource: Send + Sync {
+    /// Claim `url` in the hand-off and start fetching it, unless someone already has, and
+    /// say which scope the bytes will arrive under. Returns immediately; the bytes turn up
+    /// in the hand-off, or do not.
+    ///
+    /// The scope is the page the request belongs to, which is what the hand-off keys its
+    /// entries by: bytes fetched for one page are not an answer to another page's request
+    /// for the same URL, because two documents can share a cookie jar without sharing a
+    /// request context. `None` when there is no page to speak for, which is also before
+    /// anything can ask for an image.
+    ///
+    /// Claiming and asking are one operation on purpose. Split in two, the page can change
+    /// between them, and then the consumer waits under one scope while the bytes are
+    /// deposited under another -- which reads as an image that took the timeout to fail.
+    fn acquire(&self, url: &str) -> Option<gosub_shared::subresource::Scope>;
+}
+
 /// Keeps all loaded media in memory so it can be referenced by MediaId.
 pub struct MediaStore {
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
@@ -34,6 +58,10 @@ pub struct MediaStore {
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
     completed: AtomicBool,
+    /// Where to ask for bytes this store does not have. `None` in a store nobody has wired
+    /// up -- every test in this crate, and any embedder that only loads media from data it
+    /// already holds -- which then simply has nothing to load.
+    source: RwLock<Option<Arc<dyn MediaSource>>>,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load
@@ -85,11 +113,17 @@ impl MediaStore {
             cache: RwLock::new(HashMap::new()),
             pending: RwLock::new(HashSet::new()),
             completed: AtomicBool::new(false),
+            source: RwLock::new(None),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
             decoders,
         }
+    }
+
+    /// Wire up where the store asks for bytes it does not have. See [`MediaSource`].
+    pub fn set_source(&self, source: Arc<dyn MediaSource>) {
+        *self.source.write() = Some(source);
     }
 
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
@@ -136,7 +170,7 @@ impl MediaStore {
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         // Pure CPU: the bytes are already in hand, whether they came from the network,
         // a data: URI or inline markup. Fetching is timed separately as net.fetch.image.
-        let _t = gosub_shared::timing_guard!("decode.image", src);
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::DecodeImage, src);
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -303,24 +337,34 @@ impl MediaStore {
         }
     }
 
-    /// Blocking fetch returning the raw `Content-Type` header and body. Classification is left to
-    /// the decoder registry, which treats the content type as a hint only.
+    /// Wait for a resource's bytes, asking for them first if nobody else has.
+    ///
+    /// This runs on the background thread [`MediaStore::request_media`] spawns, never on the
+    /// layout thread, so waiting here costs a thread and nothing else. It does not fetch:
+    /// the request goes to the [`MediaSource`], which puts it through the engine's fetcher
+    /// with the policy, cache and observation that belong to it, and the bytes come back
+    /// through the handoff. Classification is left to the decoder registry, which treats the
+    /// content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        // This is a blocking fetch on the caller's thread, and it goes through
-        // `simple::sync_fetch` rather than the observed Fetcher, so the net observer
-        // never sees it. Time it here or it is invisible.
-        let _t = gosub_shared::timing_guard!("net.fetch.image", src);
-        let response = gosub_sonar::net::simple::sync_fetch(&url)?;
+        let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::NetFetchImage, src);
 
-        if !response.is_ok() {
-            anyhow::bail!("HTTP {} fetching resource", response.status);
+        // The source first, because announcing a fetch obliges someone to answer it: a claim
+        // made with nothing behind it to do the fetching strands the entry, and every later
+        // consumer of that URL then waits out the timeout for bytes nobody is bringing.
+        let Some(source) = self.source.read().clone() else {
+            anyhow::bail!("no media source is wired up, so {url} cannot be loaded");
+        };
+        // The source claims and asks in one step, and hands back the scope it used; waiting
+        // under a scope this side worked out separately would race a page change.
+        let Some(scope) = source.acquire(src) else {
+            anyhow::bail!("no page is loaded yet, so {url} belongs to nothing and cannot be loaded");
+        };
+
+        match gosub_shared::subresource::take(scope, src) {
+            Some((content_type, body)) => Ok((content_type, Bytes::from(body))),
+            None => anyhow::bail!("no bytes arrived for {url}"),
         }
-
-        let content_type = response.headers.get("content-type").cloned();
-        let raw_bytes = Bytes::from(response.body);
-
-        Ok((content_type, raw_bytes))
     }
 }
 
@@ -474,5 +518,96 @@ mod tests {
         let svg = store.get_svg(media_id);
         let size = svg.svg.tree.size();
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
+    }
+
+    /// A source that records what it was asked for and answers with whatever it was given.
+    #[derive(Debug)]
+    struct FakeSource {
+        asked: parking_lot::Mutex<Vec<String>>,
+        answer: Option<Vec<u8>>,
+    }
+
+    /// The scope a test source fetches in. Which one does not matter, only that producer and
+    /// consumer agree on it, the way a navigation and its document do.
+    const PAGE: gosub_shared::subresource::Scope = 7;
+
+    impl MediaSource for FakeSource {
+        fn acquire(&self, url: &str) -> Option<gosub_shared::subresource::Scope> {
+            if gosub_shared::subresource::claim(PAGE, url) {
+                self.asked.lock().push(url.to_string());
+                match &self.answer {
+                    Some(bytes) => {
+                        gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), bytes.clone())
+                    }
+                    None => gosub_shared::subresource::abandon(PAGE, url),
+                }
+            }
+            Some(PAGE)
+        }
+    }
+
+    /// The resource handoff is process-wide, so these tests take turns with it: run in
+    /// parallel they clear the store out from under each other.
+    fn exclusively<T>(body: impl FnOnce() -> T) -> T {
+        static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _guard = LOCK.lock();
+        gosub_shared::subresource::clear();
+        body()
+    }
+
+    fn wired(answer: Option<Vec<u8>>) -> (Arc<MediaStore>, Arc<FakeSource>) {
+        let store = Arc::new(MediaStore::new());
+        let source = Arc::new(FakeSource {
+            asked: parking_lot::Mutex::new(Vec::new()),
+            answer,
+        });
+        store.set_source(source.clone());
+        (store, source)
+    }
+
+    /// The store does not fetch: it names what it needs and takes what arrives.
+    #[test]
+    fn an_unclaimed_resource_is_asked_for_and_taken() {
+        exclusively(|| {
+            let (store, source) = wired(Some(encode(ImageFormat::Png)));
+
+            let (content_type, body) = store
+                .fetch_resource("https://example.test/unclaimed.png")
+                .expect("bytes should arrive");
+
+            assert_eq!(source.asked.lock().as_slice(), ["https://example.test/unclaimed.png"]);
+            assert_eq!(content_type.as_deref(), Some("image/png"));
+            assert!(!body.is_empty());
+        });
+    }
+
+    /// A resource the document scan already claimed is on its way, and asking again would
+    /// fetch it twice — which is the whole reason the handoff exists.
+    #[test]
+    fn a_resource_already_in_flight_is_waited_for_rather_than_asked_for() {
+        exclusively(|| {
+            let url = "https://example.test/claimed.png";
+            gosub_shared::subresource::begin(PAGE, url);
+            gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), encode(ImageFormat::Png));
+
+            let (store, source) = wired(None);
+            let (_, body) = store.fetch_resource(url).expect("the delivered bytes");
+
+            assert!(source.asked.lock().is_empty(), "should not have asked for it again");
+            assert!(!body.is_empty());
+        });
+    }
+
+    /// A store nobody wired up has nowhere to ask, and says so rather than reaching for a
+    /// network of its own — which is what it used to do.
+    #[test]
+    fn a_store_with_no_source_loads_nothing() {
+        exclusively(|| {
+            let store = MediaStore::new();
+            let err = store
+                .fetch_resource("https://example.test/nosource.png")
+                .expect_err("should not load");
+            assert!(err.to_string().contains("no media source"), "got: {err}");
+        });
     }
 }

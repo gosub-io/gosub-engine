@@ -52,7 +52,7 @@
 //!
 mod decision;
 mod decision_hub;
-mod emitter;
+pub(crate) mod emitter;
 pub mod events;
 mod fetcher;
 mod file_loader;
