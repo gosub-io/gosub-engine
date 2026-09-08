@@ -1,151 +1,70 @@
 # Running web-platform-tests
 
-Two harnesses, because wpt holds two kinds of test that are checked in completely
-different ways. Neither is a browser: both drive the engine directly.
+[WPT](https://github.com/web-platform-tests/wpt) is the conformance suite the browser vendors
+share. `bin/gosub-wpt` runs its `testharness.js` tests against the engine directly — it is not
+a browser, and there is no navigation and no network.
 
-| | testharness.js | reftests |
-|---|---|---|
-| How a test passes | JS assertions report themselves | two renders are pixel-identical |
-| What it needs | a DOM and a JS engine | layout, painting, fonts |
-| Tool | `bin/gosub-wpt` (QuickJS via rquickjs) | `scripts/wpt-reftest.py` -> `gosub-screenshot` |
-| In CI | the `wpt` gate on every PR, plus a nightly | manual only |
+## Quick start
 
-## What of wpt we can actually run
-
-Of ~57k `.html` files in the corpus (excluding `-ref`/`-notref`, which are the reference
-halves of reftests rather than tests):
-
-- **~27,300** load `resources/testharness.js` - the testharness harness can run these.
-- **~19,800** are reftests - the reftest runner can run these.
-- The rest are manual tests and conformance-checker fixtures. Neither harness can do
-  anything with them: they parse, report zero subtests, and cost runtime. The nightly
-  filters them out with `grep -lFr 'resources/testharness.js'`.
-
-Nothing here runs `.any.js` / `.window.js` / `.worker.js` wrappers, iframes, workers, or
-anything needing navigation or a network.
-
-## Where the numbers stand
-
-Measured at the pinned commit; regenerate rather than trust these.
-
-| Run | Tests | Passing | Time |
-|---|---:|---:|---:|
-| `wpt` gate - `dom/events`, `html/dom` | 621 files (616 report), 1132 subtests | 101 (8.9%) | 8s |
-| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5314 subtests | 307 (5.8%) | 30s |
-| nightly - every testharness suite | 27,301 files | ~2% | 150s |
-| reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
-
-The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
-its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
-canonical serialization the engine does not produce. Where the parser is actually reached the
-numbers are much higher - `calc-size` at 71%, `urls` at 31%, `position` at 25%.
-
-The reftest rate is the higher one because those exercise layout and painting, which the
-engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
-spread is the interesting part: `fonts`, `syntax`, `borders` and `normal-flow` sit near
-40-50%, while `floats-clear`, `tables`, `linebox` and `css1` are all under 6%.
-
-**Reftest results are not yet stable run to run.** Two full CSS2 runs on one machine gave
-1558 and 1597, with 133 tests changing status in both directions, concentrated in
-`backgrounds`. A third on another machine gave 1562. The error and skip sets are identical
-across all of them, so discovery is deterministic and only the pixel comparison moves.
-That is why the reftests are manual and ungated: a committed baseline would go red on
-noise. `--settle` was tried against the theory that images had not finished decoding; it
-made things worse, so the cause is still open.
-
-## The CI jobs
-
-- **`wpt`** (`ci.yaml`, every push and PR) - runs the gate against
-  `tests/wpt/expectations.txt` at the commit in `tests/wpt/wpt-commit.txt`, and fails if
-  the results move in either direction. Also uploads a coverage report. Without `WPT_ROOT`
-  the test skips, so an ordinary `cargo test` needs no checkout.
-- **`wpt-full`** (`nightly.yaml`, 02:00 UTC) - every testharness suite at wpt HEAD, no
-  baseline, report as an artifact. A failing subtest cannot turn it red.
-- **`wpt-reftests`** (`wpt-reftests.yaml`, manual) - takes a subtree and a settle value as
-  inputs. Not scheduled: a run needs a cairo `gosub-screenshot` build the other jobs'
-  caches cannot share, and nothing it produces is gated.
-
-## Running the reftests
-
-```bash
-# Ahem ships inside wpt; without it fontconfig substitutes and nearly everything fails
-# on sub-pixel differences.
-mkdir -p ~/.local/share/fonts && cp <wpt>/fonts/Ahem.ttf ~/.local/share/fonts/ && fc-cache -f
-fc-match Ahem      # must say Ahem.ttf
-
-cargo build --release -p gosub-screenshot --no-default-features --features backend_cairo
-python3 scripts/wpt-reftest.py --wpt-root <wpt> --out /tmp/reftest --report css/CSS2
-```
-
-The sparse checkout needs `resources fonts css/support css/reference` plus the subtree -
-`css/support` and `css/reference` hold the reference pages. `--report` writes
-`failures.html` with test, reference and diff side by side; `--chrome` adds a headless
-Chromium render of each failure next to them. `scripts/wpt-fonts.conf` pins the generic
-families so results do not depend on the distro's fontconfig defaults.
-
-## The testharness harness
-
-The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
-against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
-small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
-engine's own DOM.
-
-CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
-The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.
-Form controls are **not** covered here. That work lives on its own branch and needs engine
-modules (`edit`, `form`, `focus`) that are not on main yet.
-
-It exists to find bugs, not to run websites.
-
-### Setup
-
-The checkout is pinned: `tests/wpt/wpt-commit.txt` holds the commit CI uses, and results are
-only comparable against that one.
+**1. Get a wpt checkout.** Blob-less and sparse, so it costs a few hundred MB rather than
+several GB. The commit is pinned: results are only comparable against the one in
+`tests/wpt/wpt-commit.txt`.
 
 ```bash
 git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
 cd wpt
-git sparse-checkout set resources common dom/nodes dom/events html/dom
-git checkout "$(cat …/tests/wpt/wpt-commit.txt)"
+git sparse-checkout set resources common css/css-syntax css/css-values css/support css/reference
+git checkout "$(cat /path/to/gosub-engine/tests/wpt/wpt-commit.txt)"
+export WPT_ROOT=$PWD
 ```
 
-```bash
-cargo run -p gosub-wpt -- <wpt-root> <test.html>... [-v]
-```
+`resources` and `common` are always needed; add whichever test directories you want to run.
+The css suites also pull helper scripts out of `css/support` and `css/reference`, which is why
+those are in the list. For the directories CI gates instead, use
+`resources common dom/nodes dom/events html/dom`.
 
-Paths are taken relative to the wpt root when they are not found as given. The exit code is
-non-zero if any subtest failed.
-
-### Running one component
-
-A directory argument runs every testharness suite underneath it, so a component can be named
-rather than listed. This is the way to see where one part of the engine stands:
+**2. Run a component.** A directory argument runs every testharness suite underneath it:
 
 ```bash
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values
 ```
 
-Discovery selects on the harness script rather than on the path, so the reftest halves, the
-`conformance-checkers/` fixtures and the manual tests in the tree are left out - `css/css-values`
-is 270 suites, not the 518 `.html` files it contains.
-
-The run ends with a rollup per directory and the totals:
+**3. Read the result.** Failing subtests scroll past with the assertion that failed, and the
+run ends with a rollup per directory and the totals:
 
 ```
   css/css-values                 █░░░░░░░░░  192/4516    4.3%
   css/css-values/calc-size       ███████░░░     5/7     71.4%
   css/css-values/urls            ███░░░░░░░    39/126   31.0%
 
-  309 files: 16 fully passing, 285 with failures, 5 could not run
-  5314 subtests: 307 passed, 5007 failed
+  270 files: 15 fully passing, 247 with failures, 5 could not run
+  4903 subtests: 292 passed, 4611 failed
   3 files crashed the engine (grep the run for CRASH)
 ```
 
-Grouping is by each suite's own directory, not by a fixed prefix depth, because that is the
-granularity work gets picked at: `calc-size` at 71% and `calc-size/animation` at 0% is the
-useful shape, and one averaged line is not.
+That is the whole setup. The next section is how to turn one of those failures into a fix.
 
-### Picking something to fix
+### Other ways to select tests
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" path/to/one-test.html      # a single suite
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" dom/events html/dom        # several at once
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" some-test.html -v          # show passes too
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all --expect tests/wpt/expectations.txt
+```
+
+Paths are taken relative to the wpt root when they are not found as given. The exit code is
+non-zero if any subtest failed.
+
+Directory discovery selects on the harness script rather than on the path, so the reftest
+halves, the `conformance-checkers/` fixtures and the manual tests are left out —
+`css/css-values` is 270 suites, not the 518 `.html` files it contains.
+
+Grouping in the rollup is by each suite's own directory, not by a fixed prefix depth, because
+that is the granularity work gets picked at: `calc-size` at 71% and `calc-size/animation` at 0%
+is the useful shape, and one averaged line is not.
+
+## Picking something to fix
 
 The tractable work is in the files that are **partly** passing. A suite at 0/40 is usually
 missing a whole binding - `getComputedStyle`, the CSSOM stylesheet - and is a project rather
@@ -212,6 +131,95 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-syntax css/css-values \
 
 A `CRASH` line is the best thing to pick up of all: it means engine code panicked on input a
 real page could carry, which is a bug of a different order from a missing feature.
+
+---
+
+## Reference
+
+### The two harnesses
+
+wpt holds two kinds of test, checked in completely different ways. Neither tool is a browser;
+both drive the engine directly. Everything above is the first column.
+
+| | testharness.js | reftests |
+|---|---|---|
+| How a test passes | JS assertions report themselves | two renders are pixel-identical |
+| What it needs | a DOM and a JS engine | layout, painting, fonts |
+| Tool | `bin/gosub-wpt` (QuickJS via rquickjs) | `scripts/wpt-reftest.py` -> `gosub-screenshot` |
+| In CI | the `wpt` gate on every PR, plus a nightly | manual only |
+
+### What of wpt we can actually run
+
+Of ~57k `.html` files in the corpus (excluding `-ref`/`-notref`, which are the reference
+halves of reftests rather than tests):
+
+- **~27,300** load `resources/testharness.js` - the testharness harness can run these.
+- **~19,800** are reftests - the reftest runner can run these.
+- The rest are manual tests and conformance-checker fixtures. Neither harness can do
+  anything with them: they parse, report zero subtests, and cost runtime. The nightly
+  filters them out with `grep -lFr 'resources/testharness.js'`.
+
+Nothing here runs `.any.js` / `.window.js` / `.worker.js` wrappers, iframes, workers, or
+anything needing navigation or a network.
+
+### Where the numbers stand
+
+Measured at the pinned commit; regenerate rather than trust these.
+
+| Run | Tests | Passing | Time |
+|---|---:|---:|---:|
+| `wpt` gate - `dom/events`, `html/dom` | 621 files (616 report), 1132 subtests | 101 (8.9%) | 8s |
+| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5314 subtests | 307 (5.8%) | 30s |
+| nightly - every testharness suite | 27,301 files | ~2% | 150s |
+| reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
+
+The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
+its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
+canonical serialization the engine does not produce. Where the parser is actually reached the
+numbers are much higher - `calc-size` at 71%, `urls` at 31%, `position` at 25%.
+
+The reftest rate is the higher one because those exercise layout and painting, which the
+engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
+spread is the interesting part: `fonts`, `syntax`, `borders` and `normal-flow` sit near
+40-50%, while `floats-clear`, `tables`, `linebox` and `css1` are all under 6%.
+
+**Reftest results are not yet stable run to run.** Two full CSS2 runs on one machine gave
+1558 and 1597, with 133 tests changing status in both directions, concentrated in
+`backgrounds`. A third on another machine gave 1562. The error and skip sets are identical
+across all of them, so discovery is deterministic and only the pixel comparison moves.
+That is why the reftests are manual and ungated: a committed baseline would go red on
+noise. `--settle` was tried against the theory that images had not finished decoding; it
+made things worse, so the cause is still open.
+
+### The CI jobs
+
+- **`wpt`** (`ci.yaml`, every push and PR) - runs the gate against
+  `tests/wpt/expectations.txt` at the commit in `tests/wpt/wpt-commit.txt`, and fails if
+  the results move in either direction. Also uploads a coverage report. Without `WPT_ROOT`
+  the test skips, so an ordinary `cargo test` needs no checkout.
+- **`wpt-full`** (`nightly.yaml`, 02:00 UTC) - every testharness suite at wpt HEAD, no
+  baseline, report as an artifact. A failing subtest cannot turn it red.
+- **`wpt-reftests`** (`wpt-reftests.yaml`, manual) - takes a subtree and a settle value as
+  inputs. Not scheduled: a run needs a cairo `gosub-screenshot` build the other jobs'
+  caches cannot share, and nothing it produces is gated.
+
+### Running the reftests
+
+```bash
+# Ahem ships inside wpt; without it fontconfig substitutes and nearly everything fails
+# on sub-pixel differences.
+mkdir -p ~/.local/share/fonts && cp <wpt>/fonts/Ahem.ttf ~/.local/share/fonts/ && fc-cache -f
+fc-match Ahem      # must say Ahem.ttf
+
+cargo build --release -p gosub-screenshot --no-default-features --features backend_cairo
+python3 scripts/wpt-reftest.py --wpt-root <wpt> --out /tmp/reftest --report css/CSS2
+```
+
+The sparse checkout needs `resources fonts css/support css/reference` plus the subtree -
+`css/support` and `css/reference` hold the reference pages. `--report` writes
+`failures.html` with test, reference and diff side by side; `--chrome` adds a headless
+Chromium render of each failure next to them. `scripts/wpt-fonts.conf` pins the generic
+families so results do not depend on the distro's fontconfig defaults.
 
 ### The expectations file
 
@@ -289,6 +297,20 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations $(paths...)
 
 Diagnostics (console output, listener and timer exceptions, scripts that threw) go to
 stderr; only results go to stdout, so regenerating never picks up stray lines.
+
+## The testharness bindings
+
+The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
+against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
+small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
+engine's own DOM.
+
+CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
+The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.
+Form controls are **not** covered here. That work lives on its own branch and needs engine
+modules (`edit`, `form`, `focus`) that are not on main yet.
+
+It exists to find bugs, not to run websites.
 
 ### The one rule
 

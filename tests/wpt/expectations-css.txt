@@ -1,34 +1,3 @@
-# Known WPT failures for the CSS parser component: `css/css-syntax` and `css/css-values`.
-#
-# Same format as expectations.txt, plus one more record type:
-#   FILE    <path>            a suite this baseline covers.
-#   FAIL    <path> :: <name>  a subtest expected to fail (control chars escaped \n \r \t \xNN).
-#   HARNESS <path>            a suite whose harness does not finish cleanly (timed out, aborted).
-#   ERROR   <path>            a suite that cannot run at all here (usually a missing support file).
-#   CRASH   <path>            a suite that panics the engine. The most serious record in this
-#                             file: unlike the others it is a bug a real page could reach, so
-#                             a CRASH line is something to fix rather than something to live
-#                             with. Three of them here share one cause - `calc-size()` reaching
-#                             `Unknown syntax component` in gosub_css3's syntax matcher.
-#
-# This file is NOT gated in CI: it exists so the CSS parser's progress is measurable and so a
-# contributor can pick a failing subtest and go fix it. Regenerate it after any change that
-# moves the numbers, and commit the diff:
-#
-#   gosub-wpt "$WPT_ROOT" css/css-syntax css/css-values --write-expectations \
-#       > tests/wpt/expectations-css.txt
-#
-# What reaches these suites today is `element.style` - the specified-value half of
-# CSSStyleDeclaration - over gosub_css3's parser and property definitions. The two things that
-# would move the numbers most are, in order:
-#
-#   1. CSSOM serialization in gosub_css3. `getPropertyValue` gives back the author's text
-#      because `CssValue`'s `Display` is a debug rendering (a `List` prints as `List(a, b, c)`),
-#      so every suite asserting a canonical form fails - `calc()` normalization alone is a few
-#      hundred subtests.
-#   2. `getComputedStyle`. 156 of the 309 files here need it; none can pass without it.
-#
-# See docs/wpt.md for how to run a single component.
 FILE css/css-syntax/anb-parsing.html
 FAIL css/css-syntax/anb-parsing.html :: "odd" becomes "2n+1"
 FAIL css/css-syntax/anb-parsing.html :: "even" becomes "2n"

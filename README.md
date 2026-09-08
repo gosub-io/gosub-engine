@@ -50,28 +50,42 @@ The engine is under active development. What works today:
 
 ## Documentation
 
-Start here, then dig into the topic you need.
+**[`docs/README.md`](docs/README.md) indexes every page under `/docs`.** The pages below are the
+ones worth reading first.
 
 **Getting started**
 
 - [Tutorial](docs/tutorial.md) — start the engine, open a tab, navigate, handle events
 - [Configuration](docs/configuration.md) — choosing a render backend and font system
 - [Running the examples](docs/examples.md) — headless, GUI (winit / GTK4 / egui), and component tools
+- [Headless usage](docs/headless.md) — rendering real pages without a window
 - [WebAssembly](docs/webassembly.md) — compile and run the engine in the browser
 - [Development](docs/development.md) — tests and benchmarks
 
 **Reference**
 
-- [Crates](docs/crates.md) — the workspace crate layout
+- [Crates](docs/crates.md) — the workspace crate layout, and where to find anything
 - [Component tools](docs/binaries.md) — the standalone `cargo run --bin …` tools
 
 **Architecture**
 
+- [The two worlds](docs/two-worlds.md) — the two parallel document/style models and the seam
+  that joins them. Read this before diving into either.
+- [Interface trait families](docs/interface.md) — `ModuleConfiguration` and the `Has*` traits
+  that wire the workspace together
+- [CSS internals](docs/css.md) — `gosub_css3` from text to computed value
+- [HTML5 parsing](docs/html5.md) — tokenizer, tree builder, arena DOM
+- [Render pipeline](docs/render-pipeline/README.md)
+- [Lattice table layout](docs/lattice.md) · [Fonts](docs/fonts.md) · [JavaScript stack](docs/javascript.md)
 - [Networking — architecture](docs/network/net-architecture.md) and [design notes](docs/network/net-design.md)
 - [Cookies](docs/cookies.md)
 - [Storage (local / session)](docs/datastores.md)
 - [Pump](docs/network/pump.md) — moving HTTP stream data to targets
-- [Render pipeline](docs/render-pipeline/README.md)
+
+**Conformance**
+
+- [Web-platform-tests](docs/wpt.md) — running WPT against the engine, where the numbers stand,
+  and how to pick a failing test and fix it
 
 
 ## Contributing
