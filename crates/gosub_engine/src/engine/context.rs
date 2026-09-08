@@ -1458,7 +1458,9 @@ fn pipeline_build_cache(
     // Paint across the full tile-grid width, not the viewport width: the grid's column count
     // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
     // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
-    // rect and leave every column but the first unpainted and unrasterized.
+    // rect and leave every column but the first unpainted and unrasterized. Stages 1-3 moved
+    // to `build_layer_list`, so the width comes off the tile list's layer list, the way the
+    // two incremental paint paths below already take it.
     let page_width = tile_list.layer_list.layout_tree.root_dimension.width;
     let full_page_rect = PipelineRect::new(0.0, 0.0, page_width.max(viewport.width as f64), render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
