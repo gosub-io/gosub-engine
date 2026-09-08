@@ -526,6 +526,15 @@ mod tests {
         }
     }
 
+    /// The resource handoff is process-wide, so these tests take turns with it: run in
+    /// parallel they clear the store out from under each other.
+    fn exclusively<T>(body: impl FnOnce() -> T) -> T {
+        static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _guard = LOCK.lock();
+        gosub_shared::subresource::clear();
+        body()
+    }
+
     fn wired(answer: Option<Vec<u8>>) -> (Arc<MediaStore>, Arc<FakeSource>) {
         let store = Arc::new(MediaStore::new());
         let source = Arc::new(FakeSource {
@@ -539,43 +548,46 @@ mod tests {
     /// The store does not fetch: it names what it needs and takes what arrives.
     #[test]
     fn an_unclaimed_resource_is_asked_for_and_taken() {
-        gosub_shared::subresource::clear();
-        let (store, source) = wired(Some(encode(ImageFormat::Png)));
+        exclusively(|| {
+            let (store, source) = wired(Some(encode(ImageFormat::Png)));
 
-        let (content_type, body) = store
-            .fetch_resource("https://example.test/unclaimed.png")
-            .expect("bytes should arrive");
+            let (content_type, body) = store
+                .fetch_resource("https://example.test/unclaimed.png")
+                .expect("bytes should arrive");
 
-        assert_eq!(source.asked.lock().as_slice(), ["https://example.test/unclaimed.png"]);
-        assert_eq!(content_type.as_deref(), Some("image/png"));
-        assert!(!body.is_empty());
+            assert_eq!(source.asked.lock().as_slice(), ["https://example.test/unclaimed.png"]);
+            assert_eq!(content_type.as_deref(), Some("image/png"));
+            assert!(!body.is_empty());
+        });
     }
 
     /// A resource the document scan already claimed is on its way, and asking again would
     /// fetch it twice — which is the whole reason the handoff exists.
     #[test]
     fn a_resource_already_in_flight_is_waited_for_rather_than_asked_for() {
-        gosub_shared::subresource::clear();
-        let url = "https://example.test/claimed.png";
-        gosub_shared::subresource::begin(url);
-        gosub_shared::subresource::complete(url, Some("image/png".into()), encode(ImageFormat::Png));
+        exclusively(|| {
+            let url = "https://example.test/claimed.png";
+            gosub_shared::subresource::begin(url);
+            gosub_shared::subresource::complete(url, Some("image/png".into()), encode(ImageFormat::Png));
 
-        let (store, source) = wired(None);
-        let (_, body) = store.fetch_resource(url).expect("the delivered bytes");
+            let (store, source) = wired(None);
+            let (_, body) = store.fetch_resource(url).expect("the delivered bytes");
 
-        assert!(source.asked.lock().is_empty(), "should not have asked for it again");
-        assert!(!body.is_empty());
+            assert!(source.asked.lock().is_empty(), "should not have asked for it again");
+            assert!(!body.is_empty());
+        });
     }
 
     /// A store nobody wired up has nowhere to ask, and says so rather than reaching for a
     /// network of its own — which is what it used to do.
     #[test]
     fn a_store_with_no_source_loads_nothing() {
-        gosub_shared::subresource::clear();
-        let store = MediaStore::new();
-        let err = store
-            .fetch_resource("https://example.test/nosource.png")
-            .expect_err("should not load");
-        assert!(err.to_string().contains("no media source"), "got: {err}");
+        exclusively(|| {
+            let store = MediaStore::new();
+            let err = store
+                .fetch_resource("https://example.test/nosource.png")
+                .expect_err("should not load");
+            assert!(err.to_string().contains("no media source"), "got: {err}");
+        });
     }
 }
