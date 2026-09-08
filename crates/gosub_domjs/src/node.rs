@@ -151,6 +151,25 @@ impl GosubNode {
         !self.doc.borrow().children(self.id).is_empty()
     }
 
+    // ── style ──────────────────────────────────────────────────────────────
+
+    /// The element's declaration block. A fresh wrapper each time, deliberately: the block
+    /// itself lives in the `style` attribute, so two wrappers over one element see the same
+    /// declarations and nothing needs to be kept in step.
+    #[qjs(get)]
+    pub fn style<'js>(&self, ctx: Ctx<'js>) -> Result<Value<'js>> {
+        crate::style::wrap(&ctx, &self.doc, self.id)
+    }
+
+    /// `style` is `[PutForwards=cssText]`, so assigning a string to it replaces the block
+    /// rather than the object. Without this a getter-only `style` turns `el.style = "..."` -
+    /// which is how several suites set up their fixture - into a TypeError that takes the
+    /// whole test with it.
+    #[qjs(set, rename = "style")]
+    pub fn set_style(&self, text: String) {
+        crate::style::declaration(&self.doc, self.id).set_css_text(text);
+    }
+
     // ── attributes ─────────────────────────────────────────────────────────
 
     pub fn get_attribute(&self, name: String) -> Option<String> {

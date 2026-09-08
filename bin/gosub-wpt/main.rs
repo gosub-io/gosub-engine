@@ -49,7 +49,8 @@ add_completion_callback(function (tests, harness_status) {
 struct Args {
     /// Root of a web-platform-tests checkout (needs at least `resources/`)
     wpt_root: PathBuf,
-    /// Test files to run, either absolute or relative to the wpt root
+    /// Test files to run, either absolute or relative to the wpt root. A directory runs every
+    /// testharness suite underneath it, so a whole component can be named at once.
     tests: Vec<PathBuf>,
     /// Print every subtest, not just the failures
     #[arg(short, long)]
@@ -86,6 +87,9 @@ struct Expectations {
     /// Files whose harness itself does not finish cleanly - it timed out, or aborted on an
     /// uncaught exception. Separate from a subtest failing.
     unclean: std::collections::HashSet<String>,
+    /// Files that panic the engine. Kept apart from `erroring` so that a crash cannot be
+    /// absorbed into the baseline as though it were a missing support file.
+    crashing: std::collections::HashSet<String>,
 }
 
 impl Expectations {
@@ -111,6 +115,10 @@ impl Expectations {
                 Some(("HARNESS", rest)) => {
                     out.unclean.insert(rest.to_string());
                 }
+                Some(("CRASH", rest)) => {
+                    // Like ERROR, a FILE record is written alongside, so only note the crash.
+                    out.crashing.insert(rest.to_string());
+                }
                 _ => bail!("unrecognised expectation line: {line:?}"),
             }
         }
@@ -119,12 +127,35 @@ impl Expectations {
 }
 
 /// Escape the control characters that would otherwise break the one-record-per-line format.
+///
+/// The named three are not enough on their own: `css/css-syntax` walks the whole C0 range
+/// looking for what a parser must treat as whitespace, so its subtest names carry raw
+/// control bytes, and writing those through left the committed baseline a file `grep` and
+/// `git diff` both refuse to treat as text. The rest become `\xNN`.
+///
+/// One-way, deliberately - nothing ever reads a name back into its original form. Both the
+/// baseline and the name a run compares against it go through here, so the two agree without
+/// the file having to be unescapable.
 fn escape(name: &str) -> String {
-    name.cow_replace('\\', "\\\\")
+    let escaped = name
+        .cow_replace('\\', "\\\\")
         .cow_replace('\n', "\\n")
         .cow_replace('\r', "\\r")
         .cow_replace('\t', "\\t")
-        .into_owned()
+        .into_owned();
+    if !escaped.chars().any(|ch| ch.is_control()) {
+        return escaped;
+    }
+    escaped
+        .chars()
+        .map(|ch| {
+            if ch.is_control() {
+                format!("\\x{:02x}", ch as u32)
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -391,7 +422,11 @@ fn run_test(
     println!("{}: {passed} passed, {failed} failed{known}", test_path.display());
     Ok(Outcome {
         ok: harness_ok && failed == 0 && unexpected_pass == 0,
-        pass: passed,
+        // An unexpected pass counts among the passes here even though it fails the run. The
+        // rate is meant to describe the engine, not the baseline's opinion of it - and the
+        // moment it matters most is the run right after a fix, where leaving these out would
+        // report the numbers as unmoved.
+        pass: passed + unexpected_pass,
         fail: failed + expected,
         harness: results.status != 0,
     })
@@ -405,6 +440,36 @@ struct Row {
     fail: u32,
     harness: bool,
     error: bool,
+    /// The engine panicked while running this suite. Kept apart from `error`, which is a suite
+    /// this tool cannot run (a support file outside the checkout): a panic is a bug in engine
+    /// code that a real page could reach, and folding the two together would let the more
+    /// serious one hide inside the baseline.
+    crash: bool,
+}
+
+thread_local! {
+    /// The message from the most recent panic, stashed by the hook below so the runner can put
+    /// it on the suite's line. The default hook is replaced rather than kept because one engine
+    /// panic is typically reached by hundreds of suites in a corpus run, and a backtrace note
+    /// after every one buries the report it is meant to annotate.
+    static LAST_PANIC: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Route panic messages into `LAST_PANIC` instead of stderr.
+fn capture_panics() {
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|message| (*message).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panicked".to_string());
+        let detail = match info.location() {
+            Some(at) => format!("{payload} (at {}:{})", at.file(), at.line()),
+            None => payload,
+        };
+        LAST_PANIC.with(|slot| *slot.borrow_mut() = Some(detail));
+    }));
 }
 
 /// What the run covered, for the page subtitle: the distinct two-segment prefixes of the
@@ -501,8 +566,44 @@ fn run_or_expect_error(
         fail,
         harness,
         error,
+        crash: false,
     };
-    match run_test(wpt_root, path, verbose, expect, record) {
+    let crashed = || Row {
+        path: key.clone(),
+        pass: 0,
+        fail: 0,
+        harness: false,
+        error: false,
+        crash: true,
+    };
+
+    // A panic in engine code must not take the rest of the corpus with it: one bad property
+    // definition would otherwise end a 309-suite run at whichever file reached it first, and
+    // the report would silently describe only the part before the crash. The runtime is built
+    // inside `run_test` and dropped as the panic unwinds, so the next suite starts clean.
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_test(wpt_root, path, verbose, expect, record)
+    }));
+    let outcome = match caught {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            let detail = LAST_PANIC
+                .with(|slot| slot.borrow_mut().take())
+                .unwrap_or_else(|| "panicked".to_string());
+            if record {
+                println!("FILE {key}");
+                println!("CRASH {key}");
+                return (true, crashed());
+            }
+            if expect.crashing.contains(&key) {
+                println!("{}: known CRASH ({detail})", path.display());
+                return (true, crashed());
+            }
+            println!("{}: CRASH {detail}", path.display());
+            return (false, crashed());
+        }
+    };
+    match outcome {
         Ok(outcome) => {
             if !record && expect.erroring.contains(&key) {
                 println!("{}: UNEXPECTED RUN (listed as ERROR)", path.display());
@@ -553,12 +654,145 @@ fn read_test_list(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 
+/// Expand a directory into the testharness suites underneath it.
+///
+/// wpt keeps four kinds of file in one tree and only one of them means anything here: the
+/// reference halves of reftests, the `conformance-checkers/` fixtures and the manual tests
+/// all parse fine, report zero subtests, and cost a QuickJS context each. Selecting on the
+/// harness script rather than on the path is what makes `gosub-wpt <root> css/css-values` a
+/// run of 270 suites rather than of 518 files.
+fn discover(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
+        let entry = entry.with_context(|| format!("walking {}", dir.display()))?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension() != Some(std::ffi::OsStr::new("html")) {
+            continue;
+        }
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        if stem.ends_with("-ref") || stem.ends_with("-notref") {
+            continue;
+        }
+        // Read rather than parse: the harness link is a literal `src` in the markup, and a
+        // substring test over the file is far cheaper than building a document for every one
+        // of the tens of thousands of files a top-level directory can hold.
+        match std::fs::read_to_string(path) {
+            Ok(text) if text.contains("resources/testharness.js") => found.push(path.to_path_buf()),
+            // Not UTF-8, or unreadable: either way it is not a suite this can run.
+            _ => continue,
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// Resolve a test argument against the wpt root.
+///
+/// A relative path means "inside the wpt root", so try there first. Taking it as given
+/// whenever it happened to exist in the working directory let a same-named local file shadow
+/// the real suite, and its scripts would then resolve against the wrong directory - only to
+/// fall back to the cwd when the root has no such file.
+fn resolve_test_path(wpt_root: &Path, test: &Path) -> PathBuf {
+    if test.is_absolute() {
+        return test.to_path_buf();
+    }
+    let in_root = wpt_root.join(test);
+    if in_root.exists() {
+        in_root
+    } else {
+        test.to_path_buf()
+    }
+}
+
+/// A ten-cell progress bar, so a rate is readable without reading the number.
+fn bar(pass: u32, total: u32) -> String {
+    // Round down, but never all the way to empty while anything passes: a directory at 0.4%
+    // and one at a flat 0% are different news for someone looking for something to work on.
+    let filled = if total == 0 {
+        0
+    } else {
+        let tenths = ((f64::from(pass) / f64::from(total)) * 10.0).floor() as usize;
+        tenths.max(usize::from(pass > 0)).min(10)
+    };
+    "\u{2588}".repeat(filled) + &"\u{2591}".repeat(10 - filled)
+}
+
+/// The end-of-run summary: a rollup per directory, then the totals.
+///
+/// Grouped by each suite's own directory rather than by a fixed prefix depth, because that is
+/// the granularity work gets picked at - `css/css-values/animations` sitting at 2% while
+/// `css/css-values/calc` is at 40% is the useful shape, and one `css/css-values` line
+/// averaging the two together is not.
+fn print_summary(rows: &[Row]) {
+    use std::collections::BTreeMap;
+
+    // BTreeMap: the directories come out in path order, which is the order they are read in.
+    let mut by_dir: BTreeMap<&str, (u32, u32, u32)> = BTreeMap::new();
+    for row in rows {
+        let dir = row.path.rsplit_once('/').map_or(".", |(dir, _)| dir);
+        let slot = by_dir.entry(dir).or_default();
+        slot.0 += row.pass;
+        slot.1 += row.fail;
+        slot.2 += u32::from(row.error);
+    }
+
+    let width = by_dir.keys().map(|dir| dir.len()).max().unwrap_or(0).min(48);
+    // The fractions are right-aligned as a column of their own, so the eye can compare two
+    // directories' totals without re-reading where one number ends and the next begins.
+    let counts_width = by_dir
+        .values()
+        .map(|(pass, fail, _)| format!("{pass}/{}", pass + fail).len())
+        .max()
+        .unwrap_or(0);
+    println!();
+    for (dir, (pass, fail, errors)) in &by_dir {
+        let total = pass + fail;
+        // A directory whose suites all failed to run has no subtests to take a rate over;
+        // printing "0/0 0.0%" there would read as a result rather than as an absence.
+        if total == 0 {
+            println!("  {dir:<width$}  {}  {errors} could not run", bar(0, 0));
+            continue;
+        }
+        let rate = f64::from(*pass) / f64::from(total) * 100.0;
+        let counts = format!("{pass}/{total}");
+        println!(
+            "  {dir:<width$}  {}  {counts:>counts_width$}  {rate:5.1}%",
+            bar(*pass, total)
+        );
+    }
+
+    let files = rows.len();
+    let errored = rows.iter().filter(|row| row.error).count();
+    let crashed = rows.iter().filter(|row| row.crash).count();
+    let clean = rows
+        .iter()
+        .filter(|row| !row.error && !row.crash && !row.harness && row.fail == 0)
+        .count();
+    let (pass, fail) = rows.iter().fold((0, 0), |(p, f), row| (p + row.pass, f + row.fail));
+    println!();
+    println!(
+        "  {files} files: {clean} fully passing, {} with failures, {errored} could not run",
+        files - clean - errored - crashed
+    );
+    println!("  {} subtests: {pass} passed, {fail} failed", pass + fail);
+    // Last, and only when there are any: a panic is an engine bug a real page could reach, so
+    // it should be the line left on screen rather than a number folded into the ones above.
+    if crashed > 0 {
+        println!("  {crashed} files crashed the engine (grep the run for CRASH)");
+    }
+}
+
 fn main() -> ExitCode {
     eprintln!(
         "{} v{} — run WPT testharness tests against the gosub DOM",
         env!("CARGO_BIN_NAME"),
         env!("CARGO_PKG_VERSION")
     );
+
+    capture_panics();
 
     let args = Args::parse();
     let expect = match args.expect.as_deref().map(Expectations::load).transpose() {
@@ -584,30 +818,48 @@ fn main() -> ExitCode {
         }
     }
     if tests.is_empty() {
-        println!("no tests given (pass paths, --tests-from a file, or --all with --expect)");
+        println!("no tests given (pass paths or directories, --tests-from a file, or --all with --expect)");
+        return ExitCode::FAILURE;
+    }
+
+    // Expand directory arguments, so a whole component can be named instead of listing its
+    // suites. Done up front rather than inside the run loop because the summary needs to know
+    // how many suites there are before the first one runs.
+    let mut paths = Vec::with_capacity(tests.len());
+    for test in &tests {
+        let path = resolve_test_path(&args.wpt_root, test);
+        if !path.is_dir() {
+            paths.push(path);
+            continue;
+        }
+        match discover(&path) {
+            Ok(found) if found.is_empty() => {
+                println!("{}: no testharness.js suites under this directory", path.display());
+            }
+            Ok(found) => paths.extend(found),
+            Err(e) => {
+                println!("could not read {}: {e:#}", path.display());
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    if paths.is_empty() {
+        println!("nothing to run");
         return ExitCode::FAILURE;
     }
 
     let mut all_ok = true;
-    let mut rows = Vec::with_capacity(tests.len());
-    for test in &tests {
-        // A relative path means "inside the wpt root", so try there first. Taking it as
-        // given whenever it happened to exist in the working directory let a same-named
-        // local file shadow the real suite, and its scripts would then resolve against the
-        // wrong directory - only to fall back to the cwd when the root has no such file.
-        let path = if test.is_absolute() {
-            test.clone()
-        } else {
-            let in_root = args.wpt_root.join(test);
-            if in_root.exists() {
-                in_root
-            } else {
-                test.clone()
-            }
-        };
-        let (ok, row) = run_or_expect_error(&args.wpt_root, &path, args.verbose, &expect, args.write_expectations);
+    let mut rows = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let (ok, row) = run_or_expect_error(&args.wpt_root, path, args.verbose, &expect, args.write_expectations);
         all_ok &= ok;
         rows.push(row);
+    }
+
+    // Not while regenerating: `--write-expectations` writes the new baseline to stdout, and a
+    // summary in the middle of it would land in the committed file.
+    if !args.write_expectations {
+        print_summary(&rows);
     }
 
     if let Some(report) = args.report.as_deref() {

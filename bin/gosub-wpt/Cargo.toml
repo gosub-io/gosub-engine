@@ -21,6 +21,7 @@ clap = { workspace = true, features = ["derive"] }
 cow-utils = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+walkdir = "2.5.0"
 
 [lints]
 workspace = true

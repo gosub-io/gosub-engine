@@ -238,6 +238,7 @@ HARNESS dom/events/EventListener-incumbent-global-subframe-2.sub.html
 FILE dom/events/EventListener-incumbent-global-subsubframe.sub.html
 HARNESS dom/events/EventListener-incumbent-global-subsubframe.sub.html
 FILE dom/events/EventListener-invoke-legacy.html
+HARNESS dom/events/EventListener-invoke-legacy.html
 FAIL dom/events/EventListener-invoke-legacy.html :: Listener of transitionend
 FAIL dom/events/EventListener-invoke-legacy.html :: Legacy listener of transitionend
 FAIL dom/events/EventListener-invoke-legacy.html :: Listener of animationend

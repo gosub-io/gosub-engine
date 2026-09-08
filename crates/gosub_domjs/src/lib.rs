@@ -25,6 +25,7 @@ mod document;
 pub mod event;
 mod node;
 mod select;
+mod style;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -74,6 +75,7 @@ pub fn install(ctx: &Ctx<'_>, doc: DocHandle, timers: &timers::Timers) -> rquick
     let globals = ctx.globals();
     event::install(ctx)?;
     timers::install(ctx, timers)?;
+    style::install(ctx)?;
     globals.set(WRAPPER_CACHE, ctx.eval::<Value, _>("new Map()")?)?;
 
     let document = Class::instance(ctx.clone(), GosubDocument::new(doc))?;

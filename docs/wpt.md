@@ -31,8 +31,14 @@ Measured at the pinned commit; regenerate rather than trust these.
 | Run | Tests | Passing | Time |
 |---|---:|---:|---:|
 | `wpt` gate - `dom/events`, `html/dom` | 621 files (616 report), 1132 subtests | 101 (8.9%) | 8s |
+| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5314 subtests | 307 (5.8%) | 30s |
 | nightly - every testharness suite | 27,301 files | ~2% | 150s |
 | reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
+
+The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
+its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
+canonical serialization the engine does not produce. Where the parser is actually reached the
+numbers are much higher - `calc-size` at 71%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
 engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
@@ -110,12 +116,123 @@ cargo run -p gosub-wpt -- <wpt-root> <test.html>... [-v]
 Paths are taken relative to the wpt root when they are not found as given. The exit code is
 non-zero if any subtest failed.
 
+### Running one component
+
+A directory argument runs every testharness suite underneath it, so a component can be named
+rather than listed. This is the way to see where one part of the engine stands:
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values
+```
+
+Discovery selects on the harness script rather than on the path, so the reftest halves, the
+`conformance-checkers/` fixtures and the manual tests in the tree are left out - `css/css-values`
+is 270 suites, not the 518 `.html` files it contains.
+
+The run ends with a rollup per directory and the totals:
+
+```
+  css/css-values                 █░░░░░░░░░  192/4516    4.3%
+  css/css-values/calc-size       ███████░░░     5/7     71.4%
+  css/css-values/urls            ███░░░░░░░    39/126   31.0%
+
+  309 files: 16 fully passing, 285 with failures, 5 could not run
+  5314 subtests: 307 passed, 5007 failed
+  3 files crashed the engine (grep the run for CRASH)
+```
+
+Grouping is by each suite's own directory, not by a fixed prefix depth, because that is the
+granularity work gets picked at: `calc-size` at 71% and `calc-size/animation` at 0% is the
+useful shape, and one averaged line is not.
+
+### Picking something to fix
+
+The tractable work is in the files that are **partly** passing. A suite at 0/40 is usually
+missing a whole binding - `getComputedStyle`, the CSSOM stylesheet - and is a project rather
+than an afternoon. A suite at 6/24 has an engine that already understands the shape of the
+thing and is wrong about a detail, which is what you want.
+
+```bash
+# Suites with both passes and failures - the shortlist.
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values 2>/dev/null \
+    | grep -aE '[0-9]+ passed, [0-9]+ failed$' | grep -av ': 0 passed' | grep -av ' 0 failed'
+```
+
+A worked example, start to finish.
+
+**1. Find one.** `css/css-values/viewport-units-parsing.html: 6 passed, 18 failed`.
+
+**2. Read the failures.** Run the single file; every failing line carries the assertion and
+what the engine gave instead. Add `-v` to see the passing subtests too.
+
+```
+$ cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values/viewport-units-parsing.html
+  FAIL e.style['width'] = "1svw" should set the property value - assert_not_equals: property should be set got disallowed value ""
+  FAIL e.style['width'] = "1lvw" should set the property value - assert_not_equals: property should be set got disallowed value ""
+  FAIL e.style['width'] = "1dvw" should set the property value - assert_not_equals: property should be set got disallowed value ""
+```
+
+`vw` passes and `svw`/`lvw`/`dvw` do not, so this is not "viewport units are missing" - it is
+one list somewhere that is short of the small-, large- and dynamic-viewport spellings.
+
+**3. Find the engine code.** Grep for a value that *does* work, next to one that does not:
+
+```bash
+rg '"vw"' crates/gosub_css3/src/
+```
+
+`crates/gosub_css3/src/matcher/syntax_matcher.rs` has `LENGTH_UNITS`, which lists `vh vw vmax
+vmin vb vi` and none of the prefixed forms - while `stylesheet.rs` already resolves `svw`,
+`lvw` and `dvw` to pixels. The validator and the resolver disagree, and the validator is the
+one that is wrong.
+
+**4. Fix it in engine code**, never in the bindings (see [The one rule](#the-one-rule)). Here
+that is 18 strings added to `LENGTH_UNITS`, which takes the file to 24/24.
+
+**5. Check the baseline.** The run now fails, and that is correct:
+
+```
+$ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all --expect tests/wpt/expectations-css.txt
+  UNEXPECTED PASS e.style['width'] = "1svw" should set the property value
+  ...
+  309 files: 17 fully passing, 284 with failures, 5 could not run
+  5314 subtests: 325 passed, 4989 failed
+```
+
+An UNEXPECTED PASS is a listed failure that started working. It fails the run on purpose, so
+that improving behaviour forces the baseline to be regenerated and the file always says what
+the engine actually does.
+
+**6. Regenerate, and commit the diff alongside the fix:**
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-syntax css/css-values \
+    --write-expectations > tests/wpt/expectations-css.txt
+```
+
+A `CRASH` line is the best thing to pick up of all: it means engine code panicked on input a
+real page could carry, which is a bug of a different order from a missing feature.
+
 ### The expectations file
 
 `tests/wpt/expectations.txt` is the committed baseline: which suites are covered, and
-which subtests are known to fail. Four record types - `FILE`, `FAIL <path> :: <name>`,
-`HARNESS` (the harness itself did not finish cleanly) and `ERROR` (the suite cannot run at
-all, usually a support file outside the sparse checkout).
+which subtests are known to fail. Five record types - `FILE`, `FAIL <path> :: <name>`,
+`HARNESS` (the harness itself did not finish cleanly), `ERROR` (the suite cannot run at
+all, usually a support file outside the sparse checkout) and `CRASH` (the engine panicked).
+
+`CRASH` is kept apart from `ERROR` on purpose. An `ERROR` is this tool's limitation; a `CRASH`
+is a panic in engine code that a real page could reach, and folding the two together would let
+the more serious one settle into the baseline unnoticed. The runner catches the panic so one
+bad input cannot end a corpus run at whichever suite reaches it first.
+
+Control characters in subtest names are escaped - `\n`, `\r`, `\t`, and everything else in the
+C0 range as `\xNN`. `css/css-syntax` walks that whole range looking for what a parser must
+treat as whitespace, and writing those bytes through left a baseline that `grep` and `git diff`
+both refused to treat as text.
+
+`tests/wpt/expectations-css.txt` is the same format for the CSS parser component
+(`css/css-syntax` and `css/css-values`). It is **not** gated in CI: it exists so the parser's
+progress is measurable and so a contributor can pick a failing subtest and go fix it.
 
 Files are listed explicitly rather than globbed, so adding tests to a wpt checkout cannot
 silently change what is covered.
@@ -233,6 +350,17 @@ the listener list and has to observe removals made by listeners that run before 
 `document`: `getElementById`, `createElement`, `createTextNode`, `querySelector`,
 `getElementsByTagName`, `body`, `head`, `documentElement`.
 
+`element.style`: the specified-value half of `CSSStyleDeclaration` - `getPropertyValue`,
+`setProperty`, `removeProperty`, `cssText`, `length`, `item`, and named access
+(`style.fontSize`, `style['font-size']`) through a proxy that maps the IDL spelling back to
+the CSS one. Assigning to `style` itself forwards to `cssText`, as `[PutForwards=cssText]`
+requires.
+
+The block **is** the element's `style` attribute, and whether a value is accepted at all is
+decided by `gosub_css3`: the declaration goes through the real parser and is then checked
+against the property's syntax definition. So a green `test_valid_value` says the CSS parser
+took the value, and a green `test_invalid_value` says it refused one it should refuse.
+
 `Node` also carries `addEventListener`, `removeEventListener`, `dispatchEvent` and `click`.
 
 `Node`: `nodeType`, `nodeName`, `tagName`, `localName`, `parentNode`, `parentElement`,
@@ -250,6 +378,18 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
 - **No `CustomEvent`, `MouseEvent` or `KeyboardEvent`** constructors, and no `EventTarget`
   constructor. The forms corpus never uses the first; it uses the mouse and keyboard ones in
   13 files.
+- **No CSSOM serialization.** `getPropertyValue` gives back the text the author wrote, because
+  `CssValue`'s `Display` is a debug rendering rather than a CSS serializer - a `List` prints as
+  `List(a, b, c)`. Every suite asserting a canonical form therefore fails: `calc()`
+  normalization (`calc(1vh + 2px + 3%)` should serialize as `calc(3% + 2px + 1vh)`) is a few
+  hundred subtests on its own. Writing a serializer in the bindings would make those tests
+  measure the binding rather than the engine, so the work belongs in `gosub_css3`.
+- **No `getComputedStyle`**, so nothing about the cascade, inheritance or used values is
+  reachable. 156 of the 309 suites in the CSS component need it and none of them can pass
+  without it - it is the single largest thing standing between the engine and those numbers.
+- **No CSSOM stylesheet.** `style.sheet`, `insertRule`, `deleteRule` and `cssRules[i].cssText`
+  are all missing, which is what `test_valid_selector` and `test_valid_rule` drive - so the
+  selector and at-rule parsers have no coverage here yet.
 - **No interface hierarchy.** One `Node` class dispatches on tag name, so `instanceof`,
   `Option`, `NodeList` and prototype-chain tests fail.
 - **No layout and no navigation**, so iframes, `getBoundingClientRect` and form submission
