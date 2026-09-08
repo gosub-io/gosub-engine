@@ -280,14 +280,19 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             Err(e) => Err(e),
         };
 
-        // Cancel the parent token so that all child fetch tokens (which are children of
-        // parent_cancel via child_token()) are also cancelled. This works regardless of
-        // whether the spawned submission tasks have run yet, since the cancellation
-        // propagates to any child tokens created from parent_cancel in the future too.
-        parent_cancel.cancel();
-
-        // On error or parent cancellation, also await all child tasks to clean up.
+        // A navigation that failed or was abandoned takes its subresource fetches with it:
+        // nothing is going to consume them. Cancelling the parent cancels every child token,
+        // including ones the spawned submission tasks have not created yet.
+        //
+        // A navigation that *succeeded* does not. Those fetches are the images the document
+        // is about to be laid out with, and cancelling them here meant almost every image on
+        // a page was reported cancelled, only for the media store to fetch it all over again
+        // through its own blocking client -- a second connection, a second transfer, and
+        // neither of them visible in the network panel. They finish on their own now, or the
+        // next navigation cancels them.
         if was_cancelled || res.is_err() {
+            parent_cancel.cancel();
+
             let joins: Vec<JoinHandle<()>> = {
                 let mut g = child_tasks.lock();
                 std::mem::take(&mut *g)
@@ -625,8 +630,13 @@ mod tests {
         assert_eq!(count, 3, "expected 3 subresource fetches, saw {}", count);
     }
 
+    /// The rule this replaces was "cancel every subresource when the parse ends", which read
+    /// as tidiness and behaved as waste: an image still in flight was cancelled and then
+    /// fetched all over again by the media store, on a second connection, out of sight of
+    /// the network panel. On a page whose images are slower than its HTML -- which is most
+    /// pages -- that was nearly all of them.
     #[tokio::test(flavor = "current_thread")]
-    async fn parse_bytes_cancels_children_on_finish() {
+    async fn parse_bytes_leaves_subresource_fetches_running_when_the_parse_succeeds() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
@@ -647,17 +657,53 @@ mod tests {
             .await
             .expect("parse ok");
 
-        // Give the pipeline a tick to run the post-parse cancellation
+        // Give the pipeline a tick to do anything it means to do after the parse.
         sleep(Duration::from_millis(10)).await;
 
-        // Assert: all recorded children are canceled (pipeline proactively cancels them at end)
+        // Assert: the fetches are still alive, because the document is about to be laid out
+        // with what they bring back.
         let children = seen_children.lock();
         assert!(!children.is_empty(), "expected subresource children to be recorded");
         for h in children.iter() {
             assert!(
-                h.cancel.is_cancelled(),
-                "child handle should be canceled after parse end"
+                !h.cancel.is_cancelled(),
+                "a subresource fetch should outlive a parse that succeeded"
             );
         }
+    }
+
+    /// The other half of the rule: a navigation nobody is waiting for takes its fetches with
+    /// it. Cancelled before the parse begins, so nothing is submitted at all.
+    #[tokio::test(flavor = "current_thread")]
+    async fn parse_bytes_submits_nothing_for_an_abandoned_navigation() {
+        let (io_tx, seen_children) = start_dummy_io();
+        let zone_id = ZoneId::new();
+        let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
+            zone_id,
+            io_tx,
+            None,
+            10 * 1024 * 1024,
+            Arc::new(Mutex::new(Default::default())),
+        );
+
+        let (req, handle) = test_request("https://example.com/");
+        handle.cancel.cancel();
+        let meta = test_meta("https://example.com/");
+
+        let result = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(
+            &mut pipeline,
+            req,
+            handle,
+            meta,
+            HTML_WITH_RESOURCES.as_bytes(),
+        )
+        .await;
+
+        assert!(result.is_err(), "an abandoned navigation should not produce a document");
+        sleep(Duration::from_millis(10)).await;
+        assert!(
+            seen_children.lock().is_empty(),
+            "an abandoned navigation should not fetch subresources"
+        );
     }
 }
