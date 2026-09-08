@@ -34,6 +34,9 @@ fn main() -> Result<()> {
 
     // Fetch the html from the url
     let parsed_url = url::Url::parse(&url)?;
+    // A standalone tool with no engine behind it: there is no fetcher to route through, and
+    // nothing here loads a page. The ban exists for the engine's own paths.
+    #[allow(clippy::disallowed_methods)]
     let response = gosub_sonar::net::simple::sync_fetch(&parsed_url)?;
     if !response.is_ok() {
         println!("could not get url. Status code {}", response.status);

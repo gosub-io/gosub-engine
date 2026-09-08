@@ -65,6 +65,9 @@ fn main() -> Result<()> {
         Err(_) => url::Url::from_file_path(std::path::Path::new(&url))
             .map_err(|_| anyhow!("Invalid URL or file path: {url}"))?,
     };
+    // A standalone tool with no engine behind it: there is no fetcher to route through, and
+    // nothing here loads a page. The ban exists for the engine's own paths.
+    #[allow(clippy::disallowed_methods)]
     let response = gosub_sonar::net::simple::sync_fetch(&parsed_url)?;
     if !response.is_ok() {
         bail!("Could not get url. Status code {}", response.status);

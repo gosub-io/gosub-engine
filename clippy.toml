@@ -5,6 +5,7 @@ disallowed-methods = [
   { path = "str::to_uppercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_uppercase` instead." },
   { path = "str::replace", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_replace` instead." },
   { path = "str::replacen", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_replacen` instead." },
+  { path = "gosub_sonar::net::simple::sync_fetch", reason = "Every fetch goes through the zone's Fetcher, which carries the policy, the cookie jar, the cache, the net observer, and eventually the net process. A blocking fetch also cannot cross a process boundary, and one made here appears in no devtools panel." },
 ]
 
 disallowed-types = [
