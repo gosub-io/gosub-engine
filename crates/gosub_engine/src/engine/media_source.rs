@@ -51,34 +51,22 @@ impl EngineMediaSource {
     }
 }
 
-impl MediaSource for EngineMediaSource {
-    /// The navigation these requests belong to, which is how the hand-off tells one page's
-    /// preloads from another's. `None` until a navigation commits, and nothing asks for an
-    /// image before then.
-    fn scope(&self) -> Option<gosub_shared::subresource::Scope> {
-        match self.document.read().as_ref() {
-            Some((_, RequestReference::Navigation(nav_id))) => Some(nav_id.as_scope()),
-            _ => None,
-        }
-    }
-
-    fn request(&self, url: &str) {
-        // Nothing to deposit into and nobody waiting: a consumer keyed by a navigation could
-        // not have found these bytes anyway, so this is a request nobody asked for.
-        let Some(scope) = self.scope() else {
-            log::warn!("media request for {url} with no navigation to attribute it to");
-            return;
-        };
+impl EngineMediaSource {
+    /// Put a request for `url` through the zone's fetcher, on behalf of one navigation.
+    ///
+    /// Takes its context rather than reading it: which navigation this belongs to decides
+    /// where the bytes are deposited, and that has to be the same navigation the consumer is
+    /// waiting under. See [`MediaSource::acquire`].
+    fn fetch(&self, scope: gosub_shared::subresource::Scope, doc_url: Url, reference: RequestReference, url: &str) {
         let Ok(parsed) = Url::parse(url) else {
             gosub_shared::subresource::abandon(scope, url);
             return;
         };
 
-        let document = self.document.read().clone();
         // The same refusal the document scan applies, and the reason this belongs on this
         // side of the boundary: a page from the network does not get to read the disk because
         // it named the file somewhere the scan could not see.
-        if parsed.scheme() == "file" && document.as_ref().is_none_or(|(url, _)| url.scheme() != "file") {
+        if parsed.scheme() == "file" && doc_url.scheme() != "file" {
             log::warn!("refusing file:// media {parsed} for a document that was not loaded from disk");
             gosub_shared::subresource::abandon(scope, url);
             return;
@@ -104,7 +92,7 @@ impl MediaSource for EngineMediaSource {
             .with_headers(headers)
             .with_streaming(false)
             .with_auto_decode(true);
-        if let Some((doc_url, reference)) = document {
+        {
             builder = builder
                 .with_referrer(doc_url)
                 .with_reference(REF_REGISTRY.to_net(reference));
@@ -140,18 +128,50 @@ impl MediaSource for EngineMediaSource {
     }
 }
 
+impl MediaSource for EngineMediaSource {
+    /// Claim `url` for the navigation being shown, and start fetching it if the claim was
+    /// this caller's to make. `None` before a navigation commits, when there is no page for a
+    /// request to belong to -- and nothing to ask for an image either.
+    ///
+    /// One read of the document covers the whole operation, because the scope the bytes are
+    /// deposited under, the referrer they are fetched with and the reference that makes them
+    /// visible all have to come from the same navigation. Read separately, a navigation
+    /// committing in between leaves the consumer waiting under the old page's key while the
+    /// bytes arrive under the new one's: a five-second wait and then a failed image, with the
+    /// bytes sitting unclaimed. `set_document` takes the write lock, so it cannot land in
+    /// the middle of this.
+    fn acquire(&self, url: &str) -> Option<gosub_shared::subresource::Scope> {
+        let document = self.document.read();
+        let (doc_url, reference) = document.as_ref()?;
+        let RequestReference::Navigation(nav_id) = reference else {
+            log::warn!("media request for {url} with no navigation to attribute it to");
+            return None;
+        };
+
+        let scope = nav_id.as_scope();
+        // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
+        // one the regex could not match), so ask for it. A resource the scan did see is
+        // already in flight and this does nothing.
+        if gosub_shared::subresource::claim(scope, url) {
+            self.fetch(scope, doc_url.clone(), *reference, url);
+        }
+        Some(scope)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::types::NavigationId;
     use gosub_shared::subresource::Scope;
     use std::time::{Duration, Instant};
 
-    fn source(document: Option<&str>) -> EngineMediaSource {
+    fn source(document: Option<&str>, navigation: NavigationId) -> EngineMediaSource {
         let (io_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let source = EngineMediaSource::new(ZoneId::new(), io_tx, Handle::current(), None);
         source.set_document(
             document.and_then(|d| Url::parse(d).ok()),
-            RequestReference::Navigation(crate::engine::types::NavigationId::new()),
+            RequestReference::Navigation(navigation),
         );
         source
     }
@@ -169,11 +189,9 @@ mod tests {
     /// Refused *and answered*: `take` returning `None` proves nothing on its own, because a
     /// request that was silently dropped reads exactly the same way five seconds later. The
     /// clock is the assertion.
-    fn refusal_is_immediate(source: &EngineMediaSource, scope: Scope, url: &str) {
-        gosub_shared::subresource::begin(scope, url);
-        source.request(url);
-
+    fn refusal_is_immediate(source: &EngineMediaSource, url: &str) {
         let started = Instant::now();
+        let scope = source.acquire(url).expect("a committed navigation has a scope");
         assert!(gosub_shared::subresource::take(scope, url).is_none(), "must not load");
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -187,39 +205,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn a_document_from_the_network_may_not_ask_for_a_local_file() {
         exclusively(|| {
-            let source = source(Some("http://example.com/page.html"));
-            let scope = source.scope().expect("a committed navigation has a scope");
-            refusal_is_immediate(&source, scope, "file:///etc/hostname");
-        });
-    }
-
-    /// What keys the hand-off is the navigation, not the zone: one page's preloads are not
-    /// an answer to another page's request for the same URL, even in the same zone, because
-    /// the two do not share a request context. A second `set_document` is a second page.
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_second_navigation_does_not_inherit_the_first_ones_preloads() {
-        exclusively(|| {
-            let source = source(Some("http://example.com/page.html"));
-            let first = source.scope().expect("a committed navigation has a scope");
-            let url = "http://example.com/hero.png";
-
-            gosub_shared::subresource::begin(first, url);
-            gosub_shared::subresource::complete(first, url, Some("image/png".into()), b"PNG".to_vec());
-
-            // The same tab, the same zone, the next page.
-            source.set_document(
-                Url::parse("http://example.com/next.html").ok(),
-                RequestReference::Navigation(crate::engine::types::NavigationId::new()),
-            );
-            let second = source.scope().expect("and so does the one after it");
-            assert_ne!(first, second, "a new navigation is a new scope");
-            assert!(
-                gosub_shared::subresource::take(second, url).is_none(),
-                "the new page must fetch for itself rather than inherit the old page's bytes"
-            );
-
-            // Still there for the page they were fetched for.
-            assert!(gosub_shared::subresource::take(first, url).is_some());
+            let source = source(Some("http://example.com/page.html"), NavigationId::new());
+            refusal_is_immediate(&source, "file:///etc/hostname");
         });
     }
 
@@ -229,19 +216,61 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn a_source_with_no_document_asks_for_nothing() {
         exclusively(|| {
-            let source = source(None);
-            assert!(source.scope().is_none());
+            let source = source(None, NavigationId::new());
+            let url = "file:///etc/hostname";
+            assert!(source.acquire(url).is_none());
 
             // Nothing announced and nothing deposited: asking under any scope finds an empty
             // store and returns at once, rather than an entry left in flight for a fetch that
             // is never going to happen.
-            let scope: gosub_shared::subresource::Scope = 99;
-            let url = "file:///etc/hostname";
-            source.request(url);
-
             let started = Instant::now();
-            assert!(gosub_shared::subresource::take(scope, url).is_none());
+            assert!(gosub_shared::subresource::take(99 as Scope, url).is_none());
             assert!(started.elapsed() < Duration::from_secs(1));
+        });
+    }
+
+    /// What keys the hand-off is the navigation, not the zone: one page's preloads are not an
+    /// answer to another page's request for the same URL, even in the same tab, because the
+    /// two do not share a request context. A second `set_document` is a second page.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_second_navigation_does_not_inherit_the_first_ones_preloads() {
+        exclusively(|| {
+            let (first, second) = (NavigationId::new(), NavigationId::new());
+            let source = source(Some("http://example.com/page.html"), first);
+            let url = "http://example.com/hero.png";
+
+            gosub_shared::subresource::begin(first.as_scope(), url);
+            gosub_shared::subresource::complete(first.as_scope(), url, Some("image/png".into()), b"PNG".to_vec());
+
+            // The same tab, the same zone, the next page.
+            source.set_document(
+                Url::parse("http://example.com/next.html").ok(),
+                RequestReference::Navigation(second),
+            );
+            assert!(
+                gosub_shared::subresource::take(second.as_scope(), url).is_none(),
+                "the new page must fetch for itself rather than inherit the old page's bytes"
+            );
+            // Still there for the page they were fetched for.
+            assert!(gosub_shared::subresource::take(first.as_scope(), url).is_some());
+        });
+    }
+
+    /// Claiming and asking happen together, under one read of the document, and the scope
+    /// handed back is the one the consumer then waits on. Read separately, a navigation
+    /// committing in between would leave those two disagreeing.
+    ///
+    /// Announced first so the claim fails and no fetch is started: what is under test is
+    /// which scope comes back, not the fetch.
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_scope_handed_back_is_the_navigation_being_shown() {
+        exclusively(|| {
+            let navigation = NavigationId::new();
+            let source = source(Some("http://example.com/page.html"), navigation);
+            let url = "http://example.com/already-claimed.png";
+
+            gosub_shared::subresource::begin(navigation.as_scope(), url);
+            assert_eq!(source.acquire(url), Some(navigation.as_scope()));
         });
     }
 }

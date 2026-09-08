@@ -33,21 +33,20 @@ pub enum MediaRequest {
 /// the cache and the network panel that come with it -- and is the only shape that survives
 /// the fetching moving to another process.
 pub trait MediaSource: Send + Sync {
-    /// The scope this source is fetching in, which is what the hand-off keys its entries by:
-    /// the page the requests belong to. Bytes fetched for one page are not an answer to
-    /// another page's request for the same URL -- two documents can share a cookie jar
-    /// without sharing a request context -- and the store is process-wide, so this is the
-    /// only thing keeping them apart.
+    /// Claim `url` in the hand-off and start fetching it, unless someone already has, and
+    /// say which scope the bytes will arrive under. Returns immediately; the bytes turn up
+    /// in the hand-off, or do not.
     ///
-    /// `None` before there is a page to speak for, which is also before anything can ask for
-    /// an image.
-    fn scope(&self) -> Option<gosub_shared::subresource::Scope>;
-
-    /// Ask for `url`. Returns immediately; the bytes turn up in the handoff, or do not.
+    /// The scope is the page the request belongs to, which is what the hand-off keys its
+    /// entries by: bytes fetched for one page are not an answer to another page's request
+    /// for the same URL, because two documents can share a cookie jar without sharing a
+    /// request context. `None` when there is no page to speak for, which is also before
+    /// anything can ask for an image.
     ///
-    /// Called only when nothing has claimed the URL yet, so an implementation does not need
-    /// to deduplicate.
-    fn request(&self, url: &str);
+    /// Claiming and asking are one operation on purpose. Split in two, the page can change
+    /// between them, and then the consumer waits under one scope while the bytes are
+    /// deposited under another -- which reads as an image that took the timeout to fail.
+    fn acquire(&self, url: &str) -> Option<gosub_shared::subresource::Scope>;
 }
 
 /// Keeps all loaded media in memory so it can be referenced by MediaId.
@@ -356,16 +355,11 @@ impl MediaStore {
         let Some(source) = self.source.read().clone() else {
             anyhow::bail!("no media source is wired up, so {url} cannot be loaded");
         };
-        let Some(scope) = source.scope() else {
+        // The source claims and asks in one step, and hands back the scope it used; waiting
+        // under a scope this side worked out separately would race a page change.
+        let Some(scope) = source.acquire(src) else {
             anyhow::bail!("no page is loaded yet, so {url} belongs to nothing and cannot be loaded");
         };
-
-        // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
-        // one the regex could not match), so ask for it. A resource the scan did see is
-        // already in flight and this does nothing.
-        if gosub_shared::subresource::claim(scope, src) {
-            source.request(src);
-        }
 
         match gosub_shared::subresource::take(scope, src) {
             Some((content_type, body)) => Ok((content_type, Bytes::from(body))),
@@ -538,16 +532,17 @@ mod tests {
     const PAGE: gosub_shared::subresource::Scope = 7;
 
     impl MediaSource for FakeSource {
-        fn scope(&self) -> Option<gosub_shared::subresource::Scope> {
-            Some(PAGE)
-        }
-
-        fn request(&self, url: &str) {
-            self.asked.lock().push(url.to_string());
-            match &self.answer {
-                Some(bytes) => gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), bytes.clone()),
-                None => gosub_shared::subresource::abandon(PAGE, url),
+        fn acquire(&self, url: &str) -> Option<gosub_shared::subresource::Scope> {
+            if gosub_shared::subresource::claim(PAGE, url) {
+                self.asked.lock().push(url.to_string());
+                match &self.answer {
+                    Some(bytes) => {
+                        gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), bytes.clone())
+                    }
+                    None => gosub_shared::subresource::abandon(PAGE, url),
+                }
             }
+            Some(PAGE)
         }
     }
 
