@@ -204,6 +204,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
     media_store: std::sync::Arc<MediaStore>,
 
+    /// Where the media store asks for bytes. Held here as well so each navigation can tell
+    /// it which document its requests belong to. `None` until the tab wires it up.
+    media_source: Option<std::sync::Arc<crate::engine::media_source::EngineMediaSource>>,
+
     /// Per-engine settings store (cloned from the zone/engine). Read settings or subscribe to
     /// changes via [`HasConfig::config`].
     config_store: Config,
@@ -246,6 +250,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
+            media_source: None,
             config_store,
             tile_budget: TileBudget::new(),
         }
@@ -258,6 +263,25 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Installs the active backend's per-tile rasterizer and raster strategy. Called once by the
     /// tab worker from `RenderBackend::create_rasterizer` / `raster_strategy`.
+    /// Tell the media source which navigation its requests belong to.
+    ///
+    /// The URL decides the `Referer` and whether a `file://` image may be loaded at all; the
+    /// reference is what makes the request visible, since the fetcher attaches a null
+    /// observer to a request it cannot place. Called when a navigation commits, before the
+    /// document is installed, so the first layout's requests already carry it.
+    pub fn set_media_navigation(&self, url: Option<Url>, reference: crate::net::req_ref_tracker::RequestReference) {
+        if let Some(source) = &self.media_source {
+            source.set_document(url, reference);
+        }
+    }
+
+    /// Wire the media store to the zone's fetcher. Without this the store has nowhere to ask
+    /// for bytes, so a page renders with placeholders and nothing is fetched.
+    pub fn set_media_source(&mut self, source: std::sync::Arc<crate::engine::media_source::EngineMediaSource>) {
+        self.media_store.set_source(source.clone());
+        self.media_source = Some(source);
+    }
+
     pub fn set_rasterizer(&mut self, rasterizer: Box<dyn Rasterable + Send + Sync>, strategy: RasterStrategy) {
         self.rasterizer = Some(rasterizer);
         self.raster_strategy = strategy;
@@ -276,10 +300,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Sets the parsed DOM document for the given tab.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>) {
-        // Whether images may come off the disk is a property of the document, so the media
-        // store is told before the document is installed. A document with no URL, or one
-        // from the network, gets no local file access.
-        self.media_store.set_document_url(doc.url().as_ref());
         self.document = Some(doc);
         self.dom_dirty = true;
         self.style_dirty = true;

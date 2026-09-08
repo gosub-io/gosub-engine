@@ -283,7 +283,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(config_store.clone());
+        let mut context = BrowsingContext::new(config_store.clone());
+        // The media store fetches nothing itself; this is what turns its requests into real
+        // ones. Wired at construction so an image discovered during the very first layout
+        // has somewhere to go.
+        context.set_media_source(std::sync::Arc::new(
+            crate::engine::media_source::EngineMediaSource::new(
+                zone_id,
+                zone_context.io_tx.clone(),
+                tokio::runtime::Handle::current(),
+                services.accept_language.clone(),
+            ),
+        ));
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -549,6 +560,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // Explicit scope rather than the thread-local one: this is the worker's
                 // async loop, where a thread-local scope is not reliable.
                 gosub_shared::timing::mark_in(scope, "page.dom_complete", Some(final_url.to_string()));
+                self.context.set_media_navigation(
+                    Some(final_url.clone()),
+                    crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
+                );
                 self.context.set_document(Arc::clone(&doc));
 
                 if let Some(cancel) = self

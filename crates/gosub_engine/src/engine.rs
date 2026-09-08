@@ -7,6 +7,7 @@ mod context;
 mod engine;
 mod errors;
 pub mod internal_pages;
+mod media_source;
 pub mod places;
 
 pub mod events;

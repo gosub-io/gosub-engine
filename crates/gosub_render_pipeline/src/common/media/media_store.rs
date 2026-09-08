@@ -25,6 +25,21 @@ pub enum MediaRequest {
     Pending,
 }
 
+/// Whoever can put a URL's bytes into the resource handoff.
+///
+/// The media store does not fetch. It asks for what it needs and waits for the bytes to
+/// appear in [`gosub_shared::subresource`], which is where the engine's resource pipeline
+/// leaves everything it fetches. That keeps every request on one path -- with the policy,
+/// the cache and the network panel that come with it -- and is the only shape that survives
+/// the fetching moving to another process.
+pub trait MediaSource: Send + Sync {
+    /// Ask for `url`. Returns immediately; the bytes turn up in the handoff, or do not.
+    ///
+    /// Called only when nothing has claimed the URL yet, so an implementation does not need
+    /// to deduplicate.
+    fn request(&self, url: &str);
+}
+
 /// Keeps all loaded media in memory so it can be referenced by MediaId.
 pub struct MediaStore {
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
@@ -34,9 +49,10 @@ pub struct MediaStore {
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
     completed: AtomicBool,
-    /// Whether the document being rendered was itself loaded from disk, which is the only
-    /// case in which it may load local files. See [`MediaStore::set_document_url`].
-    document_is_local: AtomicBool,
+    /// Where to ask for bytes this store does not have. `None` in a store nobody has wired
+    /// up -- every test in this crate, and any embedder that only loads media from data it
+    /// already holds -- which then simply has nothing to load.
+    source: RwLock<Option<Arc<dyn MediaSource>>>,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load
@@ -88,9 +104,7 @@ impl MediaStore {
             cache: RwLock::new(HashMap::new()),
             pending: RwLock::new(HashSet::new()),
             completed: AtomicBool::new(false),
-            // Denied until a document says otherwise: a store with no document has no
-            // grounds to read anything off disk.
-            document_is_local: AtomicBool::new(false),
+            source: RwLock::new(None),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
@@ -98,14 +112,9 @@ impl MediaStore {
         }
     }
 
-    /// Tell the store which document it is loading media for.
-    ///
-    /// Only the scheme matters, and only one question is asked of it: may this document read
-    /// local files? A document loaded from disk may; anything from the network may not. Called
-    /// when a navigation commits, and the answer is remembered until the next one.
-    pub fn set_document_url(&self, url: Option<&Url>) {
-        let local = url.is_some_and(|u| u.scheme() == "file");
-        self.document_is_local.store(local, Ordering::Relaxed);
+    /// Wire up where the store asks for bytes it does not have. See [`MediaSource`].
+    pub fn set_source(&self, source: Arc<dyn MediaSource>) {
+        *self.source.write() = Some(source);
     }
 
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
@@ -319,47 +328,32 @@ impl MediaStore {
         }
     }
 
-    /// Blocking fetch returning the raw `Content-Type` header and body. Classification is left to
-    /// the decoder registry, which treats the content type as a hint only.
+    /// Wait for a resource's bytes, asking for them first if nobody else has.
+    ///
+    /// This runs on the background thread [`MediaStore::request_media`] spawns, never on the
+    /// layout thread, so waiting here costs a thread and nothing else. It does not fetch:
+    /// the request goes to the [`MediaSource`], which puts it through the engine's fetcher
+    /// with the policy, cache and observation that belong to it, and the bytes come back
+    /// through the handoff. Classification is left to the decoder registry, which treats the
+    /// content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
         let _t = gosub_shared::timing_guard!("net.fetch.image", src);
 
-        // A page from the network may not read the disk. The resource pipeline already
-        // refuses `file://` subresources for a remote document, before one is ever fetched
-        // (`resource_pipeline/html.rs`, `on_discover`) -- but this fallback never saw that
-        // decision, and the blocking fetch below opens a path perfectly happily. That gap was
-        // reachable: an `<img src="file:///...">` on an http page rendered the local file.
-        //
-        // This is the stopgap. The real fix is that this function stops fetching at all and
-        // takes bytes the pipeline fetched under policy, at which point the rule lives in one
-        // place instead of two.
-        if url.scheme() == "file" && !self.document_is_local.load(Ordering::Relaxed) {
-            anyhow::bail!("refusing to load {url} for a document that was not loaded from disk");
+        // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
+        // one the regex could not match), so ask for it. A resource the scan did see is
+        // already in flight and this does nothing.
+        if gosub_shared::subresource::claim(src) {
+            let Some(source) = self.source.read().clone() else {
+                anyhow::bail!("no media source is wired up, so {url} cannot be loaded");
+            };
+            source.request(src);
         }
 
-        // The resource pipeline already fetched this while the HTML was parsing. Taking its
-        // bytes is what stops every image on every page being transferred twice; it waits if
-        // that fetch is still running, and falls through to its own if there is nothing to
-        // take.
-        if let Some((content_type, body)) = gosub_shared::subresource::take(src) {
-            return Ok((content_type, Bytes::from(body)));
+        match gosub_shared::subresource::take(src) {
+            Some((content_type, body)) => Ok((content_type, Bytes::from(body))),
+            None => anyhow::bail!("no bytes arrived for {url}"),
         }
-
-        // Nothing preloaded: a `data:` URI's sibling, an image discovered after the scan, or
-        // a fetch that failed. This is a blocking fetch on the caller's thread and it goes
-        // through `simple::sync_fetch` rather than the observed Fetcher, so the net observer
-        // never sees it.
-        let response = gosub_sonar::net::simple::sync_fetch(&url)?;
-
-        if !response.is_ok() {
-            anyhow::bail!("HTTP {} fetching resource", response.status);
-        }
-
-        let content_type = response.headers.get("content-type").cloned();
-        let raw_bytes = Bytes::from(response.body);
-
-        Ok((content_type, raw_bytes))
     }
 }
 
@@ -515,48 +509,73 @@ mod tests {
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
     }
 
-    /// Write a file to load through a `file://` URL, and return that URL.
-    fn a_file_on_disk(name: &str) -> Url {
-        let path = std::env::temp_dir().join(format!("gosub-media-guard-{name}"));
-        std::fs::write(&path, b"not really an image, and it does not need to be").expect("write temp file");
-        Url::from_file_path(&path).expect("file url")
+    /// A source that records what it was asked for and answers with whatever it was given.
+    #[derive(Debug)]
+    struct FakeSource {
+        asked: parking_lot::Mutex<Vec<String>>,
+        answer: Option<Vec<u8>>,
     }
 
-    /// The hole this guard closes: a page from the network asking for a local file. The
-    /// resource pipeline refuses to *preload* one, so the request lands here, and here is
-    /// where it used to succeed.
-    #[test]
-    fn a_document_from_the_network_may_not_read_the_disk() {
-        let store = MediaStore::new();
-        store.set_document_url(Url::parse("http://example.com/page.html").ok().as_ref());
-
-        let url = a_file_on_disk("remote");
-        let err = store.fetch_resource(url.as_str()).expect_err("should be refused");
-        assert!(
-            err.to_string().contains("not loaded from disk"),
-            "expected a refusal, got: {err}"
-        );
+    impl MediaSource for FakeSource {
+        fn request(&self, url: &str) {
+            self.asked.lock().push(url.to_string());
+            match &self.answer {
+                Some(bytes) => gosub_shared::subresource::complete(url, Some("image/png".into()), bytes.clone()),
+                None => gosub_shared::subresource::abandon(url),
+            }
+        }
     }
 
-    /// Deny by default: a store nobody has told about a document has no grounds to read
-    /// anything, and the safe answer to "I do not know" is no.
-    #[test]
-    fn a_store_with_no_document_may_not_read_the_disk() {
-        let store = MediaStore::new();
-        let url = a_file_on_disk("nodoc");
-        assert!(store.fetch_resource(url.as_str()).is_err());
+    fn wired(answer: Option<Vec<u8>>) -> (Arc<MediaStore>, Arc<FakeSource>) {
+        let store = Arc::new(MediaStore::new());
+        let source = Arc::new(FakeSource {
+            asked: parking_lot::Mutex::new(Vec::new()),
+            answer,
+        });
+        store.set_source(source.clone());
+        (store, source)
     }
 
-    /// And the case that must keep working: browsing a local file, whose images are local
-    /// files too.
+    /// The store does not fetch: it names what it needs and takes what arrives.
     #[test]
-    fn a_document_loaded_from_disk_may_read_the_disk() {
-        let store = MediaStore::new();
-        let doc = a_file_on_disk("local-doc.html");
-        store.set_document_url(Some(&doc));
+    fn an_unclaimed_resource_is_asked_for_and_taken() {
+        gosub_shared::subresource::clear();
+        let (store, source) = wired(Some(encode(ImageFormat::Png)));
 
-        let url = a_file_on_disk("local");
-        let (_, body) = store.fetch_resource(url.as_str()).expect("should be allowed");
+        let (content_type, body) = store
+            .fetch_resource("https://example.test/unclaimed.png")
+            .expect("bytes should arrive");
+
+        assert_eq!(source.asked.lock().as_slice(), ["https://example.test/unclaimed.png"]);
+        assert_eq!(content_type.as_deref(), Some("image/png"));
         assert!(!body.is_empty());
+    }
+
+    /// A resource the document scan already claimed is on its way, and asking again would
+    /// fetch it twice — which is the whole reason the handoff exists.
+    #[test]
+    fn a_resource_already_in_flight_is_waited_for_rather_than_asked_for() {
+        gosub_shared::subresource::clear();
+        let url = "https://example.test/claimed.png";
+        gosub_shared::subresource::begin(url);
+        gosub_shared::subresource::complete(url, Some("image/png".into()), encode(ImageFormat::Png));
+
+        let (store, source) = wired(None);
+        let (_, body) = store.fetch_resource(url).expect("the delivered bytes");
+
+        assert!(source.asked.lock().is_empty(), "should not have asked for it again");
+        assert!(!body.is_empty());
+    }
+
+    /// A store nobody wired up has nowhere to ask, and says so rather than reaching for a
+    /// network of its own — which is what it used to do.
+    #[test]
+    fn a_store_with_no_source_loads_nothing() {
+        gosub_shared::subresource::clear();
+        let store = MediaStore::new();
+        let err = store
+            .fetch_resource("https://example.test/nosource.png")
+            .expect_err("should not load");
+        assert!(err.to_string().contains("no media source"), "got: {err}");
     }
 }

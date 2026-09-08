@@ -58,10 +58,23 @@ fn store() -> &'static (Mutex<Store>, Condvar) {
 /// Announce that a fetch for `url` has started, so a consumer asking for it waits rather
 /// than starting a second one.
 pub fn begin(url: &str) {
+    let _ = claim(url);
+}
+
+/// Announce a fetch and say whether this caller is the one that has to make it.
+///
+/// `true` means nothing was in flight and nothing has been delivered, so the caller must
+/// fetch. `false` means someone else already has it in hand -- a consumer that discovers a
+/// resource the document scan already saw asks for it exactly this way, and gets told not to
+/// fetch it twice.
+pub fn claim(url: &str) -> bool {
     let (lock, _) = store();
     let mut s = lock.lock();
     // An existing entry is a fetch already announced or already delivered; leave it be.
-    s.entries.entry(url.to_string()).or_insert(Entry::InFlight);
+    !s.entries.contains_key(url) && {
+        s.entries.insert(url.to_string(), Entry::InFlight);
+        true
+    }
 }
 
 /// Deposit the bytes a fetch produced, waking anyone waiting for them.
