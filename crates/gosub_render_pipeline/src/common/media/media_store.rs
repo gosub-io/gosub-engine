@@ -33,11 +33,15 @@ pub enum MediaRequest {
 /// the cache and the network panel that come with it -- and is the only shape that survives
 /// the fetching moving to another process.
 pub trait MediaSource: Send + Sync {
-    /// The isolation scope this source fetches in, which is what the hand-off keys its
-    /// entries by. Bytes fetched with one zone's credentials are not an answer to another
-    /// zone's request for the same URL, and the store is process-wide, so the scope is the
+    /// The scope this source is fetching in, which is what the hand-off keys its entries by:
+    /// the page the requests belong to. Bytes fetched for one page are not an answer to
+    /// another page's request for the same URL -- two documents can share a cookie jar
+    /// without sharing a request context -- and the store is process-wide, so this is the
     /// only thing keeping them apart.
-    fn scope(&self) -> gosub_shared::subresource::Scope;
+    ///
+    /// `None` before there is a page to speak for, which is also before anything can ask for
+    /// an image.
+    fn scope(&self) -> Option<gosub_shared::subresource::Scope>;
 
     /// Ask for `url`. Returns immediately; the bytes turn up in the handoff, or do not.
     ///
@@ -352,7 +356,9 @@ impl MediaStore {
         let Some(source) = self.source.read().clone() else {
             anyhow::bail!("no media source is wired up, so {url} cannot be loaded");
         };
-        let scope = source.scope();
+        let Some(scope) = source.scope() else {
+            anyhow::bail!("no page is loaded yet, so {url} belongs to nothing and cannot be loaded");
+        };
 
         // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
         // one the regex could not match), so ask for it. A resource the scan did see is
@@ -528,19 +534,19 @@ mod tests {
     }
 
     /// The scope a test source fetches in. Which one does not matter, only that producer and
-    /// consumer agree on it, the way a zone and its tabs do.
-    const ZONE: gosub_shared::subresource::Scope = 7;
+    /// consumer agree on it, the way a navigation and its document do.
+    const PAGE: gosub_shared::subresource::Scope = 7;
 
     impl MediaSource for FakeSource {
-        fn scope(&self) -> gosub_shared::subresource::Scope {
-            ZONE
+        fn scope(&self) -> Option<gosub_shared::subresource::Scope> {
+            Some(PAGE)
         }
 
         fn request(&self, url: &str) {
             self.asked.lock().push(url.to_string());
             match &self.answer {
-                Some(bytes) => gosub_shared::subresource::complete(ZONE, url, Some("image/png".into()), bytes.clone()),
-                None => gosub_shared::subresource::abandon(ZONE, url),
+                Some(bytes) => gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), bytes.clone()),
+                None => gosub_shared::subresource::abandon(PAGE, url),
             }
         }
     }
@@ -586,8 +592,8 @@ mod tests {
     fn a_resource_already_in_flight_is_waited_for_rather_than_asked_for() {
         exclusively(|| {
             let url = "https://example.test/claimed.png";
-            gosub_shared::subresource::begin(ZONE, url);
-            gosub_shared::subresource::complete(ZONE, url, Some("image/png".into()), encode(ImageFormat::Png));
+            gosub_shared::subresource::begin(PAGE, url);
+            gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), encode(ImageFormat::Png));
 
             let (store, source) = wired(None);
             let (_, body) = store.fetch_resource(url).expect("the delivered bytes");

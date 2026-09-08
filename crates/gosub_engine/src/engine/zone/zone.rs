@@ -53,16 +53,6 @@ impl ZoneId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
-
-    /// This zone as the subresource hand-off keys its entries.
-    ///
-    /// The hand-off is process-wide and sits below the engine, so it cannot name a zone; it
-    /// takes an opaque scope instead. Zones do not share cookie jars or fetchers, so bytes
-    /// fetched in one must not answer another's request for the same URL, and this is what
-    /// keeps them apart.
-    pub fn as_scope(&self) -> gosub_shared::subresource::Scope {
-        self.0.as_u128()
-    }
 }
 
 impl From<Uuid> for ZoneId {

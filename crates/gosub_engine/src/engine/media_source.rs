@@ -52,12 +52,23 @@ impl EngineMediaSource {
 }
 
 impl MediaSource for EngineMediaSource {
-    fn scope(&self) -> gosub_shared::subresource::Scope {
-        self.zone_id.as_scope()
+    /// The navigation these requests belong to, which is how the hand-off tells one page's
+    /// preloads from another's. `None` until a navigation commits, and nothing asks for an
+    /// image before then.
+    fn scope(&self) -> Option<gosub_shared::subresource::Scope> {
+        match self.document.read().as_ref() {
+            Some((_, RequestReference::Navigation(nav_id))) => Some(nav_id.as_scope()),
+            _ => None,
+        }
     }
 
     fn request(&self, url: &str) {
-        let scope = self.zone_id.as_scope();
+        // Nothing to deposit into and nobody waiting: a consumer keyed by a navigation could
+        // not have found these bytes anyway, so this is a request nobody asked for.
+        let Some(scope) = self.scope() else {
+            log::warn!("media request for {url} with no navigation to attribute it to");
+            return;
+        };
         let Ok(parsed) = Url::parse(url) else {
             gosub_shared::subresource::abandon(scope, url);
             return;
@@ -177,16 +188,60 @@ mod tests {
     async fn a_document_from_the_network_may_not_ask_for_a_local_file() {
         exclusively(|| {
             let source = source(Some("http://example.com/page.html"));
-            refusal_is_immediate(&source, source.scope(), "file:///etc/hostname");
+            let scope = source.scope().expect("a committed navigation has a scope");
+            refusal_is_immediate(&source, scope, "file:///etc/hostname");
         });
     }
 
-    /// A store with no document yet is in no position to allow it either.
+    /// What keys the hand-off is the navigation, not the zone: one page's preloads are not
+    /// an answer to another page's request for the same URL, even in the same zone, because
+    /// the two do not share a request context. A second `set_document` is a second page.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_source_with_no_document_may_not_ask_for_a_local_file() {
+    async fn a_second_navigation_does_not_inherit_the_first_ones_preloads() {
+        exclusively(|| {
+            let source = source(Some("http://example.com/page.html"));
+            let first = source.scope().expect("a committed navigation has a scope");
+            let url = "http://example.com/hero.png";
+
+            gosub_shared::subresource::begin(first, url);
+            gosub_shared::subresource::complete(first, url, Some("image/png".into()), b"PNG".to_vec());
+
+            // The same tab, the same zone, the next page.
+            source.set_document(
+                Url::parse("http://example.com/next.html").ok(),
+                RequestReference::Navigation(crate::engine::types::NavigationId::new()),
+            );
+            let second = source.scope().expect("and so does the one after it");
+            assert_ne!(first, second, "a new navigation is a new scope");
+            assert!(
+                gosub_shared::subresource::take(second, url).is_none(),
+                "the new page must fetch for itself rather than inherit the old page's bytes"
+            );
+
+            // Still there for the page they were fetched for.
+            assert!(gosub_shared::subresource::take(first, url).is_some());
+        });
+    }
+
+    /// A source with no document is in no position to allow anything: it cannot say which
+    /// page a request belongs to, so it makes none at all -- stricter than the `file://`
+    /// refusal it used to answer this case with.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_source_with_no_document_asks_for_nothing() {
         exclusively(|| {
             let source = source(None);
-            refusal_is_immediate(&source, source.scope(), "file:///etc/hostname");
+            assert!(source.scope().is_none());
+
+            // Nothing announced and nothing deposited: asking under any scope finds an empty
+            // store and returns at once, rather than an entry left in flight for a fetch that
+            // is never going to happen.
+            let scope: gosub_shared::subresource::Scope = 99;
+            let url = "file:///etc/hostname";
+            source.request(url);
+
+            let started = Instant::now();
+            assert!(gosub_shared::subresource::take(scope, url).is_none());
+            assert!(started.elapsed() < Duration::from_secs(1));
         });
     }
 }

@@ -22,15 +22,17 @@ use std::time::{Duration, Instant};
 /// A fetched body and the content type it came with.
 type Payload = (Option<String>, Vec<u8>);
 
-/// The isolation boundary a preload belongs to.
+/// The navigation a preload belongs to.
 ///
-/// Zones do not share cookie jars or fetchers, so bytes fetched with one zone's credentials
-/// must never satisfy another zone's request for the same URL. The store is process-wide,
-/// which makes this the only thing keeping them apart. Opaque here because the zone type
-/// lives in the engine, which this crate sits below.
+/// Bytes fetched for one page are not an answer to another page's request for the same URL:
+/// two documents can share a cookie jar without sharing a request context, and the same URL
+/// fetched from each can carry a different `Referer` and different SameSite cookies. The
+/// store is process-wide, which makes this the only thing keeping them apart -- and it keeps
+/// zones apart too, a navigation belonging to exactly one zone. Opaque here because the
+/// engine owns the navigation type and this crate sits below it.
 pub type Scope = u128;
 
-/// What a stored entry is keyed by: the same URL in two zones is two entries.
+/// What a stored entry is keyed by: the same URL in two navigations is two entries.
 type Key = (Scope, String);
 
 enum Entry {
@@ -213,8 +215,8 @@ pub fn clear() {
 mod tests {
     use super::*;
 
-    /// The zone these tests fetch in. Which one does not matter, only that the test about
-    /// isolation uses a different one.
+    /// The navigation these tests fetch for. Which one does not matter, only that the test
+    /// about isolation uses a different one.
     const ZONE: Scope = 1;
 
     /// The store is global, so these run one at a time: `clear()` in one test would
@@ -304,11 +306,12 @@ mod tests {
         });
     }
 
-    /// Two zones do not share a cookie jar or a fetcher, so they must not share bytes
-    /// either: whatever one zone's credentials fetched is not an answer to the other's
-    /// request for the same URL.
+    /// Two pages do not share a request context even when they share a cookie jar: the same
+    /// URL fetched from each can carry a different `Referer` and different SameSite cookies,
+    /// so one page's bytes are not an answer to the other's request for it. Zones fall out of
+    /// the same key, a navigation belonging to exactly one of them.
     #[test]
-    fn one_zone_does_not_answer_another_zones_request() {
+    fn one_page_does_not_answer_another_pages_request() {
         exclusively(|| {
             const OTHER: Scope = 2;
             let url = "https://example.test/private.json";
@@ -316,9 +319,9 @@ mod tests {
             begin(ZONE, url);
             complete(ZONE, url, None, b"secret".to_vec());
 
-            // The other zone sees nothing announced and fetches for itself.
+            // The other page sees nothing announced and fetches for itself.
             assert!(take(OTHER, url).is_none());
-            // And the bytes are still there for the zone they were fetched in.
+            // And the bytes are still there for the page they were fetched for.
             assert_eq!(take(ZONE, url).expect("still claimable").1, b"secret");
         });
     }

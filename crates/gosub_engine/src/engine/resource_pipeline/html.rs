@@ -30,7 +30,7 @@ type SheetBody = Option<(Option<String>, Vec<u8>)>;
 /// consumer waits for bytes that are never coming.
 fn deliver(
     sheet_tx: Option<tokio::sync::oneshot::Sender<SheetBody>>,
-    scope: gosub_shared::subresource::Scope,
+    scope: Option<gosub_shared::subresource::Scope>,
     url: &url::Url,
     body: SheetBody,
 ) {
@@ -40,12 +40,19 @@ fn deliver(
         Some(tx) => {
             let _ = tx.send(body);
         }
-        None => match body {
-            Some((content_type, bytes)) => {
-                gosub_shared::subresource::complete(scope, url.as_str(), content_type, bytes)
+        // Without a scope nothing was announced, so there is nothing to answer: whoever needs
+        // these bytes fetches them itself.
+        None => {
+            let Some(scope) = scope else {
+                return;
+            };
+            match body {
+                Some((content_type, bytes)) => {
+                    gosub_shared::subresource::complete(scope, url.as_str(), content_type, bytes)
+                }
+                None => gosub_shared::subresource::abandon(scope, url.as_str()),
             }
-            None => gosub_shared::subresource::abandon(scope, url.as_str()),
-        },
+        }
     }
 }
 
@@ -107,18 +114,23 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
-        // The main document's request is referenced by the navigation that started it, so
-        // its timings can be attributed without threading a scope through the fetch stack.
-        // Sub-resources reference a Document instead, which carries no navigation - those
-        // stay unattributed until that mapping exists.
-        let timing_scope = crate::net::req_ref_tracker::REF_REGISTRY
+        // The main document's request is referenced by the navigation that started it, so its
+        // timings can be attributed, and its subresources keyed, without threading a scope
+        // through the fetch stack. Anything referenced some other way carries no navigation:
+        // it stays unattributed, and its preloads are not offered to the hand-off at all --
+        // see `nav_scope` below.
+        let navigation = crate::net::req_ref_tracker::REF_REGISTRY
             .from_net(request.reference)
             .and_then(|r| match r {
-                crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
-                    Some(gosub_shared::timing::ScopeId(nav_id.0))
-                }
+                crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => Some(nav_id),
                 _ => None,
             });
+        let timing_scope = navigation.map(|nav_id| gosub_shared::timing::ScopeId(nav_id.0));
+        // Which navigation these preloads belong to. `None` means nobody can say which page
+        // asked for them, and a consumer keyed by a navigation could never match them anyway,
+        // so nothing is announced and each consumer fetches for itself -- the behaviour from
+        // before the hand-off existed, rather than bytes offered to whoever happens to ask.
+        let nav_scope = navigation.map(|nav_id| nav_id.as_scope());
 
         // Filled in below, once the pieces the gate needs exist. The parse only reaches for
         // it when a blocking script forces the issue.
@@ -199,7 +211,9 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 sheet_bodies_for_closure.lock().insert(sub_url.to_string(), rx);
                 Some(tx)
             } else {
-                gosub_shared::subresource::begin(zone_id.as_scope(), sub_url.as_str());
+                if let Some(scope) = nav_scope {
+                    gosub_shared::subresource::begin(scope, sub_url.as_str());
+                }
                 None
             };
 
@@ -213,7 +227,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             // making one: the entry stays in flight, and every later consumer of that URL
             // waits out the full timeout for bytes nobody is bringing.
             if parent_cancel_cloned.is_cancelled() {
-                deliver(sheet_tx, zone_id.as_scope(), &sub_url, None);
+                deliver(sheet_tx, nav_scope, &sub_url, None);
                 return;
             }
 
@@ -232,11 +246,11 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                             // for bytes that are never coming.
                             _ => None,
                         };
-                        deliver(sheet_tx, zone_id.as_scope(), &sub_url, delivered);
+                        deliver(sheet_tx, nav_scope, &sub_url, delivered);
                     }
                     Err(e) => {
                         log::warn!("Failed to submit discovered resource request: {:?}", e);
-                        deliver(sheet_tx, zone_id.as_scope(), &sub_url, None);
+                        deliver(sheet_tx, nav_scope, &sub_url, None);
                     }
                 }
             });
