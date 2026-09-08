@@ -1,4 +1,4 @@
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::option::Option::Some;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -41,6 +41,19 @@ mod quirks;
 pub mod tree_builder;
 
 // ------------------------------------------------------------
+
+/// Whether a stylesheet loaded from `base` may import `resolved`.
+///
+/// `Url::join` returns the request unchanged when it carries its own scheme, so an `@import` can
+/// name any URL it likes - including `file:`, which the fetch path would read straight off disk.
+/// A document fetched over the network must never be able to reach the local filesystem that way,
+/// so a remote sheet may only import over the network. A local sheet is left unrestricted: it can
+/// already read the filesystem it came from.
+#[cfg(not(target_arch = "wasm32"))]
+fn import_scheme_allowed(base: Option<&Url>, resolved: &Url) -> bool {
+    let base_is_remote = base.is_some_and(|u| matches!(u.scheme(), "http" | "https"));
+    !base_is_remote || matches!(resolved.scheme(), "http" | "https")
+}
 
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -188,10 +201,12 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     foster_parenting: bool,
     /// If true, the script engine has already started
     script_already_started: bool,
-    /// Microseconds this parse spent stopped at a script waiting for stylesheets.
-    /// Subtracted from `decode.html`, which measures bytes to DOM: a wait on a CDN is not
-    /// parsing, and counting it there is how that number stopped meaning anything before.
-    blocked_on_css_us: u64,
+    /// Microseconds this parse spent stopped waiting for stylesheets -- at a script that
+    /// blocks, or at an `@import` inside a sheet being parsed. Subtracted from `decode.html`,
+    /// which measures bytes to DOM: a wait on a CDN is not parsing, and counting it there is
+    /// how that number stopped meaning anything before. A `Cell` because an import is
+    /// resolved from `&self`.
+    blocked_on_css_us: Cell<u64>,
     /// Whether the `<script>` currently being read blocks: an inline one always does, and
     /// one with a `src` does unless it is marked `async` or `defer`. Read at the start tag,
     /// where the attributes are, and acted on at the end tag, where the script would run.
@@ -331,7 +346,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             foster_parenting: false,
             script_already_started: false,
             current_script_blocks: false,
-            blocked_on_css_us: 0,
+            blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
@@ -373,7 +388,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             foster_parenting: false,
             script_already_started: false,
             current_script_blocks: false,
-            blocked_on_css_us: 0,
+            blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
@@ -491,7 +506,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         let ret = parser.do_parse();
         wall.end();
 
-        let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us);
+        let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us.get());
         timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
 
         ret
@@ -4152,7 +4167,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             waited.duration(),
             Some(urls.join(" ")),
         );
-        self.blocked_on_css_us += waited.duration();
+        self.blocked_on_css_us
+            .set(self.blocked_on_css_us.get() + waited.duration());
         log::debug!(
             "script blocked on {} stylesheet(s) for {:.1}ms",
             urls.len(),
@@ -4208,12 +4224,81 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         };
 
         match C::CssSystem::parse_str(text, config, origin, &source_url) {
-            Ok(stylesheet) => Some(stylesheet),
+            Ok(mut stylesheet) => {
+                self.resolve_stylesheet_imports(&mut stylesheet);
+                Some(stylesheet)
+            }
             Err(err) => {
                 warn!("Error while parsing CSS stylesheet: {err} ");
                 None
             }
         }
+    }
+
+    /// The text of a stylesheet an `@import` asked for.
+    ///
+    /// The parser does not fetch. It asks the [`StylesheetSource`] -- the same seam a
+    /// `<link>` goes through -- so an import is a Fetcher request like every other
+    /// subresource, is visible in the developer tools, and is subject to the same policy.
+    /// Without a source there is nothing to ask and the import stays unresolved, which is
+    /// the answer wasm has always given.
+    ///
+    /// It still blocks: the sheet is being parsed and the import belongs in it. That is only
+    /// acceptable for the same reason [`Self::settle_stylesheets`] is -- the parse runs on
+    /// the blocking pool. The wait is accumulated so `parse_document` can take it back out
+    /// of `decode.html`; the fetch itself is timed by whoever performs it.
+    fn fetch_css_text(&self, url: &Url) -> Option<String> {
+        let source = self.stylesheet_source.clone()?;
+
+        let mut waited = Timer::new(Some(url.to_string()));
+        let body = source.fetch_blocking(&[url.to_string()]).pop().flatten();
+        waited.end();
+        self.blocked_on_css_us
+            .set(self.blocked_on_css_us.get() + waited.duration());
+
+        match body {
+            Some(bytes) => match String::from_utf8(bytes) {
+                Ok(css) => Some(css),
+                Err(err) => {
+                    warn!("Imported stylesheet from {url} is not valid UTF-8: {err}");
+                    None
+                }
+            },
+            None => {
+                warn!("Could not load imported stylesheet from {url}");
+                None
+            }
+        }
+    }
+
+    /// Pull in every `@import` the stylesheet declares.
+    ///
+    /// Each import is another round trip the parse waits on, and they are sequential, so a
+    /// chain costs its full depth in latency. Handing imports to the resource pipeline the
+    /// way `<link>` is handed to it is the fix; until then an unresolved `@import` silently
+    /// loses a whole stylesheet, which is worse.
+    fn resolve_stylesheet_imports(&self, sheet: &mut <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut fetch = |base: &str, requested: &str| {
+            // A relative import resolves against the importing sheet, not the document.
+            let base_url = Url::parse(base).ok();
+            let resolved = base_url
+                .as_ref()
+                .and_then(|base| base.join(requested).ok())
+                .or_else(|| Url::parse(requested).ok())?;
+
+            if !import_scheme_allowed(base_url.as_ref(), &resolved) {
+                warn!(
+                    "Refusing '{}' import from remote stylesheet {}: only http(s) is allowed",
+                    resolved.scheme(),
+                    base
+                );
+                return None;
+            }
+
+            let text = self.fetch_css_text(&resolved)?;
+            Some((resolved.to_string(), text))
+        };
+        C::CssSystem::resolve_imports(sheet, &mut fetch);
     }
 
     fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
@@ -4283,6 +4368,61 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.parse_error(format!("link element with rel attribute '{rel}' is not supported").as_str());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod import_scheme_tests {
+    use super::import_scheme_allowed;
+    use url::Url;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    /// The one that matters: a sheet served over the network must not be able to name a local
+    /// file. `Url::join` hands back the absolute `file:` URL, and the fetch path would read it.
+    #[test]
+    fn a_remote_sheet_cannot_import_a_local_file() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+
+        let base = url("http://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+    }
+
+    #[test]
+    fn a_remote_sheet_may_import_over_the_network() {
+        let base = url("https://example.org/a.css");
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+        assert!(import_scheme_allowed(Some(&base), &url("http://cdn.example.org/b.css")));
+    }
+
+    /// A local sheet keeps working: it can already read the filesystem it came from.
+    #[test]
+    fn a_local_sheet_is_unrestricted() {
+        let base = url("file:///home/u/site/a.css");
+        assert!(import_scheme_allowed(Some(&base), &url("file:///home/u/site/b.css")));
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+    }
+
+    /// An unparseable base is not known to be remote, so it is not treated as one.
+    #[test]
+    fn an_unknown_base_is_not_treated_as_remote() {
+        assert!(import_scheme_allowed(None, &url("file:///etc/passwd")));
+    }
+
+    /// Other non-network schemes are refused from a remote sheet too, not just `file:`.
+    #[test]
+    fn other_non_network_schemes_are_refused_from_remote() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("data:text/css,body{}")));
     }
 }
 

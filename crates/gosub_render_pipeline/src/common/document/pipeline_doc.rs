@@ -27,6 +27,14 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderBottomColor
         | StyleProperty::BorderLeftColor => {
             if let Some(s) = p.as_string() {
+                // `transparent` tokenises as a plain identifier, so the colour parser does not
+                // recognise it and the property would be left unset - which the painter reads as
+                // "no colour given" and falls back to black. CSS defines it as rgba(0, 0, 0, 0),
+                // and the CSS-triangle idiom (`border-color: transparent transparent green`)
+                // depends on it, so an unresolved `transparent` paints a solid black box.
+                if s.eq_ignore_ascii_case("transparent") {
+                    return Some(Value::Color(0, 0, 0, 0));
+                }
                 if let Some((r, g, b, a)) = css_system_color(s) {
                     return Some(Value::Color(r, g, b, a));
                 }

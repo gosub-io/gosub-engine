@@ -247,6 +247,18 @@
       "description": "Physical-to-CSS pixel ratio (HiDPI scaling)."
     },
     {
+      "key": "prefers_color_scheme",
+      "type": "s",
+      "default": "s:light",
+      "description": "Colour scheme reported to the 'prefers-color-scheme' media feature: 'light' or 'dark'. Any other value is treated as light."
+    },
+    {
+      "key": "prefers_reduced_motion",
+      "type": "b",
+      "default": "b:false",
+      "description": "When enabled, the 'prefers-reduced-motion' media feature reports 'reduce' instead of 'no-preference'."
+    },
+    {
       "key": "tile.size",
       "type": "u",
       "default": "u:256",

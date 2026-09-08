@@ -103,6 +103,12 @@ fn match_selector_part<C: HasDocument>(
 ) -> bool {
     match part {
         CssSelectorPart::Universal => true,
+        // `:not()` matches when none of its arguments do. Each argument is matched against this
+        // same element, so the negation is evaluated where it is written rather than walking the
+        // tree - `:not()` takes a compound, and a compound never crosses a combinator.
+        CssSelectorPart::Not(inner) => !inner
+            .iter()
+            .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo)),
         CssSelectorPart::Type(name) => {
             doc.node_type(current_id) == NodeType::ElementNode && doc.tag_name(current_id).is_some_and(|t| t == name)
         }

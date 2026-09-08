@@ -299,6 +299,8 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    Float,
+    Clear,
 }
 
 impl StyleProperty {
@@ -383,6 +385,8 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
+            StyleProperty::Float => 78,
+            StyleProperty::Clear => 79,
         }
     }
 
@@ -917,6 +921,18 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
+    // 78 float
+    PropertyMeta {
+        name: "float",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 79 clear
+    PropertyMeta {
+        name: "clear",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1056,6 +1072,8 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
+        78 => Some(StyleProperty::Float),
+        79 => Some(StyleProperty::Clear),
         _ => None,
     }
 }

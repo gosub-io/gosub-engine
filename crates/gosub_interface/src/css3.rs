@@ -35,6 +35,12 @@ pub struct HoverFingerprints {
     pub ids: std::collections::HashSet<String>,
 }
 
+/// Fetches an imported stylesheet for [`CssSystem::resolve_imports`].
+///
+/// Called with `(base_url, requested_url)` and returns the absolute URL actually loaded plus
+/// its text, or `None` when it could not be fetched.
+pub type ImportFetcher<'a> = dyn FnMut(&str, &str) -> Option<(String, String)> + 'a;
+
 /// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
 pub trait CssSystem: Clone + Debug + 'static {
@@ -72,6 +78,30 @@ pub trait CssSystem: Clone + Debug + 'static {
         _pseudo: &str,
         _owner: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
+        None
+    }
+
+    /// Resolve the `@import` rules in `sheet`, splicing what they pull in ahead of the
+    /// sheet's own rules.
+    ///
+    /// `fetch` is called with `(base_url, requested_url)` - the importing sheet's own URL and
+    /// the target exactly as written - and returns the absolute URL actually loaded plus its
+    /// text, or `None` when it could not be fetched. Only the host has a network stack and a
+    /// URL resolver, which is why it supplies this; cascade order, media and `supports()`
+    /// gating, cycle detection and recursion limits belong to the CSS implementation.
+    ///
+    /// The default implementation does nothing, leaving `@import` unresolved.
+    fn resolve_imports(_sheet: &mut Self::Stylesheet, _fetch: &mut ImportFetcher<'_>) {}
+
+    /// A hash of everything *outside* the DOM that the cascade reads, under the environment
+    /// currently in force: which `@media` conditions hold, and the viewport when any sheet
+    /// uses viewport-relative units.
+    ///
+    /// Two frames whose fingerprints are equal compute identical styles for an unchanged DOM,
+    /// so a caller can keep every cached computed value across a viewport change instead of
+    /// restyling the document. `None` means the implementation cannot tell, and the caller
+    /// must assume styles went stale - which is the safe answer and the default.
+    fn style_environment_fingerprint(_sheets: &[Self::Stylesheet]) -> Option<u64> {
         None
     }
 

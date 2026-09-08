@@ -150,7 +150,7 @@ pub mod html;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
-pub use engine::{BrowsingContext, EngineError, GosubEngine};
+pub use engine::{BrowsingContext, Damage, DamageLevel, EngineError, GosubEngine};
 
 /// The engine's ready-made config: a marker that implements both
 /// [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) (parse/style stack) and
