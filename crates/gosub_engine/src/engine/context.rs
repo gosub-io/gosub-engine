@@ -193,6 +193,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
+    /// The last point hit-tested, with the scroll it was tested against. Asking again with
+    /// all four the same can only produce the answer already held.
+    hover_probe: Option<(f64, f64, f64, f64)>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -247,6 +250,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_link_url: None,
             focused_node: None,
             hover_cursor: CursorShape::Default,
+            hover_probe: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -950,6 +954,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
+
+        // The same point as last time cannot hover anything new, and a hit test is not free.
+        // Embedders send more of these than one might expect: a windowing system reports
+        // motion when the thing under a still pointer changes, so a page that keeps painting
+        // keeps asking. Scrolling moves the document under the cursor, so that counts as a
+        // move even when the pointer has not.
+        if self.hover_probe == Some((vp_x, vp_y, scroll_x, scroll_y)) {
+            return (false, false, self.hover_link_url.clone());
+        }
+        self.hover_probe = Some((vp_x, vp_y, scroll_x, scroll_y));
 
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
