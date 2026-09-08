@@ -62,26 +62,35 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
     ) -> anyhow::Result<EngineDocument<C>>;
 }
 
-pub struct HtmlPipelineImpl {
+pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     io_tx: IoChannel,
     zone_id: ZoneId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
     max_document_bytes: usize,
+    /// Where `@font-face` fonts are registered, once fetched.
+    font_system: Arc<Mutex<C::FontSystem>>,
 }
 
-impl HtmlPipelineImpl {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
+    pub fn new(
+        zone_id: ZoneId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+        font_system: Arc<Mutex<C::FontSystem>>,
+    ) -> Self {
         Self {
             io_tx,
             zone_id,
             accept_language,
             max_document_bytes,
+            font_system,
         }
     }
 
-    async fn parse_with_reader<C, R>(
+    async fn parse_with_reader<R>(
         &mut self,
         request: FetchRequest,
         handle: FetchHandle,
@@ -89,7 +98,6 @@ impl HtmlPipelineImpl {
         reader: R,
     ) -> anyhow::Result<EngineDocument<C>>
     where
-        C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
         // The main document's request is referenced by the navigation that started it, so
@@ -254,7 +262,7 @@ impl HtmlPipelineImpl {
         // fetched the sheets itself.
         let res = match res {
             Ok(mut doc) => {
-                let sheets = SheetFetch {
+                let sheets = SubFetch {
                     zone_id,
                     io_tx: &io_tx,
                     parent_ref,
@@ -263,6 +271,10 @@ impl HtmlPipelineImpl {
                     referrer: &doc_url,
                 };
                 resolve_pending_stylesheets::<C>(&mut doc, &sheet_bodies, &sheets).await;
+                // Fonts are declared in CSS, so they can only be known once the sheets are.
+                // Registered before the document is handed on, which is what keeps the first
+                // layout from measuring text in a fallback face and having to do it again.
+                super::webfonts::load_web_fonts::<C>(&doc, &doc_url, &self.font_system, &sheets, timing_scope).await;
                 Ok(doc)
             }
             Err(e) => Err(e),
@@ -291,7 +303,7 @@ impl HtmlPipelineImpl {
 }
 
 #[async_trait]
-impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
+impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
     async fn parse_stream(
         &mut self,
         request: FetchRequest,
@@ -301,7 +313,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         shared: Arc<SharedBody>,
     ) -> anyhow::Result<EngineDocument<C>> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
-        self.parse_with_reader::<C, _>(request, handle, meta, reader).await
+        self.parse_with_reader(request, handle, meta, reader).await
     }
 
     async fn parse_bytes(
@@ -314,7 +326,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
-        self.parse_with_reader::<C, _>(request, handle, meta, reader).await
+        self.parse_with_reader(request, handle, meta, reader).await
     }
 }
 
@@ -347,9 +359,10 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
                 let body = match waiting {
                     Some(rx) => rx.await.ok().flatten(),
                     None => {
-                        fetch_stylesheet(
+                        fetch_subresource(
                             url,
-                            &SheetFetch {
+                            crate::net::types::ResourceKind::Stylesheet,
+                            &SubFetch {
                                 zone_id: self.zone_id,
                                 io_tx: &self.io_tx,
                                 parent_ref: self.parent_ref,
@@ -368,14 +381,14 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
     }
 }
 
-/// What [`resolve_pending_stylesheets`] needs to fetch a sheet the document scan missed.
-struct SheetFetch<'a> {
-    zone_id: ZoneId,
-    io_tx: &'a IoChannel,
-    parent_ref: gosub_sonar::RequestReference,
-    parent_cancel: &'a tokio_util::sync::CancellationToken,
-    headers: &'a http::HeaderMap,
-    referrer: &'a url::Url,
+/// What the post-parse stages need to fetch something the document scan missed.
+pub(crate) struct SubFetch<'a> {
+    pub(crate) zone_id: ZoneId,
+    pub(crate) io_tx: &'a IoChannel,
+    pub(crate) parent_ref: gosub_sonar::RequestReference,
+    pub(crate) parent_cancel: &'a tokio_util::sync::CancellationToken,
+    pub(crate) headers: &'a http::HeaderMap,
+    pub(crate) referrer: &'a url::Url,
 }
 
 /// Fetch and parse the stylesheets the parser recorded, and slot them into the cascade.
@@ -390,7 +403,7 @@ struct SheetFetch<'a> {
 async fn resolve_pending_stylesheets<C: RenderConfiguration>(
     doc: &mut EngineDocument<C>,
     bodies: &SheetBodies,
-    fetch: &SheetFetch<'_>,
+    fetch: &SubFetch<'_>,
 ) {
     use gosub_interface::css3::{CssOrigin, CssSystem};
     use gosub_interface::document::Document as _;
@@ -413,7 +426,7 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
             // The scan did not see this link -- it reads raw HTML with a regex, and a
             // `<link>` can be written in ways it does not match. Fetch it now, through the
             // same path, rather than reaching for a client of our own.
-            None => fetch_stylesheet(&url, fetch).await,
+            None => fetch_subresource(&url, crate::net::types::ResourceKind::Stylesheet, fetch).await,
         };
 
         let Some((content_type, bytes)) = body else {
@@ -449,27 +462,31 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
     }
 }
 
-/// Fetch one stylesheet through the zone's fetcher and wait for it.
-async fn fetch_stylesheet(url: &str, fetch: &SheetFetch<'_>) -> SheetBody {
+/// Fetch one subresource through the zone's fetcher and wait for it.
+pub(crate) async fn fetch_subresource(
+    url: &str,
+    kind: crate::net::types::ResourceKind,
+    fetch: &SubFetch<'_>,
+) -> SheetBody {
     let parsed = url::Url::parse(url).ok()?;
     // The same refusal the document scan applies: a page from the network does not get to
-    // read the disk because it wrote the link in a shape the scanner could not see.
+    // read the disk because it named the file somewhere the scanner could not see.
     if parsed.scheme() == "file" && fetch.referrer.scheme() != "file" {
         log::warn!(
-            "refusing file:// stylesheet {parsed} for remote document {}",
+            "refusing file:// subresource {parsed} for remote document {}",
             fetch.referrer
         );
         return None;
     }
 
     let req_id = RequestId::new();
-    REF_REGISTRY.register_request(req_id, crate::net::types::ResourceKind::Stylesheet, Initiator::Parser);
+    REF_REGISTRY.register_request(req_id, kind, Initiator::Parser);
     let req = FetchRequest::builder(Method::GET, parsed)
         .with_req_id(req_id)
         .with_reference(fetch.parent_ref)
         .with_priority(crate::net::types::Priority::High)
         .with_initiator(Initiator::Parser.to_net())
-        .with_kind(crate::net::types::ResourceKind::Stylesheet.to_net())
+        .with_kind(kind.to_net())
         .with_headers(fetch.headers.clone())
         .with_referrer(fetch.referrer.clone())
         .with_streaming(false)
@@ -580,7 +597,13 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
+            zone_id,
+            io_tx,
+            None,
+            10 * 1024 * 1024,
+            Arc::new(Mutex::new(Default::default())),
+        );
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -607,7 +630,13 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
+            zone_id,
+            io_tx,
+            None,
+            10 * 1024 * 1024,
+            Arc::new(Mutex::new(Default::default())),
+        );
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");
