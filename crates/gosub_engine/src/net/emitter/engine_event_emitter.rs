@@ -129,9 +129,15 @@ impl NetObserver for EngineEventEmitter {
                     reference: self.reference,
                     url: url.to_string(),
                     method: method.to_string(),
+                    // Names always, values only where they are safe to pass on: this event
+                    // is an API, and it goes wherever the embedder puts it.
                     headers: headers
                         .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                        .map(|(k, v)| {
+                            let name = k.to_string();
+                            let value = crate::net::emitter::header_value(&name, v.to_str().unwrap_or(""));
+                            (name, value)
+                        })
                         .collect(),
                 });
             }

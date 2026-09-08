@@ -173,6 +173,7 @@ pub use engine::places;
 /// Re-exported rather than making the whole `net::emitter` module public: a shell needs this
 /// one switch, not the observer plumbing behind it.
 pub use net::emitter::{body_capture_limit, capture_body_previews, set_body_capture_limit, set_capture_body_previews};
+pub use net::emitter::{send_sensitive_headers, set_send_sensitive_headers, REDACTED};
 
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};

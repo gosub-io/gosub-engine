@@ -202,8 +202,32 @@ pub fn take(scope: Scope, url: &str) -> Option<Payload> {
     }
 }
 
-/// Drop everything. Called when a navigation commits: the previous page's leftovers are of
-/// no use to the next one, and holding them is a slow leak across a long session.
+/// Drop what one navigation announced or deposited.
+///
+/// For a navigation that ends without being used -- cancelled, or replaced by the next one --
+/// whose preloads nobody is now going to claim. Scoped rather than wholesale because the
+/// store is process-wide: every other tab's in-flight preloads are in here too, and throwing
+/// those away would make them all fetch twice.
+///
+/// A `Ready` entry gives its bytes back to the budget. An `InFlight` one is removed as well:
+/// the fetch behind it was cancelled with the navigation, so nothing was ever going to answer
+/// it, and a consumer that asks now is told to fetch for itself instead of waiting out the
+/// timeout first.
+pub fn clear_scope(scope: Scope) {
+    let (lock, cv) = store();
+    let mut s = lock.lock();
+
+    let doomed: Vec<Key> = s.entries.keys().filter(|(s, _)| *s == scope).cloned().collect();
+    for key in doomed {
+        s.release(&key);
+        s.entries.remove(&key);
+    }
+    // Anyone waiting on one of those is waiting for nothing; wake them to find it gone.
+    cv.notify_all();
+}
+
+/// Drop everything, for a test that wants the store empty. Production code clears by scope:
+/// see [`clear_scope`].
 pub fn clear() {
     let (lock, _) = store();
     let mut s = lock.lock();
@@ -361,6 +385,39 @@ mod tests {
             // The newcomer is stored, and the entry it displaced is simply not there.
             assert!(take(ZONE, "https://example.test/new.bin").is_some());
             assert!(take(ZONE, "https://example.test/old.bin").is_none());
+        });
+    }
+
+    /// A cancelled navigation's leftovers go, and only that navigation's: the store is
+    /// shared with every other tab, whose preloads are still worth having.
+    #[test]
+    fn clearing_one_page_leaves_the_others_alone() {
+        exclusively(|| {
+            const OTHER: Scope = 3;
+            begin(ZONE, "https://example.test/mine.png");
+            complete(ZONE, "https://example.test/mine.png", None, vec![0u8; 64]);
+            begin(OTHER, "https://example.test/theirs.png");
+            complete(OTHER, "https://example.test/theirs.png", None, vec![0u8; 64]);
+
+            clear_scope(ZONE);
+
+            assert!(take(ZONE, "https://example.test/mine.png").is_none());
+            assert!(take(OTHER, "https://example.test/theirs.png").is_some());
+        });
+    }
+
+    /// An announced fetch that was cancelled with its navigation is removed too, or a
+    /// consumer asking afterwards waits out the timeout for bytes nobody is bringing.
+    #[test]
+    fn clearing_a_page_does_not_leave_its_announcements_behind() {
+        exclusively(|| {
+            let url = "https://example.test/cancelled.png";
+            begin(ZONE, url);
+            clear_scope(ZONE);
+
+            let started = std::time::Instant::now();
+            assert!(take(ZONE, url).is_none());
+            assert!(started.elapsed() < WAIT, "answered without sitting out the timeout");
         });
     }
 }

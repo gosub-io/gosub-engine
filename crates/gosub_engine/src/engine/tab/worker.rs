@@ -1994,6 +1994,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 active.nav_id
             );
             active.cancel.cancel();
+            // Whatever that navigation preloaded is now for a page nobody will see. Its own
+            // entries only: the hand-off is process-wide, and every other tab's preloads are
+            // in there too.
+            gosub_shared::subresource::clear_scope(active.nav_id.as_scope());
         }
     }
 

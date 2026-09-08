@@ -1,5 +1,6 @@
 //! Observers the engine attaches to the net stack.
 
+use cow_utils::CowUtils;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub use gosub_sonar::net::observer::NetObserver;
@@ -18,6 +19,49 @@ static CAPTURE_BODY_PREVIEWS: AtomicBool = AtomicBool::new(false);
 const DEFAULT_BODY_CAPTURE_LIMIT: usize = 1024 * 1024;
 
 static BODY_CAPTURE_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_BODY_CAPTURE_LIMIT);
+
+/// Whether a request's `Cookie`, `Authorization` and `Proxy-Authorization` values reach the
+/// embedder, or only the header names.
+///
+/// Redacted by default, and deliberately not a free-for-all the way a browser's own developer
+/// tools are. A `ResourceEvent` is an *API*: it goes wherever the embedder sends it, which may
+/// be a log file, a bug report, or another process once the isolation work lands, and a
+/// session cookie that leaves the machine that way is gone. A panel that genuinely needs the
+/// values -- "is my auth header actually going out?" is a real question -- turns this off
+/// deliberately, the same way it turns body capture on.
+static SEND_SENSITIVE_HEADERS: AtomicBool = AtomicBool::new(false);
+
+/// Header names whose values are worth more than the debugging convenience of showing them.
+const SENSITIVE_HEADERS: [&str; 3] = ["cookie", "authorization", "proxy-authorization"];
+
+/// What stands in for a redacted value. Says what happened rather than showing an empty
+/// string, which reads as "the header was not sent".
+pub const REDACTED: &str = "[redacted]";
+
+/// Let sensitive header values through to the embedder, or stop them. See
+/// [`SEND_SENSITIVE_HEADERS`].
+pub fn set_send_sensitive_headers(enabled: bool) {
+    SEND_SENSITIVE_HEADERS.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether sensitive header values are currently sent.
+pub fn send_sensitive_headers() -> bool {
+    SEND_SENSITIVE_HEADERS.load(Ordering::Relaxed)
+}
+
+/// The value to report for `name`: the value itself, or [`REDACTED`] when it is one of the
+/// headers worth protecting and nobody has asked for them.
+pub fn header_value(name: &str, value: &str) -> String {
+    if send_sensitive_headers() {
+        return value.to_string();
+    }
+    let name = name.cow_to_ascii_lowercase();
+    if SENSITIVE_HEADERS.contains(&name.as_ref()) {
+        REDACTED.to_string()
+    } else {
+        value.to_string()
+    }
+}
 
 /// Turn body capture on or off. See [`CAPTURE_BODY_PREVIEWS`].
 pub fn set_capture_body_previews(enabled: bool) {
@@ -177,6 +221,30 @@ mod tests {
     fn the_switches_default_to_off_and_a_sane_cap() {
         assert!(!capture_body_previews(), "capture is off until a panel asks for it");
         assert_eq!(body_capture_limit(), DEFAULT_BODY_CAPTURE_LIMIT);
+    }
+
+    /// The values worth protecting do not leave the engine unless something asked for them,
+    /// and the header name survives either way -- "a Cookie header was sent, and I am not
+    /// telling you what was in it" is the useful answer, not silence.
+    #[test]
+    fn sensitive_header_values_are_redacted_until_asked_for() {
+        assert!(!send_sensitive_headers(), "redacted until a panel asks");
+
+        assert_eq!(header_value("Cookie", "session=abc123"), REDACTED);
+        assert_eq!(header_value("authorization", "Bearer hunter2"), REDACTED);
+        assert_eq!(header_value("Proxy-Authorization", "Basic Zm9v"), REDACTED);
+        // Everything else is ordinary request metadata.
+        assert_eq!(header_value("Accept", "text/html"), "text/html");
+        assert_eq!(
+            header_value("Referer", "https://example.test/"),
+            "https://example.test/"
+        );
+
+        // A panel that needs them says so, and puts it back afterwards.
+        set_send_sensitive_headers(true);
+        assert_eq!(header_value("Cookie", "session=abc123"), "session=abc123");
+        set_send_sensitive_headers(false);
+        assert_eq!(header_value("Cookie", "session=abc123"), REDACTED);
     }
 }
 
