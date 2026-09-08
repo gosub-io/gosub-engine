@@ -283,18 +283,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let mut context = BrowsingContext::new(config_store.clone());
-        // The media store fetches nothing itself; this is what turns its requests into real
-        // ones. Wired at construction so an image discovered during the very first layout
-        // has somewhere to go.
-        context.set_media_source(std::sync::Arc::new(
-            crate::engine::media_source::EngineMediaSource::new(
-                zone_id,
-                zone_context.io_tx.clone(),
-                tokio::runtime::Handle::current(),
-                services.accept_language.clone(),
-            ),
-        ));
+        let context = BrowsingContext::new(config_store.clone());
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -332,6 +321,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     /// Spawns the tab worker into a new task and returns the join handle
+    /// Give the media store somewhere to send the requests it cannot make itself.
+    ///
+    /// Here rather than in [`Self::new`], which is a synchronous public constructor: the
+    /// source needs a runtime handle to spawn its fetches on -- its callers are plain threads
+    /// waiting on the hand-off, with no runtime of their own -- and `Handle::current()`
+    /// panics outside a runtime. `run_worker` is a future, so by definition something is
+    /// polling it, and it runs before the first layout can ask for an image.
+    fn wire_media_source(&mut self) {
+        self.context.set_media_source(std::sync::Arc::new(
+            crate::engine::media_source::EngineMediaSource::new(
+                self.zone_id,
+                self.zone_context.io_tx.clone(),
+                tokio::runtime::Handle::current(),
+                self.services.accept_language.clone(),
+            ),
+        ));
+    }
+
     pub fn spawn_worker(self) -> anyhow::Result<JoinHandle<()>> {
         let name = format!("Tab Worker {}", self.tab_id);
         let tab_id = self.tab_id;
@@ -367,6 +374,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     // Main loop of the tab worker
     async fn run_worker(mut self) {
         self.sink.set_worker_started_now();
+        self.wire_media_source();
 
         // Announce creation
         self.send_event(EngineEvent::TabCreated {

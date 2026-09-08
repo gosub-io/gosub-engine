@@ -207,9 +207,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
-    /// The last point hit-tested, with the scroll it was tested against. Asking again with
-    /// all four the same can only produce the answer already held.
-    hover_probe: Option<(f64, f64, f64, f64)>,
+    /// The last point hit-tested: the point, the scroll it was tested against, and the scene
+    /// it was tested in. Asking again with all of those the same can only produce the answer
+    /// already held.
+    ///
+    /// The scene is part of it because the geometry is what a hit test reads. A new document
+    /// or a re-layout under a pointer that has not moved answers the same question
+    /// differently, and without the epoch the cached answer -- hover styling, cursor shape,
+    /// link URL -- would stand until the reader moved the mouse.
+    hover_probe: Option<(f64, f64, f64, f64, u64)>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -1209,10 +1215,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // motion when the thing under a still pointer changes, so a page that keeps painting
         // keeps asking. Scrolling moves the document under the cursor, so that counts as a
         // move even when the pointer has not.
-        if self.hover_probe == Some((vp_x, vp_y, scroll_x, scroll_y)) {
+        let probe = (vp_x, vp_y, scroll_x, scroll_y, self.scene_epoch);
+        if self.hover_probe == Some(probe) {
             return (false, false, self.hover_link_url.clone());
         }
-        self.hover_probe = Some((vp_x, vp_y, scroll_x, scroll_y));
+        self.hover_probe = Some(probe);
 
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
             let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverHitTest);

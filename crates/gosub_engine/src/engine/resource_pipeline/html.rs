@@ -28,7 +28,12 @@ type SheetBody = Option<(Option<String>, Vec<u8>)>;
 /// became of a resource somebody else may be waiting on. Exactly one of the two applies,
 /// which is why they share a function: every fetch has to end in one or the other, or a
 /// consumer waits for bytes that are never coming.
-fn deliver(sheet_tx: Option<tokio::sync::oneshot::Sender<SheetBody>>, url: &url::Url, body: SheetBody) {
+fn deliver(
+    sheet_tx: Option<tokio::sync::oneshot::Sender<SheetBody>>,
+    scope: gosub_shared::subresource::Scope,
+    url: &url::Url,
+    body: SheetBody,
+) {
     match sheet_tx {
         // The receiver is gone when the parse ended without wanting this sheet after all
         // (a cancelled navigation, or a `<link>` the scanner saw and the parser did not).
@@ -36,8 +41,10 @@ fn deliver(sheet_tx: Option<tokio::sync::oneshot::Sender<SheetBody>>, url: &url:
             let _ = tx.send(body);
         }
         None => match body {
-            Some((content_type, bytes)) => gosub_shared::subresource::complete(url.as_str(), content_type, bytes),
-            None => gosub_shared::subresource::abandon(url.as_str()),
+            Some((content_type, bytes)) => {
+                gosub_shared::subresource::complete(scope, url.as_str(), content_type, bytes)
+            }
+            None => gosub_shared::subresource::abandon(scope, url.as_str()),
         },
     }
 }
@@ -192,7 +199,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 sheet_bodies_for_closure.lock().insert(sub_url.to_string(), rx);
                 Some(tx)
             } else {
-                gosub_shared::subresource::begin(sub_url.as_str());
+                gosub_shared::subresource::begin(zone_id.as_scope(), sub_url.as_str());
                 None
             };
 
@@ -201,8 +208,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             let child_handles = child_handles_for_closure.clone();
             let child_tasks = child_tasks_for_closure.clone();
 
-            // Parent cancelled, so we don't have to do anything
+            // Parent cancelled, so there is no fetch to make -- but this resource has just
+            // been announced, and an announcement that goes unanswered is worse than never
+            // making one: the entry stays in flight, and every later consumer of that URL
+            // waits out the full timeout for bytes nobody is bringing.
             if parent_cancel_cloned.is_cancelled() {
+                deliver(sheet_tx, zone_id.as_scope(), &sub_url, None);
                 return;
             }
 
@@ -221,11 +232,11 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                             // for bytes that are never coming.
                             _ => None,
                         };
-                        deliver(sheet_tx, &sub_url, delivered);
+                        deliver(sheet_tx, zone_id.as_scope(), &sub_url, delivered);
                     }
                     Err(e) => {
                         log::warn!("Failed to submit discovered resource request: {:?}", e);
-                        deliver(sheet_tx, &sub_url, None);
+                        deliver(sheet_tx, zone_id.as_scope(), &sub_url, None);
                     }
                 }
             });

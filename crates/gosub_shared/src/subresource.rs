@@ -17,16 +17,28 @@
 use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A fetched body and the content type it came with.
 type Payload = (Option<String>, Vec<u8>);
 
+/// The isolation boundary a preload belongs to.
+///
+/// Zones do not share cookie jars or fetchers, so bytes fetched with one zone's credentials
+/// must never satisfy another zone's request for the same URL. The store is process-wide,
+/// which makes this the only thing keeping them apart. Opaque here because the zone type
+/// lives in the engine, which this crate sits below.
+pub type Scope = u128;
+
+/// What a stored entry is keyed by: the same URL in two zones is two entries.
+type Key = (Scope, String);
+
 enum Entry {
     /// A fetch is running. A consumer that asks now waits for it.
     InFlight,
-    /// Bytes waiting to be claimed.
-    Ready(Payload),
+    /// Bytes waiting to be claimed, and when they arrived. The arrival time is what makes
+    /// the oldest evictable when the budget runs out.
+    Ready(Payload, Instant),
     /// The fetch finished without usable bytes. Recorded rather than forgotten so a waiter
     /// stops waiting immediately instead of sitting out its timeout.
     Failed,
@@ -34,10 +46,51 @@ enum Entry {
 
 #[derive(Default)]
 struct Store {
-    entries: HashMap<String, Entry>,
+    entries: HashMap<Key, Entry>,
     /// Bytes held in `Ready` entries, so a page of large images cannot grow this without
     /// limit when nothing claims them.
     held: usize,
+}
+
+impl Store {
+    /// Forget an entry's byte accounting before it is replaced or removed.
+    ///
+    /// Every path that overwrites an entry has to come through here. `held` only ever fell
+    /// in `take`, so a second `complete` for a URL, or an `abandon` over bytes already
+    /// delivered, left those bytes counted against the budget for the life of the process.
+    /// Enough of that and every later fetch is refused storage.
+    fn release(&mut self, key: &Key) {
+        if let Some(Entry::Ready(payload, _)) = self.entries.get(key) {
+            self.held = self.held.saturating_sub(payload.1.len());
+        }
+    }
+
+    /// Drop claimable bytes, oldest first, until `wanted` fits under the budget.
+    ///
+    /// Nothing here is owed to anyone: a `Ready` entry is a guess that someone will ask, and
+    /// a consumer that finds its guess gone simply fetches for itself, which is what it did
+    /// before this module existed. Dropping the oldest guess to make room for a fresher one
+    /// is a better trade than refusing every arrival from here on.
+    fn make_room(&mut self, wanted: usize) {
+        while self.held + wanted > BUDGET {
+            let oldest = self
+                .entries
+                .iter()
+                .filter_map(|(key, entry)| match entry {
+                    Entry::Ready(_, at) => Some((*at, key.clone())),
+                    _ => None,
+                })
+                .min_by_key(|(at, _)| *at);
+
+            let Some((_, key)) = oldest else {
+                // Nothing claimable left to give up: the budget is spoken for by fetches
+                // still running, and this arrival goes unstored.
+                return;
+            };
+            self.release(&key);
+            self.entries.remove(&key);
+        }
+    }
 }
 
 /// Roughly a page's worth of subresources. Past this, new arrivals are dropped rather than
@@ -57,8 +110,8 @@ fn store() -> &'static (Mutex<Store>, Condvar) {
 
 /// Announce that a fetch for `url` has started, so a consumer asking for it waits rather
 /// than starting a second one.
-pub fn begin(url: &str) {
-    let _ = claim(url);
+pub fn begin(scope: Scope, url: &str) {
+    let _ = claim(scope, url);
 }
 
 /// Announce a fetch and say whether this caller is the one that has to make it.
@@ -67,35 +120,44 @@ pub fn begin(url: &str) {
 /// fetch. `false` means someone else already has it in hand -- a consumer that discovers a
 /// resource the document scan already saw asks for it exactly this way, and gets told not to
 /// fetch it twice.
-pub fn claim(url: &str) -> bool {
+pub fn claim(scope: Scope, url: &str) -> bool {
     let (lock, _) = store();
     let mut s = lock.lock();
+    let key = (scope, url.to_string());
     // An existing entry is a fetch already announced or already delivered; leave it be.
-    !s.entries.contains_key(url) && {
-        s.entries.insert(url.to_string(), Entry::InFlight);
+    !s.entries.contains_key(&key) && {
+        s.entries.insert(key, Entry::InFlight);
         true
     }
 }
 
 /// Deposit the bytes a fetch produced, waking anyone waiting for them.
-pub fn complete(url: &str, content_type: Option<String>, body: Vec<u8>) {
+pub fn complete(scope: Scope, url: &str, content_type: Option<String>, body: Vec<u8>) {
     let (lock, cv) = store();
     let mut s = lock.lock();
+    let key = (scope, url.to_string());
+
+    s.release(&key);
+    s.make_room(body.len());
     if s.held + body.len() > BUDGET {
-        // Over budget: record the failure so waiters stop waiting and fetch for themselves.
-        s.entries.insert(url.to_string(), Entry::Failed);
+        // Still no room, so the bytes are dropped rather than stored. Recorded as a failure
+        // so a waiter stops waiting and fetches for itself.
+        s.entries.insert(key, Entry::Failed);
     } else {
         s.held += body.len();
-        s.entries.insert(url.to_string(), Entry::Ready((content_type, body)));
+        s.entries
+            .insert(key, Entry::Ready((content_type, body), Instant::now()));
     }
     cv.notify_all();
 }
 
 /// Record that a fetch produced nothing usable, so waiters stop waiting.
-pub fn abandon(url: &str) {
+pub fn abandon(scope: Scope, url: &str) {
     let (lock, cv) = store();
     let mut s = lock.lock();
-    s.entries.insert(url.to_string(), Entry::Failed);
+    let key = (scope, url.to_string());
+    s.release(&key);
+    s.entries.insert(key, Entry::Failed);
     cv.notify_all();
 }
 
@@ -104,28 +166,33 @@ pub fn abandon(url: &str) {
 /// `None` means "fetch it yourself": nothing was preloaded, the preload failed, or it took
 /// too long. The bytes are removed on claim -- one consumer per URL is the norm, and holding
 /// them for a second that will never come is what a budget exists to prevent.
-pub fn take(url: &str) -> Option<Payload> {
+pub fn take(scope: Scope, url: &str) -> Option<Payload> {
     let (lock, cv) = store();
     let mut s = lock.lock();
+    let key = (scope, url.to_string());
+    // An absolute deadline, not a fresh `WAIT` per wakeup: `complete` and `abandon` wake
+    // *every* waiter, so on a busy page a relative wait is restarted by other people's
+    // fetches and this one can sit here far longer than the bound it is supposed to have.
+    let deadline = Instant::now() + WAIT;
 
     loop {
-        match s.entries.get(url) {
-            Some(Entry::Ready(_)) => {
-                let Some(Entry::Ready(payload)) = s.entries.remove(url) else {
+        match s.entries.get(&key) {
+            Some(Entry::Ready(..)) => {
+                let Some(Entry::Ready(payload, _)) = s.entries.remove(&key) else {
                     return None;
                 };
                 s.held = s.held.saturating_sub(payload.1.len());
                 return Some(payload);
             }
             Some(Entry::Failed) => {
-                s.entries.remove(url);
+                s.entries.remove(&key);
                 return None;
             }
             // Nothing announced: the consumer is ahead of the pipeline, or this URL was
             // never preloaded at all. Either way it fetches for itself.
             None => return None,
             Some(Entry::InFlight) => {
-                if cv.wait_for(&mut s, WAIT).timed_out() {
+                if cv.wait_until(&mut s, deadline).timed_out() {
                     return None;
                 }
             }
@@ -146,6 +213,10 @@ pub fn clear() {
 mod tests {
     use super::*;
 
+    /// The zone these tests fetch in. Which one does not matter, only that the test about
+    /// isolation uses a different one.
+    const ZONE: Scope = 1;
+
     /// The store is global, so these run one at a time: `clear()` in one test would
     /// otherwise wipe an entry another is waiting on, which shows up as a flake rather than
     /// as a failure anyone can read.
@@ -159,14 +230,15 @@ mod tests {
     #[test]
     fn bytes_survive_from_the_fetch_to_the_consumer() {
         exclusively(|| {
-            begin("https://example.test/a.css");
+            begin(ZONE, "https://example.test/a.css");
             complete(
+                ZONE,
                 "https://example.test/a.css",
                 Some("text/css".into()),
                 b"body{}".to_vec(),
             );
 
-            let (kind, body) = take("https://example.test/a.css").expect("claimed");
+            let (kind, body) = take(ZONE, "https://example.test/a.css").expect("claimed");
             assert_eq!(kind.as_deref(), Some("text/css"));
             assert_eq!(body, b"body{}");
         });
@@ -175,30 +247,30 @@ mod tests {
     #[test]
     fn a_url_is_claimed_once() {
         exclusively(|| {
-            begin("https://example.test/b.css");
-            complete("https://example.test/b.css", None, b"x".to_vec());
+            begin(ZONE, "https://example.test/b.css");
+            complete(ZONE, "https://example.test/b.css", None, b"x".to_vec());
 
-            assert!(take("https://example.test/b.css").is_some());
+            assert!(take(ZONE, "https://example.test/b.css").is_some());
             // The second asker fetches for itself rather than waiting on bytes that are gone.
-            assert!(take("https://example.test/b.css").is_none());
+            assert!(take(ZONE, "https://example.test/b.css").is_none());
         });
     }
 
     #[test]
     fn nothing_preloaded_means_fetch_it_yourself() {
         exclusively(|| {
-            assert!(take("https://example.test/never-seen").is_none());
+            assert!(take(ZONE, "https://example.test/never-seen").is_none());
         });
     }
 
     #[test]
     fn a_failed_fetch_does_not_leave_a_consumer_waiting() {
         exclusively(|| {
-            begin("https://example.test/gone.png");
-            abandon("https://example.test/gone.png");
+            begin(ZONE, "https://example.test/gone.png");
+            abandon(ZONE, "https://example.test/gone.png");
 
             let started = std::time::Instant::now();
-            assert!(take("https://example.test/gone.png").is_none());
+            assert!(take(ZONE, "https://example.test/gone.png").is_none());
             assert!(started.elapsed() < WAIT, "returned without sitting out the timeout");
         });
     }
@@ -207,15 +279,15 @@ mod tests {
     fn a_consumer_waits_for_a_fetch_that_is_still_running() {
         exclusively(|| {
             let url = "https://example.test/slow.png";
-            begin(url);
+            begin(ZONE, url);
 
             let writer = std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(120));
-                complete(url, Some("image/png".into()), b"PNG".to_vec());
+                complete(ZONE, url, Some("image/png".into()), b"PNG".to_vec());
             });
 
             // Blocks until the fetch lands rather than starting a second one.
-            let claimed = take(url).expect("waited for the in-flight fetch");
+            let claimed = take(ZONE, url).expect("waited for the in-flight fetch");
             assert_eq!(claimed.1, b"PNG");
             writer.join().unwrap();
         });
@@ -225,10 +297,67 @@ mod tests {
     fn an_oversized_body_is_dropped_rather_than_held() {
         exclusively(|| {
             let url = "https://example.test/huge.bin";
-            begin(url);
-            complete(url, None, vec![0u8; BUDGET + 1]);
+            begin(ZONE, url);
+            complete(ZONE, url, None, vec![0u8; BUDGET + 1]);
             // Refused, so the consumer fetches it itself and the budget is not blown.
-            assert!(take(url).is_none());
+            assert!(take(ZONE, url).is_none());
+        });
+    }
+
+    /// Two zones do not share a cookie jar or a fetcher, so they must not share bytes
+    /// either: whatever one zone's credentials fetched is not an answer to the other's
+    /// request for the same URL.
+    #[test]
+    fn one_zone_does_not_answer_another_zones_request() {
+        exclusively(|| {
+            const OTHER: Scope = 2;
+            let url = "https://example.test/private.json";
+
+            begin(ZONE, url);
+            complete(ZONE, url, None, b"secret".to_vec());
+
+            // The other zone sees nothing announced and fetches for itself.
+            assert!(take(OTHER, url).is_none());
+            // And the bytes are still there for the zone they were fetched in.
+            assert_eq!(take(ZONE, url).expect("still claimable").1, b"secret");
+        });
+    }
+
+    /// `held` is what the budget is enforced against, so anything that replaces stored bytes
+    /// has to give their accounting back. It only ever fell in `take`, which meant a second
+    /// `complete`, or an `abandon` over delivered bytes, charged the budget forever.
+    #[test]
+    fn replacing_stored_bytes_gives_their_budget_back() {
+        exclusively(|| {
+            let url = "https://example.test/replaced.png";
+
+            begin(ZONE, url);
+            complete(ZONE, url, None, vec![0u8; 1024]);
+            complete(ZONE, url, None, vec![0u8; 16]);
+            abandon(ZONE, url);
+
+            let (lock, _) = store();
+            assert_eq!(lock.lock().held, 0, "nothing is stored, so nothing is charged");
+        });
+    }
+
+    /// A full store gives up its oldest guess rather than refusing every arrival from then
+    /// on. Nothing is owed to a `Ready` entry: whoever asks for one that is gone fetches for
+    /// itself, exactly as it would have without this module.
+    #[test]
+    fn a_full_store_evicts_the_oldest_rather_than_failing_everything() {
+        exclusively(|| {
+            let half = BUDGET / 2 + 1;
+            begin(ZONE, "https://example.test/old.bin");
+            complete(ZONE, "https://example.test/old.bin", None, vec![0u8; half]);
+            // Far enough apart to order, without making the test slow.
+            std::thread::sleep(Duration::from_millis(5));
+            begin(ZONE, "https://example.test/new.bin");
+            complete(ZONE, "https://example.test/new.bin", None, vec![0u8; half]);
+
+            // The newcomer is stored, and the entry it displaced is simply not there.
+            assert!(take(ZONE, "https://example.test/new.bin").is_some());
+            assert!(take(ZONE, "https://example.test/old.bin").is_none());
         });
     }
 }

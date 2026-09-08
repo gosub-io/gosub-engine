@@ -52,9 +52,14 @@ impl EngineMediaSource {
 }
 
 impl MediaSource for EngineMediaSource {
+    fn scope(&self) -> gosub_shared::subresource::Scope {
+        self.zone_id.as_scope()
+    }
+
     fn request(&self, url: &str) {
+        let scope = self.zone_id.as_scope();
         let Ok(parsed) = Url::parse(url) else {
-            gosub_shared::subresource::abandon(url);
+            gosub_shared::subresource::abandon(scope, url);
             return;
         };
 
@@ -64,7 +69,7 @@ impl MediaSource for EngineMediaSource {
         // it named the file somewhere the scan could not see.
         if parsed.scheme() == "file" && document.as_ref().is_none_or(|(url, _)| url.scheme() != "file") {
             log::warn!("refusing file:// media {parsed} for a document that was not loaded from disk");
-            gosub_shared::subresource::abandon(url);
+            gosub_shared::subresource::abandon(scope, url);
             return;
         }
 
@@ -115,10 +120,10 @@ impl MediaSource for EngineMediaSource {
                 }
             };
             match delivered {
-                Some((content_type, bytes)) => gosub_shared::subresource::complete(&url, content_type, bytes),
+                Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &url, content_type, bytes),
                 // Always answered, one way or the other: a consumer waiting on this URL is
                 // otherwise left waiting for bytes that are never coming.
-                None => gosub_shared::subresource::abandon(&url),
+                None => gosub_shared::subresource::abandon(scope, &url),
             }
         });
     }
@@ -127,6 +132,8 @@ impl MediaSource for EngineMediaSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gosub_shared::subresource::Scope;
+    use std::time::{Duration, Instant};
 
     fn source(document: Option<&str>) -> EngineMediaSource {
         let (io_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -138,31 +145,48 @@ mod tests {
         source
     }
 
+    /// The hand-off is process-wide and `clear()` empties all of it, so these take turns:
+    /// run in parallel they wipe entries another test is waiting on, which shows up as a
+    /// flake rather than as a failure anyone can read.
+    fn exclusively<T>(body: impl FnOnce() -> T) -> T {
+        static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _guard = LOCK.lock();
+        gosub_shared::subresource::clear();
+        body()
+    }
+
+    /// Refused *and answered*: `take` returning `None` proves nothing on its own, because a
+    /// request that was silently dropped reads exactly the same way five seconds later. The
+    /// clock is the assertion.
+    fn refusal_is_immediate(source: &EngineMediaSource, scope: Scope, url: &str) {
+        gosub_shared::subresource::begin(scope, url);
+        source.request(url);
+
+        let started = Instant::now();
+        assert!(gosub_shared::subresource::take(scope, url).is_none(), "must not load");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "the refusal has to answer the hand-off, not leave the consumer to time out"
+        );
+    }
+
     /// The rule the document scan applies, applied here too, because this is the other way a
     /// request reaches the network: an image named somewhere the scan could not read it. A
     /// page served over http rendering a local file was reachable through exactly this gap.
     #[tokio::test(flavor = "current_thread")]
     async fn a_document_from_the_network_may_not_ask_for_a_local_file() {
-        gosub_shared::subresource::clear();
-        let url = "file:///etc/hostname";
-        gosub_shared::subresource::begin(url);
-
-        source(Some("http://example.com/page.html")).request(url);
-
-        // Refused, and said so: a consumer waiting on this URL gets an answer rather than
-        // waiting out the timeout for bytes that were never going to come.
-        assert!(gosub_shared::subresource::take(url).is_none());
+        exclusively(|| {
+            let source = source(Some("http://example.com/page.html"));
+            refusal_is_immediate(&source, source.scope(), "file:///etc/hostname");
+        });
     }
 
     /// A store with no document yet is in no position to allow it either.
     #[tokio::test(flavor = "current_thread")]
     async fn a_source_with_no_document_may_not_ask_for_a_local_file() {
-        gosub_shared::subresource::clear();
-        let url = "file:///etc/hostname";
-        gosub_shared::subresource::begin(url);
-
-        source(None).request(url);
-
-        assert!(gosub_shared::subresource::take(url).is_none());
+        exclusively(|| {
+            let source = source(None);
+            refusal_is_immediate(&source, source.scope(), "file:///etc/hostname");
+        });
     }
 }
