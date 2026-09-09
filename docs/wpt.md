@@ -1,7 +1,178 @@
 # Running web-platform-tests
 
-Two harnesses, because wpt holds two kinds of test that are checked in completely
-different ways. Neither is a browser: both drive the engine directly.
+[WPT](https://github.com/web-platform-tests/wpt) is the conformance suite the browser vendors
+share. `bin/gosub-wpt` runs its `testharness.js` tests against the engine directly — it is not
+a browser, and there is no navigation and no network.
+
+> In a hurry? [**docs/wpt-quickstart.md**](wpt-quickstart.md) goes from cloning the engine to a
+> fixed test in one linear pass. This page is the reference behind it.
+
+## Quick start
+
+**1. Get a wpt checkout.** Blob-less and sparse, so it costs a few hundred MB rather than
+several GB. The commit is pinned: results are only comparable against the one in
+`tests/wpt/wpt-commit.txt`.
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
+cd wpt
+git sparse-checkout set resources common css/css-syntax css/css-values css/support css/reference
+git checkout "$(cat /path/to/gosub-engine/tests/wpt/wpt-commit.txt)"
+export WPT_ROOT=$PWD
+```
+
+`resources` and `common` are always needed; add whichever test directories you want to run.
+The css suites also pull helper scripts out of `css/support` and `css/reference`, which is why
+those are in the list. For the directories CI gates instead, use
+`resources common dom/nodes dom/events html/dom`.
+
+**2. Run a component.** A directory argument runs every testharness suite underneath it:
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values
+```
+
+**3. Read the result.** Failing subtests scroll past with the assertion that failed, and the
+run ends with a rollup per directory and the totals:
+
+```
+  css/css-values                 █░░░░░░░░░  192/4516    4.3%
+  css/css-values/calc-size       ███████░░░     5/7     71.4%
+  css/css-values/urls            ███░░░░░░░    39/126   31.0%
+
+  270 files: 15 fully passing, 247 with failures, 5 could not run
+  4903 subtests: 292 passed, 4611 failed
+  3 files crashed the engine (grep the run for CRASH)
+```
+
+That is the whole setup. The next section is how to turn one of those failures into a fix.
+
+### The make targets
+
+With a checkout in `wpt/` (or `WPT_ROOT` set), these wrap the commands above:
+
+| | |
+|---|---|
+| `make wpt` | check the gate against `tests/wpt/expectations.txt` |
+| `make wpt-css` | check the CSS component against `tests/wpt/expectations-css.txt` |
+| `make wpt-shortlist` | what to work on (`DIR=dom/events` to pick the subtree) |
+| `make wpt-update` | regenerate both baselines after a fix |
+
+Each checks that the checkout actually holds the directories it reads, and prints the
+`sparse-checkout add` line if not. That matters because the sparse set is as much a part of a
+result as the commit: run the gate against a checkout made for the CSS component and all 621 of
+its suites report `ERROR`, and regenerating from that would replace the baseline with nothing.
+
+`make test` does not run any of them - an ordinary build needs no wpt checkout.
+
+### Other ways to select tests
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" path/to/one-test.html      # a single suite
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" dom/events html/dom        # several at once
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" some-test.html -v          # show passes too
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values --shortlist # what to work on
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all --expect tests/wpt/expectations.txt
+```
+
+A relative path is resolved against the wpt root first, and only taken as given if the root has
+no such file - otherwise a same-named file in the working directory would shadow the real suite
+and its scripts would resolve against the wrong directory. The exit code is non-zero if any
+subtest fails, or, when `--expect` is given, if the results move against the baseline.
+
+Directory discovery selects on the harness script rather than on the path, so the reftest
+halves, the `conformance-checkers/` fixtures and the manual tests are left out —
+`css/css-values` is 270 suites, not the 518 `.html` files it contains.
+
+Grouping in the rollup is by each suite's own directory, not by a fixed prefix depth, because
+that is the granularity work gets picked at: `calc-size` at 71% and `calc-size/animation` at 0%
+is the useful shape, and one averaged line is not.
+
+## Picking something to fix
+
+`--shortlist` answers this against the engine as it is now, rather than against a name written
+down in a document:
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values --shortlist
+```
+
+It prints the suites that crash the engine first, then the ones that partly pass, nearest to
+working first. That ordering is the recommendation: a crash is a bug a real page could reach,
+and after that the closer a suite is to passing the smaller the gap left to understand.
+
+Suites that fully fail are left out. A suite at 0/40 is usually missing a whole binding -
+`getComputedStyle`, the CSSOM stylesheet - and is a project rather than an afternoon; one that
+partly passes has an engine that already understands the shape of the thing and is wrong about
+a detail, which is what you want.
+
+A worked example, start to finish.
+
+> This is a real bug as it stood in September 2026, and it is a small one, so **it may already
+> be fixed** — this page exists to get things like it fixed. Follow it for the shape of the
+> loop, not for the specific units; the shortlist above is what tells you what is open today.
+
+**1. Find one.** `css/css-values/viewport-units-parsing.html: 9 passed, 15 failed`.
+
+**2. Read the failures.** Run the single file; every failing line carries the assertion and
+what the engine gave instead. Add `-v` to see the passing subtests too.
+
+```
+$ cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values/viewport-units-parsing.html
+  FAIL e.style['width'] = "1svh" should set the property value - assert_not_equals: property should be set got disallowed value ""
+  FAIL e.style['width'] = "1lvmax" should set the property value - assert_not_equals: property should be set got disallowed value ""
+  FAIL e.style['width'] = "1dvb" should set the property value - assert_not_equals: property should be set got disallowed value ""
+```
+
+Read what passes against what fails: `1svw` is accepted and `1svh` is not. So this is not
+"viewport units are missing" - it is one list somewhere that has some spellings and not others.
+
+**3. Find the engine code.** Grep for a value that *does* work, next to one that does not:
+
+```bash
+rg '"svw"' crates/gosub_css3/src/
+```
+
+`crates/gosub_css3/src/matcher/syntax_matcher.rs` has `LENGTH_UNITS`, which lists `svw`, `lvw`
+and `dvw` but none of the `h`/`i`/`b`/`min`/`max` spellings that go with them - while
+`stylesheet.rs` already knows how to resolve them. The validator and the resolver disagree, and
+the validator is the one that is wrong.
+
+**4. Fix it in engine code** rather than in a binding shim (see
+[The one rule](#the-one-rule)). Here that is the missing spellings added to `LENGTH_UNITS`,
+which takes the file to 24/24.
+
+**5. Check the baseline.** The run now fails, and that is correct:
+
+```
+$ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all --expect tests/wpt/expectations-css.txt
+  UNEXPECTED PASS e.style['width'] = "1svh" should set the property value
+  ...
+```
+
+An UNEXPECTED PASS is a subtest that started passing and is not yet in the baseline (which
+records what passes). It fails the run on purpose, so
+that improving behaviour forces the baseline to be regenerated and the file always says what
+the engine actually does.
+
+**6. Regenerate, and commit the diff alongside the fix:**
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-syntax css/css-values \
+    --write-expectations > tests/wpt/expectations-css.txt
+```
+
+A `CRASH` line is the best thing to pick up of all: it means engine code panicked on input a
+real page could carry, which is a bug of a different order from a missing feature.
+
+---
+
+## Reference
+
+### The two harnesses
+
+wpt holds two kinds of test, checked in completely different ways. Neither tool is a browser;
+both drive the engine directly. Everything above is the first column.
 
 | | testharness.js | reftests |
 |---|---|---|
@@ -10,7 +181,7 @@ different ways. Neither is a browser: both drive the engine directly.
 | Tool | `bin/gosub-wpt` (QuickJS via rquickjs) | `scripts/wpt-reftest.py` -> `gosub-screenshot` |
 | In CI | the `wpt` gate on every PR, plus a nightly | manual only |
 
-## What of wpt we can actually run
+### What of wpt we can actually run
 
 Of ~57k `.html` files in the corpus (excluding `-ref`/`-notref`, which are the reference
 halves of reftests rather than tests):
@@ -24,15 +195,26 @@ halves of reftests rather than tests):
 Nothing here runs `.any.js` / `.window.js` / `.worker.js` wrappers, iframes, workers, or
 anything needing navigation or a network.
 
-## Where the numbers stand
+### Where the numbers stand
 
 Measured at the pinned commit; regenerate rather than trust these.
 
 | Run | Tests | Passing | Time |
 |---|---:|---:|---:|
-| `wpt` gate - `dom/events`, `html/dom` | 621 files (616 report), 1132 subtests | 101 (8.9%) | 8s |
+| `wpt` gate - `dom/events`, `html/dom` | 621 files, 50,310 subtests | 2,348 (4.7%) | 30s |
+| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5,317 subtests | 310 (5.8%) | 30s |
 | nightly - every testharness suite | 27,301 files | ~2% | 150s |
 | reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
+
+The gate's subtest count jumped from 1,132 to 50,310 when the harness stopped forcing scripts
+into strict mode: most suites were dying on their first sloppy-mode line and reporting nothing
+at all. The rate fell from 8.9% to 4.7% because what was being measured before was the handful
+of suites that happened to survive, not the corpus.
+
+The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
+its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
+canonical serialization the engine does not produce. Where the parser is actually reached the
+numbers are much higher - `calc-size` at 71%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
 engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
@@ -47,7 +229,7 @@ That is why the reftests are manual and ungated: a committed baseline would go r
 noise. `--settle` was tried against the theory that images had not finished decoding; it
 made things worse, so the cause is still open.
 
-## The CI jobs
+### The CI jobs
 
 - **`wpt`** (`ci.yaml`, every push and PR) - runs the gate against
   `tests/wpt/expectations.txt` at the commit in `tests/wpt/wpt-commit.txt`, and fails if
@@ -59,7 +241,7 @@ made things worse, so the cause is still open.
   inputs. Not scheduled: a run needs a cairo `gosub-screenshot` build the other jobs'
   caches cannot share, and nothing it produces is gated.
 
-## Running the reftests
+### Running the reftests
 
 ```bash
 # Ahem ships inside wpt; without it fontconfig substitutes and nearly everything fails
@@ -77,45 +259,66 @@ The sparse checkout needs `resources fonts css/support css/reference` plus the s
 Chromium render of each failure next to them. `scripts/wpt-fonts.conf` pins the generic
 families so results do not depend on the distro's fontconfig defaults.
 
-## The testharness harness
-
-The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
-against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
-small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
-engine's own DOM.
-
-CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
-The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.
-Form controls are **not** covered here. That work lives on its own branch and needs engine
-modules (`edit`, `form`, `focus`) that are not on main yet.
-
-It exists to find bugs, not to run websites.
-
-### Setup
-
-The checkout is pinned: `tests/wpt/wpt-commit.txt` holds the commit CI uses, and results are
-only comparable against that one.
-
-```bash
-git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
-cd wpt
-git sparse-checkout set resources common dom/nodes dom/events html/dom
-git checkout "$(cat …/tests/wpt/wpt-commit.txt)"
-```
-
-```bash
-cargo run -p gosub-wpt -- <wpt-root> <test.html>... [-v]
-```
-
-Paths are taken relative to the wpt root when they are not found as given. The exit code is
-non-zero if any subtest failed.
-
 ### The expectations file
 
-`tests/wpt/expectations.txt` is the committed baseline: which suites are covered, and
-which subtests are known to fail. Four record types - `FILE`, `FAIL <path> :: <name>`,
-`HARNESS` (the harness itself did not finish cleanly) and `ERROR` (the suite cannot run at
-all, usually a support file outside the sparse checkout).
+`tests/wpt/expectations.txt` is the committed baseline: which suites are covered, and which
+subtests **pass**. Five record types - `FILE`, `PASS <path> :: <name>`, `HARNESS` (the harness
+itself did not finish cleanly), `ERROR` (the suite cannot run at all, usually a support file
+outside the sparse checkout) and `CRASH` (the engine panicked).
+
+It records passes rather than failures. The engine fails most of the corpus - 2,348 of 50,310
+in the gate - so the pass list is a fifteenth the size the failure list was (3,384 lines against
+48,990, 250K against 4.1M), and *"these subtests pass and must keep passing"* is the property
+worth committing. A fix then shows up as added lines rather than as thousands disappearing out
+of a 48k file. The list only stops being the smaller one once the engine passes more than half
+the corpus, which is a long way off.
+
+Three outcomes fail the run:
+
+- a listed subtest that stops passing is a **REGRESSION** - the thing the gate exists to catch;
+- a listed subtest the suite no longer reports at all is **MISSING** - renamed upstream, or its
+  suite died before reaching it. Without this check a pass record could be satisfied by the
+  subtest disappearing, which is the one way a pass list can quietly stop meaning anything;
+- a subtest that starts passing is an **UNEXPECTED PASS**, so improving the engine forces the
+  baseline to be regenerated and the file always says what the engine actually does.
+
+A subtest that is failing and is not listed is the ordinary state of most of the corpus, and is
+reported by neither. Run without `--expect` to see those: with no baseline to be quiet about,
+every failure prints.
+
+Nothing needs the failure list any more - `--shortlist` answers "what should I work on" against
+the engine directly, which is what that list was really being used for.
+
+`CRASH` is kept apart from `ERROR` on purpose. An `ERROR` is this tool's limitation; a `CRASH`
+is a panic in engine code that a real page could reach, and folding the two together would let
+the more serious one settle into the baseline unnoticed. The runner catches the panic so one
+bad input cannot end a corpus run at whichever suite reaches it first.
+
+Control characters in subtest names are escaped - `\n`, `\r`, `\t`, and everything else in the
+C0 range as `\xNN`. `css/css-syntax` walks that whole range looking for what a parser must
+treat as whitespace, and writing those bytes through left a baseline that `grep` and `git diff`
+both refused to treat as text.
+
+`tests/wpt/expectations-css.txt` is the same format for the CSS parser component
+(`css/css-syntax` and `css/css-values`). It is **not** gated in CI: it exists so the parser's
+progress is measurable and so a contributor can pick a failing subtest and go fix it.
+
+Regenerating rewrites the whole file, so anything a baseline needs to say about itself lives
+here rather than in a comment at the top of it. For the gated file, that is:
+
+- **Covered:** `dom/events` and `html/dom`, the two directories the `gosub_domjs` bindings
+  actually reach. The checkout also needs `dom/nodes`: three suites pull support scripts out of
+  it (`Document-createEvent.js`, `DOMImplementation-createHTMLDocument.js`, `attributes.js`) and
+  become `ERROR` records without it. The baseline is pinned to the sparse set as much as to the
+  commit in `wpt-commit.txt` — widen or narrow the checkout and the results move.
+- **Form controls are out of scope.** That work lives on its own branch and needs engine modules
+  (`edit`, `form`, `focus`) that are not on main yet.
+- **`dom/events/passive-by-default.html` is deliberately not covered.** It names three subtests
+  identically — one per event target, all stringified `"Object"` — and some of each trio pass
+  while others fail. Expectations are keyed by name, so the trio collapses to one entry and the
+  passing member is always reported as an UNEXPECTED PASS; the suite can never be green. Add it
+  back if the records ever key on subtest index as well as name.
+- Names are never trimmed on load: a subtest name may legitimately end in a space.
 
 Files are listed explicitly rather than globbed, so adding tests to a wpt checkout cannot
 silently change what is covered.
@@ -157,13 +360,9 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all \
     --expect tests/wpt/expectations.txt --report wpt-report.html
 ```
 
-Rates are subtests, not files, and known failures count as failures - the page shows the
-corpus as it is, not as the expectations describe it. The template is
-`bin/gosub-wpt/report.html`; the run inlines its data, the wpt commit and the date.
-
-A listed test that starts passing is an **UNEXPECTED PASS** and fails the run. That is
-deliberate: improving behaviour is supposed to make you regenerate the baseline and commit
-the diff, so the file always says what the engine actually does.
+Rates are subtests, not files, and every failure counts as one whether or not the baseline
+knows about it - the page shows the corpus as it is, not as the expectations describe it. The
+template is `bin/gosub-wpt/report.html`; the run inlines its data, the wpt commit and the date.
 
 ```bash
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations $(paths...) \
@@ -172,6 +371,20 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations $(paths...)
 
 Diagnostics (console output, listener and timer exceptions, scripts that threw) go to
 stderr; only results go to stdout, so regenerating never picks up stray lines.
+
+## The testharness bindings
+
+The engine has no scripting environment yet, so the WPT `testharness.js` suites cannot run
+against it as they stand. `gosub_domjs` is a stopgap: a **test-only** DOM binding over a
+small JavaScript engine (QuickJS, through `rquickjs`), enough to let those tests drive the
+engine's own DOM.
+
+CI covers `dom/events` and `html/dom` — the two directories these bindings actually reach.
+The harness itself is directory-agnostic: point it at any tree of `testharness.js` files.
+Form controls are **not** covered here. That work lives on its own branch and needs engine
+modules (`edit`, `form`, `focus`) that are not on main yet.
+
+It exists to find bugs, not to run websites.
 
 ### The one rule
 
@@ -233,6 +446,17 @@ the listener list and has to observe removals made by listeners that run before 
 `document`: `getElementById`, `createElement`, `createTextNode`, `querySelector`,
 `getElementsByTagName`, `body`, `head`, `documentElement`.
 
+`element.style`: the specified-value half of `CSSStyleDeclaration` - `getPropertyValue`,
+`setProperty`, `removeProperty`, `cssText`, `length`, `item`, and named access
+(`style.fontSize`, `style['font-size']`) through a proxy that maps the IDL spelling back to
+the CSS one. Assigning to `style` itself forwards to `cssText`, as `[PutForwards=cssText]`
+requires.
+
+The block **is** the element's `style` attribute, and whether a value is accepted at all is
+decided by `gosub_css3`: the declaration goes through the real parser and is then checked
+against the property's syntax definition. So a green `test_valid_value` says the CSS parser
+took the value, and a green `test_invalid_value` says it refused one it should refuse.
+
 `Node` also carries `addEventListener`, `removeEventListener`, `dispatchEvent` and `click`.
 
 `Node`: `nodeType`, `nodeName`, `tagName`, `localName`, `parentNode`, `parentElement`,
@@ -250,6 +474,25 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
 - **No `CustomEvent`, `MouseEvent` or `KeyboardEvent`** constructors, and no `EventTarget`
   constructor. The forms corpus never uses the first; it uses the mouse and keyboard ones in
   13 files.
+- **No CSSOM serialization.** `getPropertyValue` gives back the text the author wrote, because
+  `CssValue`'s `Display` is a debug rendering rather than a CSS serializer - a `List` prints as
+  `List(a, b, c)`. Every suite asserting a canonical form therefore fails: `calc()`
+  normalization (`calc(1vh + 2px + 3%)` should serialize as `calc(3% + 2px + 1vh)`) is a few
+  hundred subtests on its own. Writing a serializer in the bindings would make those tests
+  measure the binding rather than the engine, so the work belongs in `gosub_css3`.
+- **No `getComputedStyle`**, so nothing about the cascade, inheritance or used values is
+  reachable. 156 of the 309 suites in the CSS component need it and none of them can pass
+  without it - it is the single largest thing standing between the engine and those numbers.
+- **No CSSOM stylesheet.** `style.sheet`, `insertRule`, `deleteRule` and `cssRules[i].cssText`
+  are all missing, which is what `test_valid_selector` and `test_valid_rule` drive - so the
+  selector and at-rule parsers have no coverage here yet.
+- **No named access on the window object.** An element with an `id` is supposed to become a
+  global of that name, and wpt leans on it constantly - `<style id=page_sheet>` then
+  `page_sheet.sheet.cssRules`. Without it those suites die on their first line with
+  `page_sheet is not defined`. It is a document lookup rather than DOM logic, so it would sit
+  in the bindings legitimately; it is simply not written yet.
+- **No `window.onload`**, and no load event to fire it. Assigning to it is harmless now that
+  scripts run sloppy, but the handler never runs, so such a suite reports TIMEOUT.
 - **No interface hierarchy.** One `Node` class dispatches on tag name, so `instanceof`,
   `Option`, `NodeList` and prototype-chain tests fail.
 - **No layout and no navigation**, so iframes, `getBoundingClientRect` and form submission

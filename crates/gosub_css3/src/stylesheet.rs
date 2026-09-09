@@ -743,6 +743,13 @@ impl CssValue {
                 "q" => *val * (96.0 / 101.6),
                 // Viewport units - resolved against the current layout viewport (CSS px),
                 // falling back to 1280×800 until the render flow sets the real size.
+                //
+                // The small (`sv*`), large (`lv*`) and dynamic (`dv*`) viewports all resolve to
+                // that same size on purpose. They differ only where the UA has interfaces that
+                // dynamically expand and retract - a phone browser's address bar - and css-values-4
+                // says that a UA without them has all three equal to the initial containing block.
+                // The engine has no such chrome, so they are equal here by the spec rather than by
+                // omission. Give them their own sizes if an embedder ever grows retractable UI.
                 "vw" | "svw" | "lvw" | "dvw" => *val * layout_viewport().0 / 100.0,
                 "vh" | "svh" | "lvh" | "dvh" => *val * layout_viewport().1 / 100.0,
                 "vmin" => {

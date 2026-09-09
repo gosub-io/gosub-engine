@@ -151,6 +151,25 @@ impl GosubNode {
         !self.doc.borrow().children(self.id).is_empty()
     }
 
+    // ── style ──────────────────────────────────────────────────────────────
+
+    /// The element's declaration block. Cached per element, because `style` is `[SameObject]`
+    /// in the CSSOM: `el.style === el.style` has to hold. The block itself lives in the `style`
+    /// attribute either way, so the cache is about identity rather than about state.
+    #[qjs(get)]
+    pub fn style<'js>(&self, ctx: Ctx<'js>) -> Result<Value<'js>> {
+        crate::style::wrap(&ctx, &self.doc, self.id)
+    }
+
+    /// `style` is `[PutForwards=cssText]`, so assigning a string to it replaces the block
+    /// rather than the object. Without this a getter-only `style` turns `el.style = "..."` -
+    /// which is how several suites set up their fixture - into a TypeError that takes the
+    /// whole test with it.
+    #[qjs(set, rename = "style")]
+    pub fn set_style(&self, text: String) {
+        crate::style::declaration(&self.doc, self.id).set_css_text(text);
+    }
+
     // ── attributes ─────────────────────────────────────────────────────────
 
     pub fn get_attribute(&self, name: String) -> Option<String> {

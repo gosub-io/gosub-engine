@@ -36,6 +36,8 @@ descriptions say what they should cover so we can decide what to write next.
   contents by the host engine).
 - [JavaScript stack](javascript.md) — the five scripting crates (`webexecutor` abstraction,
   V8 bindings, proc-macro glue, web APIs, event loop) and their built-but-not-wired status.
+- [WPT quickstart](wpt-quickstart.md) — clone to a fixed test in about ten minutes; the
+  fastest route to a first contribution.
 - [Web-platform-tests](wpt.md) — the two WPT harnesses: `testharness.js` suites driven
   through the test-only `gosub_domjs` bindings, and reftests rendered and pixel-compared
   through `gosub-screenshot`. Which parts of the corpus each can run, where the numbers
