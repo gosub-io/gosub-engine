@@ -541,6 +541,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if parent_id == node_id || self.has_node_id_recursive(node_id, parent_id) {
             return;
         }
+        // Guarded here rather than in the `Document` methods that call it: this one is public
+        // and inherent, so it wins over the trait method for anything holding a concrete
+        // `DocumentImpl` - a check on the trait side alone is simply stepped around.
+        if self.refuses_tree_mutation("attach_node", node_id) {
+            return;
+        }
         if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
             match position {
                 Some(position) if position <= parent_node.children().len() => {
@@ -558,6 +564,23 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         };
         node.parent = Some(parent_id);
         self.on_document_node_mutation_by_id(node_id);
+    }
+
+    /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
+    ///
+    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
+    /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
+    /// of the ordinary mutations - and attaching it would give it a parent and put it into
+    /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
+    fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
+        let is_shadow_root = self
+            .arena
+            .node_ref(node_id)
+            .is_some_and(|n| n.type_of() == NodeType::ShadowRootNode);
+        if is_shadow_root {
+            log::warn!("{what}: refusing to move shadow root {node_id} into the ordinary tree");
+        }
+        is_shadow_root
     }
 
     pub fn detach_node(&mut self, node_id: NodeId) {
@@ -610,6 +633,17 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
+        // A shadow root is reached through its host, so drop the back pointer before the node
+        // goes: leaving it would have the host name a dead id for the rest of its life. Done
+        // here rather than in `Document::remove` because this method is inherent and public,
+        // and so wins over the trait method for anything holding a concrete `DocumentImpl`.
+        if let Some(host) = self.shadow_host(node_id) {
+            if let Some(host_node) = self.arena.node_ref_mut(host) {
+                if let NodeDataTypeInternal::Element(ref mut e) = host_node.data {
+                    e.shadow_root = None;
+                }
+            }
+        }
         let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
             return;
         };

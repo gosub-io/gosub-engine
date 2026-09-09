@@ -118,11 +118,21 @@ impl NodeImpl {
 
     /// Shallow clone: same data, no tree links, not registered
     pub fn new_from_node(org_node: &Self) -> Self {
+        let mut data = org_node.data.clone();
+        // The clone must not inherit the host's side pointer to its shadow tree. Tree links are
+        // deliberately not copied here, but `shadow_root` lives in the element's data, so it
+        // would come along - leaving the clone sharing the original's root while
+        // `shadow_host(root)` still named the original. Two hosts for one root, and a back
+        // pointer that contradicts one of them. The spec gives a clone a shadow tree only when
+        // the root is `clonable`, and that needs the tree cloned too rather than an id copied.
+        if let NodeDataTypeInternal::Element(ref mut element) = data {
+            element.shadow_root = None;
+        }
         Self {
             id: NodeId::default(),
             parent: None,
             children: Vec::new(),
-            data: org_node.data.clone(),
+            data,
             registered: false,
             location: org_node.location,
         }

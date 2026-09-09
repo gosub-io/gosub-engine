@@ -123,8 +123,13 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::PseudoElementSelector { value, .. } => {
+        NodeType::PseudoElementSelector { value, arguments } => {
             writeln!(f, "{prefix}[PseudoElementSelector] {value}")?;
+            // `::slotted()`'s selector list is a child of the node, so a walk that stops here
+            // reports the same tree for `::slotted(.item)` and for a bare `::slotted`.
+            if let Some(arguments) = arguments {
+                inner_walk(arguments, depth + 1, f)?;
+            }
         }
         NodeType::PseudoClassSelector { value } => {
             writeln!(f, "{prefix}[PseudoClassSelector]")?;

@@ -458,7 +458,12 @@ impl Display for Node {
                 format!("[{name}{matcher}{value}{flags}]")
             }
             NodeType::PseudoClassSelector { value } => format!(":{value}"),
-            NodeType::PseudoElementSelector { value, .. } => format!("::{value}"),
+            // A functional pseudo-element carries its selector list, and dropping it here made
+            // `::slotted(.item)` serialize as the bare `::slotted` - a different selector.
+            NodeType::PseudoElementSelector { value, arguments } => match arguments {
+                Some(arguments) => format!("::{value}({arguments})"),
+                None => format!("::{value}"),
+            },
             NodeType::Operator(value) => value.clone(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {

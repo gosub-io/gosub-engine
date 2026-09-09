@@ -248,3 +248,67 @@ fn the_boolean_declarative_attributes_survive_a_round_trip() {
         r#"<div><template shadowrootmode="closed" shadowrootdelegatesfocus=""></template></div>"#
     );
 }
+
+// ── a shadow root is not an ordinary node ────────────────────────────────────
+
+#[test]
+fn a_shadow_root_cannot_be_attached_into_the_ordinary_tree() {
+    // `attach_shadow_root` hands back a raw NodeId, so the generic mutations are one call away.
+    // Attaching the root would give it a parent and put the shadow tree into normal traversal,
+    // where the host's contents get walked twice.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div><p></p>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let other = find::<Config>(&doc, "p").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    doc.attach(root, other, None);
+
+    assert!(!doc.children(other).contains(&root), "must not become a child");
+    assert_eq!(doc.parent(root), None, "must not gain a parent");
+    assert_eq!(doc.shadow_host(root), Some(host), "the host link must survive");
+}
+
+#[test]
+fn a_shadow_root_cannot_be_relocated_into_the_ordinary_tree() {
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div><p></p>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let other = find::<Config>(&doc, "p").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    doc.relocate_node(root, other);
+
+    assert!(!doc.children(other).contains(&root), "must not become a child");
+    assert_eq!(doc.shadow_root(host), Some(root), "the host still owns its root");
+}
+
+#[test]
+fn removing_a_shadow_root_clears_the_host_back_pointer() {
+    // Deleting the node while `host.shadow_root` still named it would leave the host handing a
+    // dead id to every later lookup.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    doc.remove(root);
+
+    assert_eq!(doc.shadow_root(host), None, "host must not name a deleted root");
+}
+
+#[test]
+fn a_cloned_host_does_not_share_the_original_shadow_tree() {
+    // The side pointer lives in the element's data, which a shallow clone copies. Left in place
+    // the clone would share the original's root while `shadow_host(root)` still named the
+    // original - two hosts for one root, and a back pointer that contradicts one of them.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    let clone = doc.clone_node(host);
+
+    assert_eq!(doc.shadow_root(clone), None, "a clone starts without a shadow tree");
+    assert_eq!(
+        doc.shadow_host(root),
+        Some(host),
+        "the root still belongs to the original"
+    );
+}

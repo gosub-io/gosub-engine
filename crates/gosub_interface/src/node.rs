@@ -105,16 +105,68 @@ const VALID_SHADOW_HOST_NAMES: [&str; 18] = [
     "span",
 ];
 
+/// Hyphenated names that look like custom elements but are reserved by
+/// `PotentialCustomElementName` for legacy SVG and MathML elements.
+///
+/// These *are* reachable in the HTML namespace: the HTML parser only puts `<font-face>` in the
+/// SVG namespace inside an `<svg>` subtree, so the same tag in ordinary markup produces an
+/// HTML-namespace element with this local name. Accepting one would let `attachShadow` succeed
+/// on an element that is not a valid custom element.
+const RESERVED_HYPHENATED_NAMES: [&str; 8] = [
+    "annotation-xml",
+    "color-profile",
+    "font-face",
+    "font-face-format",
+    "font-face-name",
+    "font-face-src",
+    "font-face-uri",
+    "missing-glyph",
+];
+
 /// Whether `name` (an HTML-namespace local name) may host a shadow tree.
 ///
-/// Custom element names are accepted by shape - a name led by a lowercase ASCII letter and
-/// containing a hyphen - rather than by the full `PotentialCustomElementName` grammar, which
-/// additionally excludes a handful of legacy hyphenated SVG and MathML names. Those never
-/// appear in the HTML namespace, so the difference is not observable here.
+/// Either one of the built-in elements the spec allows, or a valid custom element name: led by
+/// a lowercase ASCII letter, containing a hyphen, carrying no ASCII uppercase, and not one of
+/// the reserved names above.
 #[must_use]
 pub fn is_valid_shadow_host_name(name: &str) -> bool {
     if VALID_SHADOW_HOST_NAMES.contains(&name) {
         return true;
     }
-    name.starts_with(|c: char| c.is_ascii_lowercase()) && name.contains('-')
+    name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name.contains('-')
+        // `my-Widget` is not a custom element name. HTML parsing lowercases tag names, so this
+        // is unreachable from markup, but the check is cheap and the function is public.
+        && !name.contains(|c: char| c.is_ascii_uppercase())
+        && !RESERVED_HYPHENATED_NAMES.contains(&name)
+}
+
+#[cfg(test)]
+mod shadow_host_name_tests {
+    use super::is_valid_shadow_host_name;
+
+    #[test]
+    fn accepts_built_ins_and_custom_element_names() {
+        assert!(is_valid_shadow_host_name("div"));
+        assert!(is_valid_shadow_host_name("span"));
+        assert!(is_valid_shadow_host_name("my-widget"));
+        assert!(is_valid_shadow_host_name("x-"));
+    }
+
+    #[test]
+    fn rejects_names_that_are_not_custom_elements() {
+        assert!(!is_valid_shadow_host_name("table"), "not a permitted built-in host");
+        assert!(!is_valid_shadow_host_name("widget"), "no hyphen");
+        assert!(!is_valid_shadow_host_name("-widget"), "does not start with a letter");
+        assert!(!is_valid_shadow_host_name("1-widget"), "does not start with a letter");
+    }
+
+    #[test]
+    fn rejects_uppercase_and_reserved_names() {
+        assert!(!is_valid_shadow_host_name("my-Widget"));
+        assert!(!is_valid_shadow_host_name("My-widget"));
+        for reserved in ["font-face", "annotation-xml", "missing-glyph", "color-profile"] {
+            assert!(!is_valid_shadow_host_name(reserved), "{reserved} is reserved");
+        }
+    }
 }

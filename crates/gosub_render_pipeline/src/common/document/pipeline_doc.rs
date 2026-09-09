@@ -1064,6 +1064,13 @@ where
     /// tell the UA default apart from an authored `display: block`. The raw declared keyword
     /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
     fn slot_generates_a_box(&self, slot: NodeId) -> bool {
+        // Compute first, ask afterwards. `inline_style_cache` is only ever filled as a side
+        // effect of `cached_styles`, so reading it before this call misses on the first visit to
+        // a slot - the lookup falls through to the cascaded map, finds the UA `display: contents`
+        // and splices the slot away, while a later call with the cache warm keeps it. That made
+        // the flat tree depend on what had already been styled.
+        let arc = self.cached_styles(slot);
+
         // An inline `style` attribute is already mapped onto the `Display` enum, so its raw
         // keyword is gone; any inline `display` at all is taken to mean "give me a box".
         if let Some(inline) = self.inline_style_cache.lock().get(&slot) {
@@ -1072,7 +1079,6 @@ where
             }
         }
 
-        let arc = self.cached_styles(slot);
         match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
             Some("contents") | None => false,
             Some(_) => true,
