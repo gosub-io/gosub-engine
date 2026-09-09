@@ -48,8 +48,13 @@ fn suites_match_the_expectations() {
         // Only the lines that disagree with the expectations, so the failure is readable.
         let interesting: Vec<&str> = report
             .lines()
+            // Every line the runner uses to report a disagreement. `MISSING` has to be here in
+            // its own right: it is counted among the regressions but printed under its own name,
+            // so a run that fails only because subtests stopped being reported would otherwise
+            // panic with an empty list and say nothing about why.
             .filter(|line| {
                 line.contains("REGRESSION")
+                    || line.contains("MISSING")
                     || line.contains("UNEXPECTED")
                     || line.contains(": CRASH ")
                     || line.contains(": ERROR ")

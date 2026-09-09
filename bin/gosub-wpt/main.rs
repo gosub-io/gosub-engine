@@ -577,7 +577,18 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
         );
     }
     Ok(Outcome {
-        ok: harness_ok && regressed == 0 && unexpected_pass == 0,
+        // Two different questions, depending on whether there is a baseline to ask about.
+        // Without one the run asserts that everything passed, which is what naming a test on the
+        // command line has always meant - and note that every pass lands in `unexpected_pass`
+        // there, since nothing is recorded, so judging on that would fail every healthy suite.
+        // With a baseline only movement matters: the thousands of subtests already failing are
+        // the recorded state rather than a reason to fail.
+        ok: harness_ok
+            && if expect.loaded {
+                regressed == 0 && unexpected_pass == 0
+            } else {
+                known_fail == 0
+            },
         // Both counts describe the engine rather than the baseline's opinion of it: an
         // unexpected pass is still a pass, and a regression is still a failure. The moment that
         // matters most is the run right after a fix, where leaving the new passes out would

@@ -130,8 +130,9 @@ subtests by name, fix it in engine code, and regenerate the baseline.
 thousand of these. A `CRASH` line in it is the best thing to pick up: it means engine code
 panicked on input a real page could carry.
 
-One rule: the fix belongs in engine code, never in the test-only bindings in `gosub_domjs`. A
-shim that makes a test go green tells us nothing about the engine.
+One rule: engine *behaviour* is fixed in engine code. `gosub_domjs` is a binding layer, so
+adding or correcting a Web API that a test needs belongs there — but a shim that hard-codes an
+answer, rather than reading it out of the engine, makes the test green and tells us nothing.
 
 ### Other paths
 

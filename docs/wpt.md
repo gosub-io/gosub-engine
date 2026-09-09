@@ -75,8 +75,10 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values --shortlist # wha
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all --expect tests/wpt/expectations.txt
 ```
 
-Paths are taken relative to the wpt root when they are not found as given. The exit code is
-non-zero if any subtest failed.
+A relative path is resolved against the wpt root first, and only taken as given if the root has
+no such file - otherwise a same-named file in the working directory would shadow the real suite
+and its scripts would resolve against the wrong directory. The exit code is non-zero if any
+subtest fails, or, when `--expect` is given, if the results move against the baseline.
 
 Directory discovery selects on the harness script rather than on the path, so the reftest
 halves, the `conformance-checkers/` fixtures and the manual tests are left out —
@@ -136,8 +138,9 @@ and `dvw` but none of the `h`/`i`/`b`/`min`/`max` spellings that go with them - 
 `stylesheet.rs` already knows how to resolve them. The validator and the resolver disagree, and
 the validator is the one that is wrong.
 
-**4. Fix it in engine code**, never in the bindings (see [The one rule](#the-one-rule)). Here
-that is the missing spellings added to `LENGTH_UNITS`, which takes the file to 24/24.
+**4. Fix it in engine code** rather than in a binding shim (see
+[The one rule](#the-one-rule)). Here that is the missing spellings added to `LENGTH_UNITS`,
+which takes the file to 24/24.
 
 **5. Check the baseline.** The run now fails, and that is correct:
 

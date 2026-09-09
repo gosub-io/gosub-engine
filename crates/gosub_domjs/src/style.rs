@@ -35,6 +35,16 @@ fn parser_config() -> ParserConfig {
     }
 }
 
+/// CSS property names are ASCII case-insensitive, but custom properties are not: `--Foo` and
+/// `--foo` are two different properties, so folding their case would merge them into one slot.
+fn normalize_name(name: &str) -> String {
+    if name.starts_with("--") {
+        name.to_string()
+    } else {
+        name.cow_to_ascii_lowercase().into_owned()
+    }
+}
+
 /// Parse one `name: value` pair through the real parser, and return its value when the
 /// property's syntax definition accepts it.
 ///
@@ -42,14 +52,24 @@ fn parser_config() -> ParserConfig {
 /// unbalanced brackets), and the definition rejects what parses but means nothing for this
 /// property (`width: solid`). A custom property (`--x`) has no definition and no grammar to
 /// check against, so it is accepted whenever it parses.
+///
+/// The value has to account for the whole of the block it is spliced into, not just the start
+/// of it. `setProperty("width", "10px} *{color:red")` closes the rule and opens another, and
+/// reading only the first rule would call that a valid `width: 10px` - after which the raw text
+/// goes into the `style` attribute, where the renderer parses it as the injected pair of rules
+/// instead. Requiring exactly one rule holding exactly one declaration is what rules that out,
+/// and it also rejects a value smuggling a second declaration past a `;`.
 fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
     let sheet = Css3::parse_str(&format!("*{{{name}:{value}}}"), parser_config(), CssOrigin::Author, "").ok()?;
-    let declaration = sheet
-        .rules
-        .first()?
-        .declarations()
-        .iter()
-        .find(|decl| decl.property.eq_ignore_ascii_case(name))?;
+    let [rule] = sheet.rules.as_slice() else {
+        return None;
+    };
+    let [declaration] = rule.declarations().as_slice() else {
+        return None;
+    };
+    if !declaration.property.eq_ignore_ascii_case(name) {
+        return None;
+    }
 
     if name.starts_with("--") {
         return Some(declaration.value.clone());
@@ -63,10 +83,11 @@ fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
 /// Split a `style` attribute into its declarations, as text.
 ///
 /// This walks the attribute's own punctuation - `;` between declarations, `:` between a name
-/// and its value - and nothing else: quotes and brackets are tracked only so that a `;`
-/// inside `url(a;b)` or `content: "a;b"` is not mistaken for a separator. Every value it
-/// hands back still goes to [`parse_declaration`], so no judgement about what CSS means is
-/// made here.
+/// and its value - and nothing else. Strings, brackets, comments and backslash escapes are
+/// tracked only so that a `;` inside `url(a;b)`, `content: "a\";b"` or `/* ; */` is not taken
+/// for a separator: this rewrites the attribute on every `setProperty`, so a `;` mistaken there
+/// truncates the declaration it was inside and writes the damage back. Every value it hands
+/// back still goes to [`parse_declaration`], so no judgement about what CSS *means* is made.
 fn split_declarations(attribute: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let (mut depth, mut quote) = (0u32, None::<char>);
@@ -78,11 +99,35 @@ fn split_declarations(attribute: &str) -> Vec<(String, String)> {
         };
         let (name, value) = (name.trim(), value.trim());
         if !name.is_empty() && !value.is_empty() {
-            out.push((name.cow_to_ascii_lowercase().into_owned(), value.to_string()));
+            out.push((normalize_name(name), value.to_string()));
         }
     };
 
-    for ch in attribute.chars() {
+    let mut chars = attribute.chars().peekable();
+    while let Some(ch) = chars.next() {
+        // A backslash escapes whatever follows it, in or out of a string, so neither character
+        // can close a quote or end a declaration.
+        if ch == '\\' {
+            current.push(ch);
+            if let Some(escaped) = chars.next() {
+                current.push(escaped);
+            }
+            continue;
+        }
+        // Comments nest inside neither strings nor each other, so they only start outside one.
+        if quote.is_none() && ch == '/' && chars.peek() == Some(&'*') {
+            current.push(ch);
+            current.push(chars.next().unwrap_or('*'));
+            let mut previous = '\0';
+            for inner in chars.by_ref() {
+                current.push(inner);
+                if previous == '*' && inner == '/' {
+                    break;
+                }
+                previous = inner;
+            }
+            continue;
+        }
         match (quote, ch) {
             (Some(open), _) => {
                 if ch == open {
@@ -129,12 +174,27 @@ impl GosubCssStyleDeclaration {
         Self { doc, id }
     }
 
+    /// The block, with a property that appears more than once collapsed onto its last value.
+    ///
+    /// A declaration block holds each property once: `width: 10px; width: 20px` is one entry
+    /// worth `20px`, not two. Collapsing on the way out rather than on the way in means an
+    /// attribute written by hand reads correctly without the attribute being rewritten first.
     fn declarations(&self) -> Vec<(String, String)> {
-        self.doc
+        let parsed = self
+            .doc
             .borrow()
             .attribute(self.id, "style")
             .map(split_declarations)
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        let mut out: Vec<(String, String)> = Vec::with_capacity(parsed.len());
+        for (name, value) in parsed {
+            match out.iter_mut().find(|(existing, _)| *existing == name) {
+                Some(slot) => slot.1 = value,
+                None => out.push((name, value)),
+            }
+        }
+        out
     }
 
     fn store(&self, declarations: &[(String, String)]) {
@@ -164,10 +224,12 @@ impl GosubCssStyleDeclaration {
     }
 
     pub fn get_property_value(&self, name: String) -> String {
-        let name = name.cow_to_ascii_lowercase();
+        let name = normalize_name(&name);
+        // Last, not first: a block written from `cssText` can carry the same property twice, and
+        // the later declaration is the one that wins.
         self.declarations()
             .into_iter()
-            .find(|(property, _)| *property == name)
+            .rfind(|(property, _)| *property == name)
             .map(|(_, value)| value)
             .unwrap_or_default()
     }
@@ -176,7 +238,7 @@ impl GosubCssStyleDeclaration {
     /// one place a value is accepted or refused. A value the engine will not parse leaves the
     /// block untouched, which is what makes `test_invalid_value` meaningful.
     pub fn set_property(&self, name: String, value: String) {
-        let name = name.cow_to_ascii_lowercase().into_owned();
+        let name = normalize_name(&name);
         // Assigning the empty string removes the declaration - `test_valid_value` clears the
         // property this way before setting the value it is actually testing.
         if value.trim().is_empty() {
@@ -199,12 +261,12 @@ impl GosubCssStyleDeclaration {
     }
 
     pub fn remove_property(&self, name: String) -> String {
-        let name = name.cow_to_ascii_lowercase();
+        let name = normalize_name(&name);
         let mut declarations = self.declarations();
         let Some(index) = declarations.iter().position(|(property, _)| *property == name) else {
             return String::new();
         };
-        let (_, previous) = declarations.remove(index);
+        let previous = declarations.remove(index).1;
         self.store(&declarations);
         previous
     }
@@ -278,18 +340,43 @@ const STYLE_PROXY_SOURCE: &str = r#"
 })
 "#;
 
-/// Install the proxy factory. Called once per context, before any `style` is handed out.
+/// The JS `Map` holding one style proxy per element, so `el.style === el.style` holds. It lives
+/// on the globals, like the node wrapper cache, so the proxies stay reachable for the GC.
+const STYLE_CACHE: &str = "__gosub_style_wrappers";
+
+/// Install the proxy factory and its cache. Called once per context, before any `style` is
+/// handed out.
 pub(crate) fn install(ctx: &Ctx<'_>) -> Result<()> {
     let factory: Function = ctx.eval(STYLE_PROXY_SOURCE)?;
     ctx.globals().set(STYLE_PROXY, factory)?;
+    ctx.globals().set(STYLE_CACHE, ctx.eval::<Value, _>("new Map()")?)?;
     Ok(())
 }
 
-/// Wrap a declaration for `element.style`.
+/// Wrap a declaration for `element.style`, reusing the element's existing proxy.
+///
+/// `style` is `[SameObject]` in the CSSOM: it has to be the same object every time, or
+/// `el.style === el.style` is false and anything a test hangs on the object is lost between
+/// reads. The block itself still lives in the `style` attribute, so the cache is only about
+/// identity - two proxies over one element would already have agreed on every value.
 pub(crate) fn wrap<'js>(ctx: &Ctx<'js>, doc: &DocHandle, id: NodeId) -> Result<Value<'js>> {
+    let cache: rquickjs::Object<'js> = ctx.globals().get(STYLE_CACHE)?;
+    let key = id.as_usize() as f64;
+
+    let existing: Value<'js> = cache
+        .get::<_, Function>("get")?
+        .call((rquickjs::function::This(cache.clone()), key))?;
+    if !existing.is_undefined() {
+        return Ok(existing);
+    }
+
     let declaration = rquickjs::Class::instance(ctx.clone(), GosubCssStyleDeclaration::new(doc.clone(), id))?;
     let factory: Function<'js> = ctx.globals().get(STYLE_PROXY)?;
-    factory.call((declaration,))
+    let proxy: Value<'js> = factory.call((declaration,))?;
+    cache
+        .get::<_, Function>("set")?
+        .call::<_, ()>((rquickjs::function::This(cache), key, proxy.clone()))?;
+    Ok(proxy)
 }
 
 /// The declaration block itself, for the paths that operate on it without going through JS.

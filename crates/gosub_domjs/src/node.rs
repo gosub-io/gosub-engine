@@ -153,9 +153,9 @@ impl GosubNode {
 
     // ── style ──────────────────────────────────────────────────────────────
 
-    /// The element's declaration block. A fresh wrapper each time, deliberately: the block
-    /// itself lives in the `style` attribute, so two wrappers over one element see the same
-    /// declarations and nothing needs to be kept in step.
+    /// The element's declaration block. Cached per element, because `style` is `[SameObject]`
+    /// in the CSSOM: `el.style === el.style` has to hold. The block itself lives in the `style`
+    /// attribute either way, so the cache is about identity rather than about state.
     #[qjs(get)]
     pub fn style<'js>(&self, ctx: Ctx<'js>) -> Result<Value<'js>> {
         crate::style::wrap(&ctx, &self.doc, self.id)
