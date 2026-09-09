@@ -111,18 +111,20 @@ a failing web-platform-test. WPT is the browser industry's shared conformance su
 failing subtest is a specific, already-triaged statement about something the engine gets wrong —
 no need to invent a task or guess whether it is wanted.
 
-[`docs/wpt.md`](docs/wpt.md) walks the whole loop, with a worked example that goes from a failing
-assertion to the engine code to a regenerated baseline. In short:
+**[`docs/wpt-quickstart.md`](docs/wpt-quickstart.md) takes you from cloning this repo to a fixed
+test in about ten minutes** — every command, nothing to configure, no system packages. Start
+there. [`docs/wpt.md`](docs/wpt.md) is the full reference behind it.
+
+The short version: point `$WPT_ROOT` at a wpt checkout, then
 
 ```bash
-# Point $WPT_ROOT at a wpt checkout (docs/wpt.md has the clone command), then:
 cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values
 ```
 
-That prints a pass rate per directory and a list of suites. Pick a file that is **partly**
-passing — those are ones where the engine already understands the shape of the thing and is
-wrong about a detail, which is an afternoon's work rather than a project. Run that one file to
-see the failing subtests by name, fix it in engine code, and regenerate the baseline.
+prints a pass rate per directory and a list of suites. Pick a file that is **partly** passing —
+those are ones where the engine already understands the shape of the thing and is wrong about a
+detail, which is an afternoon's work rather than a project. Run that one file to see the failing
+subtests by name, fix it in engine code, and regenerate the baseline.
 
 `tests/wpt/expectations-css.txt` is the current baseline for the CSS parser and holds a few
 thousand of these. A `CRASH` line in it is the best thing to pick up: it means engine code

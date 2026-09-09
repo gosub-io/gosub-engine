@@ -26,6 +26,41 @@ use serde::Deserialize;
 /// The report page, with `__DATA__`, `__COMMIT__` and `__DATE__` filled in at write time.
 const REPORT_TEMPLATE: &str = include_str!("report.html");
 
+/// Written at the top of every `--write-expectations` run, so that a baseline explains its own
+/// format. Only what is true of every expectations file belongs here: anything specific to one
+/// component (why its rate is what it is, what would move it) goes in `docs/wpt.md`, which a
+/// regeneration cannot overwrite.
+const EXPECTATIONS_HEADER: &str = "\
+# What the engine passes today, written by `gosub-wpt --write-expectations`. Regenerate rather
+# than edit:
+#
+#   gosub-wpt <wpt-root> <paths...> --write-expectations > this-file
+#
+# This records what PASSES, not what fails. The engine fails most of the corpus, so the pass
+# list is a fifteenth the size of the failure list would be, and \"these subtests pass and must
+# keep passing\" is the property worth committing. A fix then shows up as added lines.
+#
+# One record per line:
+#   FILE    <path>            a suite this baseline covers. Listed explicitly, so adding files
+#                             to a wpt checkout cannot silently change what is covered.
+#   PASS    <path> :: <name>  a subtest that passes and must keep passing. Control characters
+#                             in the name are escaped \\n \\r \\t, and the rest of the C0 range
+#                             as \\xNN.
+#   HARNESS <path>            a suite whose harness does not finish cleanly (timed out, or
+#                             aborted) - separate from any individual subtest failing.
+#   ERROR   <path>            a suite that cannot run at all here, usually a support file
+#                             outside the sparse checkout.
+#   CRASH   <path>            a suite that panics the engine. The most serious record here: a
+#                             bug a real page could reach, to be fixed rather than lived with.
+#
+# A listed subtest that stops passing is a REGRESSION and fails the run. A subtest that starts
+# passing is an UNEXPECTED PASS and also fails it, so improving the engine forces this file to
+# be regenerated and it always says what the engine actually does. A subtest that is failing and
+# not listed is the ordinary state of most of the corpus and is reported by neither.
+#
+# See docs/wpt.md for how to run a component and how to pick something to fix.
+";
+
 const RESULTS_HOOK: &str = r#"
 setup({ explicit_done: true });
 globalThis.__wpt_results = null;
@@ -75,14 +110,26 @@ struct Args {
     /// baseline moves: run it, read the diff, commit it.
     #[arg(long)]
     write_expectations: bool,
+    /// List the suites worth picking up instead of the per-suite results: the ones that crash
+    /// the engine, then the ones that partly pass, most nearly-working first.
+    #[arg(long)]
+    shortlist: bool,
 }
 
 /// What an expectations file records. Files are listed explicitly so that adding tests to a
 /// wpt checkout cannot silently change what is covered.
 #[derive(Default)]
 struct Expectations {
+    /// Whether a file was actually loaded. Without one every subtest is "not recorded as
+    /// passing", which is the same shape as a known failure - so a plain run would fall silent
+    /// about the very failures it exists to show. This tells the two apart.
+    loaded: bool,
     files: Vec<String>,
-    failing: std::collections::HashSet<String>,
+    /// Subtests recorded as passing. The file lists passes rather than failures because the
+    /// engine fails most of the corpus: at 2,348 of 50,310 the pass list is a fifteenth the
+    /// size, and "these pass and must keep passing" is the property worth committing. It also
+    /// makes a fix read as added lines rather than as thousands vanishing from a 48k file.
+    passing: std::collections::HashSet<String>,
     erroring: std::collections::HashSet<String>,
     /// Files whose harness itself does not finish cleanly - it timed out, or aborted on an
     /// uncaught exception. Separate from a subtest failing.
@@ -95,7 +142,10 @@ struct Expectations {
 impl Expectations {
     fn load(path: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut out = Expectations::default();
+        let mut out = Expectations {
+            loaded: true,
+            ..Expectations::default()
+        };
         for line in text.lines() {
             // No trimming: a subtest name may legitimately end in a space.
             let line = line.strip_suffix('\r').unwrap_or(line);
@@ -109,8 +159,8 @@ impl Expectations {
                     // pushing here too would run the suite twice under --all.
                     out.erroring.insert(rest.to_string());
                 }
-                Some(("FAIL", rest)) => {
-                    out.failing.insert(rest.to_string());
+                Some(("PASS", rest)) => {
+                    out.passing.insert(rest.to_string());
                 }
                 Some(("HARNESS", rest)) => {
                     out.unclean.insert(rest.to_string());
@@ -180,6 +230,21 @@ fn status_name(status: u32) -> &'static str {
         3 => "NOTRUN",
         _ => "PRECONDITION_FAILED",
     }
+}
+
+/// Evaluate a classic script the way a page does, in sloppy mode.
+///
+/// rquickjs defaults to `strict: true`, which is the wrong default for wpt. Its tests are
+/// classic scripts, not modules, so `onload = ...` on an undeclared name creates a global and
+/// `for (unitEntry in units)` needs no declaration. Forced into strict mode both raise a
+/// ReferenceError, and the suite dies on a line every browser runs without complaint - a
+/// failure that says nothing at all about the engine.
+fn eval_classic(ctx: &Ctx<'_>, code: &[u8]) -> rquickjs::Result<()> {
+    // `EvalOptions` is #[non_exhaustive], so the one field is changed on a default rather than
+    // the struct being written out.
+    let mut options = rquickjs::context::EvalOptions::default();
+    options.strict = false;
+    ctx.eval_with_options(code, options)
 }
 
 /// A `<script>` in the document: either a source path to load, or inline text.
@@ -266,13 +331,38 @@ struct Outcome {
     harness: bool,
 }
 
-fn run_test(
-    wpt_root: &Path,
-    test_path: &Path,
-    verbose: bool,
-    expect: &Expectations,
-    record: bool,
-) -> anyhow::Result<Outcome> {
+/// What a run prints as it goes. These are modes rather than independent flags because they
+/// are mutually exclusive: `--write-expectations` has no use for `-v`, and `--shortlist`
+/// prints its own view once the whole run is in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reporting {
+    /// Per-suite results and per-subtest failures. The default.
+    Normal,
+    /// The same, plus every passing subtest by name (`-v`).
+    Verbose,
+    /// Expectation records on stdout and nothing else (`--write-expectations`).
+    Record,
+    /// Nothing per suite; the caller reports at the end (`--shortlist`).
+    Quiet,
+}
+
+impl Reporting {
+    fn is_record(self) -> bool {
+        self == Reporting::Record
+    }
+
+    /// Whether the running commentary is suppressed. `Record` counts: its records are the
+    /// file being written, and a stray human line would land in the committed baseline.
+    fn is_quiet(self) -> bool {
+        matches!(self, Reporting::Record | Reporting::Quiet)
+    }
+
+    fn is_verbose(self) -> bool {
+        self == Reporting::Verbose
+    }
+}
+
+fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Reporting) -> anyhow::Result<Outcome> {
     let source = std::fs::read_to_string(test_path).with_context(|| format!("reading {}", test_path.display()))?;
     let (doc, _parse_errors) = parse_document(&source, None)?;
     let scripts = collect_scripts(&doc.borrow());
@@ -293,7 +383,7 @@ fn run_test(
         ctx.eval::<(), _>("globalThis.self = globalThis;")
             .catch(&ctx)
             .map_err(|e| anyhow::anyhow!("globals: {e}"))?;
-        ctx.eval::<(), _>(harness.as_bytes())
+        eval_classic(&ctx, harness.as_bytes())
             .catch(&ctx)
             .map_err(|e| anyhow::anyhow!("testharness.js: {e}"))?;
         ctx.eval::<(), _>(RESULTS_HOOK)
@@ -314,8 +404,16 @@ fn run_test(
                 }
                 Script::Inline(code) => ("<inline>".to_string(), code.clone()),
             };
-            if let Err(e) = ctx.eval::<(), _>(code.as_bytes()).catch(&ctx) {
-                eprintln!("  script {label} threw: {e}");
+            if let Err(e) = eval_classic(&ctx, code.as_bytes()).catch(&ctx) {
+                // One line by default. A corpus run trips hundreds of these - mostly a Web API
+                // the engine has not got yet - and a stack under every one buries the results
+                // they are meant to annotate. `-v` keeps the full trace for investigating one.
+                let text = e.to_string();
+                if mode.is_verbose() {
+                    eprintln!("  script {label} threw: {text}");
+                } else {
+                    eprintln!("  script {label} threw: {}", text.lines().next().unwrap_or("").trim());
+                }
             }
             drain_jobs(&ctx);
         }
@@ -359,14 +457,14 @@ fn run_test(
     };
 
     let key = expectation_key(wpt_root, test_path);
-    if record {
+    if mode.is_record() {
         println!("FILE {key}");
         if results.status != 0 {
             println!("HARNESS {key}");
         }
         for test in &results.tests {
-            if test.status != 0 {
-                println!("FAIL {key} :: {}", escape(&test.name));
+            if test.status == 0 {
+                println!("PASS {key} :: {}", escape(&test.name));
             }
         }
         return Ok(Outcome {
@@ -376,58 +474,76 @@ fn run_test(
             harness: results.status != 0,
         });
     }
-    let (mut passed, mut failed, mut expected, mut unexpected_pass) = (0, 0, 0, 0);
+    // `regressed` is a subtest the baseline records as passing that no longer does - the one
+    // outcome this tool exists to catch. `known_fail` is a subtest that was already failing and
+    // still is, which is the ordinary state of most of the corpus and says nothing new.
+    let (mut passed, mut regressed, mut known_fail, mut unexpected_pass) = (0, 0, 0, 0);
     for test in &results.tests {
-        let known = expect.failing.contains(&format!("{key} :: {}", escape(&test.name)));
-        match (test.status == 0, known) {
-            (true, false) => passed += 1,
-            (true, true) => {
+        let recorded = expect.passing.contains(&format!("{key} :: {}", escape(&test.name)));
+        let detail = || match test.message.as_deref().unwrap_or("") {
+            "" => String::new(),
+            message => format!(" - {message}"),
+        };
+        match (test.status == 0, recorded) {
+            (true, true) => passed += 1,
+            (true, false) => {
                 unexpected_pass += 1;
-                println!("  UNEXPECTED PASS {}", test.name);
+                // Only news against a baseline. Without one, a pass is just a pass.
+                if expect.loaded && !mode.is_quiet() {
+                    println!("  UNEXPECTED PASS {}", test.name);
+                }
             }
-            (false, true) => expected += 1,
+            (false, true) => {
+                regressed += 1;
+                if !mode.is_quiet() {
+                    println!("  REGRESSION {} {}{}", status_name(test.status), test.name, detail());
+                }
+            }
             (false, false) => {
-                failed += 1;
-                let detail = test.message.as_deref().unwrap_or("");
-                println!(
-                    "  {} {}{}",
-                    status_name(test.status),
-                    test.name,
-                    if detail.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" - {detail}")
-                    }
-                );
+                known_fail += 1;
+                // With a baseline loaded this is the recorded state and printing it would bury
+                // the regressions in tens of thousands of lines. Without one, it is the whole
+                // point of the run.
+                if !expect.loaded && !mode.is_quiet() {
+                    println!("  {} {}{}", status_name(test.status), test.name, detail());
+                }
             }
         }
-        if verbose && test.status == 0 && !known {
+        if mode.is_verbose() && test.status == 0 && !(expect.loaded && recorded) {
             println!("  PASS {}", test.name);
         }
     }
 
     let harness_ok = results.status == 0 || expect.unclean.contains(&key);
-    if results.status != 0 {
+    if results.status != 0 && !mode.is_quiet() {
         println!(
             "  harness {}: {}",
             status_name(results.status),
             results.message.as_deref().unwrap_or("")
         );
     }
-    let known = if expected > 0 {
-        format!(", {expected} known")
-    } else {
-        String::new()
-    };
-    println!("{}: {passed} passed, {failed} failed{known}", test_path.display());
+    if !mode.is_quiet() {
+        let moved = match (regressed, unexpected_pass) {
+            (0, 0) => String::new(),
+            (0, gained) => format!(", {gained} newly passing"),
+            (lost, 0) => format!(", {lost} REGRESSED"),
+            (lost, gained) => format!(", {lost} REGRESSED, {gained} newly passing"),
+        };
+        println!(
+            "{}: {} passed, {} failed{moved}",
+            test_path.display(),
+            passed + unexpected_pass,
+            regressed + known_fail
+        );
+    }
     Ok(Outcome {
-        ok: harness_ok && failed == 0 && unexpected_pass == 0,
-        // An unexpected pass counts among the passes here even though it fails the run. The
-        // rate is meant to describe the engine, not the baseline's opinion of it - and the
-        // moment it matters most is the run right after a fix, where leaving these out would
+        ok: harness_ok && regressed == 0 && unexpected_pass == 0,
+        // Both counts describe the engine rather than the baseline's opinion of it: an
+        // unexpected pass is still a pass, and a regression is still a failure. The moment that
+        // matters most is the run right after a fix, where leaving the new passes out would
         // report the numbers as unmoved.
         pass: passed + unexpected_pass,
-        fail: failed + expected,
+        fail: regressed + known_fail,
         harness: results.status != 0,
     })
 }
@@ -445,6 +561,10 @@ struct Row {
     /// code that a real page could reach, and folding the two together would let the more
     /// serious one hide inside the baseline.
     crash: bool,
+    /// The panic message, so `--shortlist` can say what crashed without the reader re-running
+    /// the suite to find out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crash_message: Option<String>,
 }
 
 thread_local! {
@@ -552,13 +672,7 @@ fn today() -> String {
 }
 
 /// Run one file, turning a hard error into a pass when the expectations say it cannot run.
-fn run_or_expect_error(
-    wpt_root: &Path,
-    path: &Path,
-    verbose: bool,
-    expect: &Expectations,
-    record: bool,
-) -> (bool, Row) {
+fn run_or_expect_error(wpt_root: &Path, path: &Path, expect: &Expectations, mode: Reporting) -> (bool, Row) {
     let key = expectation_key(wpt_root, path);
     let row = |pass, fail, harness, error| Row {
         path: key.clone(),
@@ -567,52 +681,58 @@ fn run_or_expect_error(
         harness,
         error,
         crash: false,
+        crash_message: None,
     };
-    let crashed = || Row {
+    let crashed = |detail: &str| Row {
         path: key.clone(),
         pass: 0,
         fail: 0,
         harness: false,
         error: false,
         crash: true,
+        crash_message: Some(detail.to_string()),
     };
 
     // A panic in engine code must not take the rest of the corpus with it: one bad property
     // definition would otherwise end a 309-suite run at whichever file reached it first, and
     // the report would silently describe only the part before the crash. The runtime is built
     // inside `run_test` and dropped as the panic unwinds, so the next suite starts clean.
-    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        run_test(wpt_root, path, verbose, expect, record)
-    }));
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_test(wpt_root, path, expect, mode)));
     let outcome = match caught {
         Ok(outcome) => outcome,
         Err(_) => {
             let detail = LAST_PANIC
                 .with(|slot| slot.borrow_mut().take())
                 .unwrap_or_else(|| "panicked".to_string());
-            if record {
+            if mode.is_record() {
                 println!("FILE {key}");
                 println!("CRASH {key}");
-                return (true, crashed());
+                return (true, crashed(&detail));
             }
             if expect.crashing.contains(&key) {
-                println!("{}: known CRASH ({detail})", path.display());
-                return (true, crashed());
+                if !mode.is_quiet() {
+                    println!("{}: known CRASH ({detail})", path.display());
+                }
+                return (true, crashed(&detail));
             }
-            println!("{}: CRASH {detail}", path.display());
-            return (false, crashed());
+            if !mode.is_quiet() {
+                println!("{}: CRASH {detail}", path.display());
+            }
+            return (false, crashed(&detail));
         }
     };
     match outcome {
         Ok(outcome) => {
-            if !record && expect.erroring.contains(&key) {
-                println!("{}: UNEXPECTED RUN (listed as ERROR)", path.display());
+            if !mode.is_record() && expect.erroring.contains(&key) {
+                if !mode.is_quiet() {
+                    println!("{}: UNEXPECTED RUN (listed as ERROR)", path.display());
+                }
                 return (false, row(outcome.pass, outcome.fail, outcome.harness, false));
             }
             (outcome.ok, row(outcome.pass, outcome.fail, outcome.harness, false))
         }
         Err(e) => {
-            if record {
+            if mode.is_record() {
                 // FILE as well as ERROR: the FILE records are what names the covered set, so
                 // a suite that only ever errors still has to appear among them. Without it,
                 // regenerating from the file's own FILE lines drops the suite silently and
@@ -622,10 +742,14 @@ fn run_or_expect_error(
                 return (true, row(0, 0, false, true));
             }
             if expect.erroring.contains(&key) {
-                println!("{}: known ERROR ({e:#})", path.display());
+                if !mode.is_quiet() {
+                    println!("{}: known ERROR ({e:#})", path.display());
+                }
                 return (true, row(0, 0, false, true));
             }
-            println!("{}: ERROR {e:#}", path.display());
+            if !mode.is_quiet() {
+                println!("{}: ERROR {e:#}", path.display());
+            }
             (false, row(0, 0, false, true))
         }
     }
@@ -720,6 +844,71 @@ fn bar(pass: u32, total: u32) -> String {
     "\u{2588}".repeat(filled) + &"\u{2591}".repeat(10 - filled)
 }
 
+/// The suites worth picking up, most tractable first.
+///
+/// Exists so that "what should I work on" is a command rather than a name in a document. A
+/// worked example in the docs stops being true the moment someone acts on it - the better the
+/// documentation, the faster it rots - so the docs point here instead, and this answers against
+/// the engine as it is right now.
+///
+/// A partly-passing suite is the tractable kind: the engine already understands the shape of
+/// the thing and is wrong about a detail. One at 0/40 is usually missing a whole feature and is
+/// a project, so it is left out; so is one that fully passes. Crashes come first regardless of
+/// their numbers, being bugs a real page could reach rather than absent features.
+fn print_shortlist(rows: &[Row]) {
+    let crashes: Vec<&Row> = rows.iter().filter(|row| row.crash).collect();
+    let mut partial: Vec<&Row> = rows
+        .iter()
+        .filter(|row| !row.crash && !row.error && row.pass > 0 && row.fail > 0)
+        .collect();
+    // Nearest to working first: the closer a suite is to passing, the smaller the gap left to
+    // understand. Fewer remaining failures breaks the tie, so of two suites at the same rate
+    // the shorter job comes first.
+    partial.sort_by(|a, b| {
+        let rate = |row: &Row| f64::from(row.pass) / f64::from(row.pass + row.fail);
+        rate(b)
+            .partial_cmp(&rate(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.fail.cmp(&b.fail))
+    });
+
+    if crashes.is_empty() && partial.is_empty() {
+        println!();
+        println!("  Nothing partly passing here - every suite either fully passes or fully fails.");
+        println!("  Try a wider directory, or see docs/wpt.md for the larger pieces of work.");
+        return;
+    }
+
+    if !crashes.is_empty() {
+        println!();
+        println!("  Crashes - engine code panicking on input a real page could carry. Take these first.");
+        for row in &crashes {
+            println!("    {}", row.path);
+            if let Some(message) = &row.crash_message {
+                println!("      {message}");
+            }
+        }
+    }
+
+    if !partial.is_empty() {
+        let width = partial.iter().map(|row| row.path.len()).max().unwrap_or(0).min(70);
+        println!();
+        println!("  Partly passing, nearest to working first:");
+        for row in &partial {
+            let total = row.pass + row.fail;
+            let rate = f64::from(row.pass) / f64::from(total) * 100.0;
+            println!(
+                "    {:>5.1}%  {:<width$}  {}/{}, {} left",
+                rate, row.path, row.pass, total, row.fail
+            );
+        }
+    }
+
+    println!();
+    println!("  Run one on its own to see the failing subtests by name, then read what passes");
+    println!("  against what fails. docs/wpt-quickstart.md walks the whole loop.");
+}
+
 /// The end-of-run summary: a rollup per directory, then the totals.
 ///
 /// Grouped by each suite's own directory rather than by a fixed prefix depth, because that is
@@ -795,6 +984,14 @@ fn main() -> ExitCode {
     capture_panics();
 
     let args = Args::parse();
+    // Record wins over shortlist: it is the mode that writes a file, and getting a shortlist
+    // into a committed baseline would be worse than ignoring a flag.
+    let mode = match (args.write_expectations, args.shortlist, args.verbose) {
+        (true, _, _) => Reporting::Record,
+        (false, true, _) => Reporting::Quiet,
+        (false, false, true) => Reporting::Verbose,
+        (false, false, false) => Reporting::Normal,
+    };
     let expect = match args.expect.as_deref().map(Expectations::load).transpose() {
         Ok(expect) => expect.unwrap_or_default(),
         Err(e) => {
@@ -848,18 +1045,28 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // The header goes out before the records, because regenerating is a whole-file overwrite
+    // (`--write-expectations > the-file`) and anything the file explained about itself is gone
+    // the first time a contributor follows the documented workflow. Emitting it here means the
+    // format stays documented no matter how often the baseline moves.
+    if args.write_expectations {
+        print!("{EXPECTATIONS_HEADER}");
+    }
+
     let mut all_ok = true;
     let mut rows = Vec::with_capacity(paths.len());
     for path in &paths {
-        let (ok, row) = run_or_expect_error(&args.wpt_root, path, args.verbose, &expect, args.write_expectations);
+        let (ok, row) = run_or_expect_error(&args.wpt_root, path, &expect, mode);
         all_ok &= ok;
         rows.push(row);
     }
 
     // Not while regenerating: `--write-expectations` writes the new baseline to stdout, and a
     // summary in the middle of it would land in the committed file.
-    if !args.write_expectations {
-        print_summary(&rows);
+    match mode {
+        Reporting::Record => {}
+        Reporting::Quiet => print_shortlist(&rows),
+        _ => print_summary(&rows),
     }
 
     if let Some(report) = args.report.as_deref() {

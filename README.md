@@ -84,8 +84,10 @@ ones worth reading first.
 
 **Conformance**
 
-- [Web-platform-tests](docs/wpt.md) — running WPT against the engine, where the numbers stand,
-  and how to pick a failing test and fix it
+- [**WPT quickstart**](docs/wpt-quickstart.md) — clone to a fixed test in about ten minutes.
+  The fastest way to make a first contribution.
+- [Web-platform-tests](docs/wpt.md) — the harness in full: what is bound, the expectations
+  format, the reftest runner, and what CI does
 
 
 ## Contributing

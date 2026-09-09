@@ -5,7 +5,8 @@
 //! `tests/wpt/wpt-commit.txt`. Without `WPT_ROOT` the test skips, so a normal `cargo test`
 //! needs no checkout.
 //!
-//! When behaviour improves the expectations go stale and this fails with UNEXPECTED PASS.
+//! The baseline records what passes, so a subtest that stops passing is a REGRESSION and fails
+//! this test. When behaviour improves it goes stale instead and fails with UNEXPECTED PASS.
 //! That is the point - regenerate and commit the diff:
 //!
 //! ```text
@@ -48,10 +49,9 @@ fn suites_match_the_expectations() {
         let interesting: Vec<&str> = report
             .lines()
             .filter(|line| {
-                line.contains("UNEXPECTED")
-                    || line.trim_start().starts_with("FAIL ")
-                    || line.trim_start().starts_with("TIMEOUT ")
-                    || line.trim_start().starts_with("NOTRUN ")
+                line.contains("REGRESSION")
+                    || line.contains("UNEXPECTED")
+                    || line.contains(": CRASH ")
                     || line.contains(": ERROR ")
             })
             .collect();
