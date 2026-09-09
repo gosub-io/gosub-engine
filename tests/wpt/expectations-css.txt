@@ -20,10 +20,12 @@
 #   CRASH   <path>            a suite that panics the engine. The most serious record here: a
 #                             bug a real page could reach, to be fixed rather than lived with.
 #
-# A listed subtest that stops passing is a REGRESSION and fails the run. A subtest that starts
-# passing is an UNEXPECTED PASS and also fails it, so improving the engine forces this file to
-# be regenerated and it always says what the engine actually does. A subtest that is failing and
-# not listed is the ordinary state of most of the corpus and is reported by neither.
+# A listed subtest that stops passing is a REGRESSION and fails the run, as is one the suite no
+# longer reports at all (MISSING - renamed upstream, or its suite died before reaching it). A
+# subtest that starts passing is an UNEXPECTED PASS and also fails the run, so improving the
+# engine forces this file to be regenerated and it always says what the engine actually does. A
+# subtest that is failing and is not listed is the ordinary state of most of the corpus, and is
+# reported by none of them.
 #
 # See docs/wpt.md for how to run a component and how to pick something to fix.
 FILE css/css-syntax/anb-parsing.html

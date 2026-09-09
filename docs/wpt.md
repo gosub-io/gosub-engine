@@ -47,6 +47,24 @@ run ends with a rollup per directory and the totals:
 
 That is the whole setup. The next section is how to turn one of those failures into a fix.
 
+### The make targets
+
+With a checkout in `wpt/` (or `WPT_ROOT` set), these wrap the commands above:
+
+| | |
+|---|---|
+| `make wpt` | check the gate against `tests/wpt/expectations.txt` |
+| `make wpt-css` | check the CSS component against `tests/wpt/expectations-css.txt` |
+| `make wpt-shortlist` | what to work on (`DIR=dom/events` to pick the subtree) |
+| `make wpt-update` | regenerate both baselines after a fix |
+
+Each checks that the checkout actually holds the directories it reads, and prints the
+`sparse-checkout add` line if not. That matters because the sparse set is as much a part of a
+result as the commit: run the gate against a checkout made for the CSS component and all 621 of
+its suites report `ERROR`, and regenerating from that would replace the baseline with nothing.
+
+`make test` does not run any of them - an ordinary build needs no wpt checkout.
+
 ### Other ways to select tests
 
 ```bash
@@ -252,9 +270,12 @@ worth committing. A fix then shows up as added lines rather than as thousands di
 of a 48k file. The list only stops being the smaller one once the engine passes more than half
 the corpus, which is a long way off.
 
-The two directions are symmetric, and both fail the run:
+Three outcomes fail the run:
 
 - a listed subtest that stops passing is a **REGRESSION** - the thing the gate exists to catch;
+- a listed subtest the suite no longer reports at all is **MISSING** - renamed upstream, or its
+  suite died before reaching it. Without this check a pass record could be satisfied by the
+  subtest disappearing, which is the one way a pass list can quietly stop meaning anything;
 - a subtest that starts passing is an **UNEXPECTED PASS**, so improving the engine forces the
   baseline to be regenerated and the file always says what the engine actually does.
 

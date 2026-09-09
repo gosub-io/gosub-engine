@@ -53,10 +53,12 @@ const EXPECTATIONS_HEADER: &str = "\
 #   CRASH   <path>            a suite that panics the engine. The most serious record here: a
 #                             bug a real page could reach, to be fixed rather than lived with.
 #
-# A listed subtest that stops passing is a REGRESSION and fails the run. A subtest that starts
-# passing is an UNEXPECTED PASS and also fails it, so improving the engine forces this file to
-# be regenerated and it always says what the engine actually does. A subtest that is failing and
-# not listed is the ordinary state of most of the corpus and is reported by neither.
+# A listed subtest that stops passing is a REGRESSION and fails the run, as is one the suite no
+# longer reports at all (MISSING - renamed upstream, or its suite died before reaching it). A
+# subtest that starts passing is an UNEXPECTED PASS and also fails the run, so improving the
+# engine forces this file to be regenerated and it always says what the engine actually does. A
+# subtest that is failing and is not listed is the ordinary state of most of the corpus, and is
+# reported by none of them.
 #
 # See docs/wpt.md for how to run a component and how to pick something to fix.
 ";
@@ -125,11 +127,16 @@ struct Expectations {
     /// about the very failures it exists to show. This tells the two apart.
     loaded: bool,
     files: Vec<String>,
-    /// Subtests recorded as passing. The file lists passes rather than failures because the
-    /// engine fails most of the corpus: at 2,348 of 50,310 the pass list is a fifteenth the
-    /// size, and "these pass and must keep passing" is the property worth committing. It also
-    /// makes a fix read as added lines rather than as thousands vanishing from a 48k file.
-    passing: std::collections::HashSet<String>,
+    /// Subtests recorded as passing, indexed by the suite they belong to. The file lists passes
+    /// rather than failures because the engine fails most of the corpus: at 2,348 of 50,310 the
+    /// pass list is a fifteenth the size, and "these pass and must keep passing" is the property
+    /// worth committing. It also makes a fix read as added lines rather than as thousands
+    /// vanishing from a 48k file.
+    ///
+    /// Grouped per suite rather than kept as one flat set so that a run can tell which records
+    /// went unmatched. A subtest that stops being reported at all - renamed upstream, or its
+    /// suite dying before it runs - would otherwise satisfy the baseline by absence.
+    passing: std::collections::HashMap<String, std::collections::HashSet<String>>,
     erroring: std::collections::HashSet<String>,
     /// Files whose harness itself does not finish cleanly - it timed out, or aborted on an
     /// uncaught exception. Separate from a subtest failing.
@@ -160,7 +167,13 @@ impl Expectations {
                     out.erroring.insert(rest.to_string());
                 }
                 Some(("PASS", rest)) => {
-                    out.passing.insert(rest.to_string());
+                    let (file, name) = rest
+                        .split_once(" :: ")
+                        .with_context(|| format!("PASS record has no ' :: ' separator: {rest:?}"))?;
+                    out.passing
+                        .entry(file.to_string())
+                        .or_default()
+                        .insert(name.to_string());
                 }
                 Some(("HARNESS", rest)) => {
                     out.unclean.insert(rest.to_string());
@@ -303,9 +316,16 @@ fn drain_jobs(ctx: &Ctx<'_>) {
     }
 }
 
-fn install_console(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+fn install_console(ctx: &Ctx<'_>, mode: Reporting) -> rquickjs::Result<()> {
     let console = rquickjs::Object::new(ctx.clone())?;
-    let log = Function::new(ctx.clone(), |msg: String| eprintln!("  [console] {msg}"))?;
+    // A test's own logging is a diagnostic like any other, so `--shortlist` drops it: that run
+    // is a listing, and a stray `console.log` in the middle of the table reads as part of it.
+    let quiet = mode.is_quiet();
+    let log = Function::new(ctx.clone(), move |msg: String| {
+        if !quiet {
+            eprintln!("  [console] {msg}");
+        }
+    })?;
     console.set("log", log.clone())?;
     console.set("warn", log.clone())?;
     console.set("error", log)?;
@@ -375,7 +395,7 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
     let context = Context::full(&runtime)?;
 
     let results = context.with(|ctx| -> anyhow::Result<Option<HarnessResults>> {
-        install_console(&ctx)?;
+        install_console(&ctx, mode)?;
 
         // testharness.js needs `self` to exist, but must not see `document` yet: it picks its
         // environment by looking for one, and the window environment expects a message-passing
@@ -407,11 +427,12 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
             if let Err(e) = eval_classic(&ctx, code.as_bytes()).catch(&ctx) {
                 // One line by default. A corpus run trips hundreds of these - mostly a Web API
                 // the engine has not got yet - and a stack under every one buries the results
-                // they are meant to annotate. `-v` keeps the full trace for investigating one.
+                // they are meant to annotate. `-v` keeps the full trace for investigating one,
+                // and `--shortlist` wants none of it: that run is a listing, not a diagnosis.
                 let text = e.to_string();
                 if mode.is_verbose() {
                     eprintln!("  script {label} threw: {text}");
-                } else {
+                } else if !mode.is_quiet() {
                     eprintln!("  script {label} threw: {}", text.lines().next().unwrap_or("").trim());
                 }
             }
@@ -478,8 +499,15 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
     // outcome this tool exists to catch. `known_fail` is a subtest that was already failing and
     // still is, which is the ordinary state of most of the corpus and says nothing new.
     let (mut passed, mut regressed, mut known_fail, mut unexpected_pass) = (0, 0, 0, 0);
+    let empty = std::collections::HashSet::new();
+    let recorded_here = expect.passing.get(&key).unwrap_or(&empty);
+    // Which of this suite's records the run actually saw. What is left over at the end is a
+    // subtest the baseline expects to pass that the suite no longer reports at all.
+    let mut unseen: std::collections::HashSet<&str> = recorded_here.iter().map(String::as_str).collect();
     for test in &results.tests {
-        let recorded = expect.passing.contains(&format!("{key} :: {}", escape(&test.name)));
+        let escaped = escape(&test.name);
+        let recorded = recorded_here.contains(&escaped);
+        unseen.remove(escaped.as_str());
         let detail = || match test.message.as_deref().unwrap_or("") {
             "" => String::new(),
             message => format!(" - {message}"),
@@ -511,6 +539,18 @@ fn run_test(wpt_root: &Path, test_path: &Path, expect: &Expectations, mode: Repo
         }
         if mode.is_verbose() && test.status == 0 && !(expect.loaded && recorded) {
             println!("  PASS {}", test.name);
+        }
+    }
+
+    // A record the suite never reported. Counted with the regressions because it is one: the
+    // baseline says this passes, and the run cannot show that it does.
+    let missing = unseen.len() as u32;
+    regressed += missing;
+    if missing > 0 && !mode.is_quiet() {
+        let mut names: Vec<&&str> = unseen.iter().collect();
+        names.sort_unstable();
+        for name in names {
+            println!("  MISSING {name} - recorded as passing, but the suite no longer reports it");
         }
     }
 
@@ -1076,7 +1116,10 @@ fn main() -> ExitCode {
         }
     }
 
-    if all_ok {
+    // `--shortlist` asks a question rather than asserting anything, so it succeeds as long as it
+    // could answer. Inheriting the run's exit code would make it fail whenever the engine has
+    // any failing subtest at all - which is the entire reason someone runs it.
+    if all_ok || mode == Reporting::Quiet {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
