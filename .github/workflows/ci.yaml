@@ -34,13 +34,15 @@ jobs:
           toolchain: ${{ matrix.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
-          # Key must be unique per job: caches are immutable per key, so if
-          # jobs share one, whichever finishes first on main saves its (possibly
-          # artifact-less) cache and the others rebuild from scratch on every PR.
           shared-key: test-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
-        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+        run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
+          sudo apt update -y
+          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
       - uses: taiki-e/install-action@nextest
       - name: Build and test
         run: cargo nextest run --locked --all --no-fail-fast
@@ -63,7 +65,12 @@ jobs:
           shared-key: wpt
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
-        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+        run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
+          sudo apt update -y
+          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
       - uses: taiki-e/install-action@nextest
       - name: Checkout web-platform-tests (sparse, pinned)
         run: |
@@ -75,8 +82,6 @@ jobs:
         run: cargo nextest run --locked --release -p gosub-wpt --test wpt_conformance --no-capture
         env:
           WPT_ROOT: ${{ runner.temp }}/wpt
-      # The gate above is pass/fail; this is the readable view of where the engine
-      # actually stands. Always runs, so a failing gate still produces a report.
       - name: Build the coverage report
         if: always()
         run: |
@@ -132,7 +137,12 @@ jobs:
           shared-key: clippy-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
-        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+        run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
+          sudo apt update -y
+          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
       - name: Run Clippy
         run: cargo clippy --locked --all --all-targets -- -D warnings
 
@@ -145,12 +155,15 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          # Separate cache: all-features artifacts (skia, vello, gtk) differ
-          # heavily from the default-features builds of the other jobs.
           shared-key: all-features
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
-        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+        run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
+          sudo apt update -y
+          sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
       - uses: taiki-e/install-action@nextest
       - name: Clippy with all features
         run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
@@ -164,8 +177,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      # No rust-cache here: cargo fmt compiles nothing, and saving a cache from
-      # this job would poison the key it shares with compiling jobs.
       - name: Run fmt
         run: cargo fmt --check --all
 

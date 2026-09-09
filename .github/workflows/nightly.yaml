@@ -27,6 +27,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
           sudo apt install -y \
             sqlite3 libsqlite3-dev \
@@ -94,6 +96,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
           sudo apt install -y \
             sqlite3 libsqlite3-dev \
@@ -101,9 +105,6 @@ jobs:
             libgdk-pixbuf-2.0-dev libpango1.0-dev \
             libgtk-4-dev
 
-      # The whole corpus, not the pinned sparse slice the `wpt` gate uses: this job
-      # is a snapshot of where the engine stands, so it tracks wpt HEAD and is not
-      # compared against tests/wpt/expectations.txt.
       - name: Checkout web-platform-tests (full, at HEAD)
         run: |
           git clone --filter=blob:none https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
@@ -113,18 +114,12 @@ jobs:
       - name: Collect the test list
         run: |
           cd "$RUNNER_TEMP/wpt"
-          # Only testharness.js suites. Two thirds of wpt's .html files are reftests,
-          # conformance-checker fixtures or manual tests: this harness reports zero
-          # subtests for them, so they are runtime and report noise, not coverage.
-          # (-ref/-notref are the reference halves of a reftest, not tests at all.)
           grep -lFr --include='*.html' 'resources/testharness.js' . \
             | sed 's|^\./||' \
             | grep -vE '(-ref|-notref)\.html$' \
             | sort > "$RUNNER_TEMP/all-tests.txt"
           echo "collected $(wc -l < "$RUNNER_TEMP/all-tests.txt") testharness suites at $WPT_SHA"
 
-      # No --expect: nothing is gated here, so a failing subtest must not fail the job.
-      # 27k paths is past ARG_MAX, hence --tests-from.
       - name: Run the corpus
         run: |
           cargo run --release --locked -p gosub-wpt -- "$RUNNER_TEMP/wpt" \
