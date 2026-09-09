@@ -113,12 +113,18 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn clone_node(&mut self, id: NodeId) -> NodeId {
+        if self.refuses_copy(id) {
+            return id;
+        }
         let Some(node) = self.arena.node(id) else { return id };
         let cloned = NodeImpl::new_from_node(&node);
         self.register_node(cloned)
     }
 
     fn duplicate_node(&mut self, id: NodeId) -> NodeId {
+        if self.refuses_copy(id) {
+            return id;
+        }
         let Some(node) = self.arena.node_ref(id) else { return id };
         let dup = NodeImpl::new_from_node(node);
         self.register_node(dup)
@@ -572,6 +578,24 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
     /// of the ordinary mutations - and attaching it would give it a parent and put it into
     /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
+    /// Whether `node_id` must not be copied, because it is a shadow root.
+    ///
+    /// A shadow root's data holds the id of its host, so copying it produces a second root
+    /// claiming the same host while the host still names the first - two roots, one host, and a
+    /// back pointer that agrees with neither. `ShadowRoot.cloneNode()` throws in the spec for
+    /// the same reason, so refusing is the faithful answer; the caller gets the original id
+    /// back, which is what the not-found path already returns.
+    fn refuses_copy(&self, node_id: NodeId) -> bool {
+        let is_shadow_root = self
+            .arena
+            .node_ref(node_id)
+            .is_some_and(|n| n.type_of() == NodeType::ShadowRootNode);
+        if is_shadow_root {
+            log::warn!("refusing to copy shadow root {node_id}");
+        }
+        is_shadow_root
+    }
+
     fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
         let is_shadow_root = self
             .arena
@@ -633,16 +657,24 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        // A shadow root is reached through its host, so drop the back pointer before the node
-        // goes: leaving it would have the host name a dead id for the rest of its life. Done
-        // here rather than in `Document::remove` because this method is inherent and public,
-        // and so wins over the trait method for anything holding a concrete `DocumentImpl`.
+        // The host and its shadow root each name the other, so deleting either has to clear the
+        // link the other way round or the survivor keeps naming a node that is gone. Done here
+        // rather than in `Document::remove` because this method is inherent and public, and so
+        // wins over the trait method for anything holding a concrete `DocumentImpl`.
+        //
+        // Deleting the root drops the host's side pointer.
         if let Some(host) = self.shadow_host(node_id) {
             if let Some(host_node) = self.arena.node_ref_mut(host) {
                 if let NodeDataTypeInternal::Element(ref mut e) = host_node.data {
                     e.shadow_root = None;
                 }
             }
+        }
+        // Deleting the host takes the root with it. Nothing else can reach a shadow root - it
+        // has no parent and appears in no `children` list - so leaving it behind would strand a
+        // node whose only remaining reference points at a deleted host.
+        if let Some(root) = self.shadow_root(node_id) {
+            self.arena.delete_node(root);
         }
         let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
             return;

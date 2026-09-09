@@ -295,6 +295,49 @@ fn removing_a_shadow_root_clears_the_host_back_pointer() {
 }
 
 #[test]
+fn detaching_a_shadow_root_leaves_it_on_its_host() {
+    // A shadow root has no parent, so there is nothing for `detach` to unlink - but it must not
+    // quietly sever the host link either.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    doc.detach(root);
+
+    assert_eq!(doc.shadow_root(host), Some(root), "detach must not orphan the root");
+    assert_eq!(doc.shadow_host(root), Some(host));
+}
+
+#[test]
+fn removing_a_host_takes_its_shadow_root_with_it() {
+    // The mirror of removing the root. Nothing else can reach a shadow root - no parent, in no
+    // `children` list - so leaving it behind strands a node whose one back pointer names a
+    // deleted host.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    doc.remove(host);
+
+    assert_eq!(doc.shadow_host(root), None, "the root must go with its host");
+}
+
+#[test]
+fn a_shadow_root_cannot_be_copied() {
+    // Copying one would give a second root the same host, while the host still names the first.
+    // `ShadowRoot.cloneNode()` throws in the spec; here the original id comes back instead,
+    // which is what the not-found path already returns.
+    let mut doc = parse("<div><template shadowrootmode=open><span>s</span></template></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).expect("declarative shadow root");
+
+    assert_eq!(doc.duplicate_node(root), root, "no copy is made");
+    assert_eq!(doc.clone_node(root), root, "no copy is made");
+    assert_eq!(doc.shadow_root(host), Some(root), "the host keeps its one root");
+    assert_eq!(doc.shadow_host(root), Some(host));
+}
+
+#[test]
 fn a_cloned_host_does_not_share_the_original_shadow_tree() {
     // The side pointer lives in the element's data, which a shallow clone copies. Left in place
     // the clone would share the original's root while `shadow_host(root)` still named the
