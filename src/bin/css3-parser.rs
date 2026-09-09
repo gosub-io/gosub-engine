@@ -201,6 +201,9 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                         CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
                         CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
                         CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
+                        CssSelectorPart::Host(None) => println!("        [Host] :host"),
+                        CssSelectorPart::Host(Some(inner)) => println!("        [Host] :host({inner:?})"),
+                        CssSelectorPart::Slotted(inner) => println!("        [Slotted] ::slotted({inner:?})"),
                     }
                 }
             }

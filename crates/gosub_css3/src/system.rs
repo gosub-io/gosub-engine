@@ -4,7 +4,9 @@ use crate::functions::var::resolve_var;
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
-use crate::matcher::styling::{cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty};
+use crate::matcher::styling::{
+    cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
+};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use cow_utils::CowUtils;
@@ -96,6 +98,10 @@ impl CssSystem for Css3System {
         crate::imports::resolve_imports(sheet, fetch);
     }
 
+    fn set_stylesheet_scope(sheet: &mut Self::Stylesheet, scope: Option<NodeId>) {
+        sheet.scope = scope;
+    }
+
     fn style_environment_fingerprint(sheets: &[Self::Stylesheet]) -> Option<u64> {
         Some(style_environment_fingerprint_impl(sheets))
     }
@@ -181,11 +187,19 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         classes: doc.attribute(id, "class").unwrap_or(""),
         tag: doc.tag_name(id),
     };
-    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity)> = Vec::new();
+    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity, u16)> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
     // rule. Unconditional rules never look at it.
     let media_env = crate::media_query::media_environment();
+    // Which tree this element lives in decides which sheets may reach it at all.
+    let element_scope = tree_scope::<C>(doc, id);
     for sheet in sheets {
+        // A sheet from another tree contributes nothing, except through the two selectors
+        // that are defined to reach across (`:host`, `::slotted()`).
+        let Some(scope) = sheet_scope_for::<C>(doc, id, element_scope, sheet) else {
+            continue;
+        };
+        let depth = shadow_depth::<C>(doc, sheet.scope);
         for rule_idx in sheet.candidate_rules(&keys) {
             let rule = &sheet.rules[rule_idx];
             // Cheaper than selector matching, so it goes first: a rule inside a `@media` block
@@ -197,13 +211,13 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             let best = rule
                 .selectors()
                 .iter()
-                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo) {
+                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo, scope) {
                     (true, specificity) => Some(specificity),
                     (false, _) => None,
                 })
                 .max();
             if let Some(specificity) = best {
-                matched.push((sheet, rule, specificity));
+                matched.push((sheet, rule, specificity, depth));
             }
         }
     }
@@ -213,18 +227,19 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // `var()` is read. The map is only copied when the node actually changes something;
     // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
-    let mut own_custom: HashMap<&str, ((u8, Specificity), &CssValue)> = HashMap::new();
-    for (sheet, rule, specificity) in &matched {
-        let rank = (cascade_rank(sheet.origin, false), *specificity);
+    let mut own_custom: HashMap<&str, ((u8, u16, Specificity), &CssValue)> = HashMap::new();
+    for (sheet, rule, specificity, depth) in &matched {
         for decl in rule.declarations() {
             if !decl.property.starts_with("--") {
                 continue;
             }
-            let rank = if decl.important {
-                (cascade_rank(sheet.origin, true), *specificity)
-            } else {
-                rank
-            };
+            // Same ordering as the regular cascade: origin/importance, then the cross-tree
+            // tiebreak, then specificity.
+            let rank = (
+                cascade_rank(sheet.origin, decl.important),
+                tree_rank(*depth, decl.important),
+                *specificity,
+            );
             match own_custom.entry(decl.property.as_str()) {
                 Entry::Occupied(mut slot) if slot.get().0 <= rank => {
                     slot.insert((rank, &decl.value));
@@ -251,7 +266,12 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             if !decl.property.starts_with("--") {
                 continue;
             }
-            let rank = (cascade_rank(CssOrigin::Author, decl.important), INLINE_SPECIFICITY);
+            // The `style` attribute belongs to the element's own tree, so depth 0 applies.
+            let rank = (
+                cascade_rank(CssOrigin::Author, decl.important),
+                tree_rank(0, decl.important),
+                INLINE_SPECIFICITY,
+            );
             match own_custom.entry(decl.property.as_str()) {
                 Entry::Occupied(mut slot) if slot.get().0 <= rank => {
                     slot.insert((rank, &decl.value));
@@ -281,7 +301,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     let mut fix_list = FixList::new();
 
-    for (sheet, rule, specificity) in matched {
+    for (sheet, rule, specificity, depth) in matched {
         // Selector matched, so we add all declared values to the map
         for declaration in rule.declarations() {
             // Custom property declarations were consumed above; keep them out of
@@ -308,6 +328,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         value,
                         important: declaration.important,
                     },
+                    depth,
                 );
                 continue;
             }
@@ -331,6 +352,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         declaration.important,
                         sheet.url.clone(),
                         specificity,
+                        depth,
                     ));
 
                     // Each CSS declaration starts with a fresh TRBL multiplier
@@ -364,6 +386,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                         value: image_value,
                                         important: declaration.important,
                                     },
+                                    depth,
                                 );
                                 recovered = true;
                             }
@@ -377,6 +400,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                         value: color_value,
                                         important: declaration.important,
                                     },
+                                    depth,
                                 );
                                 recovered = true;
                             }
@@ -410,6 +434,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             value,
                             important: declaration.important,
                         },
+                        depth,
                     );
                 }
                 None => {
@@ -438,6 +463,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             value,
                             important: declaration.important,
                         },
+                        depth,
                     );
                 }
             }
@@ -518,6 +544,7 @@ pub fn add_property_to_map(
     sheet: &crate::stylesheet::CssStylesheet,
     specificity: Specificity,
     declaration: &CssDeclaration,
+    shadow_depth: u16,
 ) {
     let property_name = declaration.property.clone();
 
@@ -528,6 +555,7 @@ pub fn add_property_to_map(
         important: declaration.important,
         location: sheet.url.clone(),
         specificity,
+        shadow_depth,
     };
 
     css_map_entry
@@ -536,6 +564,84 @@ pub fn add_property_to_map(
         .or_insert_with(|| CssProperty::new(property_name.as_str()))
         .declared
         .push(declaration);
+}
+
+/// The tree scope `id` lives in: the shadow root at the top of its ancestor chain, or `None`
+/// when that chain reaches the document.
+///
+/// A shadow root has no parent, so the walk stops there by itself - the same property that
+/// keeps a descendant combinator from crossing the boundary.
+pub fn tree_scope<C: HasDocument>(doc: &C::Document, id: NodeId) -> Option<NodeId> {
+    let mut root = id;
+    while let Some(parent) = doc.parent(root) {
+        root = parent;
+    }
+    (doc.node_type(root) == NodeType::ShadowRootNode).then_some(root)
+}
+
+/// How many shadow boundaries lie between `scope` and the document.
+fn shadow_depth<C: HasDocument>(doc: &C::Document, scope: Option<NodeId>) -> u16 {
+    let mut depth = 0u16;
+    let mut current = scope;
+    while let Some(root) = current {
+        depth = depth.saturating_add(1);
+        let Some(host) = doc.shadow_host(root) else {
+            break;
+        };
+        current = tree_scope::<C>(doc, host);
+    }
+    depth
+}
+
+/// The cross-tree cascade tiebreak for a declaration at `depth`; mirrors
+/// `DeclarationProperty::tree_rank`, for the custom-property cascade which ranks by hand.
+fn tree_rank(depth: u16, important: bool) -> u16 {
+    if important {
+        depth
+    } else {
+        u16::MAX - depth
+    }
+}
+
+/// Whether `sheet` may style `id` at all, and if so how it reaches it.
+///
+/// A sheet applies inside its own tree scope. A shadow tree's sheet also reaches one step
+/// outwards, but only through the two selectors defined for it: `:host` onto the host, and
+/// `::slotted()` onto the light-DOM children projected into its slots. User-agent sheets are
+/// not scoped - they describe the engine's defaults for every element in the document.
+fn sheet_scope_for<C: HasDocument>(
+    doc: &C::Document,
+    id: NodeId,
+    element_scope: Option<NodeId>,
+    sheet: &CssStylesheet,
+) -> Option<ScopeContext> {
+    if sheet.origin == CssOrigin::UserAgent || sheet.scope == element_scope {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Same,
+            tree: sheet.scope,
+        });
+    }
+
+    // Different trees. The only sheets that may still reach are a shadow tree's own, and only
+    // onto its host or onto what is projected into it.
+    let tree = sheet.scope?;
+    let host = doc.shadow_host(tree)?;
+
+    if id == host {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Host,
+            tree: Some(tree),
+        });
+    }
+    // A slottable is a direct child of the host. Whether it was actually assigned is left to
+    // `::slotted()` itself - an unassigned node renders nowhere, so styling it changes nothing.
+    if doc.parent(id) == Some(host) {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Slotted,
+            tree: Some(tree),
+        });
+    }
+    None
 }
 
 /// Elements whose styles are never worth computing because they never render.

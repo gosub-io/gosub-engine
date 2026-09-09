@@ -5,6 +5,7 @@ use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
+use gosub_shared::node::NodeId;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -177,6 +178,14 @@ pub struct CssStylesheet {
     pub uses_viewport_units: bool,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
+    /// The tree scope this sheet was parsed into: `None` for the document, or the shadow root
+    /// whose shadow tree holds the `<style>` / `<link>` that produced it.
+    ///
+    /// A sheet only applies inside its own scope. The two exceptions are the shadow tree's
+    /// deliberate reach outwards - `:host` onto the host element, and `::slotted()` onto the
+    /// light-DOM nodes projected into its slots - both of which live in the tree *outside*.
+    /// User-agent sheets ignore scope entirely and apply everywhere.
+    pub scope: Option<NodeId>,
     /// Url or file path where the stylesheet was found
     pub url: String,
     /// Any issues during parsing of the stylesheet
@@ -207,6 +216,7 @@ impl CssStylesheet {
             imports: vec![],
             uses_viewport_units: false,
             origin,
+            scope: None,
             url: url.to_string(),
             parse_log: vec![],
             index: parking_lot::RwLock::new(None),
@@ -375,6 +385,13 @@ pub enum CssSelectorPart {
     /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
     /// selectors match the element.
     Not(Vec<Vec<CssSelectorPart>>),
+    /// `:host` (as `None`) or `:host(<selector>)` (as `Some`). Matches the element a shadow
+    /// tree hangs off, and only from that tree's own stylesheets - the host itself lives in
+    /// the outer tree, so this is one of the two ways a shadow sheet reaches outwards.
+    Host(Option<Vec<Vec<CssSelectorPart>>>),
+    /// `::slotted(<selector>)`. Matches a light-DOM node projected into one of this shadow
+    /// tree's slots, and only the directly assigned node - never its descendants.
+    Slotted(Vec<Vec<CssSelectorPart>>),
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]
@@ -406,6 +423,19 @@ impl Display for Combinator {
             Combinator::Namespace => write!(f, "|"),
         }
     }
+}
+
+/// Writes a comma-separated selector list, as the functional pseudo-classes print their argument.
+fn write_selector_list(f: &mut std::fmt::Formatter<'_>, list: &[Vec<CssSelectorPart>]) -> std::fmt::Result {
+    for (i, compound) in list.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        for part in compound {
+            write!(f, "{part:?}")?;
+        }
+    }
+    Ok(())
 }
 
 impl Debug for CssSelectorPart {
@@ -441,14 +471,18 @@ impl Debug for CssSelectorPart {
             }
             CssSelectorPart::Not(inner) => {
                 write!(f, ":not(")?;
-                for (i, compound) in inner.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    for part in compound {
-                        write!(f, "{part:?}")?;
-                    }
-                }
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Host(None) => write!(f, ":host"),
+            CssSelectorPart::Host(Some(inner)) => {
+                write!(f, ":host(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Slotted(inner) => {
+                write!(f, "::slotted(")?;
+                write_selector_list(f, inner)?;
                 write!(f, ")")
             }
         }
@@ -573,6 +607,30 @@ impl From<&[CssSelectorPart]> for Specificity {
                 // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
                 // argument counts as if it were written in place of the `:not()`.
                 CssSelectorPart::Not(inner) => {
+                    if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
+                }
+                // `:host` counts as a pseudo-class, plus the specificity of its argument
+                // (Scoping §6.1); `:host` alone is (0,1,0) and `:host(.a)` is (0,2,0).
+                CssSelectorPart::Host(inner) => {
+                    class_count += 1;
+                    if let Some(most) = inner
+                        .iter()
+                        .flatten()
+                        .map(|parts| Specificity::from(parts.as_slice()))
+                        .max()
+                    {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
+                }
+                // `::slotted()` is a pseudo-element, and its argument counts too.
+                CssSelectorPart::Slotted(inner) => {
+                    element_count += 1;
                     if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
                         id_count += most.id_count();
                         class_count += most.class_count();

@@ -133,6 +133,10 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 if let NodeType::Function { name, arguments } = value.node_type {
                     if name.eq_ignore_ascii_case("not") {
                         CssSelectorPart::Not(convert_selector_list(arguments)?)
+                    } else if name.eq_ignore_ascii_case("host") {
+                        // `:host(<selector>)` - the condition is matched against the host
+                        // element itself, so it has to stay structured like `:not()`'s.
+                        CssSelectorPart::Host(Some(convert_selector_list(arguments)?))
                     } else {
                         // Any other functional pseudo-class keeps its serialized form, which is
                         // what the matcher's name-based arms expect.
@@ -144,12 +148,23 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                     let name = value.to_string();
                     if is_legacy_pseudo_element(&name) {
                         CssSelectorPart::PseudoElement(name)
+                    } else if name.eq_ignore_ascii_case("host") {
+                        CssSelectorPart::Host(None)
                     } else {
                         CssSelectorPart::PseudoClass(name)
                     }
                 }
             }
-            NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value),
+            NodeType::PseudoElementSelector { value, arguments } => {
+                // `::slotted(<selector>)` keeps its argument; every other functional
+                // pseudo-element is still matched by name alone.
+                match arguments {
+                    Some(args) if value.eq_ignore_ascii_case("slotted") => {
+                        CssSelectorPart::Slotted(convert_selector_list(vec![*args])?)
+                    }
+                    _ => CssSelectorPart::PseudoElement(value),
+                }
+            }
             NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
             NodeType::AttributeSelector {
                 name,

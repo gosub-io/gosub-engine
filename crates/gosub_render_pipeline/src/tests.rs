@@ -1226,3 +1226,6 @@ mod rendertree_from_engine {
         );
     }
 }
+
+#[cfg(test)]
+mod shadow_dom;
