@@ -200,7 +200,6 @@ FILE css/css-values/calc-serialization.html
 FILE css/css-values/calc-size/animation/calc-size-height-interpolation.html
 HARNESS css/css-values/calc-size/animation/calc-size-height-interpolation.html
 FILE css/css-values/calc-size/animation/calc-size-interpolation-expansion.html
-CRASH css/css-values/calc-size/animation/calc-size-interpolation-expansion.html
 FILE css/css-values/calc-size/animation/calc-size-width-interpolation.html
 HARNESS css/css-values/calc-size/animation/calc-size-width-interpolation.html
 FILE css/css-values/calc-size/animation/interpolate-size-height-composition.html
@@ -241,9 +240,40 @@ HARNESS css/css-values/calc-size/calc-size-height-box-sizing.html
 FILE css/css-values/calc-size/calc-size-height.html
 HARNESS css/css-values/calc-size/calc-size-height.html
 FILE css/css-values/calc-size/calc-size-parsing.html
-CRASH css/css-values/calc-size/calc-size-parsing.html
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(auto, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-width'] = "calc-size(auto, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['height'] = "calc-size(auto, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-height'] = "calc-size(auto, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['height'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['max-width'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['max-height'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-width'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-height'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['block-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['inline-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['max-block-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['max-inline-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-block-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-inline-size'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(fit-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(any, 25em)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(any, 40%)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(any, 30px), size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(10px, sign(size) * size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "size" should not set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(30px, 25em)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(any, 30px), 25em)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(min-content, 30px), 25em)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(min-content, size), size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(any, 50px)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(auto, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(min-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(max-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(fit-content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = "calc-size(content, size)" should set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(0px, 0px)" should set the property value
 FILE css/css-values/calc-size/calc-size-typed-om.html
-CRASH css/css-values/calc-size/calc-size-typed-om.html
 FILE css/css-values/calc-size/calc-size-width-box-sizing.html
 HARNESS css/css-values/calc-size/calc-size-width-box-sizing.html
 FILE css/css-values/calc-size/calc-size-width.html

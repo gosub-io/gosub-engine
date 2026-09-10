@@ -27,7 +27,6 @@ impl CssSyntaxTree {
 impl SyntaxComponent {
     pub fn has_property_syntax(&self, prop: &str, path: &mut Vec<usize>) -> bool {
         match self {
-            SyntaxComponent::Property { property, .. } => prop == property,
             SyntaxComponent::Definition { datatype, quoted, .. } if *quoted => prop == datatype,
             SyntaxComponent::Group { components, .. } => {
                 for (i, component) in components.iter().enumerate() {
@@ -47,7 +46,6 @@ impl SyntaxComponent {
     pub fn multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
             SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
-            SyntaxComponent::Property { multipliers, .. } => multipliers,
             SyntaxComponent::Function { multipliers, .. } => multipliers,
             SyntaxComponent::Definition { multipliers, .. } => multipliers,
             SyntaxComponent::Inherit { multipliers, .. } => multipliers,
@@ -649,38 +647,23 @@ impl CssDefinitions {
             }
         }
 
-        if let [component] = syntax.components.as_slice() {
-            match component {
-                SyntaxComponent::Definition { datatype, .. } => {
-                    if let Some(d) = self.syntax.get(datatype) {
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
+        // A property reference is written `<'name'>`, which compiles to a quoted `Definition` -
+        // so both a value type and a property reference arrive here as one.
+        if let [SyntaxComponent::Definition { datatype, .. }] = syntax.components.as_slice() {
+            if let Some(d) = self.syntax.get(datatype) {
+                if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
+                    shorthands.multiplier = Multiplier::None;
 
-                            return Some(shorthands);
-                        }
-                    }
-
-                    if let Some(p) = self.properties.get(datatype) {
-                        //currently properties get parsed as definitions
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &p.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
-
-                            return Some(shorthands);
-                        }
-                    }
+                    return Some(shorthands);
                 }
+            }
 
-                SyntaxComponent::Property { property, .. } => {
-                    if let Some(d) = self.properties.get(property) {
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
+            if let Some(p) = self.properties.get(datatype) {
+                if let Some(mut shorthands) = self.resolve_shorthands(computed, &p.syntax, name) {
+                    shorthands.multiplier = Multiplier::None;
 
-                            return Some(shorthands);
-                        }
-                    }
+                    return Some(shorthands);
                 }
-
-                _ => {}
             }
         }
 

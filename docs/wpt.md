@@ -37,13 +37,14 @@ run ends with a rollup per directory and the totals:
 
 ```
   css/css-values                 █░░░░░░░░░  192/4516    4.3%
-  css/css-values/calc-size       ███████░░░     5/7     71.4%
+  css/css-values/calc-size       ███░░░░░░░    38/120   31.7%
   css/css-values/urls            ███░░░░░░░    39/126   31.0%
 
-  270 files: 15 fully passing, 247 with failures, 5 could not run
-  4903 subtests: 292 passed, 4611 failed
-  3 files crashed the engine (grep the run for CRASH)
+  270 files: 15 fully passing, 250 with failures, 5 could not run
+  5030 subtests: 328 passed, 4702 failed
 ```
+
+A run with panics also ends with `N files crashed the engine (grep the run for CRASH)`.
 
 That is the whole setup. The next section is how to turn one of those failures into a fix.
 
@@ -85,7 +86,7 @@ halves, the `conformance-checkers/` fixtures and the manual tests are left out �
 `css/css-values` is 270 suites, not the 518 `.html` files it contains.
 
 Grouping in the rollup is by each suite's own directory, not by a fixed prefix depth, because
-that is the granularity work gets picked at: `calc-size` at 71% and `calc-size/animation` at 0%
+that is the granularity work gets picked at: `calc-size` at 32% and `calc-size/animation` at 0%
 is the useful shape, and one averaged line is not.
 
 ## Picking something to fix
@@ -202,7 +203,7 @@ Measured at the pinned commit; regenerate rather than trust these.
 | Run | Tests | Passing | Time |
 |---|---:|---:|---:|
 | `wpt` gate - `dom/events`, `html/dom` | 621 files, 50,310 subtests | 2,348 (4.7%) | 30s |
-| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5,317 subtests | 310 (5.8%) | 30s |
+| CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5,441 subtests | 343 (6.3%) | 30s |
 | nightly - every testharness suite | 27,301 files | ~2% | 150s |
 | reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
 
@@ -214,7 +215,7 @@ of suites that happened to survive, not the corpus.
 The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
 its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
 canonical serialization the engine does not produce. Where the parser is actually reached the
-numbers are much higher - `calc-size` at 71%, `urls` at 31%, `position` at 25%.
+numbers are much higher - `calc-size` at 32%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
 engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
