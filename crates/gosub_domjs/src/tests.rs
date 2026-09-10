@@ -256,3 +256,178 @@ fn the_global_object_can_dispatch_to_its_own_listeners() {
     );
     assert_eq!(value, "heard:true");
 }
+
+// ── element.style ──────────────────────────────────────────────────────────
+
+#[test]
+fn a_valid_declaration_lands_in_the_style_attribute() {
+    // The block is the attribute, so writing through `style` has to be visible as markup.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.setProperty('width', '10px'); \
+         el.getAttribute('style');",
+    );
+    assert_eq!(value, "width: 10px");
+}
+
+#[test]
+fn the_property_the_engine_rejects_is_not_set() {
+    // `width: solid` parses as a declaration but means nothing for `width`, so the property
+    // definition refuses it - which is what makes wpt's `test_invalid_value` meaningful.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.setProperty('width', 'solid'); \
+         el.style.getPropertyValue('width');",
+    );
+    assert_eq!(value, "");
+}
+
+#[test]
+fn an_idl_name_reaches_its_css_property() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.fontSize = '12px'; \
+         el.style.getPropertyValue('font-size');",
+    );
+    assert_eq!(value, "12px");
+}
+
+#[test]
+fn assigning_the_empty_string_removes_the_declaration() {
+    // wpt's helpers clear a property this way before setting the value under test, so an
+    // assignment that did nothing here would let the previous value be read back as a pass.
+    let value = eval(
+        "<div id=target style='width: 10px'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.width = ''; \
+         String(el.hasAttribute('style')) + '|' + el.style.width;",
+    );
+    assert_eq!(value, "false|");
+}
+
+#[test]
+fn the_style_attribute_from_the_markup_is_read_back() {
+    let value = eval(
+        "<div id=target style='color: red; width: 10px'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.getPropertyValue('color') + '|' + el.style.length;",
+    );
+    assert_eq!(value, "red|2");
+}
+
+#[test]
+fn a_semicolon_inside_a_value_does_not_split_the_block() {
+    let value = eval(
+        "<div id=target style='background: url(a;b); width: 10px'></div>",
+        "String(document.getElementById('target').style.length)",
+    );
+    assert_eq!(value, "2");
+}
+
+#[test]
+fn setting_a_property_twice_keeps_its_place_in_the_block() {
+    let value = eval(
+        "<div id=target style='color: red; width: 10px'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.color = 'blue'; \
+         el.getAttribute('style');",
+    );
+    assert_eq!(value, "color: blue; width: 10px");
+}
+
+#[test]
+fn style_is_the_same_object_every_time() {
+    // `style` is [SameObject] in the CSSOM. A fresh proxy per access makes `el.style === el.style`
+    // false and loses anything a caller hung on the object between two reads.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); String(el.style === el.style)",
+    );
+    assert_eq!(value, "true");
+}
+
+#[test]
+fn a_value_cannot_inject_a_second_rule() {
+    // `10px} *{color:red` closes the rule the value is spliced into and opens another. Reading
+    // only the first rule would call that a valid `width: 10px` and then store the raw text in
+    // the attribute, where the renderer parses it as the injected pair of rules.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.setProperty('width', '10px} *{color:red'); \
+         String(el.hasAttribute('style'));",
+    );
+    assert_eq!(value, "false");
+}
+
+#[test]
+fn a_value_cannot_smuggle_a_second_declaration() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.setProperty('width', '10px; color: red'); \
+         String(el.hasAttribute('style'));",
+    );
+    assert_eq!(value, "false");
+}
+
+#[test]
+fn a_property_declared_twice_collapses_onto_the_last_value() {
+    let value = eval(
+        "<div id=target style='width: 10px; width: 20px'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.getPropertyValue('width') + '|' + el.style.length;",
+    );
+    assert_eq!(value, "20px|1");
+}
+
+#[test]
+fn custom_property_names_keep_their_case() {
+    // Custom properties are case-sensitive, unlike every other CSS property name, so folding
+    // them would merge `--Foo` and `--foo` into one slot.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.setProperty('--Foo', '1'); \
+         el.style.setProperty('--foo', '2'); \
+         el.style.getPropertyValue('--Foo') + '|' + el.style.getPropertyValue('--foo');",
+    );
+    assert_eq!(value, "1|2");
+}
+
+#[test]
+fn a_semicolon_inside_a_comment_does_not_split_the_block() {
+    let value = eval(
+        "<div id=target style='color: red /* ; */; width: 10px'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.length + '|' + el.style.getPropertyValue('width');",
+    );
+    assert_eq!(value, "2|10px");
+}
+
+#[test]
+fn an_escaped_quote_does_not_end_the_string() {
+    // Without consuming the escape the closing quote is missed, the rest of the block is taken
+    // as still inside the string, and `width` disappears from the attribute on the next write.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.setAttribute('style', 'content: \"a\\\\\";b\"; width: 10px'); \
+         String(el.style.getPropertyValue('width'));",
+    );
+    assert_eq!(value, "10px");
+}
+
+#[test]
+fn css_text_replaces_the_block_and_drops_what_the_engine_refuses() {
+    let value = eval(
+        "<div id=target style='color: red'></div>",
+        "const el = document.getElementById('target'); \
+         el.style.cssText = 'width: 10px; width: solid'; \
+         el.style.cssText;",
+    );
+    assert_eq!(value, "width: 10px;");
+}

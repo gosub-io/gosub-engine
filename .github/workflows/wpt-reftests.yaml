@@ -1,9 +1,5 @@
 name: WPT reftests
 
-# Manual only. A run is ~7 minutes on top of a cairo gosub-screenshot build the other
-# jobs' caches cannot share (~2 min warm, ~15 cold), and nothing here is gated - the
-# result is a snapshot to look at, not a check to keep green. Not worth paying for on a
-# schedule until reftest results are stable enough to trend.
 on:
   workflow_dispatch:
     inputs:
@@ -24,8 +20,6 @@ jobs:
   wpt-reftests:
     name: WPT reftests (${{ inputs.target }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Checks out third-party content (web-platform-tests); keep the token read-only
-    # and out of .git/config
     permissions:
       contents: read
 
@@ -38,13 +32,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # Its own key: this builds gosub-screenshot against the cairo backend, which
-          # shares almost no artifacts with the default skia build the other jobs use.
           shared-key: wpt-reftests
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install system dependencies
         run: |
+          sudo grep -rlZ -e dl.google.com -e packages.microsoft.com \
+            /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f
           sudo apt update -y
           sudo apt install -y \
             sqlite3 libsqlite3-dev \
@@ -53,9 +47,6 @@ jobs:
             libgtk-4-dev \
             python3-pil fontconfig fonts-liberation fonts-dejavu-core
 
-      # css/support and css/reference hold the reference pages the tests are compared
-      # against; fonts/ carries Ahem. Tracks wpt HEAD - nothing here is gated on a
-      # committed baseline, so there is no pinned commit to stay comparable with.
       - name: Checkout web-platform-tests (sparse, at HEAD)
         run: |
           git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
@@ -63,9 +54,6 @@ jobs:
           git sparse-checkout set resources fonts css/support css/reference "$TARGET"
           echo "WPT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-      # Ahem has fixed, integral metrics and most CSS2 reftests lay out against it. Without
-      # it fontconfig substitutes something else and nearly everything fails on sub-pixel
-      # differences. It ships inside the checkout, so no distro package is involved.
       - name: Install the Ahem font
         run: |
           mkdir -p ~/.local/share/fonts
@@ -77,7 +65,6 @@ jobs:
       - name: Build gosub-screenshot (cairo backend)
         run: cargo build --release --locked -p gosub-screenshot --no-default-features --features backend_cairo
 
-      # Ungated: no committed baseline, and a failing reftest must not fail the job.
       - name: Run the reftests
         run: |
           python3 scripts/wpt-reftest.py --wpt-root "$RUNNER_TEMP/wpt" \

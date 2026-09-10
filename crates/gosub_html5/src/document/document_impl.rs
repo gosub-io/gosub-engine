@@ -14,8 +14,9 @@ use crate::node::data::doctype::DocTypeData;
 use crate::node::data::element::{ClassListImpl, ElementData};
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
+use crate::node::HTML_NAMESPACE;
 use gosub_interface::config::HasDocument;
-use gosub_interface::node::{NodeType, QuirksMode};
+use gosub_interface::node::{is_valid_shadow_host_name, NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 
@@ -116,12 +117,18 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn clone_node(&mut self, id: NodeId) -> NodeId {
+        if self.refuses_copy(id) {
+            return id;
+        }
         let Some(node) = self.arena.node(id) else { return id };
         let cloned = NodeImpl::new_from_node(&node);
         self.register_node(cloned)
     }
 
     fn duplicate_node(&mut self, id: NodeId) -> NodeId {
+        if self.refuses_copy(id) {
+            return id;
+        }
         let Some(node) = self.arena.node_ref(id) else { return id };
         let dup = NodeImpl::new_from_node(node);
         self.register_node(dup)
@@ -260,6 +267,43 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
+    }
+
+    // ── shadow trees ───────────────────────────────────────────────────────
+
+    fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId> {
+        // The eligibility half of the spec's "attach a shadow root"; failing it is the
+        // NotSupportedError the caller is expected to recover from.
+        let host_node = self.arena.node_ref(host)?;
+        let NodeDataTypeInternal::Element(ref e) = host_node.data else {
+            return None;
+        };
+        if e.shadow_root.is_some() || !e.is_namespace(HTML_NAMESPACE) || !is_valid_shadow_host_name(e.name()) {
+            return None;
+        }
+
+        let root = self.register_node(NodeImpl::new_shadow_root(location, host, init));
+        if let Some(node) = self.arena.node_ref_mut(host) {
+            if let NodeDataTypeInternal::Element(ref mut e) = node.data {
+                e.set_shadow_root(root);
+            }
+        }
+        Some(root)
+    }
+
+    fn shadow_root(&self, id: NodeId) -> Option<NodeId> {
+        match self.arena.node_ref(id)?.data {
+            NodeDataTypeInternal::Element(ref e) => e.shadow_root,
+            _ => None,
+        }
+    }
+
+    fn shadow_host(&self, id: NodeId) -> Option<NodeId> {
+        Some(self.arena.node_ref(id)?.get_shadow_root_data()?.host)
+    }
+
+    fn shadow_root_init(&self, id: NodeId) -> Option<ShadowRootInit> {
+        Some(self.arena.node_ref(id)?.get_shadow_root_data()?.init)
     }
 
     // ── text / comment / doctype ───────────────────────────────────────────
@@ -523,6 +567,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if parent_id == node_id || self.has_node_id_recursive(node_id, parent_id) {
             return;
         }
+        // Guarded here rather than in the `Document` methods that call it: this one is public
+        // and inherent, so it wins over the trait method for anything holding a concrete
+        // `DocumentImpl` - a check on the trait side alone is simply stepped around.
+        if self.refuses_tree_mutation("attach_node", node_id) {
+            return;
+        }
         if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
             match position {
                 Some(position) if position <= parent_node.children().len() => {
@@ -540,6 +590,41 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         };
         node.parent = Some(parent_id);
         self.on_document_node_mutation_by_id(node_id);
+    }
+
+    /// Whether a generic tree mutation must leave `node` alone because it is a shadow root.
+    ///
+    /// A shadow root hangs off its host by a side pointer and never appears in a `children`
+    /// list. `attach_shadow_root` returns its raw id, though, so it is one call away from any
+    /// of the ordinary mutations - and attaching it would give it a parent and put it into
+    /// normal traversal, where it is both a shadow tree and a child of the element it shadows.
+    /// Whether `node_id` must not be copied, because it is a shadow root.
+    ///
+    /// A shadow root's data holds the id of its host, so copying it produces a second root
+    /// claiming the same host while the host still names the first - two roots, one host, and a
+    /// back pointer that agrees with neither. `ShadowRoot.cloneNode()` throws in the spec for
+    /// the same reason, so refusing is the faithful answer; the caller gets the original id
+    /// back, which is what the not-found path already returns.
+    fn refuses_copy(&self, node_id: NodeId) -> bool {
+        let is_shadow_root = self
+            .arena
+            .node_ref(node_id)
+            .is_some_and(|n| n.type_of() == NodeType::ShadowRootNode);
+        if is_shadow_root {
+            log::warn!("refusing to copy shadow root {node_id}");
+        }
+        is_shadow_root
+    }
+
+    fn refuses_tree_mutation(&self, what: &str, node_id: NodeId) -> bool {
+        let is_shadow_root = self
+            .arena
+            .node_ref(node_id)
+            .is_some_and(|n| n.type_of() == NodeType::ShadowRootNode);
+        if is_shadow_root {
+            log::warn!("{what}: refusing to move shadow root {node_id} into the ordinary tree");
+        }
+        is_shadow_root
     }
 
     pub fn detach_node(&mut self, node_id: NodeId) {
@@ -592,6 +677,25 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
+        // The host and its shadow root each name the other, so deleting either has to clear the
+        // link the other way round or the survivor keeps naming a node that is gone. Done here
+        // rather than in `Document::remove` because this method is inherent and public, and so
+        // wins over the trait method for anything holding a concrete `DocumentImpl`.
+        //
+        // Deleting the root drops the host's side pointer.
+        if let Some(host) = self.shadow_host(node_id) {
+            if let Some(host_node) = self.arena.node_ref_mut(host) {
+                if let NodeDataTypeInternal::Element(ref mut e) = host_node.data {
+                    e.shadow_root = None;
+                }
+            }
+        }
+        // Deleting the host takes the root with it. Nothing else can reach a shadow root - it
+        // has no parent and appears in no `children` list - so leaving it behind would strand a
+        // node whose only remaining reference points at a deleted host.
+        if let Some(root) = self.shadow_root(node_id) {
+            self.arena.delete_node(root);
+        }
         let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
             return;
         };
@@ -711,6 +815,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 }
                 let _ = writeln!(f, ">");
             }
+            NodeDataTypeInternal::ShadowRoot(data) => {
+                let _ = writeln!(f, "{buffer}#shadow-root ({})", data.init.mode.as_attribute());
+            }
         }
 
         if prefix.len() > 40 {
@@ -725,8 +832,15 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             buffer.push_str("│  ");
         }
 
-        let len = node.children.len();
-        for (i, child_id) in node.children.iter().enumerate() {
+        // A shadow root is not among its host's children, so splice it in front of them.
+        let shadow_root = match &node.data {
+            NodeDataTypeInternal::Element(e) => e.shadow_root,
+            _ => None,
+        };
+        let subtrees: Vec<NodeId> = shadow_root.into_iter().chain(node.children.iter().copied()).collect();
+
+        let len = subtrees.len();
+        for (i, child_id) in subtrees.iter().enumerate() {
             let Some(child_node) = self.node_by_id(*child_id) else {
                 continue;
             };

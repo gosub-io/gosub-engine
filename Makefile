@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples wpt wpt-css wpt-shortlist wpt-update
 
 all: help
 
@@ -67,10 +67,73 @@ test-smoke: ## CLI smoke tests
 		cargo run --bin html5-parser-test >/dev/null && \
 		cargo run --bin parser-test >/dev/null && \
 		cargo run --example config-store -- list >/dev/null && \
-		cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null && \
+		cargo run --bin gosub-parser file://$(CURDIR)/tests/data/tree_iterator/stackoverflow.html >/dev/null && \
 		cargo run --example html5-parser >/dev/null && \
 		cargo run --example pipeline-test \
 	'
+
+# The wpt targets all need a checkout. `WPT_ROOT` wins if it is set; otherwise a `wpt/`
+# directory in the repo root is used, which is where docs/wpt-quickstart.md puts one and which
+# .gitignore already knows about.
+WPT_ROOT ?= $(CURDIR)/wpt
+
+# The sparse set matters as much as the commit: a checkout made for the CSS component has no
+# dom/events in it, and the gate would otherwise report every one of its 621 suites as ERROR.
+# `$(call require_wpt,<dir>)` checks the directory this target actually reads and prints the
+# command to add it - much better than "No such file or directory" from inside the runner.
+define require_wpt
+	if [ ! -d "$(WPT_ROOT)/resources" ]; then \
+		echo "No web-platform-tests checkout at $(WPT_ROOT)."; \
+		echo "Set WPT_ROOT, or create one in the repo root:"; \
+		echo; \
+		echo "  git clone --filter=blob:none --sparse \\"; \
+		echo "      https://github.com/web-platform-tests/wpt.git wpt"; \
+		echo "  git -C wpt sparse-checkout set resources common $(1)"; \
+		echo "  git -C wpt checkout \"\$$(cat tests/wpt/wpt-commit.txt)\""; \
+		echo; \
+		echo "See docs/wpt-quickstart.md."; \
+		exit 1; \
+	fi; \
+	for dir in $(1); do \
+		if [ ! -d "$(WPT_ROOT)/$$dir" ]; then \
+			echo "$(WPT_ROOT) has no $$dir - this target needs it."; \
+			echo "Widen the checkout (sparse-checkout add keeps what is already there):"; \
+			echo; \
+			echo "  git -C $(WPT_ROOT) sparse-checkout add $(1)"; \
+			echo; \
+			exit 1; \
+		fi; \
+	done
+endef
+
+# dom/nodes is not read directly: three gate suites pull support scripts out of it and become
+# ERROR records without it. See docs/wpt.md.
+wpt: ## Check the WPT gate against tests/wpt/expectations.txt (needs a checkout)
+	$(call require_wpt,dom/events html/dom dom/nodes)
+	source test-utils.sh ;\
+	run_section "WPT gate" cargo run --release -p gosub-wpt -- \
+		"$(WPT_ROOT)" --all --expect tests/wpt/expectations.txt
+
+wpt-css: ## Check the CSS parser component against tests/wpt/expectations-css.txt
+	$(call require_wpt,css/css-syntax css/css-values css/support)
+	source test-utils.sh ;\
+	run_section "WPT CSS component" cargo run --release -p gosub-wpt -- \
+		"$(WPT_ROOT)" --all --expect tests/wpt/expectations-css.txt
+
+wpt-shortlist: ## List the WPT suites worth picking up (DIR=... to pick the subtree)
+	$(call require_wpt,$(or $(DIR),css/css-values))
+	cargo run --release --quiet -p gosub-wpt -- "$(WPT_ROOT)" $(or $(DIR),css/css-values) --shortlist
+
+wpt-update: ## Regenerate both WPT baselines after a fix, for committing alongside it
+	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support)
+	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
+		--tests-from <(grep '^FILE ' tests/wpt/expectations.txt | sed 's/^FILE //') \
+		--write-expectations > tests/wpt/expectations.txt.new
+	mv tests/wpt/expectations.txt.new tests/wpt/expectations.txt
+	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" css/css-syntax css/css-values \
+		--write-expectations > tests/wpt/expectations-css.txt.new
+	mv tests/wpt/expectations-css.txt.new tests/wpt/expectations-css.txt
+	echo "Baselines regenerated. Review the diff and commit it with the fix."
 
 fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)
 	cd crates/gosub_html5 && cargo +nightly fuzz run html5_parser -- -dict=fuzz/html.dict

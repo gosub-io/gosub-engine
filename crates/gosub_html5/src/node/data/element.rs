@@ -127,6 +127,9 @@ pub struct ElementData {
     pub force_async: bool,
     /// Template contents: NodeId of the fragment root in the same arena (template elements only)
     pub template_contents: Option<NodeId>,
+    /// Shadow root: NodeId of the shadow tree root in the same arena, for a shadow host.
+    /// A side pointer like `template_contents`, so the shadow tree stays out of `children`.
+    pub shadow_root: Option<NodeId>,
 }
 
 impl Debug for ElementData {
@@ -154,6 +157,7 @@ impl ElementData {
             class_list: classlist,
             force_async: false,
             template_contents: None,
+            shadow_root: None,
         }
     }
 
@@ -277,6 +281,15 @@ impl ElementData {
 
     pub fn set_template_contents(&mut self, template_contents: NodeId) {
         self.template_contents = Some(template_contents);
+    }
+
+    /// The shadow root attached to this element, if it is a shadow host.
+    pub fn shadow_root(&self) -> Option<NodeId> {
+        self.shadow_root
+    }
+
+    pub fn set_shadow_root(&mut self, shadow_root: NodeId) {
+        self.shadow_root = Some(shadow_root);
     }
 }
 

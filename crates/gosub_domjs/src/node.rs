@@ -48,6 +48,8 @@ impl GosubNode {
             NodeType::CommentNode => 8,
             NodeType::DocumentNode => 9,
             NodeType::DocTypeNode => 10,
+            // A shadow root is a DocumentFragment as far as the DOM API is concerned.
+            NodeType::ShadowRootNode => 11,
         }
     }
 
@@ -59,6 +61,7 @@ impl GosubNode {
             None => match doc.node_type(self.id) {
                 NodeType::TextNode => "#text".to_string(),
                 NodeType::CommentNode => "#comment".to_string(),
+                NodeType::ShadowRootNode => "#document-fragment".to_string(),
                 _ => "#document".to_string(),
             },
         }
@@ -149,6 +152,25 @@ impl GosubNode {
 
     pub fn has_child_nodes(&self) -> bool {
         !self.doc.borrow().children(self.id).is_empty()
+    }
+
+    // ── style ──────────────────────────────────────────────────────────────
+
+    /// The element's declaration block. Cached per element, because `style` is `[SameObject]`
+    /// in the CSSOM: `el.style === el.style` has to hold. The block itself lives in the `style`
+    /// attribute either way, so the cache is about identity rather than about state.
+    #[qjs(get)]
+    pub fn style<'js>(&self, ctx: Ctx<'js>) -> Result<Value<'js>> {
+        crate::style::wrap(&ctx, &self.doc, self.id)
+    }
+
+    /// `style` is `[PutForwards=cssText]`, so assigning a string to it replaces the block
+    /// rather than the object. Without this a getter-only `style` turns `el.style = "..."` -
+    /// which is how several suites set up their fixture - into a TypeError that takes the
+    /// whole test with it.
+    #[qjs(set, rename = "style")]
+    pub fn set_style(&self, text: String) {
+        crate::style::declaration(&self.doc, self.id).set_css_text(text);
     }
 
     // ── attributes ─────────────────────────────────────────────────────────
