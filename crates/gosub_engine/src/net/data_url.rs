@@ -20,6 +20,22 @@ use url::Url;
 /// The default per RFC 2397, for a URL that names no media type.
 const DEFAULT_MEDIA_TYPE: &str = "text/plain;charset=US-ASCII";
 
+/// What a media type of bare parameters is understood to be a parameter *of*, so that
+/// `data:;charset=utf-8,x` names `text/plain;charset=utf-8` rather than the nonsense type
+/// `;charset=utf-8`. RFC 2397 spells the shorthand out explicitly.
+const IMPLIED_MEDIA_TYPE: &str = "text/plain";
+
+/// Base64 as a `data:` URL is allowed to write it: padding optional rather than required, and
+/// the leftover bits of an unpadded final chunk dropped rather than rejected. This is the
+/// forgiving-base64 decode of the Infra standard, which is what the data URL processor calls
+/// for - a stricter engine turns URLs every other browser accepts into failed resources.
+const BASE64: base64::engine::general_purpose::GeneralPurpose = base64::engine::general_purpose::GeneralPurpose::new(
+    &base64::alphabet::STANDARD,
+    base64::engine::GeneralPurposeConfig::new()
+        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+        .with_decode_allow_trailing_bits(true),
+);
+
 /// Whether this request is for the engine-served `data:` scheme.
 ///
 /// gosub-sonar only speaks http(s), so the I/O thread answers these itself, the same way it
@@ -93,72 +109,80 @@ pub async fn serve(req: &FetchRequest, observer: Arc<dyn NetObserver + Send + Sy
 /// Decode a `data:` URL into its media type and bytes.
 ///
 /// `None` when this is not a `data:` URL, when the comma separating metadata from payload is
-/// missing, or when the payload does not decode. A caller should treat that exactly as it
+/// missing, or when a base64 payload does not decode. A caller should treat that exactly as it
 /// treats a failed fetch: the resource is not coming.
 pub fn decode(url: &Url) -> Option<(String, Vec<u8>)> {
     if url.scheme() != "data" {
         return None;
     }
 
-    // `Url` keeps everything after `data:` in the path, except that a payload containing a
-    // `#` (legal in base64? no, but legal in percent-encoded text) would land in the
-    // fragment. Rebuilding from the pieces keeps such a payload whole.
+    // The payload is the URL serialized with its *fragment excluded*, so a `#` ends the data:
+    // `data:text/plain,a#b` carries `a`. `Url` has already filed the fragment separately, so
+    // excluding it is a matter of not putting it back. The query does serialize, and so is put
+    // back: `data:text/plain,a?b` carries `a?b`.
     let mut rest = url.path().to_string();
     if let Some(query) = url.query() {
         rest.push('?');
         rest.push_str(query);
     }
-    if let Some(fragment) = url.fragment() {
-        rest.push('#');
-        rest.push_str(fragment);
-    }
 
     let (meta, payload) = rest.split_once(',')?;
-    let (media_type, is_base64) = match meta.strip_suffix(";base64") {
-        Some(head) => (head, true),
-        None => (meta, false),
-    };
-    let media_type = if media_type.is_empty() {
-        DEFAULT_MEDIA_TYPE.to_string()
-    } else {
-        media_type.to_string()
+    let meta = meta.trim();
+
+    // Percent-decoding comes first and applies to the whole payload, base64 or not. That is
+    // what makes `data:text/plain;base64,SGVsbG8%3D` - an author or a serializer escaping the
+    // padding - decode rather than fail.
+    let body = percent_decode(payload);
+
+    // `;base64` is a parameter name, and parameter names are case-insensitive: `;BASE64` marks
+    // the payload just as well.
+    let (media_type, bytes) = match meta.rsplit_once(';') {
+        Some((head, param)) if param.trim().eq_ignore_ascii_case("base64") => {
+            let cleaned: Vec<u8> = body.into_iter().filter(|b| !b.is_ascii_whitespace()).collect();
+            (head.trim_end(), BASE64.decode(cleaned).ok()?)
+        }
+        _ => (meta, body),
     };
 
-    let bytes = if is_base64 {
-        // The URL parser has already removed any tabs and newlines an author wrapped a long
-        // payload with, so this is belt and braces for a `Url` built by other means.
-        let cleaned: String = payload.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-        base64::engine::general_purpose::STANDARD
-            .decode(cleaned.as_bytes())
-            .ok()?
+    let media_type = if media_type.is_empty() {
+        DEFAULT_MEDIA_TYPE.to_string()
+    } else if media_type.starts_with(';') {
+        format!("{IMPLIED_MEDIA_TYPE}{media_type}")
     } else {
-        percent_decode(payload)?
+        media_type.to_string()
     };
 
     Some((media_type, bytes))
 }
 
-/// Percent-decoding for a non-base64 payload. Bytes are taken as they come: a `data:` URL
-/// may name any charset, so this does not assume UTF-8.
-fn percent_decode(input: &str) -> Option<Vec<u8>> {
+/// Percent-decoding for the payload. Bytes are taken as they come: a `data:` URL may name any
+/// charset, so this does not assume UTF-8.
+///
+/// A `%` that does not introduce two hex digits stands for itself instead of failing the
+/// decode, per the URL standard - `data:text/plain,100%` is a readable resource, not a
+/// malformed one.
+fn percent_decode(input: &str) -> Vec<u8> {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'%' => {
-                let hex = bytes.get(i + 1..i + 3)?;
-                let text = std::str::from_utf8(hex).ok()?;
-                out.push(u8::from_str_radix(text, 16).ok()?);
+        let escape = (bytes[i] == b'%')
+            .then(|| bytes.get(i + 1..i + 3))
+            .flatten()
+            .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+            .and_then(|hex| u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok());
+        match escape {
+            Some(b) => {
+                out.push(b);
                 i += 3;
             }
-            b => {
-                out.push(b);
+            None => {
+                out.push(bytes[i]);
                 i += 1;
             }
         }
     }
-    Some(out)
+    out
 }
 
 #[cfg(test)]
@@ -256,10 +280,57 @@ mod tests {
     }
 
     #[test]
-    fn a_payload_containing_a_hash_survives_url_parsing() {
-        // `Url` files everything after `#` as the fragment; a decoder reading only the path
-        // would silently truncate the payload rather than fail, which is the worst outcome.
+    fn a_fragment_ends_the_payload() {
+        // The data URL processor serializes the URL with the fragment excluded, so `#` ends
+        // the data rather than being part of it - the same as it would be in any other URL.
         let (_, bytes) = decode(&url("data:text/plain,before%20#after")).expect("decodes");
-        assert_eq!(bytes, b"before #after");
+        assert_eq!(bytes, b"before ");
+    }
+
+    #[test]
+    fn a_query_is_part_of_the_payload() {
+        // The other half of the fragment rule: `?` does serialize, so it is data.
+        let (_, bytes) = decode(&url("data:text/plain,a?b=c")).expect("decodes");
+        assert_eq!(bytes, b"a?b=c");
+    }
+
+    #[test]
+    fn a_percent_encoded_base64_payload_decodes() {
+        // Percent-decoding runs over the payload first, base64 or not, so an escaped `=` is
+        // still padding by the time the base64 decoder sees it.
+        let (_, bytes) = decode(&url("data:text/plain;base64,SGVsbG8%3D")).expect("decodes");
+        assert_eq!(bytes, b"Hello");
+    }
+
+    #[test]
+    fn the_base64_marker_is_case_insensitive() {
+        let (media, bytes) = decode(&url("data:text/plain;BASE64,aGVsbG8=")).expect("decodes");
+        assert_eq!(media, "text/plain");
+        assert_eq!(bytes, b"hello");
+    }
+
+    #[test]
+    fn unpadded_base64_decodes() {
+        // Forgiving-base64: padding is optional, and the bits left over from the final chunk
+        // are dropped rather than rejected.
+        let (_, bytes) = decode(&url("data:text/plain;base64,SGVsbG8")).expect("decodes");
+        assert_eq!(bytes, b"Hello");
+    }
+
+    #[test]
+    fn a_media_type_of_bare_parameters_gets_the_implied_type() {
+        // RFC 2397 shorthand: the charset alone stands for a parameter on `text/plain`, and a
+        // consumer parsing `;charset=utf-8` as a media type would get nothing usable.
+        let (media, bytes) = decode(&url("data:;charset=utf-8,hello")).expect("decodes");
+        assert_eq!(media, "text/plain;charset=utf-8");
+        assert_eq!(bytes, b"hello");
+    }
+
+    #[test]
+    fn a_stray_percent_stands_for_itself() {
+        // Percent-decoding does not fail on an escape that is not one; treating this URL as
+        // malformed would drop a perfectly readable resource.
+        let (_, bytes) = decode(&url("data:text/plain,100%")).expect("decodes");
+        assert_eq!(bytes, b"100%");
     }
 }
