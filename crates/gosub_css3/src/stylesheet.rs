@@ -779,7 +779,10 @@ impl CssValue {
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
             CssValue::Color(col) => Some(*col),
-            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
+            // Fallible on purpose: a string that is not a colour (`none`, `no-repeat`, any
+            // keyword that lands in a colour slot) must leave the property unset rather than
+            // resolve to `RgbColor`'s opaque-black default and paint over the element.
+            CssValue::String(s) => RgbColor::try_from_str(s.as_str()),
             CssValue::Function(name, args) => parse_css_color_function(name, args),
             _ => None,
         }
