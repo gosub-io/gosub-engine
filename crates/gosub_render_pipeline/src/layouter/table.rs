@@ -385,7 +385,8 @@ fn collect_tables_preorder(
     if matches!(
         doc.get_own_style(id, &StyleProperty::Display),
         Some(Value::Display(Display::Table))
-    ) {
+    ) && has_table_structure(doc, id)
+    {
         if let Some(&layout_id) = dom_to_layout.get(&id) {
             out.push((id, layout_id));
         }
@@ -393,4 +394,42 @@ fn collect_tables_preorder(
     for child in doc.children(id) {
         collect_tables_preorder(doc, child, dom_to_layout, out);
     }
+}
+
+/// Whether a `display: table` box actually contains rows or cells.
+///
+/// A caption does not count: it is placed beside the row box rather than being one, so a table
+/// holding only a caption and ordinary content still needs the anonymous row and cell. Wikipedia
+/// thumbnails are exactly that shape - `figure { display: table }` wrapping a link, an image and
+/// a `figcaption { display: table-caption }`.
+///
+/// CSS wraps a table box's non-table children in anonymous table-row and table-cell boxes, so a
+/// `display: table` element holding ordinary content is a one-cell table sized to that content.
+/// The table layouter models rows and cells that exist in the DOM and has no way to invent them,
+/// so it reports such a box as 0x0 - and that zero was written back over the size taffy had
+/// already computed, leaving the children to paint outside a collapsed parent. Wikipedia styles
+/// every thumbnail that way (`figure[typeof~='mw:File/Thumb'] { display: table; float: right }`),
+/// which put each caption outside the content column.
+///
+/// Leaving those boxes to taffy is not the anonymous-box algorithm, but it is the same answer for
+/// the single-cell case that occurs in practice, and a great deal closer than zero.
+fn has_table_structure(doc: &dyn PipelineDocument, table_id: DomNodeId) -> bool {
+    fn walk(doc: &dyn PipelineDocument, id: DomNodeId, is_root: bool) -> bool {
+        if !is_root {
+            match doc.get_own_style(id, &StyleProperty::Display) {
+                Some(Value::Display(
+                    Display::TableRow
+                    | Display::TableCell
+                    | Display::TableRowGroup
+                    | Display::TableHeaderGroup
+                    | Display::TableFooterGroup,
+                )) => return true,
+                // A nested table brings its own structure; it is collected in its own right.
+                Some(Value::Display(Display::Table)) => return false,
+                _ => {}
+            }
+        }
+        doc.children(id).into_iter().any(|child| walk(doc, child, false))
+    }
+    walk(doc, table_id, true)
 }
