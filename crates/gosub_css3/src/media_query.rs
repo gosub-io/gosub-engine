@@ -277,10 +277,23 @@ impl MediaCondition {
     /// Convert a single non-operator node (a feature or a range) into a condition.
     fn term_from_ast(node: &Node) -> Option<Self> {
         match &node.node_type {
-            NodeType::Feature { name, value, .. } => Some(MediaCondition::Feature(MediaFeature {
-                name: name.cow_to_lowercase().into_owned(),
-                value: value.as_deref().and_then(FeatureValue::from_ast),
-            })),
+            NodeType::Feature { name, value, .. } => {
+                // A feature written *with* a value that we cannot understand is false, per
+                // mediaqueries-4 - it must not collapse into the boolean form `(hover)`, which
+                // asks a different question and answers true for anything with a non-zero value.
+                // `(max-width: <unparseable>)` used to match every viewport that way.
+                let value = match value.as_deref() {
+                    Some(node) => match FeatureValue::from_ast(node) {
+                        Some(value) => Some(value),
+                        None => return Some(MediaCondition::Unknown),
+                    },
+                    None => None,
+                };
+                Some(MediaCondition::Feature(MediaFeature {
+                    name: name.cow_to_lowercase().into_owned(),
+                    value,
+                }))
+            }
             NodeType::Range {
                 left,
                 left_comparison,
@@ -329,6 +342,15 @@ impl FeatureValue {
             NodeType::Number { value } => Some(FeatureValue::Number(*value)),
             NodeType::Ident { value } => Some(FeatureValue::Ident(value.cow_to_lowercase().into_owned())),
             NodeType::Dimension { value, unit } => Self::from_dimension(*value, unit),
+            // `(max-width: calc(1120px - 1px))`. The media prelude parser reads a function token
+            // with `parse_function`, so `calc()` arrives as a `Function` node whose arguments are
+            // the expression's tokens; `Calc` covers the value-parser's shape for the same thing.
+            NodeType::Function { name, arguments } if name.eq_ignore_ascii_case("calc") => {
+                eval_calc(arguments).map(FeatureValue::Length)
+            }
+            NodeType::Calc { .. } => eval_calc_node(node)
+                .and_then(|term| term.is_length.then_some(term.value))
+                .map(FeatureValue::Length),
             // A ratio arrives as `<number> / <number>`.
             NodeType::Value { children } => match children.as_slice() {
                 [num, op, den] if matches!(&op.node_type, NodeType::Operator(o) if o == "/") => {
@@ -343,15 +365,10 @@ impl FeatureValue {
     }
 
     fn from_dimension(value: f32, unit: &str) -> Option<Self> {
+        if let Some(px) = length_to_px(value, unit) {
+            return Some(FeatureValue::Length(px));
+        }
         Some(match unit.cow_to_lowercase().as_ref() {
-            "px" => FeatureValue::Length(value),
-            "em" | "rem" => FeatureValue::Length(value * MEDIA_QUERY_FONT_SIZE),
-            "pt" => FeatureValue::Length(value * PX_PER_IN / 72.0),
-            "pc" => FeatureValue::Length(value * PX_PER_IN / 6.0),
-            "in" => FeatureValue::Length(value * PX_PER_IN),
-            "cm" => FeatureValue::Length(value * PX_PER_CM),
-            "mm" => FeatureValue::Length(value * PX_PER_CM / 10.0),
-            "q" => FeatureValue::Length(value * PX_PER_CM / 40.0),
             "dppx" | "x" => FeatureValue::Resolution(value),
             "dpi" => FeatureValue::Resolution(value / PX_PER_IN),
             "dpcm" => FeatureValue::Resolution(value / PX_PER_CM),
@@ -377,6 +394,215 @@ impl FeatureValue {
             _ => None,
         }
     }
+}
+
+/// A length in its CSS unit, converted to px. `None` when the unit is not a length - a
+/// resolution (`dppx`) or an angle has no px value, and neither do the relative units that need
+/// a layout to resolve.
+fn length_to_px(value: f32, unit: &str) -> Option<f32> {
+    Some(match unit.cow_to_lowercase().as_ref() {
+        "px" => value,
+        // Media queries evaluate against the initial font size: the query decides which rules
+        // apply, so it cannot depend on a font size those rules might set.
+        "em" | "rem" => value * MEDIA_QUERY_FONT_SIZE,
+        "pt" => value * PX_PER_IN / 72.0,
+        "pc" => value * PX_PER_IN / 6.0,
+        "in" => value * PX_PER_IN,
+        "cm" => value * PX_PER_CM,
+        "mm" => value * PX_PER_CM / 10.0,
+        "q" => value * PX_PER_CM / 40.0,
+        _ => return None,
+    })
+}
+
+/// One term of a `calc()` expression: a resolved value plus whether it carried a unit.
+///
+/// The distinction matters because css-values-3 only allows a `<length>` to be scaled by a
+/// unitless `<number>` - `calc(100px * 2)` is a length, `calc(100px * 2px)` is invalid - and
+/// because a media feature wants a length out, not a bare number.
+#[derive(Clone, Copy)]
+struct CalcTerm {
+    value: f32,
+    is_length: bool,
+}
+
+/// Evaluates a `calc()` expression given as the function's argument nodes, returning a length
+/// in CSS px. `None` when the expression is not a plain arithmetic length - a percentage, a
+/// viewport unit, an unsupported nested function - which makes the whole media feature false
+/// rather than silently guessing.
+fn eval_calc(arguments: &[Node]) -> Option<f32> {
+    let term = eval_calc_terms(arguments)?;
+    term.is_length.then_some(term.value)
+}
+
+/// Evaluates one node that may hold a `calc()` in either shape the parsers produce: argument
+/// nodes (the media prelude reads `calc(` with `parse_function`) or the raw expression text
+/// (`parse_calc`, used by the value parser and so by any *nested* `calc()`).
+fn eval_calc_node(node: &Node) -> Option<CalcTerm> {
+    match &node.node_type {
+        NodeType::Calc { expr } => eval_calc_node(expr),
+        NodeType::Raw { value } => {
+            let mut rest = value.as_str();
+            let term = eval_calc_sum(&mut rest)?;
+            rest.trim().is_empty().then_some(term)
+        }
+        NodeType::Function { name, arguments } if name.is_empty() || name.eq_ignore_ascii_case("calc") => {
+            eval_calc_terms(arguments)
+        }
+        _ => eval_calc_terms(std::slice::from_ref(node)),
+    }
+}
+
+/// `<product> ( ('+' | '-') <product> )*` over the raw expression text.
+fn eval_calc_sum(rest: &mut &str) -> Option<CalcTerm> {
+    let mut acc = eval_calc_product(rest)?;
+    loop {
+        *rest = rest.trim_start();
+        let Some(op) = rest.chars().next().filter(|c| *c == '+' || *c == '-') else {
+            return Some(acc);
+        };
+        *rest = &rest[1..];
+        let rhs = eval_calc_product(rest)?;
+        acc = combine_add(acc, rhs, if op == '+' { 1.0 } else { -1.0 })?;
+    }
+}
+
+/// `<value> ( ('*' | '/') <value> )*`, binding tighter than `+`/`-`.
+fn eval_calc_product(rest: &mut &str) -> Option<CalcTerm> {
+    let mut acc = eval_calc_value(rest)?;
+    loop {
+        *rest = rest.trim_start();
+        let Some(op) = rest.chars().next().filter(|c| *c == '*' || *c == '/') else {
+            return Some(acc);
+        };
+        *rest = &rest[1..];
+        let rhs = eval_calc_value(rest)?;
+        acc = if op == '*' {
+            combine_mul(acc, rhs)?
+        } else {
+            combine_div(acc, rhs)?
+        };
+    }
+}
+
+/// A parenthesised group, a nested `calc(...)`, or a number with an optional unit.
+fn eval_calc_value(rest: &mut &str) -> Option<CalcTerm> {
+    *rest = rest.trim_start();
+    for prefix in ["calc(", "("] {
+        if let Some(inner) = rest.strip_prefix(prefix) {
+            *rest = inner;
+            let term = eval_calc_sum(rest)?;
+            *rest = rest.trim_start().strip_prefix(')')?;
+            return Some(term);
+        }
+    }
+
+    // A number, then the run of letters after it as the unit.
+    let digits = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .unwrap_or(rest.len());
+    let value: f32 = rest[..digits].parse().ok()?;
+    *rest = &rest[digits..];
+    let unit_len = rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len());
+    let unit = &rest[..unit_len];
+    *rest = &rest[unit_len..];
+
+    if unit.is_empty() {
+        return Some(CalcTerm {
+            value,
+            is_length: false,
+        });
+    }
+    Some(CalcTerm {
+        value: length_to_px(value, unit)?,
+        is_length: true,
+    })
+}
+
+fn eval_calc_terms(nodes: &[Node]) -> Option<CalcTerm> {
+    // Sum of products: collect `* / ` chains into single terms, then add and subtract them.
+    let mut sum: Option<CalcTerm> = None;
+    let mut pending_add: Option<char> = None;
+    let mut current: Option<CalcTerm> = None;
+    let mut pending_mul: Option<char> = None;
+
+    for node in nodes {
+        if let NodeType::Operator(op) = &node.node_type {
+            match op.as_str() {
+                "+" | "-" => {
+                    // A `+`/`-` closes the product being built; fold it into the sum.
+                    let term = current.take()?;
+                    sum = Some(match (sum, pending_add) {
+                        (None, None) => term,
+                        (Some(acc), Some('+')) => combine_add(acc, term, 1.0)?,
+                        (Some(acc), Some('-')) => combine_add(acc, term, -1.0)?,
+                        _ => return None,
+                    });
+                    pending_add = op.chars().next();
+                }
+                "*" | "/" => pending_mul = op.chars().next(),
+                _ => return None,
+            }
+            continue;
+        }
+
+        let term = match &node.node_type {
+            NodeType::Number { value } => CalcTerm {
+                value: *value,
+                is_length: false,
+            },
+            NodeType::Dimension { value, unit } => CalcTerm {
+                value: length_to_px(*value, unit)?,
+                is_length: true,
+            },
+            // A nested `calc()` or a bare parenthesised group.
+            NodeType::Function { name, arguments } if name.is_empty() || name.eq_ignore_ascii_case("calc") => {
+                eval_calc_terms(arguments)?
+            }
+            NodeType::Calc { .. } | NodeType::Raw { .. } => eval_calc_node(node)?,
+            // Percentages need a layout to resolve, and anything else is not arithmetic.
+            _ => return None,
+        };
+
+        current = Some(match (current, pending_mul.take()) {
+            (None, None) => term,
+            (Some(acc), Some('*')) => combine_mul(acc, term)?,
+            (Some(acc), Some('/')) => combine_div(acc, term)?,
+            _ => return None,
+        });
+    }
+
+    let term = current?;
+    match (sum, pending_add) {
+        (None, None) => Some(term),
+        (Some(acc), Some('+')) => combine_add(acc, term, 1.0),
+        (Some(acc), Some('-')) => combine_add(acc, term, -1.0),
+        _ => None,
+    }
+}
+
+/// `a ± b`. css-values-3 forbids mixing a length with a bare number in an addition.
+fn combine_add(a: CalcTerm, b: CalcTerm, sign: f32) -> Option<CalcTerm> {
+    (a.is_length == b.is_length).then_some(CalcTerm {
+        value: a.value + sign * b.value,
+        is_length: a.is_length,
+    })
+}
+
+/// `a * b`. At most one side may carry a unit.
+fn combine_mul(a: CalcTerm, b: CalcTerm) -> Option<CalcTerm> {
+    (!(a.is_length && b.is_length)).then_some(CalcTerm {
+        value: a.value * b.value,
+        is_length: a.is_length || b.is_length,
+    })
+}
+
+/// `a / b`. The divisor must be a unitless number, and not zero.
+fn combine_div(a: CalcTerm, b: CalcTerm) -> Option<CalcTerm> {
+    (!b.is_length && b.value != 0.0).then_some(CalcTerm {
+        value: a.value / b.value,
+        is_length: a.is_length,
+    })
 }
 
 /// The `min-`/`max-` prefix on a feature name, which the spec defines as `>=` / `<=`.
@@ -822,5 +1048,46 @@ mod tests {
         let default = MediaEnvironment::default();
         assert!(!matches("aural", &default));
         assert!(matches("not aural", &default));
+    }
+
+    #[test]
+    fn calc_in_a_length_feature_is_evaluated() {
+        let narrow = env(1119.0, 800.0);
+        let wide = env(1280.0, 800.0);
+
+        // Wikipedia's Vector-2022 shell is gated on exactly this query. Before calc() was
+        // evaluated it degraded to the boolean form `(max-width)` and matched every viewport,
+        // so a 1280px window got the narrow layout.
+        assert!(matches("screen and (max-width: calc(1120px - 1px))", &narrow));
+        assert!(!matches("screen and (max-width: calc(1120px - 1px))", &wide));
+
+        assert!(matches("(min-width: calc(640px + 10px))", &wide));
+        assert!(!matches("(min-width: calc(640px + 10px))", &env(600.0, 800.0)));
+    }
+
+    #[test]
+    fn calc_handles_precedence_and_nesting() {
+        let env = env(1000.0, 800.0);
+        // 100px * 2 + 100px = 300px, not 100px * (2 + 100px)
+        assert!(matches("(min-width: calc(100px * 2 + 100px))", &env));
+        assert!(!matches("(min-width: calc(100px * 2 + 900px))", &env));
+        assert!(matches("(max-width: calc(2000px / 2 + 1px))", &env));
+        assert!(matches("(min-width: calc(calc(500px + 100px) + 100px))", &env));
+        // `em` in a media query resolves against the initial font size, in calc too.
+        assert!(matches("(min-width: calc(40em + 8px))", &env));
+        assert!(!matches("(min-width: calc(70em + 8px))", &env));
+    }
+
+    #[test]
+    fn an_unparseable_feature_value_is_false_not_boolean() {
+        let env = env(1280.0, 800.0);
+        // Invalid arithmetic (a length added to a bare number) makes the feature false. The
+        // danger is the opposite answer: treating it as the valueless form `(max-width)`, which
+        // is true for any non-zero width.
+        assert!(!matches("(max-width: calc(100px + 5))", &env));
+        assert!(!matches("(max-width: calc(50% - 1px))", &env));
+        assert!(!matches("(min-width: nonsense)", &env));
+        // The genuine boolean form still works.
+        assert!(matches("(width)", &env));
     }
 }

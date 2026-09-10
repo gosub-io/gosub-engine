@@ -329,6 +329,7 @@ impl CanLayout for TaffyLayouter {
 
         let insets = line_box_insets(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() {
+            dump_layout_to_json(&layout_tree);
             return layout_tree;
         }
 
@@ -338,7 +339,64 @@ impl CanLayout for TaffyLayouter {
         layout_tree = layout_tree_2;
         self.float_insets.clear();
         self.abspos_insets.clear();
+        dump_layout_to_json(&layout_tree);
         layout_tree
+    }
+}
+
+/// Writes the settled box geometry of every element to the JSON file named by `GOSUB_DUMP_LAYOUT`,
+/// the layout counterpart of `GOSUB_DUMP_CSS`. Off unless the variable is set.
+///
+/// Each entry carries the element's tag, `id`/`class`, tree depth and border box, in document
+/// order - enough to see which boxes ended up on top of each other, which is not recoverable
+/// from a screenshot.
+fn dump_layout_to_json(layout_tree: &LayoutTree) {
+    let Ok(path) = std::env::var("GOSUB_DUMP_LAYOUT") else {
+        return;
+    };
+
+    let doc = &layout_tree.render_tree.doc;
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    let mut stack = vec![(layout_tree.root_id, 0usize)];
+    while let Some((id, depth)) = stack.pop() {
+        let Some(el) = layout_tree.arena.get(&id) else {
+            continue;
+        };
+        // Children are pushed in reverse so the walk emits them in document order.
+        stack.extend(el.children.iter().rev().map(|child| (*child, depth + 1)));
+
+        let (tag, id_attr, class_attr) = match doc.get_node_by_id(el.dom_node_id) {
+            Some(Node {
+                node_type: NodeType::Element(element),
+                ..
+            }) => (
+                element.tag_name.clone(),
+                element.attributes.get("id").cloned().unwrap_or_default(),
+                element.attributes.get("class").cloned().unwrap_or_default(),
+            ),
+            _ => continue,
+        };
+
+        let b = el.box_model.border_box;
+        entries.push(serde_json::json!({
+            "depth": depth,
+            "node_id": u64::from(el.dom_node_id),
+            "tag": tag,
+            "id": id_attr,
+            "class": class_attr,
+            "x": b.x,
+            "y": b.y,
+            "w": b.width,
+            "h": b.height,
+        }));
+    }
+
+    match serde_json::to_string_pretty(&entries) {
+        Ok(json) => match std::fs::write(&path, json) {
+            Ok(()) => log::info!("Layout dump written to {path} ({} elements)", entries.len()),
+            Err(e) => log::error!("Failed to write layout dump to {path}: {e}"),
+        },
+        Err(e) => log::error!("Failed to serialize layout dump: {e}"),
     }
 }
 
