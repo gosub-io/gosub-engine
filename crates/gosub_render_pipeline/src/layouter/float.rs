@@ -217,7 +217,10 @@ fn place_floats_in(
 
     // Classify once: a container with no floats and no `clear` costs only these lookups.
     enum Role {
-        Float(FloatSide),
+        /// Side, plus the `clear` flags - `clear` applies to a float as much as to an in-flow
+        /// box (CSS 2.1 §9.5.2), and it is what stacks a column of floated figures down one
+        /// margin instead of letting them sit side by side.
+        Float(FloatSide, bool, bool),
         InFlow(bool, bool),
         OutOfFlow,
     }
@@ -229,15 +232,15 @@ fn place_floats_in(
             if position_is_out_of_flow(doc, dom_id) {
                 return Some((child_id, Role::OutOfFlow));
             }
+            let (clear_left, clear_right) = clear_sides(doc, dom_id);
             if let Some(side) = float_side(doc, dom_id) {
-                return Some((child_id, Role::Float(side)));
+                return Some((child_id, Role::Float(side, clear_left, clear_right)));
             }
-            let (l, r) = clear_sides(doc, dom_id);
-            Some((child_id, Role::InFlow(l, r)))
+            Some((child_id, Role::InFlow(clear_left, clear_right)))
         })
         .collect();
 
-    if !roles.iter().any(|(_, r)| matches!(r, Role::Float(_))) {
+    if !roles.iter().any(|(_, r)| matches!(r, Role::Float(..))) {
         return None;
     }
     let mut ctx = FloatContext::default();
@@ -252,8 +255,8 @@ fn place_floats_in(
     // Document order matters: a float is placed against the floats before it, and a cleared box
     // drops below exactly the floats that precede it.
     for (child_id, role) in roles {
-        let (child_id, side) = match role {
-            Role::Float(side) => (child_id, side),
+        let (child_id, side, clear_left, clear_right) = match role {
+            Role::Float(side, clear_left, clear_right) => (child_id, side, clear_left, clear_right),
             Role::OutOfFlow => continue,
             Role::InFlow(clear_left, clear_right) => {
                 if clear_left || clear_right {
@@ -276,6 +279,23 @@ fn place_floats_in(
         // A float never rises above the top of its containing block, nor above the flow position
         // it was reached at.
         let mut y = flow_y.max(content.y);
+
+        // `clear` on the float itself drops it below every earlier float on the cleared side,
+        // before the fitting walk gets a chance to tuck it into a gap beside one. Wikipedia's
+        // thumbnails are `float: right; clear: right`, which is what puts them in a single
+        // column down the right margin rather than three abreast across the text.
+        if clear_left || clear_right {
+            let mut barrier = f64::NEG_INFINITY;
+            if clear_left {
+                barrier = ctx.left.iter().map(|b| b.bottom).fold(barrier, f64::max);
+            }
+            if clear_right {
+                barrier = ctx.right.iter().map(|b| b.bottom).fold(barrier, f64::max);
+            }
+            if barrier.is_finite() {
+                y = y.max(barrier);
+            }
+        }
 
         // Walk down until the float fits between the bands already at that offset, or until no
         // float extends further and it has to go below all of them.

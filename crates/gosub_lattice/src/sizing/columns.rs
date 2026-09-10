@@ -118,3 +118,39 @@ pub fn compute_column_widths<T: TableTree>(
 
     explicit.iter().map(|w| w.unwrap_or(0.0)).collect()
 }
+
+/// The table's max-content width.
+///
+/// Every column at its cells' natural width, plus the gutters.
+///
+/// Used for a shrink-to-fit table, where the used width is `min(available, max-content)` rather
+/// than all the space on offer. A cell's natural width comes from the layout engine's earlier
+/// pass, so this is only as good as that measurement - which is exactly what the auto column
+/// distribution below already relies on.
+#[must_use]
+pub fn max_content_width<T: TableTree>(
+    tree: &T,
+    n_cols: usize,
+    border_spacing_x: f32,
+    grids: &[&SectionGrid<T::NodeId>],
+) -> f32 {
+    if n_cols == 0 {
+        return 0.0;
+    }
+    let mut natural = vec![0.0_f32; n_cols];
+    for grid in grids {
+        for row_idx in 0..grid.n_rows {
+            for cell in grid.cells_in_row(row_idx) {
+                if cell.colspan != 1 || cell.col >= n_cols {
+                    continue;
+                }
+                let width = match tree.css_length(cell.node, CssProp::Width) {
+                    CssLength::Px(px) => px.max(tree.cell_content_width(cell.node)),
+                    _ => tree.cell_content_width(cell.node),
+                };
+                natural[cell.col] = natural[cell.col].max(width);
+            }
+        }
+    }
+    natural.iter().sum::<f32>() + (n_cols as f32 + 1.0) * border_spacing_x
+}

@@ -155,6 +155,12 @@ pub struct TaffyLayouter {
     /// block, in CSS pixels. Empty on the first layout pass, since a float's position is not known
     /// until that pass has run; filled in from its result for the second.
     float_insets: HashMap<DomNodeId, (f32, f32)>,
+    /// Width each `display: table` box settled on in the previous pass, pinned onto the box when
+    /// the tree is rebuilt. A table's width comes out of the column algorithm, which runs after
+    /// taffy - so on the first pass taffy laid the contents out at the wrong width, and anything
+    /// that wraps (most visibly a caption) wrapped to it. Replaying the width lets that content
+    /// be measured at the width it will actually have.
+    table_widths: HashMap<DomNodeId, f32>,
     /// Taffy insets for absolutely positioned boxes that stretch between opposing insets,
     /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
     /// first pass - a box's containing block is only known once the page has been laid out - and
@@ -273,6 +279,7 @@ impl TaffyLayouter {
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
             float_insets: HashMap::new(),
+            table_widths: HashMap::new(),
             abspos_insets: HashMap::new(),
         }
     }
@@ -325,20 +332,23 @@ impl CanLayout for TaffyLayouter {
         // needs neither - most of them - pays for one pass.
         self.float_insets.clear();
         self.abspos_insets.clear();
-        let (mut layout_tree, placed, stretched) = self.layout_pass(render_tree, root_id, viewport);
+        self.table_widths.clear();
+        let (mut layout_tree, placed, stretched, table_widths) = self.layout_pass(render_tree, root_id, viewport);
 
         let insets = line_box_insets(&layout_tree, &placed);
-        if insets.is_empty() && stretched.is_empty() {
+        if insets.is_empty() && stretched.is_empty() && table_widths.is_empty() {
             dump_layout_to_json(&layout_tree);
             return layout_tree;
         }
 
         self.float_insets = insets;
         self.abspos_insets = stretched;
-        let (layout_tree_2, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        self.table_widths = table_widths;
+        let (layout_tree_2, _, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
         layout_tree = layout_tree_2;
         self.float_insets.clear();
         self.abspos_insets.clear();
+        self.table_widths.clear();
         dump_layout_to_json(&layout_tree);
         layout_tree
     }
@@ -412,11 +422,12 @@ impl TaffyLayouter {
         LayoutTree,
         Vec<crate::layouter::float::PlacedFloat>,
         HashMap<DomNodeId, RebasedInsets>,
+        HashMap<DomNodeId, f32>,
     ) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
-        let (placed, stretched) = self.compute_and_populate(&mut layout_tree, viewport);
-        (layout_tree, placed, stretched)
+        let (placed, stretched, table_widths) = self.compute_and_populate(&mut layout_tree, viewport);
+        (layout_tree, placed, stretched, table_widths)
     }
 }
 
@@ -450,6 +461,7 @@ impl TaffyLayouter {
     ) -> (
         Vec<crate::layouter::float::PlacedFloat>,
         HashMap<DomNodeId, RebasedInsets>,
+        HashMap<DomNodeId, f32>,
     ) {
         // // Compute the layout based on the viewport
         let size = match viewport {
@@ -552,7 +564,7 @@ impl TaffyLayouter {
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
-            return (Vec::new(), HashMap::new());
+            return (Vec::new(), HashMap::new(), HashMap::new());
         }
         self.measure_cache = measure_cache;
 
@@ -562,7 +574,7 @@ impl TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
-        post_process_tables(layout_tree, &self.dom_to_layout_mapping);
+        let table_widths = post_process_tables(layout_tree, &self.dom_to_layout_mapping);
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(layout_tree);
@@ -584,7 +596,7 @@ impl TaffyLayouter {
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
         let stretched = post_process_abspos(layout_tree, icb);
 
-        (placed, stretched)
+        (placed, stretched, table_widths)
     }
 
     fn populate_boxmodel(
@@ -1179,6 +1191,15 @@ impl TaffyLayouter {
             NodeType::Element(data) => {
                 let conv = CssTaffyConverter::new(dom_node.node_id, &*layout_tree.render_tree.doc);
                 taffy_style = conv.convert(false);
+
+                // Second pass only: pin the width the column algorithm settled on, so the
+                // contents are measured at the width the table will actually have. A caption is
+                // the visible case - it is laid out across the finished table, so on the first
+                // pass (where taffy sizes the box from its own contents) it wraps to the wrong
+                // width and then drags the table out to match.
+                if let Some(&width) = self.table_widths.get(&dom_node.node_id) {
+                    taffy_style.size.width = Dimension::from_length(width);
+                }
 
                 // Second pass only: replace the CSS insets of an absolutely positioned box that
                 // stretches between opposing insets with ones rebased onto its parent, so taffy

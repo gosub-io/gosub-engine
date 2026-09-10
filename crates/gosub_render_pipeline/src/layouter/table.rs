@@ -5,6 +5,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
+use crate::layouter::float::float_side;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -184,12 +185,23 @@ fn intrinsic_content_width(el: &LayoutElementNode, arena: &HashMap<LayoutElement
         // the image *including its own CSS border* (the bare `dimension` omits it). Images are
         // never stretched to the cell width, so the border box is the true intrinsic width.
         ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
-        ElementContext::None => el
-            .children
-            .iter()
-            .filter_map(|&cid| arena.get(&cid))
-            .map(|child| intrinsic_content_width(child, arena))
-            .fold(0.0f32, f32::max),
+        ElementContext::None => {
+            let from_children = el
+                .children
+                .iter()
+                .filter_map(|&cid| arena.get(&cid))
+                .map(|child| intrinsic_content_width(child, arena))
+                .fold(0.0f32, f32::max);
+            if from_children > 0.0 {
+                return from_children;
+            }
+            // Nothing measurable underneath: an inline box's children are laid out inside an
+            // anonymous wrapper that has no `LayoutElementNode`, so the walk bottoms out at
+            // zero even though the box itself was measured. Wikipedia thumbnails hit this - the
+            // image sits inside an `<a>`, so the cell reported no width at all and the table
+            // collapsed to its border-spacing.
+            el.box_model.border_box.width as f32
+        }
     }
 }
 
@@ -278,6 +290,31 @@ impl TableTree for PipelineTableTree<'_> {
         0.0
     }
 
+    fn table_shrink_to_fit(&self, id: DomNodeId) -> bool {
+        // A float is always shrink-to-fit, and it is the case that matters here: Wikipedia
+        // thumbnails are `figure { display: table; float: right }`, and stretching them to the
+        // article column's width is what pushed their captions across the text.
+        float_side(self.doc, id).is_some()
+    }
+
+    fn caption_at_bottom(&self, id: DomNodeId) -> bool {
+        matches!(
+            self.doc.get_style(id, &StyleProperty::CaptionSide),
+            Value::Keyword(kw) if crate::common::document::style::lookup(kw) == "bottom"
+        )
+    }
+
+    fn caption_height(&mut self, id: DomNodeId, _width: f32) -> f32 {
+        // Measured, not re-laid-out: the caption's height comes from the taffy pass, as cell
+        // heights do. The layouter re-runs that pass with the table's computed width pinned on
+        // the box, so by the second pass the measurement is the one taken at `width`.
+        self.dom_to_layout
+            .get(&id)
+            .and_then(|layout_id| self.layout_tree.arena.get(layout_id))
+            .map(|el| el.box_model.margin_box.height as f32)
+            .unwrap_or(0.0)
+    }
+
     fn cell_content_width(&self, id: DomNodeId) -> f32 {
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
@@ -293,7 +330,10 @@ impl TableTree for PipelineTableTree<'_> {
 
 /// Post-process all `display: table` nodes in the layout tree after the
 /// Taffy first pass. Correct positions are written back via `gosub_lattice`.
-pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap<DomNodeId, LayoutElementId>) {
+pub fn post_process_tables(
+    layout_tree: &mut LayoutTree,
+    dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
+) -> HashMap<DomNodeId, f32> {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
@@ -314,6 +354,7 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
     // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
     // cells, so an outer cell's height now reflects its nested table's true height - height
     // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
+    let mut widths: HashMap<DomNodeId, f32> = HashMap::new();
     for pass in 0..2 {
         let order: Vec<(DomNodeId, LayoutElementId)> = if pass == 0 {
             table_nodes.clone()
@@ -321,9 +362,12 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
             table_nodes.iter().rev().copied().collect()
         };
         for (table_dom_id, table_layout_id) in order {
-            lay_out_one_table(&*doc, layout_tree, dom_to_layout, table_dom_id, table_layout_id);
+            if let Some(width) = lay_out_one_table(&*doc, layout_tree, dom_to_layout, table_dom_id, table_layout_id) {
+                widths.insert(table_dom_id, width);
+            }
         }
     }
+    widths
 }
 
 /// Run lattice for a single table node and write the computed cell positions and the table's
@@ -334,7 +378,7 @@ fn lay_out_one_table(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
-) {
+) -> Option<f32> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
     // by the outer table's apply_positions call, giving us the correct width.
@@ -356,6 +400,12 @@ fn lay_out_one_table(
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {
+            // A table with no columns computes to 0x0 - honest for its own model, but it would
+            // erase a box taffy had already sized and leave the children painting outside a
+            // collapsed parent. Keep what taffy produced instead.
+            if table_width <= 0.0 && table_height <= 0.0 {
+                return None;
+            }
             tree.apply_positions(table_dom_id);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
@@ -368,9 +418,11 @@ fn lay_out_one_table(
                     el.box_model.margin,
                 );
             }
+            Some(table_width)
         }
         Err(e) => {
             log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
+            None
         }
     }
 }
@@ -385,8 +437,7 @@ fn collect_tables_preorder(
     if matches!(
         doc.get_own_style(id, &StyleProperty::Display),
         Some(Value::Display(Display::Table))
-    ) && has_table_structure(doc, id)
-    {
+    ) {
         if let Some(&layout_id) = dom_to_layout.get(&id) {
             out.push((id, layout_id));
         }
@@ -394,42 +445,4 @@ fn collect_tables_preorder(
     for child in doc.children(id) {
         collect_tables_preorder(doc, child, dom_to_layout, out);
     }
-}
-
-/// Whether a `display: table` box actually contains rows or cells.
-///
-/// A caption does not count: it is placed beside the row box rather than being one, so a table
-/// holding only a caption and ordinary content still needs the anonymous row and cell. Wikipedia
-/// thumbnails are exactly that shape - `figure { display: table }` wrapping a link, an image and
-/// a `figcaption { display: table-caption }`.
-///
-/// CSS wraps a table box's non-table children in anonymous table-row and table-cell boxes, so a
-/// `display: table` element holding ordinary content is a one-cell table sized to that content.
-/// The table layouter models rows and cells that exist in the DOM and has no way to invent them,
-/// so it reports such a box as 0x0 - and that zero was written back over the size taffy had
-/// already computed, leaving the children to paint outside a collapsed parent. Wikipedia styles
-/// every thumbnail that way (`figure[typeof~='mw:File/Thumb'] { display: table; float: right }`),
-/// which put each caption outside the content column.
-///
-/// Leaving those boxes to taffy is not the anonymous-box algorithm, but it is the same answer for
-/// the single-cell case that occurs in practice, and a great deal closer than zero.
-fn has_table_structure(doc: &dyn PipelineDocument, table_id: DomNodeId) -> bool {
-    fn walk(doc: &dyn PipelineDocument, id: DomNodeId, is_root: bool) -> bool {
-        if !is_root {
-            match doc.get_own_style(id, &StyleProperty::Display) {
-                Some(Value::Display(
-                    Display::TableRow
-                    | Display::TableCell
-                    | Display::TableRowGroup
-                    | Display::TableHeaderGroup
-                    | Display::TableFooterGroup,
-                )) => return true,
-                // A nested table brings its own structure; it is collected in its own right.
-                Some(Value::Display(Display::Table)) => return false,
-                _ => {}
-            }
-        }
-        doc.children(id).into_iter().any(|child| walk(doc, child, false))
-    }
-    walk(doc, table_id, true)
 }

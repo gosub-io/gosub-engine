@@ -3,7 +3,7 @@ use anyhow::Result;
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
-use crate::sizing::columns::compute_column_widths;
+use crate::sizing::columns::{compute_column_widths, max_content_width};
 use crate::sizing::rows::{compute_row_heights, read_border, read_padding};
 use crate::types::{CellLayout, CssLength, CssProp};
 use crate::TableTree;
@@ -55,10 +55,20 @@ pub fn compute_table_layout<T: TableTree>(
         return Ok((0.0, 0.0));
     }
 
-    // Resolve table width
+    // Resolve table width. An auto width normally takes everything on offer; a table that
+    // sizes to its contents instead takes `min(available, max-content)` - CSS 2.1 §17.5.2.2's
+    // `max(MIN, min(MAX, available))`, with the cells' natural widths standing in for MAX.
     let table_width = match tree.css_length(model.node, CssProp::Width) {
         CssLength::Px(w) => w,
         CssLength::Percent(p) => p / 100.0 * available_width,
+        _ if tree.table_shrink_to_fit(model.node) => {
+            let grids: Vec<&SectionGrid<T::NodeId>> = header_grids
+                .iter()
+                .chain(body_grids.iter())
+                .chain(footer_grids.iter())
+                .collect();
+            max_content_width(tree, n_cols, spacing_x, &grids).min(available_width)
+        }
         _ => available_width,
     };
 
@@ -104,11 +114,27 @@ pub fn compute_table_layout<T: TableTree>(
     //    Each cell is positioned relative to its row.
     let inner_width = col_widths.iter().sum::<f32>() + (n_cols as f32 + 1.0) * spacing_x;
 
+    // The caption spans the finished table and sits outside the row stack (CSS 2.1 §17.4).
+    // It takes no part in the column algorithm, so it is measured only now, once the width it
+    // will be laid out at is known, and everything below it starts under it.
+    let caption = model.caption.map(|node| {
+        (
+            node,
+            tree.caption_height(node, table_width),
+            tree.caption_at_bottom(node),
+        )
+    });
+    // A top caption pushes the rows down; a bottom one is placed once their height is known.
+    let caption_offset = match caption {
+        Some((_, height, false)) => height,
+        _ => 0.0,
+    };
+
     // Y offset of the next group, relative to the table. Vertically the table is one
     // flat stack of rows: one gutter above the first row, one between any two adjacent
     // rows (also across group boundaries), one below the last. Groups therefore carry
     // only the (n_rows - 1) *internal* gutters; the shared boundary gutters live here.
-    let mut group_y = spacing_y;
+    let mut group_y = caption_offset + spacing_y;
 
     #[allow(clippy::type_complexity)]
     let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
@@ -148,7 +174,23 @@ pub fn compute_table_layout<T: TableTree>(
         }
     }
 
-    let total_height = group_y;
+    let mut total_height = group_y;
+
+    if let Some((node, height, at_bottom)) = caption {
+        let y = if at_bottom { total_height } else { 0.0 };
+        tree.set_layout(
+            node,
+            CellLayout {
+                position: Point::new(0.0, y),
+                size: Size::new(table_width, height),
+                border: BOX_EDGES_ZERO,
+                padding: BOX_EDGES_ZERO,
+            },
+        );
+        if at_bottom {
+            total_height += height;
+        }
+    }
 
     Ok((table_width, total_height))
 }
