@@ -208,6 +208,40 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Keyword(intern(&s)))
         }
 
+        // ── `grid-template-areas`: one quoted string per row ───────────────
+        // `'siteNotice siteNotice' 'columnStart pageContent'` is a *list* of strings, and the
+        // row boundaries carry the meaning - joining on a space would merge every row into one.
+        // Rows are joined with '\n' (which cannot occur inside an area name) and re-split by
+        // the layouter's `parse_grid_areas`.
+        StyleProperty::GridTemplateAreas => {
+            let rows: Vec<&str> = match p.as_list() {
+                Some(list) => list.iter().filter_map(|v| v.as_string()).collect(),
+                None => vec![p.as_string()?],
+            };
+            let joined = rows
+                .iter()
+                .map(|row| row.trim_matches(['"', '\'']))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(Value::Keyword(intern(&joined)))
+        }
+
+        // ── Grid placements: a name, a line number, or `<start> / <end>` ──
+        // The slash form arrives as a list (`[1, "/", 3]`) which `as_string()` does not return,
+        // so without this `grid-column: 1 / 3` was dropped and the item never spanned.
+        StyleProperty::GridArea | StyleProperty::GridRow | StyleProperty::GridColumn => {
+            let s = match p.as_string() {
+                Some(str) => str.to_string(),
+                None => p
+                    .as_list()?
+                    .iter()
+                    .map(grid_value_to_string::<S>)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            };
+            Some(Value::Keyword(intern(&s)))
+        }
+
         // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
             if let Some((v, unit)) = p.as_unit() {

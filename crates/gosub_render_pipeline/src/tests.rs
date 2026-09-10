@@ -319,6 +319,61 @@ mod rendertree_from_engine {
         None
     }
 
+    // A longhand declared after a shorthand must win, even though every longhand produced by
+    // expanding a shorthand is applied after all the directly declared ones. Before the cascade
+    // gained a document-order tiebreak, the expansion won every tie: `margin: 4px` beat a later
+    // `margin-left`, and Wikipedia's `grid-template` shorthand erased the `grid-template-areas`
+    // that a later rule set, collapsing the whole page shell into one grid cell.
+    #[test]
+    fn a_longhand_declared_after_a_shorthand_wins() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .same-rule { margin: 4px; margin-left: 80px; }
+                    .later-rule { margin: 4px; }
+                    .later-rule { margin-left: 80px; }
+                    .grid { display: grid; grid-template: min-content / 12rem 1fr; }
+                    .grid { grid-template-areas: 'head head' 'side body'; }
+                </style>
+            </head>
+            <body>
+                <div class="same-rule">a</div>
+                <div class="later-rule">b</div>
+                <div class="grid">c</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for class in ["same-rule", "later-rule"] {
+            let id = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the element");
+            assert_eq!(
+                adapter.get_style(id, &StyleProperty::MarginLeft),
+                Value::Unit(80.0, Unit::Px),
+                "the later `margin-left` should beat the `margin` shorthand on .{class}"
+            );
+        }
+
+        let grid = find_node_by_class_dfs(&adapter.doc, root, "grid").expect("find .grid");
+        let areas = match adapter.get_style(grid, &StyleProperty::GridTemplateAreas) {
+            Value::Keyword(k) => lookup(k),
+            other => panic!("expected the area rows, got {other:?}"),
+        };
+        assert_eq!(
+            areas, "head head\nside body",
+            "the later `grid-template-areas` should survive the `grid-template` shorthand"
+        );
+    }
+
     // Covers the shorthand (the HN `.votearrow` case), the longhand, and an inline style.
     #[test]
     fn background_image_is_read_from_css() {

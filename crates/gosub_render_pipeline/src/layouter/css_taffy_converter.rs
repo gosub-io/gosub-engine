@@ -9,8 +9,8 @@ use taffy::prelude::{
 };
 use taffy::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
-    GridPlacement, GridTemplateComponent, LengthPercentage, LengthPercentageAuto, Line, Overflow, Point, Position,
-    Rect, Size, Style, TextAlign, TrackSizingFunction,
+    GridPlacement, GridTemplateArea, GridTemplateComponent, LengthPercentage, LengthPercentageAuto, Line, Overflow,
+    Point, Position, Rect, Size, Style, TextAlign, TrackSizingFunction,
 };
 
 /// Converts CSS properties from a `PipelineDocument` node into a Taffy `Style`.
@@ -105,8 +105,16 @@ impl<'a> CssTaffyConverter<'a> {
         ts.grid_auto_rows = self.get_grid_auto(StyleProperty::GridAutoRows, ts.grid_auto_rows);
         ts.grid_auto_columns = self.get_grid_auto(StyleProperty::GridAutoColumns, ts.grid_auto_columns);
         ts.grid_auto_flow = self.get_grid_auto_flow(ts.grid_auto_flow);
+        ts.grid_template_areas = self.get_grid_areas(ts.grid_template_areas);
         ts.grid_row = self.get_grid_line(StyleProperty::GridRow, ts.grid_row);
         ts.grid_column = self.get_grid_line(StyleProperty::GridColumn, ts.grid_column);
+        // `grid-area` is the shorthand for both axes. The CSS engine does not expand it into
+        // longhands, so it is read here and applied after them - an element that sets both gets
+        // the shorthand, which is the common case (`grid-area: content` with no `grid-row`).
+        if let Some((row, column)) = self.get_grid_area() {
+            ts.grid_row = row;
+            ts.grid_column = column;
+        }
 
         // Adjust display for table and inline elements.
         match self.get_own(&StyleProperty::Display) {
@@ -475,6 +483,30 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
+    /// `grid-template-areas`, as the rectangle each area name covers.
+    fn get_grid_areas(&self, default: Vec<GridTemplateArea<String>>) -> Vec<GridTemplateArea<String>> {
+        match self.get_own(&StyleProperty::GridTemplateAreas) {
+            Some(Value::Keyword(id)) => {
+                let s = lookup(id);
+                match s.as_str() {
+                    "none" | "" => Vec::new(),
+                    _ => parse_grid_areas(s.as_str()),
+                }
+            }
+            _ => default,
+        }
+    }
+
+    /// `grid-area`, as `(grid-row, grid-column)`. `None` when the property is not set, so the
+    /// longhands the caller already resolved are kept.
+    fn get_grid_area(&self) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
+        let Some(Value::Keyword(id)) = self.get_own(&StyleProperty::GridArea) else {
+            return None;
+        };
+        let s = lookup(id);
+        parse_grid_area(s.as_str())
+    }
+
     fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
         match self.get_own(&prop) {
             Some(Value::Keyword(id)) => {
@@ -639,14 +671,203 @@ fn parse_single_placement(s: &str) -> GridPlacement {
         return GridPlacement::Auto;
     }
     if let Some(rest) = s.strip_prefix("span ") {
-        if let Ok(n) = rest.trim().parse::<u16>() {
+        let rest = rest.trim();
+        if let Ok(n) = rest.parse::<u16>() {
             return span(n);
+        }
+        // `span <name>` - span until the next line with that name.
+        if is_custom_ident(rest) {
+            return GridPlacement::NamedSpan(rest.to_string(), 1);
         }
     }
     if let Ok(n) = s.parse::<i16>() {
         return GridPlacement::from_line_index(n);
     }
+    // A bare identifier is a named line. `grid-area: content` names an *area*, whose implicit
+    // `content-start` / `content-end` lines taffy derives from `grid-template-areas`, so the
+    // same placement covers both spellings.
+    if is_custom_ident(s) {
+        return GridPlacement::NamedLine(s.to_string(), 1);
+    }
     GridPlacement::Auto
+}
+
+/// A CSS `<custom-ident>`: letters, digits, `-` and `_`, not starting with a digit. Used to tell
+/// a named grid line from a keyword or a malformed token.
+fn is_custom_ident(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with(|c: char| c.is_ascii_digit())
+        && s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Parse `grid-area` into `(grid-row, grid-column)`.
+///
+/// The shorthand is `<row-start> / <column-start> / <row-end> / <column-end>`, and any part
+/// left out is copied from its opposite when that is a custom ident (so `grid-area: content`
+/// places the item across the whole `content` area).
+fn parse_grid_area(s: &str) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
+    let s = s.trim();
+    if s.is_empty() || s == "auto" || s == "none" {
+        return None;
+    }
+    let parts: Vec<&str> = s.split('/').map(str::trim).collect();
+    let placement = |i: usize| parts.get(i).map_or(GridPlacement::Auto, |p| parse_single_placement(p));
+
+    // An omitted end line repeats the start when the start is a name, and is `auto` otherwise -
+    // css-grid-2 §8.4. The same rule gives the column axis its value when only one part is given.
+    let mirror = |from: &GridPlacement, i: usize| match parts.get(i) {
+        Some(part) => parse_single_placement(part),
+        None => match from {
+            GridPlacement::NamedLine(name, idx) => GridPlacement::NamedLine(name.clone(), *idx),
+            _ => GridPlacement::Auto,
+        },
+    };
+
+    let row_start = placement(0);
+    let column_start = mirror(&row_start, 1);
+    let row_end = mirror(&row_start, 2);
+    let column_end = mirror(&column_start, 3);
+
+    Some((
+        Line {
+            start: row_start,
+            end: row_end,
+        },
+        Line {
+            start: column_start,
+            end: column_end,
+        },
+    ))
+}
+
+/// Parse `grid-template-areas` - one row per line, cells separated by whitespace - into the
+/// rectangle each name covers, in taffy's 1-based grid line coordinates.
+///
+/// `.` (or any run of dots) is a null cell and names no area. A name that does not form a
+/// rectangle is not rejected the way css-grid-2 requires; it gets its bounding box, which keeps
+/// a typo from dropping the whole shell.
+fn parse_grid_areas(s: &str) -> Vec<GridTemplateArea<String>> {
+    // Preserve document order so a page's areas keep a stable order in the output.
+    let mut order: Vec<&str> = Vec::new();
+    let mut bounds: std::collections::HashMap<&str, (u16, u16, u16, u16)> = std::collections::HashMap::new();
+
+    for (row, line) in s.lines().enumerate() {
+        for (column, cell) in line.split_whitespace().enumerate() {
+            if cell.chars().all(|c| c == '.') {
+                continue;
+            }
+            let (row, column) = (row as u16, column as u16);
+            match bounds.get_mut(cell) {
+                Some((row_start, row_end, column_start, column_end)) => {
+                    *row_start = (*row_start).min(row);
+                    *row_end = (*row_end).max(row);
+                    *column_start = (*column_start).min(column);
+                    *column_end = (*column_end).max(column);
+                }
+                None => {
+                    order.push(cell);
+                    bounds.insert(cell, (row, row, column, column));
+                }
+            }
+        }
+    }
+
+    order
+        .into_iter()
+        .filter_map(|name| {
+            let (row_start, row_end, column_start, column_end) = *bounds.get(name)?;
+            // Cell indices are 0-based; grid lines are 1-based and an area ends on the line
+            // *after* its last cell.
+            Some(GridTemplateArea {
+                name: name.to_string(),
+                row_start: row_start + 1,
+                row_end: row_end + 2,
+                column_start: column_start + 1,
+                column_end: column_end + 2,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod grid_area_tests {
+    use super::{parse_grid_area, parse_grid_areas};
+    use taffy::{GridPlacement, GridTemplateArea};
+
+    fn area(name: &str, rows: (u16, u16), columns: (u16, u16)) -> GridTemplateArea<String> {
+        GridTemplateArea {
+            name: name.to_string(),
+            row_start: rows.0,
+            row_end: rows.1,
+            column_start: columns.0,
+            column_end: columns.1,
+        }
+    }
+
+    #[test]
+    fn areas_become_line_rectangles() {
+        // Wikipedia's Vector-2022 page shell. Grid lines are 1-based and an area ends on the
+        // line after its last cell, so a single cell in the first row spans lines 1 to 2.
+        let parsed = parse_grid_areas("siteNotice siteNotice\ncolumnStart pageContent\nfooter footer");
+        assert_eq!(
+            parsed,
+            vec![
+                area("siteNotice", (1, 2), (1, 3)),
+                area("columnStart", (2, 3), (1, 2)),
+                area("pageContent", (2, 3), (2, 3)),
+                area("footer", (3, 4), (1, 3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_area_spanning_rows_keeps_one_rectangle() {
+        let parsed = parse_grid_areas("side head\nside body");
+        assert_eq!(
+            parsed,
+            vec![
+                area("side", (1, 3), (1, 2)),
+                area("head", (1, 2), (2, 3)),
+                area("body", (2, 3), (2, 3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dot_cell_names_no_area() {
+        let parsed = parse_grid_areas("titlebar .\ntitlebar columnEnd");
+        assert_eq!(
+            parsed,
+            vec![area("titlebar", (1, 3), (1, 2)), area("columnEnd", (2, 3), (2, 3))]
+        );
+    }
+
+    #[test]
+    fn a_single_name_places_the_item_across_the_whole_area() {
+        let (row, column) = parse_grid_area("columnStart").expect("a name is a placement");
+        let named = |name: &str| GridPlacement::NamedLine(name.to_string(), 1);
+        assert_eq!((row.start, row.end), (named("columnStart"), named("columnStart")));
+        assert_eq!((column.start, column.end), (named("columnStart"), named("columnStart")));
+    }
+
+    #[test]
+    fn the_slash_form_fills_each_axis() {
+        let (row, column) = parse_grid_area("2 / 1 / 4 / 3").expect("line numbers are a placement");
+        assert_eq!(
+            (row.start, row.end),
+            (GridPlacement::Line(2.into()), GridPlacement::Line(4.into()))
+        );
+        assert_eq!(
+            (column.start, column.end),
+            (GridPlacement::Line(1.into()), GridPlacement::Line(3.into()))
+        );
+    }
+
+    #[test]
+    fn auto_is_not_a_placement() {
+        assert!(parse_grid_area("auto").is_none());
+        assert!(parse_grid_area("").is_none());
+    }
 }
 
 #[cfg(test)]

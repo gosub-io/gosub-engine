@@ -122,6 +122,10 @@ pub struct FixListInfo {
     /// Shadow depth of the declaring sheet, carried through shorthand expansion so the
     /// longhands it produces keep the cross-tree half of the cascade.
     shadow_depth: u16,
+    /// Document-order position of the shorthand being expanded. The longhands inherit it, so a
+    /// longhand declared *after* the shorthand still wins the cascade even though every
+    /// expansion is applied after all the direct declarations.
+    order: u32,
 }
 
 impl FixListInfo {
@@ -132,6 +136,7 @@ impl FixListInfo {
         location: String,
         specificity: Specificity,
         shadow_depth: u16,
+        order: u32,
     ) -> Self {
         Self {
             origin,
@@ -139,6 +144,7 @@ impl FixListInfo {
             location,
             specificity,
             shadow_depth,
+            order,
         }
     }
 }
@@ -380,6 +386,7 @@ impl FixList {
                 specificity: info.specificity,
                 location: info.location.clone(),
                 shadow_depth: info.shadow_depth,
+                order: info.order,
             }
         } else {
             DeclarationProperty {
@@ -398,6 +405,7 @@ impl FixList {
                 // fall back to losing on specificity, exactly as they did before there was
                 // a cross-tree comparison at all.
                 shadow_depth: u16::MAX,
+                order: 0,
             }
         }
     }

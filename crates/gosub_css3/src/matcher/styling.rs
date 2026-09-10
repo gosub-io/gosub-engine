@@ -552,6 +552,15 @@ pub struct DeclarationProperty {
     /// 1 for a sheet in a shadow tree hosted by a document element, and so on. Feeds the
     /// cross-tree half of the cascade; see [`DeclarationProperty::tree_rank`].
     pub shadow_depth: u16,
+    /// Position of the declaration in document order, counted across every matched rule.
+    /// The last step of the cascade: when origin, tree and specificity all tie, the
+    /// declaration that comes later in the stylesheets wins.
+    ///
+    /// A longhand produced by expanding a shorthand inherits the *shorthand's* position, so
+    /// `margin: 4px` followed by `margin-left: 80px` resolves the way it reads. Without this,
+    /// expansion order decided instead - and every expanded longhand is added after all the
+    /// directly declared ones, so a shorthand silently beat every longhand it overlapped.
+    pub order: u32,
 }
 
 /// Cascade rank of a declaration from its origin and importance, as defined in
@@ -609,6 +618,7 @@ impl Ord for DeclarationProperty {
             .cmp(&other.priority())
             .then_with(|| self.tree_rank().cmp(&other.tree_rank()))
             .then_with(|| self.specificity.cmp(&other.specificity))
+            .then_with(|| self.order.cmp(&other.order))
     }
 }
 
@@ -763,6 +773,7 @@ impl From<CssValue> for CssProperty {
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
+            order: 0,
         }];
 
         this.calculate_value();
@@ -780,6 +791,7 @@ impl From<CssValue> for DeclarationProperty {
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
+            order: 0,
         }
     }
 }
@@ -975,6 +987,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         });
 
         assert_eq!(
@@ -1002,6 +1015,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         });
 
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
@@ -1020,6 +1034,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
         let b = DeclarationProperty {
             value: CssValue::String("blue".into()),
@@ -1028,6 +1043,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
         let c = DeclarationProperty {
             value: CssValue::String("green".into()),
@@ -1036,6 +1052,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
         let d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
@@ -1044,6 +1061,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
         let e = DeclarationProperty {
             value: CssValue::String("orange".into()),
@@ -1052,6 +1070,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
         let f = DeclarationProperty {
             value: CssValue::String("purple".into()),
@@ -1060,6 +1079,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         };
 
         assert_eq!(3, a.priority());
