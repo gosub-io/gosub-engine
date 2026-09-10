@@ -357,6 +357,34 @@ pub enum NavigationEvent {
     },
 }
 
+/// Why a request failed, in a form a shell can act on.
+///
+/// A single "it failed" string is no use to someone staring at a page that will not
+/// load: "the certificate expired" and "the server accepted the connection and sent
+/// nothing" call for completely different responses. Derived from the network stack's
+/// own typed error rather than by reading its message, so it says only what is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureKind {
+    /// Refused by policy before it was sent -- mixed content, URL policy, CORS.
+    Blocked,
+    /// The TLS handshake failed.
+    Tls,
+    /// The request ran out of time.
+    Timeout,
+    /// The connection could not be established. Name resolution failures arrive this
+    /// way too: the client does not separate them, and guessing which it was would be
+    /// worse than saying it could not connect.
+    Connect,
+    /// The transfer broke part way.
+    Transfer,
+    /// A redirect could not be followed.
+    Redirect,
+    /// Something gave up on the request deliberately.
+    Cancelled,
+    /// Anything the stack did not classify.
+    Other,
+}
+
 /// Events triggered by load resources for a main document. Note that resources can trigger other
 /// resources. @TODO: how do we see this?
 ///
@@ -407,9 +435,15 @@ pub enum ResourceEvent {
         elapsed: Option<Duration>,
     },
     Failed {
+        /// Request this belongs to
         request_id: RequestId,
+        /// What initiated it
         reference: RequestReference,
+        /// URL that failed
         url: String,
+        /// What kind of failure it was, for a shell that wants to say something useful
+        kind: FailureKind,
+        /// The full error, for a shell that wants to show everything
         error: Arc<anyhow::Error>,
     },
     Cancelled {
@@ -417,6 +451,63 @@ pub enum ResourceEvent {
         reference: RequestReference,
         url: String,
         reason: CancelReason,
+    },
+    /// The request line and headers this hop actually sent. One per hop, so a redirect
+    /// chain reports each leg.
+    RequestSent {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// Target of this hop
+        url: String,
+        /// HTTP method
+        method: String,
+        /// Headers the net stack set, as name/value pairs
+        headers: Vec<(String, String)>,
+    },
+    /// How long name resolution took for this request's connection.
+    ///
+    /// Only for a request that opened a connection: one served by a pooled connection
+    /// resolves nothing and reports nothing, which is itself worth seeing.
+    DnsResolved {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// Host that was looked up
+        host: String,
+        /// How long resolution took, in microseconds
+        elapsed_us: u64,
+    },
+    /// How long establishing the connection took, resolution included.
+    ///
+    /// The span *encloses* [`ResourceEvent::DnsResolved`] rather than following it, because
+    /// resolution happens inside the connector this times.
+    Connected {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// How long the connection took to establish, in microseconds
+        elapsed_us: u64,
+    },
+    /// The first bytes of the response body, capped at the net stack's peek window.
+    ///
+    /// Only emitted while body capture is switched on -- see
+    /// [`crate::net::emitter::set_capture_body_previews`]. Off by default, because copying a
+    /// few kilobytes per request is wasted on every page nobody is inspecting.
+    BodyPreview {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// URL the body belongs to
+        url: String,
+        /// The bytes, exactly as received: not decoded, not necessarily UTF-8
+        body: Vec<u8>,
+        /// Whether the body continued past the preview
+        truncated: bool,
     },
     Headers {
         request_id: RequestId,

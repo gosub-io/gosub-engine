@@ -116,7 +116,10 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("Expected a stylesheet context"));
         }
 
-        let t_id = timing_start!("decode.css", self.config.source.as_deref().unwrap_or(""));
+        let t_id = timing_start!(
+            gosub_shared::timing::Timing::DecodeCss,
+            self.config.source.as_deref().unwrap_or("")
+        );
 
         let node_tree = match self.config.context {
             Context::Stylesheet => self.parse_stylesheet_internal(),

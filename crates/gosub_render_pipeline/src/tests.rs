@@ -387,12 +387,47 @@ mod rendertree_from_engine {
         None
     }
 
+    /// A [`StylesheetSource`] that reads `file://` URLs straight off disk.
+    ///
+    /// The parser does not fetch — an `@import` asks whoever is driving the parse, which in
+    /// the browser is the resource pipeline and its Fetcher. A unit test has no fetcher, and
+    /// what these cases are about is the cascade, not the transport.
+    #[derive(Debug)]
+    struct DiskSheets;
+
+    impl gosub_html5::parser::StylesheetSource for DiskSheets {
+        fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
+            urls.iter()
+                .map(|url| {
+                    url::Url::parse(url)
+                        .ok()
+                        .and_then(|url| url.to_file_path().ok())
+                        .and_then(|path| std::fs::read(path).ok())
+                })
+                .collect()
+        }
+    }
+
+    /// `html_compile`, with a source for the sheets an `@import` asks for.
+    fn html_compile_with_sheets(html: &str) -> DocumentImpl<Config> {
+        use gosub_shared::byte_stream::{ByteStream, Encoding};
+
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let mut doc = gosub_html5::document::builder::DocumentBuilderImpl::new_document::<Config>(None);
+        let options = gosub_html5::parser::Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: Some(Arc::new(DiskSheets)),
+        };
+        let _ = gosub_html5::parser::Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+        doc
+    }
+
     /// Width of the element with `id="{id_attr}"`, in px, after the full style path.
     fn width_px_of(html: &str, id_attr: &str) -> f32 {
         use crate::common::document::pipeline_doc::PipelineDocument;
         use crate::common::document::style::{StyleProperty, Unit, Value};
 
-        let mut doc = html_compile::<Config>(html);
+        let mut doc = html_compile_with_sheets(html);
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
@@ -408,7 +443,7 @@ mod rendertree_from_engine {
         use crate::common::document::pipeline_doc::PipelineDocument;
         use crate::common::document::style::{StyleProperty, Unit, Value};
 
-        let mut doc = html_compile::<Config>(html);
+        let mut doc = html_compile_with_sheets(html);
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();

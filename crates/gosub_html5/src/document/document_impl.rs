@@ -32,6 +32,9 @@ pub struct DocumentImpl<C: HasDocument> {
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
+    /// Links whose bytes have not arrived, as `(position in `stylesheets`, url)`. Filled in
+    /// after the parse; see [`Document::add_pending_stylesheet`].
+    pending_stylesheets: Vec<(usize, String)>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
     /// The focused element, if any (drives `:focus`). Interior-mutable like hover so the
     /// engine can update it through the shared `Arc`.
@@ -61,6 +64,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
+            pending_stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
             focused_node: parking_lot::RwLock::new(None),
         };
@@ -404,6 +408,22 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn add_stylesheet(&mut self, sheet: <C::CssSystem as CssSystem>::Stylesheet) {
         self.stylesheets.push(sheet);
+    }
+
+    fn add_pending_stylesheet(&mut self, url: &str) {
+        // Where it would have gone had the bytes been here. Inline `<style>` blocks keep
+        // landing in `stylesheets` while this one is in flight, so the position is recorded
+        // now and the sheet slotted in later rather than appended.
+        self.pending_stylesheets.push((self.stylesheets.len(), url.to_string()));
+    }
+
+    fn take_pending_stylesheets(&mut self) -> Vec<(usize, String)> {
+        std::mem::take(&mut self.pending_stylesheets)
+    }
+
+    fn insert_stylesheet(&mut self, position: usize, sheet: <C::CssSystem as CssSystem>::Stylesheet) {
+        let position = position.min(self.stylesheets.len());
+        self.stylesheets.insert(position, sheet);
     }
 
     // ── serialisation ──────────────────────────────────────────────────────

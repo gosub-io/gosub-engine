@@ -12,12 +12,31 @@ pub struct DevicePixelRatio(pub f64);
 ///
 /// A [`Viewport`] describes the rectangular region of a page that should be
 /// rendered, defined by its top-left corner `(x, y)` and pixel `width`/`height`.
-#[derive(Clone, Eq, PartialEq, Copy, Default)]
+#[derive(Clone, Eq, PartialEq, Copy)]
 pub struct Viewport {
     pub x: i32,
     pub y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+/// Fallback viewport used when an embedder creates a tab before its window has a real
+/// allocation. It must never be zero-sized: a zero width makes the layouter fall back to
+/// `MAX_CONTENT` (an unwrapped, arbitrarily wide page) and collapses the painter's page rect
+/// to a degenerate zero-width envelope, which rasterizes only the single tile column at x=0.
+pub const FALLBACK_VIEWPORT: Viewport = Viewport {
+    x: 0,
+    y: 0,
+    width: 1280,
+    height: 800,
+};
+
+/// Deliberately NOT `#[derive(Default)]`: a zero-sized viewport is never a usable value here
+/// (see [`FALLBACK_VIEWPORT`]), and deriving it made `unwrap_or_default()` silently produce one.
+impl Default for Viewport {
+    fn default() -> Self {
+        FALLBACK_VIEWPORT
+    }
 }
 
 impl std::fmt::Debug for Viewport {

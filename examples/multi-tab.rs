@@ -365,6 +365,9 @@ fn handle_event(ev: EngineEvent) {
                 ResourceEvent::Cancelled { url, reason, .. } => {
                     ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]"))
                 }
+                // Request line, body preview and connection timings: detail for a devtools
+                // panel rather than a status line, and this example is a status line.
+                _ => {}
             }
         }
         EngineEvent::Redraw { tab_id, .. } => {

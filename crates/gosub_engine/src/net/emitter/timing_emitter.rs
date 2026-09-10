@@ -18,6 +18,7 @@ use std::time::Instant;
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::types::ResourceKind;
+use gosub_shared::timing::Timing;
 
 /// Wraps another [`NetObserver`], recording `net.fetch.*` and `net.ttfb` on the way past.
 pub struct TimingEmitter {
@@ -63,7 +64,7 @@ impl TimingEmitter {
 
     /// File `duration` under `namespace` with an arbitrary context string, scoped when this
     /// request belongs to a navigation.
-    fn record_raw(&self, namespace: &str, duration: std::time::Duration, context: String) {
+    fn record_raw(&self, namespace: Timing, duration: std::time::Duration, context: String) {
         let us = duration.as_micros() as u64;
         let ctx = (!context.is_empty()).then_some(context);
         match self.scope {
@@ -73,7 +74,7 @@ impl TimingEmitter {
     }
 
     /// File `duration` under `namespace`, scoped when this request belongs to a navigation.
-    fn record(&self, namespace: &str, duration: std::time::Duration, url: &url::Url) {
+    fn record(&self, namespace: Timing, duration: std::time::Duration, url: &url::Url) {
         let us = duration.as_micros() as u64;
         match self.scope {
             Some(scope) => gosub_shared::timing::record_in(scope, namespace, us, Some(url.to_string())),
@@ -85,14 +86,14 @@ impl TimingEmitter {
     ///
     /// Kinds that aren't part of the page-load story share `net.fetch.other` rather than
     /// each getting a namespace nothing reads.
-    fn namespace(&self) -> &'static str {
+    fn namespace(&self) -> Timing {
         match self.kind {
-            ResourceKind::Document => "net.fetch.html",
-            ResourceKind::Stylesheet => "net.fetch.css",
-            ResourceKind::Script { .. } => "net.fetch.js",
-            ResourceKind::Image => "net.fetch.image",
-            ResourceKind::Font => "net.fetch.font",
-            _ => "net.fetch.other",
+            ResourceKind::Document => Timing::NetFetchHtml,
+            ResourceKind::Stylesheet => Timing::NetFetchCss,
+            ResourceKind::Script { .. } => Timing::NetFetchJs,
+            ResourceKind::Image => Timing::NetFetchImage,
+            ResourceKind::Font => Timing::NetFetchFont,
+            _ => Timing::NetFetchOther,
         }
     }
 }
@@ -106,12 +107,12 @@ impl NetObserver for TimingEmitter {
             }
             NetEvent::ResponseHeaders { url, .. } => {
                 if let Some(started) = *self.started.lock() {
-                    self.record("net.ttfb", started.elapsed(), url);
+                    self.record(Timing::NetTtfb, started.elapsed(), url);
                 }
             }
             NetEvent::DnsResolved { host, elapsed, .. } => {
                 *self.last_dns.lock() = Some(*elapsed);
-                self.record_raw("net.dns", *elapsed, host.clone());
+                self.record_raw(Timing::NetDns, *elapsed, host.clone());
             }
             NetEvent::Connected { elapsed } => {
                 // `Connected` encloses the lookup, so take it back out: net.connect is
@@ -119,7 +120,7 @@ impl NetObserver for TimingEmitter {
                 // (pooled connection, or no resolver configured so sonar resolved below
                 // its own visibility) there is nothing to subtract.
                 let dns = self.last_dns.lock().take().unwrap_or_default();
-                self.record_raw("net.connect", elapsed.saturating_sub(dns), String::new());
+                self.record_raw(Timing::NetConnect, elapsed.saturating_sub(dns), String::new());
             }
             NetEvent::Finished { elapsed, url, .. } => {
                 // sonar measured this itself - use its number rather than re-deriving one
@@ -214,11 +215,11 @@ mod test {
         let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
         let ns = |k| TimingEmitter::wrap(inner.clone(), k, None).namespace();
 
-        assert_eq!(ns(ResourceKind::Document), "net.fetch.html");
-        assert_eq!(ns(ResourceKind::Stylesheet), "net.fetch.css");
-        assert_eq!(ns(ResourceKind::Script { blocking: true }), "net.fetch.js");
-        assert_eq!(ns(ResourceKind::Image), "net.fetch.image");
-        assert_eq!(ns(ResourceKind::Font), "net.fetch.font");
-        assert_eq!(ns(ResourceKind::Xhr), "net.fetch.other");
+        assert_eq!(ns(ResourceKind::Document), Timing::NetFetchHtml);
+        assert_eq!(ns(ResourceKind::Stylesheet), Timing::NetFetchCss);
+        assert_eq!(ns(ResourceKind::Script { blocking: true }), Timing::NetFetchJs);
+        assert_eq!(ns(ResourceKind::Image), Timing::NetFetchImage);
+        assert_eq!(ns(ResourceKind::Font), Timing::NetFetchFont);
+        assert_eq!(ns(ResourceKind::Xhr), Timing::NetFetchOther);
     }
 }
