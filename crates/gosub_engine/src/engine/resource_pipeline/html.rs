@@ -167,6 +167,14 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
 
         let doc_url = meta.final_url.clone();
         let mut on_discover = |hint: ResourceHint| {
+            // A data: URL carries its own bytes, so preloading one hides no latency: there is
+            // no connection to open and no round trip to get ahead of. Skipping it here is an
+            // optimisation only - a consumer that asks for it still gets it, through the same
+            // fetch path as anything else, because the I/O thread serves the scheme itself
+            // (see `crate::net::data_url`).
+            if hint.url.scheme() == "data" {
+                return;
+            }
             // A remote document must never pull file:// subresources; don't even submit
             // them (the file loader refuses them again as defense in depth).
             if hint.url.scheme() == "file" && doc_url.scheme() != "file" {

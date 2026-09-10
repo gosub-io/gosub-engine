@@ -127,6 +127,20 @@ impl IoRouter {
         });
     }
 
+    /// Serve a `data:` request from the URL itself, for the same reason as
+    /// [`Self::serve_file_request`]: gosub-sonar only speaks http(s). Policy lives in
+    /// [`crate::net::data_url`] - which is to say there is none, the bytes being in the URL.
+    fn serve_data_url_request(&self, req: FetchRequest, reply_tx: oneshot::Sender<crate::net::types::FetchResult>) {
+        use gosub_sonar::net::fetcher_context::FetcherContext;
+        let observer = self
+            .local_ctx
+            .observer_for(req.reference, req.req_id, req.kind, req.initiator);
+        spawn_named("data-url", async move {
+            let result = crate::net::data_url::serve(&req, observer).await;
+            let _ = reply_tx.send(result);
+        });
+    }
+
     pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
         if let Some(f) = self.zones.get(&zone_id) {
             return Ok(f.fetcher.clone());
@@ -254,10 +268,14 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
                         Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
-                            // The engine serves file:// itself; everything else goes to the
-                            // zone's gosub-sonar fetcher.
+                            // The engine serves file:// and data: itself; everything else goes
+                            // to the zone's gosub-sonar fetcher, which only speaks http(s).
                             if crate::net::file_loader::handles(&req) {
                                 router.serve_file_request(req, reply_tx);
+                                continue;
+                            }
+                            if crate::net::data_url::handles(&req) {
+                                router.serve_data_url_request(req, reply_tx);
                                 continue;
                             }
                             // The I/O thread must keep running; drop the request on fetcher failure.
