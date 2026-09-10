@@ -887,15 +887,25 @@ mod tests {
         // reported CRASH for it, and any page using the syntax would have taken the process
         // down. `'+'` and `'*'` escaped only because a keyword cannot start with them.
         let parts = CssSyntax::new("'-' | '+' | '*'").compile().expect("compiles");
-        for component in &parts.components {
-            assert!(
-                matches!(
-                    component,
-                    SyntaxComponent::Group { .. } | SyntaxComponent::Literal { .. }
-                ),
-                "quoted operators must compile to literals, got {component:?}"
+
+        // An alternation compiles to one root group, so the assertion has to descend into it:
+        // testing the root alone passes whatever the alternatives turn out to be, which is
+        // exactly the bug this guards against.
+        let [SyntaxComponent::Group { components, .. }] = parts.components.as_slice() else {
+            panic!(
+                "an alternation must compile to a single group, got {:?}",
+                parts.components
             );
-        }
+        };
+
+        let literals: Vec<&str> = components
+            .iter()
+            .map(|component| match component {
+                SyntaxComponent::Literal { literal, .. } => literal.as_str(),
+                other => panic!("quoted operators must compile to literals, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(literals, ["-", "+", "*"], "each operator keeps its own token");
     }
 
     #[test]
