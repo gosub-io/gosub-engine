@@ -367,7 +367,21 @@ pub enum MathType {
 fn is_evaluable(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
-        "calc" | "min" | "max" | "clamp" | "progress" | "round" | "mod" | "rem"
+        "calc"
+            | "min"
+            | "max"
+            | "clamp"
+            | "progress"
+            | "round"
+            | "mod"
+            | "rem"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "asin"
+            | "acos"
+            | "atan"
+            | "atan2"
     )
 }
 
@@ -624,6 +638,10 @@ fn lex(body: &str) -> Option<Vec<Lexed>> {
                         Tok::Open
                     }
                     "min" | "max" | "clamp" | "progress" | "round" | "mod" | "rem" if opens => {
+                        i += 1;
+                        Tok::Func(name)
+                    }
+                    "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2" if opens => {
                         i += 1;
                         Tok::Func(name)
                     }
@@ -900,6 +918,9 @@ impl Parser<'_> {
                 if matches!(name.cow_to_ascii_lowercase().as_ref(), "round" | "mod" | "rem") {
                     return fold_stepped(&name, &args, strategy, self.mode);
                 }
+                if is_trig(&name) {
+                    return fold_trig(&name, &args, self.mode);
+                }
                 fold_comparison(&name, &args, self.mode)
             }
             // A bare identifier is not a value. `no-clamp` is handled above, where it belongs.
@@ -917,6 +938,117 @@ impl Parser<'_> {
 /// The two agree everywhere except when `S` and `E` are the same, and that is the case the wpt
 /// suite pins down: `progress(2rad, 1rad, 1rad)` is `0`, where clamping the result would make it
 /// `1` (the raw value is `+infinity`, which `no-clamp` does report). `no-clamp` skips it.
+/// Whether `name` is one of the trigonometric functions, and what it does with its arguments.
+fn is_trig(name: &str) -> bool {
+    matches!(
+        name.cow_to_ascii_lowercase().as_ref(),
+        "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
+    )
+}
+
+/// Fold `sin()`, `cos()`, `tan()` and the inverses - css-values-4 §10.6.
+///
+/// The two halves take and give opposite things, which is the whole of the type rule:
+/// `sin`/`cos`/`tan` accept an angle *or* a bare number (read as radians) and produce a number;
+/// `asin`/`acos`/`atan` accept a number and produce an angle. So `rotate(tan(45deg))` is invalid -
+/// `tan()` gives a number where `rotate()` wants an angle - while `rotate(atan(1))` is fine.
+///
+/// `atan2()` is the exception on both counts: two arguments, which may be any one datatype as
+/// long as they agree, and an angle out.
+fn fold_trig(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
+    let name = name.cow_to_ascii_lowercase();
+    let is_atan2 = name == "atan2";
+    // Degrees, because that is the canonical angle unit everything else here has already been
+    // converted to.
+    let out_unit = if name == "sin" || name == "cos" || name == "tan" {
+        ""
+    } else {
+        "deg"
+    };
+
+    match (is_atan2, args.len()) {
+        (true, 2) | (false, 1) => {}
+        _ => return None,
+    }
+
+    // What each argument is allowed to be.
+    let accepts = |kind: &str| match name.as_ref() {
+        "sin" | "cos" | "tan" => kind == "number" || kind == "angle",
+        "asin" | "acos" | "atan" => kind == "number",
+        // `atan2` takes a ratio, so the units cancel and any datatype will do.
+        _ => true,
+    };
+
+    if mode == Mode::TypeOnly {
+        // Per *argument*, not per unit: an argument that is itself a `<length-percentage>` names
+        // two datatypes and is still one type. Comparing unit by unit made
+        // `atan2(round(1px, 100%), round(1px, 100%))` look mismatched against itself, while
+        // `atan2(90px, 100%)` - two arguments that really are different things - has to stay
+        // invalid.
+        let mut first_kinds: Option<Vec<&'static str>> = None;
+        for arg in args {
+            let mut kinds: Vec<&'static str> = Vec::new();
+            for unit in arg.terms.keys() {
+                let kind = unit_datatype(unit)?;
+                if !accepts(kind) {
+                    return None;
+                }
+                if !kinds.contains(&kind) {
+                    kinds.push(kind);
+                }
+            }
+            kinds.sort_unstable();
+            match &first_kinds {
+                None => first_kinds = Some(kinds),
+                Some(first) if is_atan2 && *first != kinds => return None,
+                Some(_) => {}
+            }
+        }
+        return Some(Sum::term(out_unit, 0.0));
+    }
+
+    let (first_unit, first) = args[0].single_term()?;
+    if !accepts(unit_datatype(&first_unit)?) {
+        return None;
+    }
+
+    if is_atan2 {
+        let (second_unit, second) = args[1].single_term()?;
+        if first_unit != second_unit {
+            return None;
+        }
+        return Some(Sum::term(out_unit, first.atan2(second).to_degrees()));
+    }
+
+    let result = match name.as_ref() {
+        // An angle arrives in degrees; a bare number is already radians, which is what the
+        // library functions want.
+        "sin" | "cos" | "tan" => {
+            let radians = if first_unit == "deg" { first.to_radians() } else { first };
+            match name.as_ref() {
+                "sin" => radians.sin(),
+                "cos" => radians.cos(),
+                _ => radians.tan(),
+            }
+        }
+        "asin" => first.asin().to_degrees(),
+        "acos" => first.acos().to_degrees(),
+        _ => first.atan().to_degrees(),
+    };
+    Some(Sum::term(out_unit, result))
+}
+
+/// Whether two datatypes may appear in one expression.
+///
+/// They agree, or one is a percentage and the other a dimension - `<length-percentage>` and its
+/// kin. A percentage never combines with a plain number: there is no such type.
+///
+/// `atan2()` is deliberately stricter and does not use this; its two arguments have to be the
+/// same thing as each other, so `atan2(90px, 100%)` is invalid where `round(1px, 100%)` is not.
+fn kinds_combine(a: &str, b: &str) -> bool {
+    a == b || ((a == "percentage" || b == "percentage") && a != "number" && b != "number")
+}
+
 /// Which multiple `round()` picks when the value falls between two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Strategy {
@@ -962,8 +1094,16 @@ fn fold_stepped(name: &str, args: &[Sum], strategy: Strategy, mode: Mode) -> Opt
         for arg in &args {
             for unit in arg.terms.keys() {
                 let found = unit_datatype(unit)?;
-                if *kind.get_or_insert(found) != found {
-                    return None;
+                // A percentage rides along with a dimension - `round(1px, 100%)` is a
+                // `<length-percentage>`, and `flex-basis` takes one. It never rides along with a
+                // plain number, which is why `round(1, 1%)` is not valid.
+                match kind {
+                    None => kind = Some(found),
+                    Some(known) if !kinds_combine(known, found) => return None,
+                    // Once a dimension has been seen it is the type of the whole expression;
+                    // a percentage does not replace it.
+                    Some("percentage") => kind = Some(found),
+                    Some(_) => {}
                 }
                 carried.terms.insert(unit.clone(), 0.0);
             }
@@ -1277,9 +1417,10 @@ mod tests {
             vec![CssValue::String("--x".to_string())],
         )];
         assert_eq!(math_function_type("min", &args, &Units::none()), MathType::Unknown);
-        assert_eq!(math_function_type("sin", &[], &Units::none()), MathType::Unknown);
+        // `pow()` stands in for whatever is not implemented yet; swap it when it is.
+        assert_eq!(math_function_type("pow", &[], &Units::none()), MathType::Unknown);
         // Including one inside a `calc()` body, which is text rather than values.
-        let body = vec![CssValue::String("1px + sin(45deg)".to_string())];
+        let body = vec![CssValue::String("1px + pow(2, 3)".to_string())];
         assert_eq!(math_function_type("calc", &body, &Units::none()), MathType::Unknown);
     }
 
@@ -1374,6 +1515,70 @@ mod tests {
         assert_eq!(parsed("round(nearest, 1, nearest)"), None);
         // The strategy belongs to `round()` alone.
         assert_eq!(parsed("mod(up, 1, 2)"), None);
+    }
+
+    /// Trig results are irrational; compare on the value rather than on its spelling.
+    fn approx(input: &str, expected: f64, unit: &str) {
+        let sum = simplify(input, &Units::none()).unwrap_or_else(|| panic!("{input} should evaluate"));
+        let (got_unit, got) = sum.single_term().expect("one term");
+        assert_eq!(got_unit, unit, "{input}");
+        assert!((got - expected).abs() < 1e-6, "{input}: expected {expected}, got {got}");
+    }
+
+    #[test]
+    fn sin_cos_tan_take_an_angle_or_a_number() {
+        approx("cos(0)", 1.0, "");
+        approx("sin(0)", 0.0, "");
+        // A bare number is radians.
+        approx("sin(pi / 2)", 1.0, "");
+        approx("cos(pi)", -1.0, "");
+        // An angle in any unit: all of these are a quarter turn.
+        approx("sin(90deg)", 1.0, "");
+        approx("sin(100grad)", 1.0, "");
+        approx("sin(0.25turn)", 1.0, "");
+        approx("sin(1.5707963267948966rad)", 1.0, "");
+        // Angles add before the function sees them.
+        approx("sin(30deg + 1.0471975511965976rad)", 1.0, "");
+        approx("tan(45deg)", 1.0, "");
+    }
+
+    #[test]
+    fn the_inverse_functions_give_back_an_angle() {
+        approx("acos(1)", 0.0, "deg");
+        approx("asin(0)", 0.0, "deg");
+        approx("atan(0)", 0.0, "deg");
+        approx("asin(1)", 90.0, "deg");
+        approx("atan(1)", 45.0, "deg");
+        approx("atan2(0, 1)", 0.0, "deg");
+        approx("atan2(1, -1)", 135.0, "deg");
+        approx("atan2(-1, 1)", -45.0, "deg");
+        // Round trips.
+        approx("asin(sin(0.25turn))", 90.0, "deg");
+        approx("atan(tan(0.7853981633974483rad))", 45.0, "deg");
+    }
+
+    #[test]
+    fn trig_types_run_in_both_directions() {
+        // A number out of the forward functions, an angle out of the inverse ones - which is
+        // what makes `rotate(tan(45deg))` invalid and `rotate(atan(1))` fine.
+        assert_eq!(comparison("sin", &["45deg"]), MathType::Resolved(vec!["number"]));
+        assert_eq!(comparison("tan", &["45deg"]), MathType::Resolved(vec!["number"]));
+        assert_eq!(comparison("asin", &["1"]), MathType::Resolved(vec!["angle"]));
+        assert_eq!(comparison("atan2", &["1", "2"]), MathType::Resolved(vec!["angle"]));
+
+        // A length is neither an angle nor a number.
+        assert_eq!(comparison("sin", &["90px"]), MathType::Invalid);
+        // The inverse functions take a number, not an angle.
+        assert_eq!(comparison("asin", &["1deg"]), MathType::Invalid);
+        assert_eq!(comparison("acos", &["1deg"]), MathType::Invalid);
+        // Arity, and `atan2`'s two arguments agreeing with each other.
+        assert_eq!(comparison("atan2", &["90px"]), MathType::Invalid);
+        assert_eq!(comparison("atan2", &["90px", "100%"]), MathType::Invalid);
+        assert_eq!(comparison("sin", &["1deg", "0"]), MathType::Invalid);
+        assert_eq!(comparison("sin", &[]), MathType::Invalid);
+        assert_eq!(comparison("cos", &["1deg 2deg"]), MathType::Invalid);
+        // Not a unit at all.
+        assert_eq!(comparison("tan", &["1dag"]), MathType::Invalid);
     }
 
     #[test]

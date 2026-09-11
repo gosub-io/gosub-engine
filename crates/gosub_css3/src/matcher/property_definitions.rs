@@ -1315,9 +1315,25 @@ mod tests {
         assert!(ok("margin-left", "calc(min(1em + 1px, 22px) - max(0.9em, 20px))"));
         // A length against a percentage is a legal `<length-percentage>`.
         assert!(ok("width", "min(1px, 20%)"));
-        // And what cannot be read is not called invalid.
+        // And what cannot be read is not called invalid. `pow()` stands in for whatever is not
+        // implemented yet - swap it when it is.
         assert!(ok("width", "min(var(--a), 10px)"));
-        assert!(ok("width", "calc(1px + sin(45deg))"));
+        assert!(ok("width", "calc(1px + pow(2, 3))"));
+
+        // Once a function *is* implemented, its result is typed like any other: `sin()` gives a
+        // number, so adding it to a length is the error it always was.
+        assert!(!ok("width", "calc(1px + sin(45deg))"));
+        assert!(ok("width", "calc(1px * sin(45deg))"));
+        // The same rule read the other way: an angle property takes the inverse functions,
+        // which give one, and not the forward ones, which give a number.
+        assert!(ok("rotate", "atan(1)"));
+        assert!(!ok("rotate", "tan(45deg)"));
+
+        // Note for whoever picks this up: the same check through `transform` does *not* hold -
+        // `transform: rotate(45px)` and even `rotate(banana)` are accepted, though an unknown
+        // function name is rejected. So a transform function's argument grammar is not reaching
+        // the matcher, somewhere between `<transform-function>` and `<rotate()>`. It gates ~105
+        // subtests: wpt's trig `-invalid` suites all assert through `transform: rotate(X)`.
     }
 
     #[test]
