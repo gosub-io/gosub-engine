@@ -1,4 +1,5 @@
 use crate::colors::{is_named_color, is_system_color};
+use crate::functions::calc;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
@@ -339,13 +340,35 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         }
         SyntaxComponent::Builtin { datatype, range, .. } => {
             // A math function may be used wherever a numeric datatype is allowed (CSS
-            // Values & Units §10), e.g. `width: calc(100% - 20px)`. The expression is
-            // accepted opaquely - calc bodies are stored as raw text for the layout
-            // engine to evaluate, so neither its type nor a `[min,max]` range can be
-            // checked here.
-            if let CssValue::Function(name, _) = value {
+            // Values & Units §10), e.g. `width: calc(100% - 20px)`.
+            //
+            // Its arguments are type-checked rather than taken on trust. This used to accept any
+            // math function outright, on the name alone, because a `calc()` body was opaque text
+            // nobody evaluated - so `width: min(red, 50px)` was valid, and so was `min(1px 2px)`.
+            // Now the expression is evaluated, its type is knowable, and an expression that does
+            // not parse is known not to.
+            if let CssValue::Function(name, args) = value {
                 if is_math_function(name) && NUMERIC_DATATYPES.contains(&datatype.as_str()) {
-                    return first_match(input);
+                    return match calc::math_function_type(name, args, &calc::Units::none()) {
+                        // A length mixed with a percentage is a legal `<length-percentage>`, and
+                        // that expands to `[ <length> | <percentage> ]` before it reaches here -
+                        // so by the time one arm is being matched there is no way to tell a
+                        // length-only property from one that takes both. Accepting the mix
+                        // over-accepts `border-width: min(1px, 1%)`; rejecting it would throw out
+                        // `width: min(1px, 1%)`, which is valid and which real pages write.
+                        calc::MathType::Resolved(kinds)
+                            if kinds.iter().any(|kind| datatype_accepts(datatype, kind))
+                                && kinds
+                                    .iter()
+                                    .all(|kind| datatype_accepts(datatype, kind) || *kind == "percentage") =>
+                        {
+                            first_match(input)
+                        }
+                        calc::MathType::Resolved(_) | calc::MathType::Invalid => no_match(input),
+                        // A `var()` yet to be substituted, or a function this cannot evaluate.
+                        // Not knowing is not the same as knowing it is wrong.
+                        calc::MathType::Unknown => first_match(input),
+                    };
                 }
             }
             match datatype.as_str() {
@@ -1017,6 +1040,15 @@ const NUMERIC_DATATYPES: [&str; 9] = [
 /// Returns true when `name` is a CSS math function (CSS Values & Units §10). Vendor
 /// prefixed forms (`-webkit-calc()`, `-moz-calc()`) predate the unprefixed ones and are
 /// still common in shipped CSS, so a vendor prefix is stripped first.
+/// Whether a component expecting `datatype` accepts an expression that came to `kind`.
+///
+/// The only place the two names differ is `<integer>`, which a math function reaches through
+/// plain numbers - `z-index: calc(1 + 1)` is an integer-valued expression, and css-values-4 has
+/// the result rounded to an integer rather than rejected for not already being one.
+fn datatype_accepts(datatype: &str, kind: &str) -> bool {
+    datatype == kind || (datatype == "integer" && kind == "number")
+}
+
 fn is_math_function(name: &str) -> bool {
     let name = strip_vendor_prefix(name).unwrap_or(name);
     [

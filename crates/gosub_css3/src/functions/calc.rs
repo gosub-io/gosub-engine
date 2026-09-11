@@ -202,11 +202,32 @@ fn format_term(value: f64, unit: &str) -> String {
 /// run over anything that parsed.
 #[must_use]
 pub fn simplify(body: &str, units: &Units) -> Option<Sum> {
+    simplify_with(body, units, Mode::Evaluate)
+}
+
+/// What the caller wants out of a simplification.
+///
+/// The two questions are not the same, and answering the second with the first is what made
+/// `calc(min(1em, 21px) + 10px)` look invalid: at parse time those operands are a length in two
+/// units nothing can compare yet, so it cannot be *folded* - but it is perfectly well *typed*,
+/// and the matcher only ever needed the type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// Reduce to a value. A comparison whose operands are not yet comparable does not reduce.
+    Evaluate,
+    /// Establish the datatype. A comparison over operands of one datatype has that datatype,
+    /// whatever their units, and stands in for itself with a zero of the canonical unit -
+    /// nothing reads the magnitude in this mode.
+    TypeOnly,
+}
+
+fn simplify_with(body: &str, units: &Units, mode: Mode) -> Option<Sum> {
     let tokens = lex(body)?;
     let mut parser = Parser {
         tokens: &tokens,
         pos: 0,
         units,
+        mode,
     };
     let sum = parser.sum()?;
     if parser.pos != parser.tokens.len() {
@@ -270,6 +291,181 @@ fn make_finite(value: CssValue) -> CssValue {
         }
         other => other,
     }
+}
+
+/// The datatype a unit denotes, named as the property grammars name it.
+///
+/// `""` is a plain number and `"%"` a percentage. `None` is an identifier that is not a unit at
+/// all, which is how `min(1py)` is caught.
+#[must_use]
+pub fn unit_datatype(unit: &str) -> Option<&'static str> {
+    Some(match unit {
+        "" => "number",
+        "%" => "percentage",
+        "px" | "in" | "cm" | "mm" | "q" | "pt" | "pc" => "length",
+        // Font-relative. Unresolved at parse time, but still lengths.
+        "em" | "rem" | "ex" | "rex" | "ch" | "rch" | "cap" | "rcap" | "ic" | "ric" | "lh" | "rlh" => "length",
+        // Viewport-relative, in all four variants css-values-4 defines.
+        "vw" | "vh" | "vi" | "vb" | "vmin" | "vmax" => "length",
+        "svw" | "svh" | "svi" | "svb" | "svmin" | "svmax" => "length",
+        "lvw" | "lvh" | "lvi" | "lvb" | "lvmin" | "lvmax" => "length",
+        "dvw" | "dvh" | "dvi" | "dvb" | "dvmin" | "dvmax" => "length",
+        // Container-relative.
+        "cqw" | "cqh" | "cqi" | "cqb" | "cqmin" | "cqmax" => "length",
+        "deg" | "grad" | "rad" | "turn" => "angle",
+        "s" | "ms" => "time",
+        "hz" | "khz" => "frequency",
+        "dpi" | "dpcm" | "dppx" | "x" => "resolution",
+        "fr" => "flex",
+        _ => return None,
+    })
+}
+
+/// What a math function's arguments come to, as far as this can tell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MathType {
+    /// The datatypes present across the arguments. More than one means a mix, which is only
+    /// legal for `<length-percentage>` and its kin.
+    Resolved(Vec<&'static str>),
+    /// Not decidable here: an unsubstituted `var()`, or a math function this does not evaluate.
+    /// The caller has to let it through rather than reject something it cannot read.
+    Unknown,
+    /// Not valid CSS for any property - malformed, or arguments that cannot be compared.
+    Invalid,
+}
+
+/// The math functions whose arguments this can evaluate. Anything else - `sin()`, `round()`,
+/// `var()` - makes the whole expression undecidable rather than invalid.
+fn is_evaluable(name: &str) -> bool {
+    matches!(name.cow_to_ascii_lowercase().as_ref(), "calc" | "min" | "max" | "clamp")
+}
+
+/// Whether anything in here is a function this cannot evaluate.
+fn has_unevaluable(values: &[CssValue]) -> bool {
+    values.iter().any(|value| match value {
+        CssValue::Function(name, args) => !is_evaluable(name) || has_unevaluable(args),
+        CssValue::List(items) => has_unevaluable(items),
+        // A `calc()` body is text, so its functions are not `CssValue`s to walk.
+        CssValue::String(text) => text_has_unevaluable(text),
+        _ => false,
+    })
+}
+
+/// The same question for a `calc()` body, which is held as text.
+fn text_has_unevaluable(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_alphabetic() && bytes[i] != b'-' && bytes[i] != b'_' {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+            i += 1;
+        }
+        if bytes.get(i) == Some(&b'(') && !is_evaluable(&text[start..i]) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Type-check a math function's arguments against nothing in particular.
+///
+/// The syntax matcher used to accept any math function wherever a numeric datatype was allowed,
+/// checking the *name* and never the arguments - so `width: min(red, 50px)` was valid, and so was
+/// `min(1px 2px)`. It could not do better while a `calc()` body was opaque text nobody evaluated;
+/// now that it is evaluated, the type it comes to is knowable, and so is whether it parses at all.
+#[must_use]
+pub fn math_function_type(name: &str, args: &[CssValue], units: &Units) -> MathType {
+    if !is_evaluable(name) {
+        return MathType::Unknown;
+    }
+    if has_unevaluable(args) {
+        return MathType::Unknown;
+    }
+
+    // `calc()` holds one body, as text. Everything else holds a comma-separated argument list,
+    // which arrives as values with the commas kept among them.
+    let groups: Vec<String> = if name.eq_ignore_ascii_case("calc") {
+        match args {
+            [CssValue::String(body)] => vec![body.clone()],
+            _ => return MathType::Invalid,
+        }
+    } else {
+        split_on_commas(args)
+    };
+
+    // `clamp()` is MIN, VAL, MAX and nothing else; `min()` and `max()` take at least one.
+    let arity_ok = if name.eq_ignore_ascii_case("clamp") {
+        groups.len() == 3
+    } else {
+        !groups.is_empty()
+    };
+    if !arity_ok {
+        return MathType::Invalid;
+    }
+
+    let is_clamp = name.eq_ignore_ascii_case("clamp");
+    let mut kinds: Vec<&'static str> = Vec::new();
+    for (index, group) in groups.iter().enumerate() {
+        // An empty argument - `min(1px, )`, `min(,)` - is a syntax error, not an omission.
+        if group.trim().is_empty() {
+            return MathType::Invalid;
+        }
+        // `clamp()` takes `none` for either bound, meaning "do not clamp on this side"
+        // (css-values-5). It is a keyword rather than a value, so it carries no datatype and
+        // the arithmetic never sees it.
+        if is_clamp && index != 1 && group.trim().eq_ignore_ascii_case("none") {
+            continue;
+        }
+        let Some(sum) = simplify_with(group, units, Mode::TypeOnly) else {
+            return MathType::Invalid;
+        };
+        let Some((unit, _)) = sum.single_term() else {
+            // Two terms left means a percentage against a length, which is a legal
+            // `<length-percentage>`; report both so the caller can decide.
+            for unit in sum.terms.keys() {
+                let Some(kind) = unit_datatype(unit) else {
+                    return MathType::Invalid;
+                };
+                if !kinds.contains(&kind) {
+                    kinds.push(kind);
+                }
+            }
+            continue;
+        };
+        let Some(kind) = unit_datatype(&unit) else {
+            return MathType::Invalid;
+        };
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+
+    kinds.sort_unstable();
+    MathType::Resolved(kinds)
+}
+
+/// Split an argument list on its `Comma` separators, serializing each group back to text so the
+/// evaluator can read it. The values came from the parser, and `Display` is their CSS
+/// serialization, so the round-trip is exact.
+fn split_on_commas(args: &[CssValue]) -> Vec<String> {
+    let mut groups = Vec::new();
+    let mut current = String::new();
+    for arg in args {
+        if matches!(arg, CssValue::Comma) {
+            groups.push(std::mem::take(&mut current));
+            continue;
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        let _ = write!(current, "{arg}");
+    }
+    groups.push(current);
+    groups
 }
 
 fn finite(value: f32) -> f32 {
@@ -531,6 +727,7 @@ struct Parser<'a> {
     tokens: &'a [Lexed],
     pos: usize,
     units: &'a Units,
+    mode: Mode,
 }
 
 impl Parser<'_> {
@@ -629,7 +826,7 @@ impl Parser<'_> {
                         _ => return None,
                     }
                 }
-                fold_comparison(&name, &args)
+                fold_comparison(&name, &args, self.mode)
             }
             Tok::Star | Tok::Slash | Tok::Close | Tok::Comma => None,
         }
@@ -638,10 +835,29 @@ impl Parser<'_> {
 
 /// Fold `min()`, `max()` or `clamp()` over arguments that have already been simplified.
 ///
-/// Every argument has to have come down to a single term in the same unit - comparing a length
-/// with a number is not a thing CSS can do, and a sum that still has two terms in it (a
-/// percentage against a length, say) has no order yet either.
-fn fold_comparison(name: &str, args: &[Sum]) -> Option<Sum> {
+/// To *evaluate* one, every argument has to have come down to a single term in the same unit:
+/// comparing a length with a number is not a thing CSS can do, and a sum still holding two terms
+/// (a percentage against a length) has no order yet either.
+///
+/// To *type* one is a weaker question, and the one the syntax matcher asks. `min(1em, 21px)`
+/// cannot be compared before a font-size exists, and `min(1em + 1px, 22px)` has not even come
+/// down to one term - but both are plainly lengths, and both are valid CSS. In that mode the
+/// units the arguments mention are carried out, all with a zero nobody reads, so the caller can
+/// see the datatypes involved.
+fn fold_comparison(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
+    if mode == Mode::TypeOnly {
+        let mut carried = Sum { terms: BTreeMap::new() };
+        for arg in args {
+            for unit in arg.terms.keys() {
+                // An identifier that is not a unit at all - `min(1py)`, `min(red, 50px)` - has no
+                // datatype, and no property accepts it.
+                unit_datatype(unit)?;
+                carried.terms.insert(unit.clone(), 0.0);
+            }
+        }
+        return (!carried.terms.is_empty()).then_some(carried);
+    }
+
     let mut unit: Option<String> = None;
     let mut values = Vec::with_capacity(args.len());
     for arg in args {
@@ -683,6 +899,127 @@ mod tests {
 
     fn parsed(input: &str) -> Option<String> {
         body(input, &Units::none())
+    }
+
+    /// `min(a, b, ...)` as the parser hands it over: values with the commas kept among them.
+    fn comparison(name: &str, args: &[&str]) -> MathType {
+        let mut values = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                values.push(CssValue::Comma);
+            }
+            // Each argument is written as it would be in CSS and re-read through the parser's
+            // own value shapes, which is what the matcher will be holding.
+            for (j, token) in arg.split_whitespace().enumerate() {
+                if j > 0 || !token.is_empty() {
+                    values.push(token_value(token));
+                }
+            }
+        }
+        math_function_type(name, &values, &Units::none())
+    }
+
+    fn token_value(token: &str) -> CssValue {
+        if let Some(number) = token.strip_suffix('%') {
+            return number.parse().map_or_else(
+                |_| CssValue::String(token.to_string()),
+                |n: f32| CssValue::Percentage(n),
+            );
+        }
+        if let Ok(number) = token.parse::<f32>() {
+            return CssValue::Number(number);
+        }
+        let split = token.find(|c: char| c.is_ascii_alphabetic());
+        match split.filter(|i| *i > 0).and_then(|i| {
+            token[..i]
+                .parse::<f32>()
+                .ok()
+                .map(|n| CssValue::Unit(n, token[i..].to_string()))
+        }) {
+            Some(unit) => unit,
+            None => CssValue::String(token.to_string()),
+        }
+    }
+
+    #[test]
+    fn a_comparison_is_typed_by_its_arguments() {
+        // The matcher used to accept any math function on its *name*, so this was valid for
+        // `width` - a colour where a length belongs.
+        assert_eq!(comparison("min", &["red", "50px"]), MathType::Invalid);
+        assert_eq!(comparison("min", &["1px", "2px"]), MathType::Resolved(vec!["length"]));
+        assert_eq!(comparison("min", &["0"]), MathType::Resolved(vec!["number"]));
+        assert_eq!(comparison("min", &["0s"]), MathType::Resolved(vec!["time"]));
+        assert_eq!(comparison("max", &["0dpi"]), MathType::Resolved(vec!["resolution"]));
+        // Not a unit at all.
+        assert_eq!(comparison("min", &["1py"]), MathType::Invalid);
+    }
+
+    #[test]
+    fn a_malformed_comparison_is_invalid() {
+        assert_eq!(comparison("min", &[]), MathType::Invalid);
+        assert_eq!(comparison("min", &["", ""]), MathType::Invalid);
+        assert_eq!(comparison("min", &["1px", ""]), MathType::Invalid);
+        assert_eq!(comparison("min", &["", "1px"]), MathType::Invalid);
+        // Two values with no operator between them.
+        assert_eq!(comparison("min", &["1px 2px"]), MathType::Invalid);
+        // An operator with nothing after it.
+        assert_eq!(comparison("min", &["1px +"]), MathType::Invalid);
+        // `clamp()` is MIN, VAL, MAX and nothing else.
+        assert_eq!(comparison("clamp", &["1px", "2px"]), MathType::Invalid);
+    }
+
+    #[test]
+    fn typing_is_a_weaker_question_than_evaluating() {
+        // Neither of these can be compared before a font-size exists, and the second has not
+        // even come down to one term - but both are plainly lengths, and both are valid CSS.
+        // Answering the type question with the evaluation one rejected them.
+        assert_eq!(comparison("min", &["1em", "21px"]), MathType::Resolved(vec!["length"]));
+        assert_eq!(
+            comparison("min", &["1em + 1px", "22px"]),
+            MathType::Resolved(vec!["length"])
+        );
+        // And the evaluation question still answers "not yet".
+        assert_eq!(parsed("min(1em, 21px)"), None);
+    }
+
+    #[test]
+    fn a_length_may_be_compared_with_a_percentage() {
+        // Legal in a `<length-percentage>`. Both datatypes are reported so the caller can tell.
+        assert_eq!(
+            comparison("min", &["1px", "20%"]),
+            MathType::Resolved(vec!["length", "percentage"])
+        );
+    }
+
+    #[test]
+    fn clamp_takes_none_for_either_bound() {
+        // css-values-5: `none` means "do not clamp on this side". It is a keyword, so it carries
+        // no datatype of its own.
+        assert_eq!(
+            comparison("clamp", &["none", "1px", "2px"]),
+            MathType::Resolved(vec!["length"])
+        );
+        assert_eq!(
+            comparison("clamp", &["1px", "2px", "none"]),
+            MathType::Resolved(vec!["length"])
+        );
+        // Not in the middle, which is the value being clamped.
+        assert_eq!(comparison("clamp", &["1px", "none", "2px"]), MathType::Invalid);
+    }
+
+    #[test]
+    fn what_cannot_be_read_is_not_called_invalid() {
+        // A substitution that has not happened yet, and a function this does not evaluate.
+        // Neither is decidable here, and refusing them would reject valid CSS.
+        let args = vec![CssValue::Function(
+            "var".to_string(),
+            vec![CssValue::String("--x".to_string())],
+        )];
+        assert_eq!(math_function_type("min", &args, &Units::none()), MathType::Unknown);
+        assert_eq!(math_function_type("sin", &[], &Units::none()), MathType::Unknown);
+        // Including one inside a `calc()` body, which is text rather than values.
+        let body = vec![CssValue::String("1px + sin(45deg)".to_string())];
+        assert_eq!(math_function_type("calc", &body, &Units::none()), MathType::Unknown);
     }
 
     #[test]

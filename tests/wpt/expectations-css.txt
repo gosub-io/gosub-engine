@@ -419,7 +419,12 @@ PASS css/css-values/calc-integer.html :: Basic division works
 PASS css/css-values/calc-integer.html :: Operation between <integer> and <number> works
 PASS css/css-values/calc-integer.html :: Only rounds at the end of the conversion
 FILE css/css-values/calc-invalid-parsing.html
+PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc(7px * up)" should not set the property value
+PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc([])" should not set the property value
+PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc( [])" should not set the property value
 FILE css/css-values/calc-letter-spacing.html
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(1 + 1px)
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(1 + 100%)
 PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(100%)
 PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(10px) bla
 PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(bla) 10px
@@ -481,6 +486,9 @@ PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 * 3)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4) * 1px
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(1 + 1px)
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(1 + 100%)
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(100%)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(10px) bla
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(bla) 10px
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(10px)
@@ -708,9 +716,16 @@ PASS css/css-values/calc-time-values.html :: division of time unit with integer:
 PASS css/css-values/calc-time-values.html :: division of time unit with integer: ms divided by int
 PASS css/css-values/calc-time-values.html :: conversion of time unit: ms into s
 FILE css/css-values/calc-unit-analysis.html
+PASS css/css-values/calc-unit-analysis.html :: unitless_zero_in_calc_is_a_numeric_type_not_length
 PASS css/css-values/calc-unit-analysis.html :: 0px_in_calc
+PASS css/css-values/calc-unit-analysis.html :: addition_of_length_and_number
+PASS css/css-values/calc-unit-analysis.html :: addition_of_number_and_length
+PASS css/css-values/calc-unit-analysis.html :: subtraction_of_length_and_number
+PASS css/css-values/calc-unit-analysis.html :: subtraction_of_number_and_length
 PASS css/css-values/calc-unit-analysis.html :: multiplication_of_length_and_number
 PASS css/css-values/calc-unit-analysis.html :: multiplication_of_number_and_length
+PASS css/css-values/calc-unit-analysis.html :: multiplication_of_length_and_length
+PASS css/css-values/calc-unit-analysis.html :: division_by_non_number
 FILE css/css-values/calc-z-index-fractions-001.html
 FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
@@ -720,8 +735,22 @@ FILE css/css-values/ch-recalc-on-font-load.html
 HARNESS css/css-values/ch-recalc-on-font-load.html
 FILE css/css-values/clamp-color-computed.html
 FILE css/css-values/clamp-color-invalid.html
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, -none, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, none, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, 15 + none, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(none + 10, 15, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(none / 10, 15, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(-none, 15, 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(-none, -none, -none) 0 0)" should not set the property value
 FILE css/css-values/clamp-integer-computed.html
 FILE css/css-values/clamp-integer-invalid.html
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, -none, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, none, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, 15 + none, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(none + 10, 15, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(none / 10, 15, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(-none, 15, 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(-none, -none, -none)" should not set the property value
 FILE css/css-values/clamp-length-computed.html
 PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 20px, 30px)'
 PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 5px, 30px)'
@@ -740,6 +769,27 @@ PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 
 PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px + clamp(30px, 100px, 20px))'
 PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px - clamp(30px, 100px, 20px))'
 FILE css/css-values/clamp-length-invalid.html
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp()" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp( )" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(,)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px, )" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(, 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px, 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px, , 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(, 1px, 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px, 1px, )" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px, 1px, 1px, )" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(1px 1px 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(0, 10rem, 100%)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(none, none, none)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(none, none + none, none)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(none, none + 1, none)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(-none, 1px, 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, none * none, 20px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, 2px * none, 20px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, 2px + none, 20px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px + none, 10px / 2px + none, 20px / none)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, -none, 20px)" should not set the property value
 FILE css/css-values/clamp-length-serialize.html
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, 3px))" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, clamp(2px, 3px, 4px)))" should set the property value
@@ -928,8 +978,74 @@ PASS css/css-values/minmax-length-computed.html :: calc(max(1em, 19px) - 10px) s
 PASS css/css-values/minmax-length-computed.html :: calc(min(1em, 21px) + max(0.9em, 20px)) should be used-value-equivalent to 40px
 PASS css/css-values/minmax-length-computed.html :: calc(min(1em + 1px, 22px) - max(0.9em, 20px)) should be used-value-equivalent to 1px
 FILE css/css-values/minmax-length-invalid.html
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min()" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min( )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(,)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1py)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(, 1px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px + )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px - )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px * )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px / )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px 2px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, , 2px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max()" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max( )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(,)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1py)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(, 1px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px + )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px - )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px * )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px / )" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px 2px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, , 2px)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0%)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0s)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0Hz)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0dpi)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(0fr)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0s)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "min(1px, 0fr)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0%)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0s)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0Hz)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0dpi)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(0fr)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0s)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-invalid.html :: e.style['border-left-width'] = "max(1px, 0fr)" should not set the property value
 FILE css/css-values/minmax-length-percent-computed.html
 FILE css/css-values/minmax-length-percent-invalid.html
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1px, 0s)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1px, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1px, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1px, 0fr)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1%, 0)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1%, 0s)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1%, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1%, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "min(1%, 0fr)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1px, 0)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1px, 0s)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1px, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1px, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1px, 0fr)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1%, 0)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1%, 0s)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1%, 0Hz)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1%, 0dpi)" should not set the property value
+PASS css/css-values/minmax-length-percent-invalid.html :: e.style['margin-left'] = "max(1%, 0fr)" should not set the property value
 FILE css/css-values/minmax-length-percent-serialize.html
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px)' as a computed value should serialize as '1px'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px)' as a used value should serialize as '1px'.
@@ -979,6 +1095,52 @@ PASS css/css-values/minmax-number-computed.html :: calc(max(0.1, 0.2) / 2) shoul
 PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) + max(0.1, 0.05)) should be used-value-equivalent to 0.2
 PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) - max(0.1, 0.05)) should be used-value-equivalent to 0
 FILE css/css-values/minmax-number-invalid.html
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min()" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min( )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(,)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(, 1)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1 + )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1 - )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1 * )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1 / )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1 2)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, , 2)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max()" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max( )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(,)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(, 1)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1 + )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1 - )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1 * )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1 / )" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1 2)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, , 2)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0px)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0s)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0deg)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0Hz)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0dpi)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(0fr)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0px)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0s)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0deg)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0Hz)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0dpi)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "min(1, 0fr)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0px)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0s)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0deg)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0Hz)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0dpi)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(0fr)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0px)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0s)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0deg)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0Hz)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0dpi)" should not set the property value
+PASS css/css-values/minmax-number-invalid.html :: e.style['opacity'] = "max(1, 0fr)" should not set the property value
 FILE css/css-values/minmax-number-serialize.html
 PASS css/css-values/minmax-number-serialize.html :: 'calc(min(.1) + min(.2))' as a specified value should serialize as 'calc(0.3)'.
 PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(min(.1) + min(.2)))' as a specified value should serialize as 'scale(calc(0.3))'.
@@ -1004,10 +1166,54 @@ PASS css/css-values/minmax-percentage-computed.html :: calc(max(10%, 20%) / 2) s
 PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) + max(10%, 5%)) should be used-value-equivalent to 20%
 PASS css/css-values/minmax-percentage-computed.html :: calc(min(11%, 20%) - max(10%, 5%)) should be used-value-equivalent to 1%
 FILE css/css-values/minmax-percentage-invalid.html
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min()" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min( )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(,)" should not set the property value
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1#)" should not set the property value
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(%1)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(, 1%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1% + )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1% - )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1% * )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1% / )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1% 2%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, , 2%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max()" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max( )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(,)" should not set the property value
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1#)" should not set the property value
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(%1)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(, 1%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1% + )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1% - )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1% * )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1% / )" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1% 2%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, , 2%)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(0s)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(0deg)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(0Hz)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(0dpi)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(0fr)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0s)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0deg)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0Hz)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0dpi)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1%, 0fr)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(0s)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(0deg)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(0Hz)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(0dpi)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(0fr)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0s)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0deg)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0Hz)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0dpi)" should not set the property value
+PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(1%, 0fr)" should not set the property value
 FILE css/css-values/minmax-percentage-serialize.html
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%)' as a specified value should serialize as 'min(1%, 2%, 3%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%)' as a computed value should serialize as 'min(1%, 2%, 3%)'.
@@ -1036,6 +1242,56 @@ PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) + max(500
 PASS css/css-values/minmax-time-computed.html :: calc(min(0.6s, 700ms) - max(500ms, 0.4s)) should be used-value-equivalent to 0.1s
 PASS css/css-values/minmax-time-computed.html :: calc(min(1s, 2s) + max(3s, 4s) + 10s) should be used-value-equivalent to 15s
 FILE css/css-values/minmax-time-invalid.html
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min()" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min( )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(,)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1mt)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(, 1s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s + )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s - )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s * )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s / )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s 2s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, , 2s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max()" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max( )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(,)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1dag)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(, 1s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s + )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s - )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s * )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s / )" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s 2s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, , 2s)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0%)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0px)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0deg)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0Hz)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0dpi)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(0fr)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0px)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0deg)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0Hz)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0dpi)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "min(1s, 0fr)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0%)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0px)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0deg)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0Hz)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0dpi)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(0fr)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0px)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0deg)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0Hz)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0dpi)" should not set the property value
+PASS css/css-values/minmax-time-invalid.html :: e.style['transition-delay'] = "max(1s, 0fr)" should not set the property value
 FILE css/css-values/minmax-time-serialize.html
 PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a specified value should serialize as 'calc(15s)'.
 PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a computed value should serialize as '15s'.
@@ -1319,6 +1575,9 @@ FILE css/css-values/tree-counting/tree-scoped-sibling-function.html
 FILE css/css-values/tree-counting/trig-functions-in-gradient-position.html
 FILE css/css-values/tree-counting/trig-functions-with-runtime-angle-arguments.html
 FILE css/css-values/typed_arithmetic.html
+PASS css/css-values/typed_arithmetic.html :: e.style['width'] = "calc((1% * 1deg) / 1px)" should not set the property value
+PASS css/css-values/typed_arithmetic.html :: e.style['width'] = "calc((1% * 1% * 1%) / 1px)" should not set the property value
+PASS css/css-values/typed_arithmetic.html :: e.style['width'] = "calc(1px * 1px * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2 * 2)" should not set the property value
 FILE css/css-values/typed_arithmetic_cycle.html
 FILE css/css-values/update-subpixel-rem-unit.html
 FILE css/css-values/urls/cross-origin/url-font-cross-origin-anonymous-negative.sub.html

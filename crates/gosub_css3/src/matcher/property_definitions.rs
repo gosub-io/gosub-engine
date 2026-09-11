@@ -1295,6 +1295,29 @@ mod tests {
         assert!(ok("z-index", "calc(1 + 1)"));
         // Non-math functions still do not match numeric contexts.
         assert!(!ok("width", "banana(1)"));
+
+        // A math function's *arguments* are checked too. This used to be accepted on the
+        // function's name alone, because a `calc()` body was opaque text nobody evaluated - so
+        // `width: min(red, 50px)` was valid CSS as far as the engine was concerned, and a page
+        // lost the fallback declaration that would otherwise have rendered.
+        assert!(!ok("width", "min(red, 50px)"));
+        assert!(!ok("border-left-width", "min(0s)"));
+        assert!(!ok("border-left-width", "max(1px, 0dpi)"));
+        assert!(!ok("border-left-width", "min(1py)"));
+        // Malformed expressions, which no property accepts.
+        assert!(!ok("border-left-width", "min()"));
+        assert!(!ok("border-left-width", "min(1px 2px)"));
+        assert!(!ok("border-left-width", "min(1px, , 2px)"));
+        assert!(!ok("border-left-width", "clamp(1px, 2px)"));
+
+        // Still accepted: a comparison this cannot fold yet is not a comparison that is wrong.
+        assert!(ok("margin-left", "min(25px, max(15px, 1em))"));
+        assert!(ok("margin-left", "calc(min(1em + 1px, 22px) - max(0.9em, 20px))"));
+        // A length against a percentage is a legal `<length-percentage>`.
+        assert!(ok("width", "min(1px, 20%)"));
+        // And what cannot be read is not called invalid.
+        assert!(ok("width", "min(var(--a), 10px)"));
+        assert!(ok("width", "calc(1px + sin(45deg))"));
     }
 
     #[test]
