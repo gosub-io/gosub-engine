@@ -484,14 +484,127 @@ fn shift_following_siblings(layout_tree: &mut LayoutTree, id: LayoutElementId, d
 /// whole: every line box in it clears the float, not only the lines actually beside it. Lines that
 /// hang below the float's bottom therefore stay narrower than CSS requires - correcting that needs
 /// the text split at the float's bottom edge, which the atomic text boxes do not currently allow.
-pub fn line_box_insets(layout_tree: &LayoutTree, placed: &[PlacedFloat]) -> HashMap<DomNodeId, (f32, f32)> {
-    let mut insets: HashMap<DomNodeId, (f32, f32)> = HashMap::new();
+/// One horizontal band of a block: the line-box geometry that holds over a range of its height.
+///
+/// A block crossed by a float is not one shape - it is narrow beside the float and full width
+/// below it - so a single inset per block cannot describe it. Bands give the inline layout the
+/// geometry line by line: it fills a band, then moves to the next.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloatBand {
+    /// Left edge of the line boxes, relative to the block's content box.
+    pub left_inset: f32,
+    /// Width available to the line boxes in this band.
+    pub line_width: f32,
+    /// How tall the band is. `None` on the last band, which runs to the bottom of the block and
+    /// so holds however many lines are left.
+    pub height: Option<f32>,
+}
+
+/// Split a block's height into bands at the edges of the floats that reach it.
+///
+/// `None` when every band would be the full width, which means there is nothing for the inline
+/// layout to do differently. The returned list always ends with an open-ended band: past the
+/// lowest float the block is full width again and may run on for any number of lines.
+fn bands_for_block(content: Rect, floats: &[(Rect, FloatSide)]) -> Option<Vec<FloatBand>> {
+    let block_top = content.y;
+    let block_bottom = content.y + content.height;
+    let block_left = content.x;
+    let block_right = content.x + content.width;
+
+    // Deliberately *not* clipped to the block's current height: that height came from a pass laid
+    // out with no insets at all, so it is the very thing the bands are about to change. Clipping
+    // to it collapsed the common case - a float taller than the block it starts in - into one
+    // narrow band that then applied to every line, however far the text ran on.
+    let lowest = floats
+        .iter()
+        .map(|(r, _)| r.y + r.height)
+        .fold(block_top, f64::max)
+        .max(block_bottom);
+
+    let mut edges: Vec<f64> = vec![block_top, lowest];
+    for (r, _) in floats {
+        for edge in [r.y, r.y + r.height] {
+            if edge > block_top && edge < lowest {
+                edges.push(edge);
+            }
+        }
+    }
+    edges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    edges.dedup();
+
+    let mut bands: Vec<FloatBand> = Vec::new();
+    for pair in edges.windows(2) {
+        let (top, bottom) = (pair[0], pair[1]);
+        if bottom - top <= 0.0 {
+            continue;
+        }
+        // A float applies to a band when it covers the band, which the midpoint decides: the
+        // boundaries are exactly the float edges, so none starts or stops part-way through one.
+        let mid = (top + bottom) / 2.0;
+        let mut left_inset: f64 = 0.0;
+        let mut right_inset: f64 = 0.0;
+        for (r, side) in floats {
+            if r.y > mid || r.y + r.height <= mid {
+                continue;
+            }
+            match side {
+                FloatSide::Left => left_inset = left_inset.max(r.x + r.width - block_left),
+                FloatSide::Right => right_inset = right_inset.max(block_right - r.x),
+            }
+        }
+        let left_inset = left_inset.clamp(0.0, content.width);
+        let right_inset = right_inset.clamp(0.0, content.width);
+        let band = FloatBand {
+            left_inset: left_inset as f32,
+            line_width: (content.width - left_inset - right_inset).max(0.0) as f32,
+            height: Some((bottom - top) as f32),
+        };
+        // Merge with the previous band when the geometry is unchanged, so a paragraph beside two
+        // stacked floats of the same width is one band, not two.
+        match bands.last_mut() {
+            Some(prev) if prev.left_inset == band.left_inset && prev.line_width == band.line_width => {
+                if let (Some(h), Some(add)) = (prev.height, band.height) {
+                    prev.height = Some(h + add);
+                }
+            }
+            _ => bands.push(band),
+        }
+    }
+
+    // Nothing to say when every band is the full width.
+    if !bands
+        .iter()
+        .any(|b| b.left_inset > 0.0 || b.line_width < content.width as f32)
+    {
+        return None;
+    }
+
+    let tail = FloatBand {
+        left_inset: 0.0,
+        line_width: content.width as f32,
+        height: None,
+    };
+    match bands.last_mut() {
+        Some(last) if last.left_inset == tail.left_inset && last.line_width == tail.line_width => {
+            last.height = None;
+        }
+        _ => bands.push(tail),
+    }
+    Some(bands)
+}
+
+/// The bands of every block whose line boxes a float shortens, keyed by DOM node.
+///
+/// Blocks that no float reaches are absent, and a block whose bands are all full width is left
+/// out too - there is nothing for the inline layout to do differently.
+pub fn line_box_insets(layout_tree: &LayoutTree, placed: &[PlacedFloat]) -> HashMap<DomNodeId, Vec<FloatBand>> {
+    let mut insets: HashMap<DomNodeId, Vec<FloatBand>> = HashMap::new();
     if placed.is_empty() {
         return insets;
     }
 
     for (&block_id, block) in layout_tree.arena.iter() {
-        // Only blocks that actually hold text need an inset; a wrapper contributes nothing and
+        // Only blocks that actually hold text need bands; a wrapper contributes nothing and
         // would double-count against its children.
         if !has_inline_content(layout_tree, block_id) {
             continue;
@@ -506,65 +619,38 @@ pub fn line_box_insets(layout_tree: &LayoutTree, placed: &[PlacedFloat]) -> Hash
         let block_left = content.x;
         let block_right = content.x + content.width;
 
-        let mut left_inset: f64 = 0.0;
-        let mut right_inset: f64 = 0.0;
-        let mut float_cover: f64 = 0.0;
-
-        for float in placed {
-            // A float never displaces its own contents, nor the contents of anything inside it.
-            if float.layout_id == block_id || is_ancestor(layout_tree, float.layout_id, block_id) {
-                continue;
-            }
-            let r = float.rect;
-            let overlaps_vertically = r.y < block_bottom && r.y + r.height > block_top;
-            let overlaps_horizontally = r.x < block_right && r.x + r.width > block_left;
-            if !overlaps_vertically || !overlaps_horizontally {
-                continue;
-            }
-            float_cover = float_cover.max((r.y + r.height).min(block_bottom) - r.y.max(block_top));
-            match float.side {
-                FloatSide::Left => left_inset = left_inset.max(r.x + r.width - block_left),
-                FloatSide::Right => right_inset = right_inset.max(block_right - r.x),
-            }
-        }
-
-        if left_inset <= 0.0 && right_inset <= 0.0 {
+        // Floats that reach this block at all. A float never displaces its own contents, nor the
+        // contents of anything inside it.
+        let relevant: Vec<&PlacedFloat> = placed
+            .iter()
+            .filter(|float| {
+                if float.layout_id == block_id || is_ancestor(layout_tree, float.layout_id, block_id) {
+                    return false;
+                }
+                let r = float.rect;
+                r.y < block_bottom && r.y + r.height > block_top && r.x < block_right && r.x + r.width > block_left
+            })
+            .collect();
+        if relevant.is_empty() {
             continue;
         }
 
-        // One inset has to stand in for every line in the block, so only take it where it is
-        // close to what per-line shortening would produce. Two guards bound the error:
-        //
-        // The float must cover most of the block. The inset is exact when the float spans the
-        // whole block and drifts as more lines hang below it, so a float clipping the corner of a
-        // long block is left alone rather than narrowing all of it.
-        if float_cover < content.height * MIN_FLOAT_COVERAGE {
+        let bands = bands_for_block(
+            content,
+            &relevant
+                .iter()
+                .map(|float| (float.rect, float.side))
+                .collect::<Vec<_>>(),
+        );
+        let Some(bands) = bands else {
             continue;
-        }
+        };
 
-        // Enough width has to survive to be worth using. CSS puts a line that cannot fit beside a
-        // float *below* it, which this model cannot express - it can only narrow. Squeezing text
-        // into the sliver left by a near-full-width float would wrap it a word at a time and grow
-        // the page enormously, so leave those lines full width instead.
-        let line_width = content.width - left_inset - right_inset;
-        if line_width < content.width * MIN_LINE_BOX_FRACTION {
-            continue;
-        }
-
-        // Hand the caller the resolved line-box width rather than just the insets: an auto width
-        // would have to be resolved against the block again, and the block's own width is already
-        // known from this pass.
-        insets.insert(block.dom_node_id, (left_inset as f32, line_width as f32));
+        insets.insert(block.dom_node_id, bands);
     }
 
     insets
 }
-
-/// How much of a block's height a float must cover before the block's line boxes are inset.
-const MIN_FLOAT_COVERAGE: f64 = 0.6;
-
-/// How much of a block's width must survive the inset for it to be applied at all.
-const MIN_LINE_BOX_FRACTION: f64 = 0.4;
 
 /// Whether `node` holds inline content directly (text, or an inline box), meaning it is the block
 /// whose line boxes a neighbouring float shortens.
@@ -602,6 +688,107 @@ mod tests {
             bottom,
             inner_edge,
         }
+    }
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect::new(x, y, width, height)
+    }
+
+    /// A 600x100 block at the origin, the shape most of the band tests use.
+    fn block() -> Rect {
+        rect(0.0, 0.0, 600.0, 100.0)
+    }
+
+    #[test]
+    fn a_float_shorter_than_the_block_gives_two_bands() {
+        let bands = bands_for_block(block(), &[(rect(400.0, 0.0, 200.0, 40.0), FloatSide::Right)])
+            .expect("the float narrows the block");
+        assert_eq!(
+            bands,
+            vec![
+                FloatBand {
+                    left_inset: 0.0,
+                    line_width: 400.0,
+                    height: Some(40.0)
+                },
+                FloatBand {
+                    left_inset: 0.0,
+                    line_width: 600.0,
+                    height: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_float_taller_than_the_block_still_ends() {
+        // The block's height came from a pass with no insets, so it is *shorter* than the text
+        // will be once the bands apply. Clipping the bands to it made the narrow band open-ended
+        // and every line of the paragraph narrow, however far it ran past the float.
+        let bands = bands_for_block(block(), &[(rect(400.0, 0.0, 200.0, 260.0), FloatSide::Right)])
+            .expect("the float narrows the block");
+        assert_eq!(bands.len(), 2, "{bands:?}");
+        assert_eq!(bands[0].height, Some(260.0));
+        assert_eq!(bands[0].line_width, 400.0);
+        assert_eq!(bands[1].height, None);
+        assert_eq!(bands[1].line_width, 600.0);
+    }
+
+    #[test]
+    fn a_left_float_indents_rather_than_narrowing_only() {
+        let bands = bands_for_block(block(), &[(rect(0.0, 0.0, 150.0, 40.0), FloatSide::Left)])
+            .expect("the float indents the block");
+        assert_eq!(bands[0].left_inset, 150.0);
+        assert_eq!(bands[0].line_width, 450.0);
+        assert_eq!(bands[1].left_inset, 0.0);
+    }
+
+    #[test]
+    fn floats_on_both_sides_narrow_from_both() {
+        let bands = bands_for_block(
+            block(),
+            &[
+                (rect(0.0, 0.0, 100.0, 40.0), FloatSide::Left),
+                (rect(500.0, 0.0, 100.0, 40.0), FloatSide::Right),
+            ],
+        )
+        .expect("both floats apply");
+        assert_eq!(bands[0].left_inset, 100.0);
+        assert_eq!(bands[0].line_width, 400.0);
+    }
+
+    #[test]
+    fn stacked_floats_of_one_width_are_a_single_band() {
+        // Two thumbnails down the same margin should read as one narrow band, not two identical
+        // ones - the cursor charges lines against band heights, so splitting them would place a
+        // line break at the seam between the floats.
+        let bands = bands_for_block(
+            block(),
+            &[
+                (rect(400.0, 0.0, 200.0, 40.0), FloatSide::Right),
+                (rect(400.0, 40.0, 200.0, 40.0), FloatSide::Right),
+            ],
+        )
+        .expect("the floats narrow the block");
+        assert_eq!(bands.len(), 2, "{bands:?}");
+        assert_eq!(bands[0].height, Some(80.0));
+        assert_eq!(bands[0].line_width, 400.0);
+    }
+
+    #[test]
+    fn a_float_starting_below_the_top_leaves_a_full_width_band_above_it() {
+        let bands = bands_for_block(block(), &[(rect(400.0, 30.0, 200.0, 40.0), FloatSide::Right)])
+            .expect("the float narrows the block");
+        assert_eq!(bands.len(), 3, "{bands:?}");
+        assert_eq!((bands[0].line_width, bands[0].height), (600.0, Some(30.0)));
+        assert_eq!((bands[1].line_width, bands[1].height), (400.0, Some(40.0)));
+        assert_eq!((bands[2].line_width, bands[2].height), (600.0, None));
+    }
+
+    #[test]
+    fn a_float_that_misses_the_block_horizontally_gives_no_bands() {
+        // Nothing overlaps, so every band would be full width and there is nothing to say.
+        assert!(bands_for_block(block(), &[]).is_none());
     }
 
     #[test]

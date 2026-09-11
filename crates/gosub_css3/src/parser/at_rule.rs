@@ -17,23 +17,30 @@ use cow_utils::CowUtils;
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
+    /// Decide how to read the body of an at-rule the parser has no specific handler for, by
+    /// looking ahead for whichever comes first: a `{` or an `@` means the body holds nested rules
+    /// (`@keyframes`), and the block's own `}` means it holds declarations (`@counter-style`,
+    /// `@property`).
+    ///
+    /// Every arm used to answer `RegularBlock`, so a descriptor body was always parsed as if it
+    /// were rules: `@counter-style x{system:numeric;…}` read `system:numeric` as a selector and
+    /// then failed on the `;`, and the same for `@property`. The caller has already consumed the
+    /// opening `{`, so the scan starts at the first token inside the block.
     fn declaration_block_at_rule(&mut self) -> BlockParseMode {
-        let mut offset = 1;
+        let mut offset = 0;
         loop {
             let t = self.tokenizer.lookahead(offset);
             offset += 1;
 
             match t.token_type {
+                // The block closed without a nested rule starting: it was all declarations.
                 TokenType::RCurly => {
-                    return BlockParseMode::RegularBlock;
+                    return BlockParseMode::StyleBlock;
                 }
-                TokenType::LCurly => {
+                TokenType::LCurly | TokenType::AtKeyword(_) => {
                     return BlockParseMode::RegularBlock;
                 }
                 TokenType::Eof => {
-                    return BlockParseMode::RegularBlock;
-                }
-                TokenType::AtKeyword(_) => {
                     return BlockParseMode::RegularBlock;
                 }
                 _ => {
@@ -206,5 +213,62 @@ impl Css3<'_> {
             },
             t.location,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Css3, CssOrigin};
+    use gosub_shared::config::ParserConfig;
+
+    /// Parse with errors *not* ignored, so a rule the parser trips over is visible as a failure
+    /// rather than a log line. A page is parsed with `ignore_errors: true`, where the same trip
+    /// only costs the offending rule - which is why this went unnoticed as five warnings a load.
+    fn parse_strict(css: &str) -> Result<crate::stylesheet::CssStylesheet, String> {
+        Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").map_err(|e| format!("{e:?}"))
+    }
+
+    fn selector_text(sheet: &crate::stylesheet::CssStylesheet) -> Vec<String> {
+        sheet
+            .rules
+            .iter()
+            .flat_map(|rule| rule.selectors().iter().map(|sel| format!("{sel:?}")))
+            .collect()
+    }
+
+    #[test]
+    fn an_unknown_at_rule_body_of_descriptors_parses() {
+        // Wikipedia ships three of these. Every arm of the block-mode scan answered "nested
+        // rules", so `system:numeric` was read as a selector and the `;` after it was a parse
+        // error - one per descriptor list, on every page load.
+        let sheet = parse_strict("@counter-style meetei{system:numeric;symbols:'0' '1';suffix:') '}")
+            .expect("a descriptor body should parse");
+        assert!(
+            selector_text(&sheet).is_empty(),
+            "the at-rule contributes no style rules"
+        );
+    }
+
+    #[test]
+    fn an_unknown_at_rule_of_descriptors_leaves_its_neighbours_alone() {
+        let sheet = parse_strict("a{color:red}@property --x{syntax:'<color>';inherits:false}b{color:blue}")
+            .expect("a descriptor body should parse");
+        let selectors = selector_text(&sheet);
+        assert_eq!(selectors.len(), 2, "{selectors:?}");
+    }
+
+    #[test]
+    fn an_unknown_at_rule_of_nested_rules_still_reads_as_rules() {
+        // `@keyframes` is the other shape: its body holds qualified rules, not descriptors, and
+        // the `{` of the first one is what says so.
+        let sheet = parse_strict("@keyframes spin{from{opacity:0}to{opacity:1}}a{color:red}")
+            .expect("a nested-rule body should parse");
+        assert_eq!(selector_text(&sheet).len(), 1);
+    }
+
+    #[test]
+    fn an_empty_unknown_at_rule_block_is_harmless() {
+        let sheet = parse_strict("@counter-style empty{}a{color:red}").expect("an empty body should parse");
+        assert_eq!(selector_text(&sheet).len(), 1);
     }
 }

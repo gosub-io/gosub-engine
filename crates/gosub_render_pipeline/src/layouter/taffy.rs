@@ -11,7 +11,7 @@ use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
-use crate::layouter::float::{line_box_insets, post_process_floats};
+use crate::layouter::float::{float_side, line_box_insets, position_is_out_of_flow, post_process_floats, FloatBand};
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
@@ -29,6 +29,133 @@ use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
+
+/// How many times the page may be laid out before the float bands are taken as settled. Two is
+/// the old behaviour (measure, then apply); the third lets a paragraph that grew taller under its
+/// new line widths move the floats below it and be re-measured against where they ended up.
+const MAX_LAYOUT_PASSES: usize = 3;
+
+/// Width an inline item is measured at to get its natural size. Large enough that nothing wraps;
+/// `f64::MAX` overflows inside the text stack, as the measure callback already notes.
+const MAX_CONTENT_WIDTH: f64 = 1_000_000_000.0;
+
+/// Whether an inline item is a run of whitespace, which is what the word splitter emits between
+/// words and what CSS drops at a line break.
+fn is_whitespace_item(layout_tree: &LayoutTree, id: &LayoutElementId) -> bool {
+    match layout_tree.arena.get(id).map(|el| &el.context) {
+        Some(ElementContext::Text(text)) => !text.text.is_empty() && text.text.chars().all(char::is_whitespace),
+        _ => false,
+    }
+}
+
+/// Length of `items` with any trailing whitespace items removed.
+fn trim_trailing_whitespace(layout_tree: &LayoutTree, items: &[(LayoutElementId, TaffyNodeId)]) -> usize {
+    let mut end = items.len();
+    while end > 0 && is_whitespace_item(layout_tree, &items[end - 1].0) {
+        end -= 1;
+    }
+    end
+}
+
+/// `items` with any leading whitespace items dropped.
+fn skip_leading_whitespace<'a>(
+    layout_tree: &LayoutTree,
+    items: &'a [(LayoutElementId, TaffyNodeId)],
+) -> &'a [(LayoutElementId, TaffyNodeId)] {
+    let mut start = 0;
+    while start < items.len() && is_whitespace_item(layout_tree, &items[start].0) {
+        start += 1;
+    }
+    &items[start..]
+}
+
+/// Where one line box goes: which band it sits in, and how far below the previous one it starts.
+#[derive(Debug, Clone, Copy)]
+struct LinePlacement {
+    band: FloatBand,
+    offset_top: f32,
+}
+
+/// Walks a block's float bands as its line boxes are emitted, remembering how much of the current
+/// band is already spoken for. One cursor covers a whole block, so a `<br>` in the middle of a
+/// paragraph keeps its place in the band list rather than starting over.
+struct BandCursor {
+    bands: Vec<FloatBand>,
+    index: usize,
+    /// Height consumed in the band at `index`.
+    used: f32,
+    /// Height left unused when the previous band was left behind, to be added above the next
+    /// container. A band 4.8 lines tall holds 4 whole lines; the fifth must start *below* the
+    /// float rather than in the sliver left over, which is what CSS does with a line box that
+    /// would otherwise intersect one.
+    pending_offset: f32,
+}
+
+impl BandCursor {
+    fn new(bands: &[FloatBand]) -> Self {
+        Self {
+            bands: bands.to_vec(),
+            index: 0,
+            used: 0.0,
+            pending_offset: 0.0,
+        }
+    }
+
+    /// The geometry for the next line box: the current band, plus any gap owed above it.
+    fn placement(&mut self) -> LinePlacement {
+        LinePlacement {
+            band: self.current(),
+            offset_top: std::mem::take(&mut self.pending_offset),
+        }
+    }
+
+    fn current(&self) -> FloatBand {
+        self.bands[self.index.min(self.bands.len() - 1)]
+    }
+
+    /// Line boxes of `line_height` still free in the current band. The last band is open-ended,
+    /// so everything left goes there.
+    fn lines_left(&self, line_height: f32) -> usize {
+        let band = self.current();
+        let Some(height) = band.height else {
+            return usize::MAX;
+        };
+        if line_height <= 0.0 {
+            return usize::MAX;
+        }
+        (((height - self.used) / line_height).floor().max(0.0)) as usize
+    }
+
+    /// Charge `lines` line boxes of `line_height` to the current band, moving on when it fills.
+    fn take_lines(&mut self, lines: usize, line_height: f32) {
+        let Some(height) = self.current().height else {
+            return;
+        };
+        self.used += lines as f32 * line_height.max(0.0);
+        if self.used >= height {
+            self.advance();
+        }
+    }
+
+    /// Move to the next band. Returns false when this was already the last one.
+    fn advance(&mut self) -> bool {
+        if self.index + 1 >= self.bands.len() {
+            return false;
+        }
+        if let Some(height) = self.current().height {
+            self.pending_offset += (height - self.used).max(0.0);
+        }
+        self.index += 1;
+        self.used = 0.0;
+        true
+    }
+
+    /// Give up on band-by-band placement: everything else goes in the final, open-ended band.
+    fn exhaust(&mut self) {
+        while self.advance() {}
+    }
+}
+
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
 /// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
@@ -154,7 +281,7 @@ pub struct TaffyLayouter {
     /// Per-block `(left inset, line width)` line-box geometry that clears the floats beside that
     /// block, in CSS pixels. Empty on the first layout pass, since a float's position is not known
     /// until that pass has run; filled in from its result for the second.
-    float_insets: HashMap<DomNodeId, (f32, f32)>,
+    float_insets: HashMap<DomNodeId, Vec<FloatBand>>,
     /// Width each `display: table` box settled on in the previous pass, pinned onto the box when
     /// the tree is rebuilt. A table's width comes out of the column algorithm, which runs after
     /// taffy - so on the first pass taffy laid the contents out at the wrong width, and anything
@@ -341,11 +468,32 @@ impl CanLayout for TaffyLayouter {
             return layout_tree;
         }
 
-        self.float_insets = insets;
-        self.abspos_insets = stretched;
-        self.table_widths = table_widths;
-        let (layout_tree_2, _, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
-        layout_tree = layout_tree_2;
+        // Float bands are read off one layout and applied to the next, but applying them changes
+        // the very geometry they were measured from: narrower line boxes make a paragraph taller,
+        // which moves everything below it and so moves the floats. One extra pass leaves a
+        // paragraph flowing at the width its *previous*, shorter self needed. Re-measure and go
+        // again until the bands stop moving, with a hard cap so a layout that oscillates between
+        // two answers still terminates rather than looping.
+        let mut insets = insets;
+        let mut stretched = stretched;
+        let mut table_widths = table_widths;
+        for _ in 0..MAX_LAYOUT_PASSES - 1 {
+            self.float_insets.clone_from(&insets);
+            self.abspos_insets.clone_from(&stretched);
+            self.table_widths.clone_from(&table_widths);
+            let (next_tree, placed, next_stretched, next_widths) =
+                self.layout_pass(layout_tree.render_tree, root_id, viewport);
+            layout_tree = next_tree;
+
+            let next_insets = line_box_insets(&layout_tree, &placed);
+            let settled = next_insets == insets && next_stretched == stretched && next_widths == table_widths;
+            insets = next_insets;
+            stretched = next_stretched;
+            table_widths = next_widths;
+            if settled {
+                break;
+            }
+        }
         self.float_insets.clear();
         self.abspos_insets.clear();
         self.table_widths.clear();
@@ -717,6 +865,7 @@ impl TaffyLayouter {
     // vertically - that is how a `<br>` becomes a line break.
     fn process_inlines(
         &mut self,
+        layout_tree: &LayoutTree,
         current_inline_group: &[InlineEntry],
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
@@ -728,6 +877,13 @@ impl TaffyLayouter {
             return;
         }
 
+        // Line boxes beside a float are shorter than the ones below it, and the anonymous
+        // container *is* the line box here, so a block crossed by a float needs one container per
+        // band rather than one for the whole block. `cursor` carries the position in that band
+        // list across the whole block, including over `<br>` boundaries.
+        let bands = self.float_insets.get(&element_node.dom_node_id).cloned();
+        let mut cursor = bands.as_ref().map(|bands| BandCursor::new(bands));
+
         // Split the run into line boxes at `<br>` boundaries. An empty segment (consecutive `<br>`s
         // or a leading `<br>`) still emits a line box of the break's line-height, so runs of `<br>`
         // produce blank lines rather than collapsing.
@@ -737,16 +893,162 @@ impl TaffyLayouter {
                 InlineEntry::Item(id, taffy) => segment.push((*id, *taffy)),
                 InlineEntry::Break(lh) => {
                     if segment.is_empty() {
-                        self.emit_line(&[], Some(*lh), element_node, leaf_id, justify);
+                        let placement = cursor.as_mut().map(BandCursor::placement);
+                        if let Some(c) = cursor.as_mut() {
+                            c.take_lines(1, *lh as f32);
+                        }
+                        self.emit_line(&[], Some(*lh), element_node, leaf_id, justify, placement);
                     } else {
-                        self.emit_line(&segment, None, element_node, leaf_id, justify);
+                        self.emit_banded(layout_tree, &segment, element_node, leaf_id, justify, cursor.as_mut());
                         segment.clear();
+                        // The break itself ends the line the segment left open.
+                        if let Some(c) = cursor.as_mut() {
+                            c.take_lines(1, *lh as f32);
+                        }
                     }
                 }
             }
         }
         if !segment.is_empty() {
-            self.emit_line(&segment, None, element_node, leaf_id, justify);
+            self.emit_banded(layout_tree, &segment, element_node, leaf_id, justify, cursor.as_mut());
+        }
+    }
+
+    /// Emit one run of inline items, split across the float bands it flows through.
+    ///
+    /// Without bands this is a single container, exactly as before. With them, the items are
+    /// packed into lines at each band's width until that band is full, and what is left starts a
+    /// new container in the next band - which is how text runs narrow beside a float and then
+    /// returns to full width underneath it.
+    fn emit_banded(
+        &mut self,
+        layout_tree: &LayoutTree,
+        items: &[(LayoutElementId, TaffyNodeId)],
+        element_node: &mut LayoutElementNode,
+        leaf_id: TaffyNodeId,
+        justify: Option<taffy::JustifyContent>,
+        cursor: Option<&mut BandCursor>,
+    ) {
+        let Some(cursor) = cursor else {
+            self.emit_line(items, None, element_node, leaf_id, justify, None);
+            return;
+        };
+
+        let line_height = self.inline_line_height(layout_tree, items);
+        let mut rest = items;
+        while !rest.is_empty() {
+            let band = cursor.current();
+            // Measuring every item lets the split match where taffy will actually wrap. If any
+            // item cannot be measured the split would be guesswork, so the whole run goes into
+            // one container at the current band's width instead.
+            let capacity = cursor.lines_left(line_height);
+            let Some((taken, lines)) = self.fill_band(layout_tree, rest, band, capacity) else {
+                let placement = cursor.placement();
+                cursor.exhaust();
+                self.emit_line(rest, None, element_node, leaf_id, justify, Some(placement));
+                return;
+            };
+            if taken == 0 {
+                // Nothing fits this band - a float leaves it too narrow for even one item - so
+                // drop to the next one rather than emitting an empty container. CSS puts a line
+                // that cannot fit beside a float below it, which is exactly this.
+                if !cursor.advance() {
+                    self.emit_line(rest, None, element_node, leaf_id, justify, Some(cursor.placement()));
+                    return;
+                }
+                continue;
+            }
+            // A space that falls at a band boundary is a line break's worth of whitespace, which
+            // CSS collapses away. Keeping it also risked a blank line: a trailing space pushed
+            // past the band's width wraps to a line of its own in that container.
+            let chunk_end = trim_trailing_whitespace(layout_tree, &rest[..taken]);
+            let placement = cursor.placement();
+            self.emit_line(
+                &rest[..chunk_end],
+                None,
+                element_node,
+                leaf_id,
+                justify,
+                Some(placement),
+            );
+            cursor.take_lines(lines, line_height);
+            rest = skip_leading_whitespace(layout_tree, &rest[taken..]);
+        }
+    }
+
+    /// The line height to charge each line of `items` against a band's height. Taken from the
+    /// first text item, which is what decides the line box's height in practice.
+    fn inline_line_height(&self, layout_tree: &LayoutTree, items: &[(LayoutElementId, TaffyNodeId)]) -> f32 {
+        for (id, _) in items {
+            if let Some(el) = layout_tree.arena.get(id) {
+                if let ElementContext::Text(text) = &el.context {
+                    if text.font_info.line_height > 0.0 {
+                        return text.font_info.line_height as f32;
+                    }
+                }
+            }
+        }
+        DEFAULT_FONT_SIZE as f32
+    }
+
+    /// How many leading items of `rest` fit in `band` within `max_lines` line boxes, and how many
+    /// lines they take. `None` when an item's width cannot be measured.
+    fn fill_band(
+        &mut self,
+        layout_tree: &LayoutTree,
+        rest: &[(LayoutElementId, TaffyNodeId)],
+        band: FloatBand,
+        max_lines: usize,
+    ) -> Option<(usize, usize)> {
+        if max_lines == 0 {
+            return Some((0, 0));
+        }
+        let width = band.line_width as f64;
+        let mut lines = 1usize;
+        let mut used = 0.0_f64;
+        for (i, (id, _)) in rest.iter().enumerate() {
+            let item_width = self.inline_item_width(layout_tree, id)?;
+            // The first item on a line always goes on it, however wide: a word longer than the
+            // line overflows rather than vanishing, which is what taffy does too.
+            if used > 0.0 && used + item_width > width {
+                if lines == max_lines {
+                    return Some((i, lines));
+                }
+                lines += 1;
+                used = 0.0;
+            }
+            used += item_width;
+        }
+        Some((rest.len(), lines))
+    }
+
+    /// Natural width of one inline item, measured the same way taffy will measure it.
+    fn inline_item_width(&mut self, layout_tree: &LayoutTree, id: &LayoutElementId) -> Option<f64> {
+        match &layout_tree.arena.get(id)?.context {
+            ElementContext::Text(text) => {
+                let font_info = text.font_info.clone();
+                let content = text.text.clone();
+                let mut font_system = self.font_system.lock();
+                get_text_layout(&content, &font_info, MAX_CONTENT_WIDTH, &mut *font_system)
+                    .ok()
+                    .map(|d| d.width)
+            }
+            ElementContext::Image(image) => Some(image.dimension.width),
+            ElementContext::Svg(svg) => Some(svg.dimension.width),
+            ElementContext::None => {
+                // A float or an absolutely positioned box is in the inline run only because that
+                // is where it was written; it is out of flow and takes no room on the line. The
+                // float that *causes* the bands is usually the first item in the very run being
+                // split, so counting it would be wrong twice over.
+                let dom_id = layout_tree.arena.get(id)?.dom_node_id;
+                let doc = &layout_tree.render_tree.doc;
+                if position_is_out_of_flow(&**doc, dom_id) || float_side(&**doc, dom_id).is_some() {
+                    return Some(0.0);
+                }
+                // Anything else with no context - an inline-block, say - has no measurable width
+                // until taffy runs, so the caller falls back rather than guessing.
+                None
+            }
         }
     }
 
@@ -760,11 +1062,8 @@ impl TaffyLayouter {
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
         justify: Option<taffy::JustifyContent>,
+        placement: Option<LinePlacement>,
     ) {
-        // Line boxes - not the block itself - are what a float shortens, and the anonymous
-        // container *is* the line box here, so the inset goes on its margins. The block keeps its
-        // full width, so its background and borders still span the float, as CSS requires.
-        let float_inset = self.float_insets.get(&element_node.dom_node_id).copied();
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
         // This ensures the text measure function always receives AvailableSpace::Definite from
         // the flex algorithm, preventing single-child text nodes from getting MaxContent width
@@ -790,9 +1089,15 @@ impl TaffyLayouter {
             },
             ..Default::default()
         };
-        if let Some((inset_left, line_width)) = float_inset {
-            style.margin.left = LengthPercentageAuto::length(inset_left);
-            style.size.width = Dimension::from_length(line_width);
+        // Line boxes - not the block itself - are what a float shortens, and the anonymous
+        // container *is* the line box here, so the inset goes on its margins. The block keeps its
+        // full width, so its background and borders still span the float, as CSS requires.
+        if let Some(placement) = placement {
+            style.margin.left = LengthPercentageAuto::length(placement.band.left_inset);
+            style.size.width = Dimension::from_length(placement.band.line_width);
+            if placement.offset_top > 0.0 {
+                style.margin.top = LengthPercentageAuto::length(placement.offset_top);
+            }
         }
         if items.is_empty() {
             match empty_line_height {
@@ -1090,7 +1395,13 @@ impl TaffyLayouter {
 
             // Strip trailing whitespace before flushing, then flush.
             current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
-            self.process_inlines(&current_inline_group, &mut element_node, leaf_id, line_justify);
+            self.process_inlines(
+                layout_tree,
+                &current_inline_group,
+                &mut element_node,
+                leaf_id,
+                line_justify,
+            );
             current_inline_group = Vec::new();
             trailing_ws_count = 0;
 
@@ -1102,7 +1413,13 @@ impl TaffyLayouter {
 
         // Strip trailing whitespace and deal with any remaining inline elements
         current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
-        self.process_inlines(&current_inline_group, &mut element_node, leaf_id, line_justify);
+        self.process_inlines(
+            layout_tree,
+            &current_inline_group,
+            &mut element_node,
+            leaf_id,
+            line_justify,
+        );
 
         // The layout-tree is the structure handed to the rest of the pipeline; taffy stays
         // internal to this layouter so other layout engines can be swapped in.
@@ -1698,5 +2015,72 @@ mod tests {
         );
         let data = "data:image/png;base64,iVBORw0KGgo=";
         assert!(to_absolute_url(data, "http://h/page.html").starts_with("data:image/png;base64,"));
+    }
+}
+
+#[cfg(test)]
+mod band_cursor_tests {
+    use super::{BandCursor, FloatBand};
+
+    fn bands() -> Vec<FloatBand> {
+        vec![
+            FloatBand {
+                left_inset: 0.0,
+                line_width: 400.0,
+                height: Some(100.0),
+            },
+            FloatBand {
+                left_inset: 0.0,
+                line_width: 600.0,
+                height: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn a_band_holds_as_many_whole_lines_as_it_has_room_for() {
+        let cursor = BandCursor::new(&bands());
+        assert_eq!(cursor.lines_left(20.0), 5);
+        // 4.5 lines' worth of room holds four whole ones; the fifth would cross the float.
+        assert_eq!(cursor.lines_left(22.0), 4);
+    }
+
+    #[test]
+    fn the_last_band_is_open_ended() {
+        let mut cursor = BandCursor::new(&bands());
+        cursor.take_lines(5, 20.0);
+        assert_eq!(cursor.current().line_width, 600.0);
+        assert_eq!(cursor.lines_left(20.0), usize::MAX);
+    }
+
+    #[test]
+    fn the_unused_tail_of_a_band_is_owed_to_the_next_line() {
+        // 100px of band at 22px per line: four lines fit and 12px are left over. The next line
+        // must start below the float, not in the sliver - CSS moves a line box that would
+        // intersect a float down until it clears.
+        let mut cursor = BandCursor::new(&bands());
+        assert_eq!(cursor.placement().offset_top, 0.0);
+        cursor.take_lines(4, 22.0);
+        assert!(cursor.advance() || cursor.current().height.is_none());
+        let placement = cursor.placement();
+        assert_eq!(placement.band.line_width, 600.0);
+        assert_eq!(placement.offset_top, 12.0);
+        // Only owed once.
+        assert_eq!(cursor.placement().offset_top, 0.0);
+    }
+
+    #[test]
+    fn filling_a_band_exactly_advances_without_a_gap() {
+        let mut cursor = BandCursor::new(&bands());
+        cursor.take_lines(5, 20.0);
+        assert_eq!(cursor.placement().offset_top, 0.0);
+    }
+
+    #[test]
+    fn exhausting_jumps_to_the_open_ended_band() {
+        let mut cursor = BandCursor::new(&bands());
+        cursor.exhaust();
+        assert_eq!(cursor.current().line_width, 600.0);
+        assert!(cursor.current().height.is_none());
     }
 }
