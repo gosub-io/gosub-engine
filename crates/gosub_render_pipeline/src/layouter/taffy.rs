@@ -2,6 +2,7 @@ use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::BgSize;
+use crate::common::document::style::Display as CssDisplay;
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
@@ -1250,7 +1251,31 @@ impl TaffyLayouter {
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
         // are direct layout participants. Wrapping inline children in an anonymous flex container
         // would insert an extra level that breaks the parent's `gap`, `align-items`, etc.
-        let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid);
+        // Flex and grid containers are formatting contexts where ALL children - inline or block -
+        // are direct layout participants. Wrapping inline children in an anonymous flex container
+        // would insert an extra level that breaks the parent's `gap`, `align-items`, etc.
+        //
+        // The table displays are mapped onto taffy flex containers too, but a cell is a block
+        // container and its inline content still belongs in line boxes - without that, a cell that
+        // stacks its children puts every word on a line of its own. Only the table boxes are
+        // excluded, rather than asking the CSS display outright: *inline* elements are mapped onto
+        // flex containers as well - 12000 of them on this page - and must keep what they have.
+        let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid)
+            && !matches!(
+                layout_tree
+                    .render_tree
+                    .doc
+                    .get_style(dom_node.node_id, &StyleProperty::Display),
+                Value::Display(
+                    CssDisplay::Table
+                        | CssDisplay::TableCaption
+                        | CssDisplay::TableCell
+                        | CssDisplay::TableFooterGroup
+                        | CssDisplay::TableHeaderGroup
+                        | CssDisplay::TableRow
+                        | CssDisplay::TableRowGroup
+                )
+            );
 
         // The context will be moved to the taffy tree, so we need to convert it before that happens.
         let element_context = match taffy_context {

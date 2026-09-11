@@ -128,6 +128,12 @@ impl<'a> CssTaffyConverter<'a> {
             }
             Some(Value::Display(CssDisplay::TableCell)) => {
                 ts.display = Display::Flex;
+                // A cell is a block container: its block-level children stack, as do the anonymous
+                // containers the inline layout emits for line boxes. Taffy's default direction is
+                // `Row`, so a cell holding more than one block laid them out side by side - which
+                // put Wikipedia's infobox image caption in a narrow strip beside the picture
+                // instead of underneath it.
+                ts.flex_direction = FlexDirection::Column;
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {
