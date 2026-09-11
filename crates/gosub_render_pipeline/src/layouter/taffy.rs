@@ -1260,6 +1260,20 @@ impl TaffyLayouter {
         // stacks its children puts every word on a line of its own. Only the table boxes are
         // excluded, rather than asking the CSS display outright: *inline* elements are mapped onto
         // flex containers as well - 12000 of them on this page - and must keep what they have.
+        // An inline box does not start a line - it continues its parent's - so whitespace at its
+        // start is only leading whitespace if the line itself is empty, which this element cannot
+        // know. Dropping it regardless lost the space in
+        // `1964<span>;</span><span> </span>62 years ago`, which rendered as "1964;62 years ago":
+        // Parsoid gives every entity its own element, so a single space routinely arrives as the
+        // whole content of one. A block container *does* start a line, and there the trim is right.
+        let starts_a_line = !matches!(
+            layout_tree
+                .render_tree
+                .doc
+                .get_style(dom_node.node_id, &StyleProperty::Display),
+            Value::Display(CssDisplay::Inline)
+        );
+
         let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid)
             && !matches!(
                 layout_tree
@@ -1367,10 +1381,11 @@ impl TaffyLayouter {
                 // Still discard pure-whitespace text nodes; they carry no visual content.
                 if let NodeType::Text(text) = &child_node.node_type {
                     if is_collapsible_whitespace(text) {
-                        // Drop leading whitespace (before any inline sibling). Keep inter-element
-                        // whitespace - it collapses to a single space in extract_taffy_data and
-                        // visually separates adjacent inline elements (e.g. between </span><span>).
-                        if current_inline_group.is_empty() {
+                        // Drop leading whitespace (before any inline sibling) of a box that
+                        // starts a line. Keep inter-element whitespace - it collapses to a single
+                        // space in extract_taffy_data and visually separates adjacent inline
+                        // elements (e.g. between </span><span>).
+                        if current_inline_group.is_empty() && starts_a_line {
                             continue;
                         }
                     }
@@ -1409,10 +1424,11 @@ impl TaffyLayouter {
                     // as leading whitespace. Parsoid gives every entity its own element, which is
                     // how Wikipedia's `Designed<span>&nbsp;</span>by` lost its space entirely.
                     if is_collapsible_whitespace(text) {
-                        // Drop leading whitespace (before any inline sibling). Keep inter-element
-                        // whitespace - it collapses to a single space in extract_taffy_data and
-                        // visually separates adjacent inline elements (e.g. between </span><span>).
-                        if current_inline_group.is_empty() {
+                        // Drop leading whitespace (before any inline sibling) of a box that
+                        // starts a line. Keep inter-element whitespace - it collapses to a single
+                        // space in extract_taffy_data and visually separates adjacent inline
+                        // elements (e.g. between </span><span>).
+                        if current_inline_group.is_empty() && starts_a_line {
                             continue;
                         }
                         true
@@ -2179,5 +2195,34 @@ mod whitespace_tests {
         // And on its own it is a word, not a separator that vanishes.
         assert_eq!(split_collapsible_whitespace(NBSP).collect::<Vec<_>>(), [NBSP]);
         assert!(split_collapsible_whitespace("   ").next().is_none());
+    }
+}
+
+#[cfg(test)]
+mod leading_whitespace_tests {
+    use crate::common::document::style::Display as CssDisplay;
+
+    /// The rule the two call sites share, stated on its own: only a box that starts a line may
+    /// trim whitespace at its start.
+    fn starts_a_line(display: CssDisplay) -> bool {
+        !matches!(display, CssDisplay::Inline)
+    }
+
+    #[test]
+    fn a_block_starts_a_line_and_may_trim() {
+        assert!(starts_a_line(CssDisplay::Block));
+        assert!(starts_a_line(CssDisplay::TableCell));
+        // An inline-block establishes its own formatting context, so its leading whitespace does
+        // go - unlike an inline box, which merely continues the line it is on.
+        assert!(starts_a_line(CssDisplay::InlineBlock));
+    }
+
+    #[test]
+    fn an_inline_box_continues_a_line_and_must_not_trim() {
+        // `1964<span>;</span><span> </span>62` - Parsoid gives every entity its own element, so a
+        // lone space routinely *is* the whole content of one. Trimming it per element rather than
+        // per line box rendered that as "1964;62", and cost every space between the tokens of a
+        // syntax-highlighted code block, where each token is its own span.
+        assert!(!starts_a_line(CssDisplay::Inline));
     }
 }
