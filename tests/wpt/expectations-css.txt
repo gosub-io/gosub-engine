@@ -239,6 +239,7 @@ FILE css/css-values/attr-security-animation.html
 FILE css/css-values/attr-security-if.html
 FILE css/css-values/attr-security-transition-2.html
 FILE css/css-values/attr-security-transition-interpolated.html
+PASS css/css-values/attr-security-transition-interpolated.html :: Transitioning <number> from attr() should remain attr-tainted in if(style()) range query
 FILE css/css-values/attr-security-transition.html
 FILE css/css-values/attr-security.html
 FILE css/css-values/attr-serialization.html
@@ -284,6 +285,7 @@ FILE css/css-values/calc-complex-unresolved-serialize.html
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(2, sign(1em - 18px)))' as a specified value should serialize as 'calc(pow(2, sign(1em - 18px)))'.
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(sign(1em - 18px), 2))' as a specified value should serialize as 'calc(pow(sign(1em - 18px), 2))'.
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(sign(1em - 18px), sign(1em - 18px)))' as a specified value should serialize as 'calc(pow(sign(1em - 18px), sign(1em - 18px)))'.
+PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(2, sibling-index())' as a computed value should serialize as '2'.
 FILE css/css-values/calc-dimension-serialization-order.html
 PASS css/css-values/calc-dimension-serialization-order.html :: all dimensions reverse-sorted serialize back in canonical order
 PASS css/css-values/calc-dimension-serialization-order.html :: cap sorts after %
@@ -1027,6 +1029,8 @@ FILE css/css-values/ident-function-substitution.html
 PASS css/css-values/ident-function-substitution.html :: an unresolvable argument makes ident() invalid at computed-value time
 PASS css/css-values/ident-function-substitution.html :: an argument that is not <ident-arg>+ makes ident() invalid at computed-value time
 PASS css/css-values/ident-function-substitution.html :: a cycle through the ident() argument
+PASS css/css-values/ident-function-substitution.html :: an ident() built from an attribute taints the property it names
+PASS css/css-values/ident-function-substitution.html :: the taint survives the ident() being held in a custom property
 FILE css/css-values/if-conditionals.html
 PASS css/css-values/if-conditionals.html :: Untitled 6
 PASS css/css-values/if-conditionals.html :: Untitled 7
@@ -1719,6 +1723,7 @@ PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10em)' as a 
 PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10rem)' as a specified value should serialize as 'progress(10em, 0px, 10rem)'.
 PASS css/css-values/progress-serialize.html :: 'scale(progress(10em, 0px, 10rem))' as a specified value should serialize as 'scale(progress(10em, 0px, 10rem))'.
 PASS css/css-values/progress-serialize.html :: 'progress(10em, 0px, 10rem)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(100px, (10px - 10px), 100px)' as a computed value should serialize as '1'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(100px, 0px, 100px))' as a specified value should serialize as 'calc(0.5)'.
 PASS css/css-values/progress-serialize.html :: 'scale(calc(0.5 * progress(100px, 0px, 100px)))' as a specified value should serialize as 'scale(calc(0.5))'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(100px, 0px, 100px))' as a computed value should serialize as '0.5'.
@@ -1741,6 +1746,7 @@ PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10e
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10rem)' as a specified value should serialize as 'progress(no-clamp 10em, 0px, 10rem)'.
 PASS css/css-values/progress-serialize.html :: 'scale(progress(no-clamp 10em, 0px, 10rem))' as a specified value should serialize as 'scale(progress(no-clamp 10em, 0px, 10rem))'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 10em, 0px, 10rem)' as a computed value should serialize as '1'.
+PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 100px, (10px - 10px), 100px)' as a computed value should serialize as '1'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(no-clamp 100px, 0px, 100px))' as a specified value should serialize as 'calc(0.5)'.
 PASS css/css-values/progress-serialize.html :: 'scale(calc(0.5 * progress(no-clamp 100px, 0px, 100px)))' as a specified value should serialize as 'scale(calc(0.5))'.
 PASS css/css-values/progress-serialize.html :: 'calc(0.5 * progress(no-clamp 100px, 0px, 100px))' as a computed value should serialize as '0.5'.
@@ -1751,9 +1757,9 @@ PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 1rad, 1rad, 1r
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 0rad, 1rad, 1rad)' as a specified value should serialize as 'calc(-infinity)'.
 PASS css/css-values/progress-serialize.html :: 'calc(50px * progress(no-clamp 100px, 0px, 100px))' as a specified value should serialize as 'calc(50px)'.
 FILE css/css-values/random-alias-property.tentative.html
-PASS css/css-values/random-alias-property.tentative.html :: Alias properties with property-dependant random() values should resolve to the same value
 FILE css/css-values/random-computed.tentative.html
 PASS css/css-values/random-computed.tentative.html :: Shared by property and index in list value: random(a, b)
+PASS css/css-values/random-computed.tentative.html :: random() in a custom property should not be shared with a non-custom property at the same index
 PASS css/css-values/random-computed.tentative.html :: random(property-scoped, ...) in a custom property should be equal between elements
 PASS css/css-values/random-computed.tentative.html :: two random() functions in the same custom property should not be shared
 PASS css/css-values/random-computed.tentative.html :: Shared by name within an element: 'random(--identifier element-scoped, a, b)'
@@ -1763,6 +1769,7 @@ PASS css/css-values/random-computed.tentative.html :: Shared between elements wi
 PASS css/css-values/random-computed.tentative.html :: Shared between elements within a property, unresolved percentage values: random(property-index-scoped, a, b)
 PASS css/css-values/random-computed.tentative.html :: Shared globally: random(--identifier, a, b)
 PASS css/css-values/random-computed.tentative.html :: Shared globally - shorthand: random(--other-identifier, a, b)
+PASS css/css-values/random-computed.tentative.html :: Shared by property - shorthand and longhand: random(property-index-scoped, a, b)
 PASS css/css-values/random-computed.tentative.html :: random() values should not be allowed as initial values in @property
 PASS css/css-values/random-computed.tentative.html :: random() shared by property in var()
 PASS css/css-values/random-computed.tentative.html :: random() shared by property in attr()
@@ -1828,7 +1835,6 @@ FILE css/css-values/random-item-computed.html
 PASS css/css-values/random-item-computed.html :: random-item() selection is stable across style recalculation
 PASS css/css-values/random-item-computed.html :: A shared dashed-ident key selects the same item across properties
 PASS css/css-values/random-item-computed.html :: A bare element-scoped key selects the same item across random-item() instances
-PASS css/css-values/random-item-computed.html :: random() and random-item() share the base value for a bare element-scoped key
 FILE css/css-values/random-item-in-container-query.tentative.html
 ERROR css/css-values/random-item-in-container-query.tentative.html
 FILE css/css-values/random-item-in-keyframe.html

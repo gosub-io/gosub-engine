@@ -1005,6 +1005,7 @@ FILE html/dom/historical.html
 PASS html/dom/historical.html :: HTMLAppletElement is no more
 PASS html/dom/historical.html :: document cannot find applet
 PASS html/dom/historical.html :: window cannot find applet
+PASS html/dom/historical.html :: applet is not styled
 PASS html/dom/historical.html :: HTMLTableDataCellElement interface is removed
 PASS html/dom/historical.html :: HTMLTableHeaderCellElement interface is removed
 FILE html/dom/idlharness.https.html

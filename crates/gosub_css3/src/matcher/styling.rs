@@ -764,10 +764,16 @@ impl CssProperty {
     }
 
     fn find_computed_value(&self) -> CssValue {
-        let specified = if self.specified == CssValue::None {
-            self.get_initial_value().unwrap_or(CssValue::None)
-        } else {
-            self.specified.clone()
+        let specified = match &self.specified {
+            // `initial` names the property's own initial value, whatever that is
+            // (css-cascade §7.1), so it resolves here rather than travelling on as a keyword
+            // nothing downstream recognises. It arrives as a string far more often than as the
+            // dedicated variant, because that is what the parser lowers the CSS-wide keywords to.
+            CssValue::Initial | CssValue::None => self.get_initial_value().unwrap_or(CssValue::None),
+            CssValue::String(keyword) if keyword.eq_ignore_ascii_case("initial") => {
+                self.get_initial_value().unwrap_or(CssValue::None)
+            }
+            specified => specified.clone(),
         };
 
         // Font-relative lengths become px here, which is what the computed stage is for. Before
@@ -1103,8 +1109,35 @@ mod tests {
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
         assert!(!prop.is_shorthand());
         assert_eq!(prop.name, "color");
-        assert_eq!(prop.get_initial_value(), Some(&CssValue::None).cloned());
+        // css-color-4 gives `color` an initial value of `canvastext`. This asserted `None`,
+        // which was not a fact about the property but about the loader: it looked for an
+        // `initial_value` key the definitions file has never had, so every initial value was
+        // absent.
+        assert_eq!(
+            prop.get_initial_value(),
+            Some(CssValue::String("canvastext".to_string()))
+        );
         assert!(prop_is_inherit(&prop.name));
+    }
+
+    #[test]
+    fn the_initial_keyword_resolves_to_the_property_s_initial_value() {
+        // css-cascade §7.1. The parser lowers the CSS-wide keywords to a plain string, so that is
+        // the form this has to recognise; the dedicated `CssValue::Initial` variant is checked too
+        // because callers that build values directly produce it.
+        for keyword in [CssValue::String("initial".to_string()), CssValue::Initial] {
+            let mut prop = CssProperty::new("width");
+            prop.declared.push(DeclarationProperty {
+                value: keyword,
+                origin: CssOrigin::Author,
+                important: false,
+                location: String::new(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+            });
+
+            assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
+        }
     }
 
     #[test]

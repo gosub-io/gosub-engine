@@ -477,17 +477,57 @@ struct RawSyntax {
 }
 
 /// One entry of `definitions_properties.json`.
-///
-/// The file also carries an `initial` key on every entry, which nothing reads - see
-/// [`PropertyDefinition::initial_value`], which is `None` for all 666 properties because the
-/// loader looked for a key named `initial_value` that the file has never had. Naming the field
-/// here would imply it is used, so it is left out until something uses it.
 #[derive(serde::Deserialize)]
 struct RawProperty {
     name: String,
     syntax: String,
     computed: Vec<String>,
     inherited: bool,
+    initial: RawInitial,
+}
+
+/// The `initial` key, which is a value for a longhand and a list of covered longhands for a
+/// shorthand - `margin`'s reads `["margin-top", "margin-right", ...]`, which is not a value.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RawInitial {
+    Value(String),
+    Longhands(#[expect(dead_code, reason = "a shorthand's longhand list is not a value")] Vec<String>),
+}
+
+/// Descriptions of an initial value rather than the value itself. The file uses these where the
+/// spec says the initial value is prose, so there is nothing to parse.
+const INITIAL_IS_PROSE: &[&str] = &[
+    "seeProse",
+    "dependsOnUserAgent",
+    "noneButOverriddenInUserAgentCSS",
+    "noPracticalInitialValue",
+    "autoForSmartphoneBrowsersSupportingInflation",
+    "startOrNamelessValueIfLTRRightIfRTL",
+    "zoomForTheTopLevelNoneForTheRest",
+];
+
+impl RawInitial {
+    /// The initial value this describes, if it describes one at all.
+    fn value(&self) -> Option<CssValue> {
+        let RawInitial::Value(text) = self else {
+            // A shorthand's initial is its longhand list; the longhands carry the values.
+            return None;
+        };
+
+        if INITIAL_IS_PROSE.contains(&text.as_str()) {
+            return None;
+        }
+
+        // A handful read as several values (`0% 0%`, `50% 50% 0`, `snapInterval(0px, 100%)`), and
+        // `CssValue::parse_str` reads one. Rather than invent a single value that is none of
+        // them, leave those without an initial until the whole declaration is parsed here.
+        if text.contains(' ') || text.contains(',') {
+            return None;
+        }
+
+        CssValue::parse_str(text).ok()
+    }
 }
 
 /// Read one of the compiled-in definition files, entry by entry.
@@ -703,10 +743,7 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
                 name: entry.name,
                 syntax,
                 computed: entry.computed,
-                // Always `None`: see `RawProperty`. The file's key is `initial`, the loader read
-                // `initial_value`, and so every property's initial value has been absent since
-                // the definitions were introduced.
-                initial_value: None,
+                initial_value: entry.initial.value(),
                 inherited: entry.inherited,
                 resolved: false,
                 shorthands: None,
