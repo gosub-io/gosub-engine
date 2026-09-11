@@ -245,12 +245,17 @@ impl GosubCssStyleDeclaration {
             self.remove_property(name);
             return;
         }
-        if parse_declaration(&name, &value).is_none() {
+        let Some(parsed) = parse_declaration(&name, &value) else {
             return;
-        }
+        };
 
         let mut declarations = self.declarations();
-        let stored = value.trim().to_string();
+        // The block holds the *serialization of the parsed value*, not the text that was
+        // assigned. CSSOM defines `getPropertyValue` as serializing the value, so a declaration
+        // is normalised the moment it is accepted: `#f00` reads back `rgb(255, 0, 0)`, `1PX`
+        // reads back `1px`, and `calc(calc(100px))` reads back `calc(100px)`. Echoing the
+        // author's text instead made every round-trip look right and none of them mean anything.
+        let stored = parsed.to_string();
         match declarations.iter_mut().find(|(property, _)| *property == name) {
             // Setting a property that is already there keeps its position in the block, which
             // is what `item()` and the iteration order are read against.

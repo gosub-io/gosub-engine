@@ -743,22 +743,35 @@ fn text_uses_viewport_units(text: &str) -> bool {
         })
 }
 
+/// Escape what a quoted CSS string cannot carry literally: the quote that delimits it, and the
+/// backslash that does the escaping.
+fn escape_url(url: &str) -> std::borrow::Cow<'_, str> {
+    if !url.contains(['"', '\\']) {
+        return std::borrow::Cow::Borrowed(url);
+    }
+    std::borrow::Cow::Owned(url.cow_replace('\\', "\\\\").cow_replace('"', "\\\"").into_owned())
+}
+
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CssValue::None => write!(f, "none"),
-            CssValue::Color(col) => {
-                write!(
-                    f,
-                    "#{:02x}{:02x}{:02x}{:02x}",
-                    col.r as u8, col.g as u8, col.b as u8, col.a as u8
-                )
-            }
+            // `rgb()` / `rgba()`, not `#rrggbbaa` - see the `Display` on `RgbColor`. The hex
+            // form is not a serialization any CSS consumer expects; it was a debug rendering.
+            CssValue::Color(col) => write!(f, "{col}"),
             CssValue::Zero => write!(f, "0"),
             CssValue::Number(num) => write!(f, "{num}"),
             CssValue::Percentage(p) => write!(f, "{p}%"),
             CssValue::String(s) => write!(f, "{s}"),
             CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
+            // A `url()` always serializes with its argument quoted, whatever the author wrote.
+            // The unquoted `url(x)` form is a token the CSS syntax defines, not a string, and
+            // writing it back out unquoted loses the distinction for anything containing a
+            // character the unquoted form cannot carry.
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("url") => match args.as_slice() {
+                [CssValue::String(url)] => write!(f, "url(\"{}\")", escape_url(url)),
+                _ => write!(f, "url()"),
+            },
             CssValue::Function(name, args) => {
                 write!(f, "{name}(")?;
                 // The argument list carries its own separators: the parser keeps each `,` as a
@@ -899,7 +912,13 @@ impl CssValue {
                 }
             }
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
-            crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
+            // A unit identifier is ASCII case-insensitive, so it is folded here rather than at
+            // every point that reads one. Both the syntax matcher (which looks a unit up in a
+            // lowercase table) and `unit_to_px` (which matches it literally) took the author's
+            // spelling as written, so `width: 1PX` was rejected as an unknown unit.
+            crate::node::NodeType::Dimension { value, unit } => {
+                Ok(CssValue::Unit(value, unit.cow_to_ascii_lowercase().into_owned()))
+            }
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
@@ -1014,7 +1033,40 @@ fn is_color_function(name: &str) -> bool {
     )
 }
 
+/// A `calc()` component of a colour function, reduced to the number it came down to. Anything
+/// else is returned as it was, so the caller can see what is still unresolved.
+fn reduce_color_component(value: &CssValue) -> CssValue {
+    let CssValue::Function(name, args) = value else {
+        return value.clone();
+    };
+    if !name.eq_ignore_ascii_case("calc") {
+        return value.clone();
+    }
+    match args.as_slice() {
+        [CssValue::String(body)] => {
+            crate::functions::calc::evaluate(body, &crate::functions::calc::Units::none(), true)
+                .unwrap_or_else(|| value.clone())
+        }
+        _ => value.clone(),
+    }
+}
+
 fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
+    // A component that is itself a function has to reduce to a number before this can fold the
+    // colour, and a `calc()` that came down to one term does. Anything still a function after
+    // that - `var()`, `sibling-index()`, a `calc()` over one of them - means the colour is not
+    // knowable here, so refuse rather than fold.
+    //
+    // The filter below *drops* what it does not recognise, so without this check
+    // `oklch(0.5 0.2 180 / calc(0.1 * sibling-index()))` lost its alpha silently and became a
+    // fully opaque colour nobody wrote. Returning `None` leaves the function intact for a
+    // later stage that knows more.
+    let reduced: Vec<CssValue> = args.iter().map(reduce_color_component).collect();
+    if reduced.iter().any(|v| matches!(v, CssValue::Function(..))) {
+        return None;
+    }
+    let args = reduced.as_slice();
+
     // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
     // and any string tokens (like the color-space name in `color(srgb ...)`).
     // CSS `none` keyword means "missing value" = 0.
@@ -1280,6 +1332,60 @@ mod test {
     use std::vec;
 
     use super::*;
+
+    #[test]
+    fn a_colour_serializes_as_rgb_not_as_hex() {
+        // `#rrggbbaa` was a debug rendering. Every CSS consumer - `getComputedStyle`, a
+        // round-trip through `element.style` - is defined to see the legacy `rgb()` form.
+        assert_eq!(CssValue::Color(RgbColor::from("#ff0000")).to_string(), "rgb(255, 0, 0)");
+        assert_eq!(CssValue::Color(RgbColor::from("red")).to_string(), "rgb(255, 0, 0)");
+        assert_eq!(
+            CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 127.5)).to_string(),
+            "rgba(0, 0, 0, 0.5)"
+        );
+        // An alpha that came from a hex byte is not a round number; three decimals is what
+        // tells two of the 256 steps apart without printing f32 noise.
+        assert_eq!(
+            CssValue::Color(RgbColor::new(1.0, 2.0, 3.0, 128.0)).to_string(),
+            "rgba(1, 2, 3, 0.502)"
+        );
+    }
+
+    #[test]
+    fn a_url_serializes_with_its_argument_quoted() {
+        let url = |u: &str| CssValue::Function("url".to_string(), vec![CssValue::String(u.to_string())]);
+        assert_eq!(url("a/b.png").to_string(), r#"url("a/b.png")"#);
+        // The quote that delimits the string, and the backslash that escapes it, cannot appear
+        // raw inside it.
+        assert_eq!(url(r#"a"b"#).to_string(), r#"url("a\"b")"#);
+        assert_eq!(url(r"a\b").to_string(), r#"url("a\\b")"#);
+    }
+
+    #[test]
+    fn a_colour_function_with_an_unresolved_component_is_not_folded() {
+        // The component filter drops what it does not recognise, so a `calc()` it cannot
+        // evaluate used to vanish and leave a fully opaque colour nobody wrote. The colour is
+        // not knowable at parse time, so the function has to survive instead.
+        let unresolved = CssValue::Function(
+            "calc".to_string(),
+            vec![CssValue::String("0.1 * sibling-index()".to_string())],
+        );
+        let args = vec![
+            CssValue::Number(0.5),
+            CssValue::Number(0.2),
+            CssValue::Number(180.0),
+            unresolved,
+        ];
+        assert_eq!(parse_css_color_function("oklch", &args), None);
+
+        // A `calc()` that does come down to a number is just that number.
+        let resolvable = CssValue::Function("calc".to_string(), vec![CssValue::String("100 + 55".to_string())]);
+        let args = vec![resolvable, CssValue::Number(0.0), CssValue::Number(0.0)];
+        assert_eq!(
+            parse_css_color_function("rgb", &args),
+            Some(RgbColor::new(155.0, 0.0, 0.0, 255.0))
+        );
+    }
 
     #[test]
     fn a_function_does_not_double_its_comma_separators() {

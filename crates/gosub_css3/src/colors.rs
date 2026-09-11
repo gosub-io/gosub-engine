@@ -32,6 +32,28 @@ impl RgbColor {
     }
 }
 
+/// The CSSOM serialization of an sRGB colour.
+///
+/// css-color-4 says a resolved sRGB colour serializes through the legacy comma form - `rgb()`
+/// when it is opaque, `rgba()` when it is not - whatever notation the author used to write it.
+/// `#f00`, `rgb(255 0 0)` and `red` all come back as `rgb(255, 0, 0)`, which is what both
+/// `getComputedStyle` and a round-trip through `element.style` are required to report.
+impl std::fmt::Display for RgbColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (r, g, b) = (self.r.round() as u8, self.g.round() as u8, self.b.round() as u8);
+        let alpha = self.a / 255.0;
+        if alpha >= 1.0 {
+            return write!(f, "rgb({r}, {g}, {b})");
+        }
+        // Alpha is held as one of 256 steps, so three decimals is always enough to tell two
+        // apart (1/255 is 0.0039) and never emits the noise `{}` on an f32 would - `128/255`
+        // is 0.50196078 in full, and every browser writes it `0.502`.
+        let alpha = format!("{:.3}", alpha.max(0.0));
+        let alpha = alpha.trim_end_matches('0').trim_end_matches('.');
+        write!(f, "rgba({r}, {g}, {b}, {alpha})")
+    }
+}
+
 impl Default for RgbColor {
     fn default() -> Self {
         // Default full alpha (solid) with black color

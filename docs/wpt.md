@@ -212,10 +212,11 @@ into strict mode: most suites were dying on their first sloppy-mode line and rep
 at all. The rate fell from 8.9% to 4.7% because what was being measured before was the handful
 of suites that happened to survive, not the corpus.
 
-The CSS component's rate is close to a floor rather than a measurement of the parser: most of
-its 309 suites assert a canonical serialization the engine does not produce, handing back the
-author's text instead. Where the parser is actually reached the numbers are much higher -
-`calc-size` at 32%, `urls` at 31%, `position` at 25%.
+The CSS component's rate is close to a floor rather than a measurement of the parser: a large
+part of its 309 suites assert that an invalid value is *rejected*, and the matcher checks a
+function's name against the property grammar without ever checking its arguments - so the
+engine accepts `min(red, 50px)` and the suite fails. Where the parser is actually reached the
+numbers are much higher - `calc-size` at 32%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
 engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
@@ -475,12 +476,13 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
 - **No `CustomEvent`, `MouseEvent` or `KeyboardEvent`** constructors, and no `EventTarget`
   constructor. The forms corpus never uses the first; it uses the mouse and keyboard ones in
   13 files.
-- **No CSSOM serialization.** `getPropertyValue` gives back the text the author wrote, because
-  `CssValue`'s `Display` is a debug rendering rather than a CSS serializer - a `List` prints as
-  `List(a, b, c)`. Every suite asserting a canonical form therefore fails: `calc()`
-  normalization (`calc(1vh + 2px + 3%)` should serialize as `calc(3% + 2px + 1vh)`) is a few
-  hundred subtests on its own. Writing a serializer in the bindings would make those tests
-  measure the binding rather than the engine, so the work belongs in `gosub_css3`.
+- **CSSOM serialization is partial.** A declaration now reads back as the serialization of the
+  value rather than as the text that was assigned, and `CssValue`'s `Display` is a CSS
+  serializer rather than the debug rendering it used to be. What is still missing is the
+  *unparsed* half: a function the engine does not implement is parsed and re-serialized instead
+  of being kept as the token stream css-values-5 calls an arbitrary substitution value, so
+  `random-item(auto, ,)` comes back with its whitespace normalised. Shorthands also do not
+  reserialize from their longhands.
 - **`getComputedStyle` reads the cascade but not the `style` attribute.** The cascade only
   collects custom properties from that attribute; the render pipeline layers the ordinary
   declarations on separately, so a computed value does not see them. A test that sets

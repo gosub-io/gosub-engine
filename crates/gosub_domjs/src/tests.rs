@@ -296,6 +296,38 @@ fn an_idl_name_reaches_its_css_property() {
 }
 
 #[test]
+fn a_declaration_reads_back_serialized_not_as_it_was_written() {
+    // The block used to store the author's text verbatim, so every round-trip looked right and
+    // none of them meant anything - `1PX` came back `1PX`. CSSOM defines `getPropertyValue` as
+    // serializing the *value*, so the normalisation happens when the declaration is accepted.
+    let cases = [
+        // A hex colour is not a serialization; the legacy `rgb()` form is.
+        ("color", "#ff0000", "rgb(255, 0, 0)"),
+        // A named colour is a keyword, and stays one.
+        ("color", "red", "red"),
+        ("width", "1PX", "1px"),
+        // `calc()` is simplified as far as it goes without an element to measure against.
+        ("width", "calc(calc(100px))", "calc(100px)"),
+        ("width", "calc(1in + 1px)", "calc(97px)"),
+        // A percentage has no containing block here, so two terms survive - in the order
+        // css-values-4 asks for, percentage before dimension.
+        ("width", "calc(50px + 40%)", "calc(40% + 50px)"),
+    ];
+
+    for (property, input, expected) in cases {
+        let value = eval(
+            "<div id=target></div>",
+            &format!(
+                "const el = document.getElementById('target'); \
+                 el.style.setProperty('{property}', '{input}'); \
+                 el.style.getPropertyValue('{property}');"
+            ),
+        );
+        assert_eq!(value, expected, "{property}: {input}");
+    }
+}
+
+#[test]
 fn assigning_the_empty_string_removes_the_declaration() {
     // wpt's helpers clear a property this way before setting the value under test, so an
     // assignment that did nothing here would let the previous value be read back as a pass.

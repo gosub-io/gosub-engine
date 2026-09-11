@@ -78,13 +78,12 @@ If the listing opens with a **Crashes** section, start there instead: those are 
 panicked the engine, which is a bug a real page could reach rather than a feature it lacks.
 There are none at the time of writing, but they come back.
 
-If nothing there appeals, the big structural gap is always open and is worth hundreds of
-subtests: **CSSOM serialization**. `el.style.width = "calc(calc(100px))"` reads back exactly
-that, because the engine stores the author's text rather than the serialization of the value it
-parsed — so `1PX` comes back `1PX` too. Fixing it is a small change in
-`crates/gosub_domjs/src/style.rs` and a larger one in what `CssValue`'s `Display` emits, which
-is wrong for colours (`#7f7f7fff` where the CSSOM wants `rgb(...)`) and for `url()` (it drops
-the quotes).
+If nothing there appeals, the big structural gap is **over-acceptance**: the matcher checks a
+function's *name* against the property grammar but never its arguments, so the engine says yes
+to values it cannot do anything with. `min(red, 50px)` is accepted; so is `random-item(...)`,
+which nothing implements. That costs twice — a page gets no fallback it would otherwise have
+had, and every wpt suite that asserts a value is *rejected* fails. `css/css-values` is full of
+`-invalid.html` suites that measure exactly this.
 
 Run your pick on its own. Every failing line carries the assertion and what the engine gave
 instead:

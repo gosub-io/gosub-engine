@@ -135,12 +135,62 @@ FILE css/css-values/attr-universal-selector.html
 FILE css/css-values/calc-angle-values.html
 FILE css/css-values/calc-background-position-002.html
 FILE css/css-values/calc-background-position-003.html
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(2px + 3px) calc(4px + 5px)
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(18px - 7px) calc(19px - 7px)
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(4 * 5px) calc(6px * 4)
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(100px / 4) calc(119px / 7)
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(6px + 21%) calc(7em + 22%)
+PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(-8px + 23%) calc(-9em + 24%)
 FILE css/css-values/calc-catch-divide-by-0.html
 FILE css/css-values/calc-complex-unresolved-serialize.html
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(2, sign(1em - 18px)))' as a specified value should serialize as 'calc(pow(2, sign(1em - 18px)))'.
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(sign(1em - 18px), 2))' as a specified value should serialize as 'calc(pow(sign(1em - 18px), 2))'.
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(sign(1em - 18px), sign(1em - 18px)))' as a specified value should serialize as 'calc(pow(sign(1em - 18px), sign(1em - 18px)))'.
 FILE css/css-values/calc-dimension-serialization-order.html
+PASS css/css-values/calc-dimension-serialization-order.html :: all dimensions reverse-sorted serialize back in canonical order
+PASS css/css-values/calc-dimension-serialization-order.html :: cap sorts after %
+PASS css/css-values/calc-dimension-serialization-order.html :: ch sorts after cap
+PASS css/css-values/calc-dimension-serialization-order.html :: cqb sorts after ch
+PASS css/css-values/calc-dimension-serialization-order.html :: cqh sorts after cqb
+PASS css/css-values/calc-dimension-serialization-order.html :: cqi sorts after cqh
+PASS css/css-values/calc-dimension-serialization-order.html :: cqmax sorts after cqi
+PASS css/css-values/calc-dimension-serialization-order.html :: cqmin sorts after cqmax
+PASS css/css-values/calc-dimension-serialization-order.html :: cqw sorts after cqmin
+PASS css/css-values/calc-dimension-serialization-order.html :: dvb sorts after cqw
+PASS css/css-values/calc-dimension-serialization-order.html :: dvh sorts after dvb
+PASS css/css-values/calc-dimension-serialization-order.html :: dvi sorts after dvh
+PASS css/css-values/calc-dimension-serialization-order.html :: dvmax sorts after dvi
+PASS css/css-values/calc-dimension-serialization-order.html :: dvmin sorts after dvmax
+PASS css/css-values/calc-dimension-serialization-order.html :: dvw sorts after dvmin
+PASS css/css-values/calc-dimension-serialization-order.html :: em sorts after dvw
+PASS css/css-values/calc-dimension-serialization-order.html :: ex sorts after em
+PASS css/css-values/calc-dimension-serialization-order.html :: ic sorts after ex
+PASS css/css-values/calc-dimension-serialization-order.html :: lh sorts after ic
+PASS css/css-values/calc-dimension-serialization-order.html :: lvb sorts after lh
+PASS css/css-values/calc-dimension-serialization-order.html :: lvh sorts after lvb
+PASS css/css-values/calc-dimension-serialization-order.html :: lvi sorts after lvh
+PASS css/css-values/calc-dimension-serialization-order.html :: lvmax sorts after lvi
+PASS css/css-values/calc-dimension-serialization-order.html :: lvmin sorts after lvmax
+PASS css/css-values/calc-dimension-serialization-order.html :: lvw sorts after lvmin
+PASS css/css-values/calc-dimension-serialization-order.html :: px sorts after lvw
+PASS css/css-values/calc-dimension-serialization-order.html :: rcap sorts after px
+PASS css/css-values/calc-dimension-serialization-order.html :: rch sorts after rcap
+PASS css/css-values/calc-dimension-serialization-order.html :: rem sorts after rch
+PASS css/css-values/calc-dimension-serialization-order.html :: rex sorts after rem
+PASS css/css-values/calc-dimension-serialization-order.html :: ric sorts after rex
+PASS css/css-values/calc-dimension-serialization-order.html :: rlh sorts after ric
+PASS css/css-values/calc-dimension-serialization-order.html :: svb sorts after rlh
+PASS css/css-values/calc-dimension-serialization-order.html :: svh sorts after svb
+PASS css/css-values/calc-dimension-serialization-order.html :: svi sorts after svh
+PASS css/css-values/calc-dimension-serialization-order.html :: svmax sorts after svi
+PASS css/css-values/calc-dimension-serialization-order.html :: svmin sorts after svmax
+PASS css/css-values/calc-dimension-serialization-order.html :: svw sorts after svmin
+PASS css/css-values/calc-dimension-serialization-order.html :: vb sorts after svw
+PASS css/css-values/calc-dimension-serialization-order.html :: vh sorts after vb
+PASS css/css-values/calc-dimension-serialization-order.html :: vi sorts after vh
+PASS css/css-values/calc-dimension-serialization-order.html :: vmax sorts after vi
+PASS css/css-values/calc-dimension-serialization-order.html :: vmin sorts after vmax
+PASS css/css-values/calc-dimension-serialization-order.html :: vw sorts after vmin
 FILE css/css-values/calc-in-color-001.html
 FILE css/css-values/calc-in-font-feature-settings.html
 FILE css/css-values/calc-in-media-queries-with-mixed-units.html
@@ -182,15 +232,56 @@ FILE css/css-values/calc-mix-serialize.tentative.html
 PASS css/css-values/calc-mix-serialize.tentative.html :: 'calc(10px + calc-mix(10% * sibling-index() 50%, 30% 50%))' as a specified value should serialize as 'calc(10px + calc-mix(10% * sibling-index() 50%, 30% 50%))'.
 PASS css/css-values/calc-mix-serialize.tentative.html :: 'calc(10px + calc-mix(10% * sibling-index() 50%, 30% 50%)) ' as a specified value should serialize as 'calc(10px + calc-mix(10% * sibling-index() 50%, 30% 50%))'.
 FILE css/css-values/calc-nesting-002.html
+PASS css/css-values/calc-nesting-002.html :: testing calc(20px + calc(80px))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(100px))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(2) * calc(50px)
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(150px*2/3)
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(2 * calc(calc(3)) + 4) * 10px)
+PASS css/css-values/calc-nesting-002.html :: testing calc(50px + calc(40%))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(300px - 1 * (0% + 100px)))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(300px - (0% + 100px) * 1))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(300px - (0% + 100px) * -1))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(300px - -1 * (0% + 100px)))
+PASS css/css-values/calc-nesting-002.html :: testing calc(calc(300px - 1 * (0% - 100px)))
 FILE css/css-values/calc-nesting.html
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(20px + calc(80px))" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(calc(100px))" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(calc(2) * calc(50px))" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(calc(150px*2/3))" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(calc(2 * calc(calc(3)) + 4) * 10px)" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(50px + calc(40%))" should set the property value
+PASS css/css-values/calc-nesting.html :: e.style['border'] = "calc(calc(10px)) solid pink" should set the property value
 FILE css/css-values/calc-numbers.html
 FILE css/css-values/calc-rgb-percent-001.html
+PASS css/css-values/calc-rgb-percent-001.html :: testing rgb(calc(5% + 15%), calc(40% / 2), calc(5% * 4))
 FILE css/css-values/calc-rounds-to-integer.html
 HARNESS css/css-values/calc-rounds-to-integer.html
 FILE css/css-values/calc-serialization-002.html
+PASS css/css-values/calc-serialization-002.html :: testing calc(1vh + 2px + 3%)
 PASS css/css-values/calc-serialization-002.html :: testing calc(4px + 1vh)
+PASS css/css-values/calc-serialization-002.html :: testing calc(5px + 6em + 1vh)
+PASS css/css-values/calc-serialization-002.html :: testing calc(-8px + 9em + 1vh)
+PASS css/css-values/calc-serialization-002.html :: testing calc(1pc + 1in + 1vh + 10%)
+PASS css/css-values/calc-serialization-002.html :: testing calc(25.4q + 1vh + 12%)
+PASS css/css-values/calc-serialization-002.html :: testing calc(1em + 1.27cm + 13% + 3em)
+PASS css/css-values/calc-serialization-002.html :: testing calc(15vw + 16vmin - 17vh)
+PASS css/css-values/calc-serialization-002.html :: testing calc(9pt + calc(9rem + 10px))
+PASS css/css-values/calc-serialization-002.html :: testing calc(5pt + 5em + 4pt + 3em)
+PASS css/css-values/calc-serialization-002.html :: testing calc(4vmin + 0pt + 3pc)
+PASS css/css-values/calc-serialization-002.html :: testing calc(4vmin + 0pt)
+PASS css/css-values/calc-serialization-002.html :: testing calc(100% - 100% + 1em)
+PASS css/css-values/calc-serialization-002.html :: testing calc(100% + 1em - 100%)
+PASS css/css-values/calc-serialization-002.html :: testing calc(1vh - 7px)
+PASS css/css-values/calc-serialization-002.html :: testing calc(5ex - 9ex)
+PASS css/css-values/calc-serialization-002.html :: testing calc(-80px + 25.4mm)
+PASS css/css-values/calc-serialization-002.html :: testing calc(2 * (10px + 1rem))
+PASS css/css-values/calc-serialization-002.html :: testing calc(2 * (10px - 1rem))
+PASS css/css-values/calc-serialization-002.html :: testing calc((10px + 1rem) / 2)
 PASS css/css-values/calc-serialization-002.html :: testing calc(2 * (min(10px, 20%) + max(1rem, 2%)))
+PASS css/css-values/calc-serialization-002.html :: testing calc(1vmin - 14%)
+PASS css/css-values/calc-serialization-002.html :: testing calc(4 * 3px + 4pc / 8)
 FILE css/css-values/calc-serialization.html
+PASS css/css-values/calc-serialization.html :: calc() serialization
 FILE css/css-values/calc-size/animation/calc-size-height-interpolation.html
 HARNESS css/css-values/calc-size/animation/calc-size-height-interpolation.html
 FILE css/css-values/calc-size/animation/calc-size-interpolation-expansion.html
@@ -307,6 +398,9 @@ PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "clam
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px + clamp(1px, 1em, 1vh))" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px - clamp(1px, 1em, 1vh))" should set the property value
 FILE css/css-values/clamp-none-whitespace.html
+PASS css/css-values/clamp-none-whitespace.html :: clamp() accepts whitespace between a 'none' min argument and the following comma
+PASS css/css-values/clamp-none-whitespace.html :: clamp() accepts whitespace after a trailing 'none' max argument
+PASS css/css-values/clamp-none-whitespace.html :: clamp() accepts whitespace around 'none' for both bounds
 FILE css/css-values/clamp-partial-serialize.tentative.html
 FILE css/css-values/dynamic-viewport-units-rule-cache.html
 HARNESS css/css-values/dynamic-viewport-units-rule-cache.html
@@ -636,12 +730,7 @@ FILE css/css-values/random-item-unresolvable-argument.html
 FILE css/css-values/random-item-valid.html
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, serif)" should set the property value
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, serif, sans-serif, monospace)" should set the property value
-PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto ,serif ,sans-serif)" should set the property value
-PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto , serif , sans-serif)" should set the property value
-PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, )" should set the property value
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, serif,)" should set the property value
-PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, , serif)" should set the property value
-PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(auto, ,)" should set the property value
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(--x, serif, sans-serif)" should set the property value
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(fixed 0.5, serif, sans-serif)" should set the property value
 PASS css/css-values/random-item-valid.html :: e.style['font-family'] = "random-item(serif, sans-serif)" should set the property value
@@ -690,6 +779,7 @@ FILE css/css-values/tree-counting/calc-sibling-function-in-shadow-dom.html
 HARNESS css/css-values/tree-counting/calc-sibling-function-in-shadow-dom.html
 FILE css/css-values/tree-counting/calc-sibling-function-parsing.html
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['left'] = "calc(1px * sibling-index())" should set the property value
+PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['left'] = "calc(1px * sibling-index( ))" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['left'] = "calc(1em * sibling-index())" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['left'] = "calc(1rem * sibling-count())" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['left'] = "calc(1vh * sibling-index())" should set the property value
@@ -705,6 +795,7 @@ PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style[
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['scale'] = "calc(2 * sibling-index())" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['scale'] = "calc(0.5 * sibling-count())" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['animation-duration'] = "calc(1s * sibling-index())" should set the property value
+PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['animation-duration'] = "calc(1s * sibling-count( ))" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['animation-duration'] = "calc(0.5s * sibling-index())" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['color'] = "color(srgb calc(0.1 * sibling-index()) 0.5 0.5)" should set the property value
 PASS css/css-values/tree-counting/calc-sibling-function-parsing.html :: e.style['color'] = "color(srgb 0 calc(0.1 * sibling-count()) 0.5)" should set the property value
