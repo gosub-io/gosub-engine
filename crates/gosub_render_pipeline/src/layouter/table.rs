@@ -78,73 +78,59 @@ impl<'a> PipelineTableTree<'a> {
             self.doc,
             table_dom_id,
             table_abs,
-            Coordinate::ZERO,
             &pending,
             self.dom_to_layout,
-            &mut self.layout_tree.arena,
+            self.layout_tree,
         );
     }
 }
 
+/// Walks the DOM under `id` looking for nodes lattice gave a position to, and moves each one -
+/// with everything laid out inside it - to where lattice put it.
+///
+/// The move is done on the *layout* tree, not by walking the DOM again. A text node is laid out
+/// as one box per word and `dom_to_layout` deliberately holds none of them (its comment says so:
+/// one text node, many word boxes, one slot), and inline content sits under anonymous wrappers
+/// that have no DOM node at all. Translating what the DOM walk could reach therefore left every
+/// caption's and cell's text behind at its old position while the box moved out from under it.
+/// `shift_subtree` moves the whole layout subtree, which is exactly the set of boxes that should
+/// travel with the node.
 fn apply_recursive(
     doc: &dyn PipelineDocument,
     id: DomNodeId,
     parent_abs: Coordinate,
-    // Translation to apply to non-pending children. For nodes inside a
-    // lattice-repositioned cell this is (new_cell_abs - old_cell_abs).
-    offset: Coordinate,
     pending: &HashMap<DomNodeId, CellLayout>,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
-    arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
+    layout_tree: &mut LayoutTree,
 ) {
     for child_id in doc.children(id) {
-        match pending.get(&child_id) {
-            None => {
-                // Non-table-structure node: shift it by the accumulated translation
-                // so it stays correctly positioned relative to its parent cell.
-                if let Some(&layout_id) = dom_to_layout.get(&child_id) {
-                    if let Some(element) = arena.get_mut(&layout_id) {
-                        translate_box_model(&mut element.box_model, offset);
-                    }
-                }
-                apply_recursive(doc, child_id, parent_abs, offset, pending, dom_to_layout, arena);
+        let Some(cell_layout) = pending.get(&child_id) else {
+            // Not positioned by lattice: an ancestor's shift has already carried it along, so
+            // only keep looking for positioned nodes deeper down.
+            apply_recursive(doc, child_id, parent_abs, pending, dom_to_layout, layout_tree);
+            continue;
+        };
+
+        let abs = Coordinate::new(
+            parent_abs.x + cell_layout.position.x as f64,
+            parent_abs.y + cell_layout.position.y as f64,
+        );
+
+        if let Some(&layout_id) = dom_to_layout.get(&child_id) {
+            // Read the old origin before moving, so the subtree travels by the same delta.
+            // A descendant that lattice positions too is shifted here and then set absolutely by
+            // its own turn below, which lands it in the same place either way.
+            if let Some(element) = layout_tree.arena.get(&layout_id) {
+                let old = element.box_model.border_box;
+                layout_tree.shift_subtree(layout_id, abs.x - old.x, abs.y - old.y);
             }
-            Some(cell_layout) => {
-                let abs = Coordinate::new(
-                    parent_abs.x + cell_layout.position.x as f64,
-                    parent_abs.y + cell_layout.position.y as f64,
-                );
-                // Read old position before overwriting so we can compute the
-                // translation needed for non-pending children of this cell.
-                let old_abs = dom_to_layout
-                    .get(&child_id)
-                    .and_then(|&lid| arena.get(&lid))
-                    .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))
-                    .unwrap_or(abs);
-                if let Some(&layout_id) = dom_to_layout.get(&child_id) {
-                    if let Some(element) = arena.get_mut(&layout_id) {
-                        element.box_model = cell_layout_to_box_model(cell_layout, abs);
-                    }
-                }
-                let child_offset = Coordinate::new(abs.x - old_abs.x, abs.y - old_abs.y);
-                apply_recursive(doc, child_id, abs, child_offset, pending, dom_to_layout, arena);
+            if let Some(element) = layout_tree.arena.get_mut(&layout_id) {
+                element.box_model = cell_layout_to_box_model(cell_layout, abs);
             }
         }
-    }
-}
 
-fn translate_box_model(bm: &mut BoxModel, offset: Coordinate) {
-    if offset.x == 0.0 && offset.y == 0.0 {
-        return;
+        apply_recursive(doc, child_id, abs, pending, dom_to_layout, layout_tree);
     }
-    bm.border_box.x += offset.x;
-    bm.border_box.y += offset.y;
-    bm.padding_box.x += offset.x;
-    bm.padding_box.y += offset.y;
-    bm.content_box.x += offset.x;
-    bm.content_box.y += offset.y;
-    bm.margin_box.x += offset.x;
-    bm.margin_box.y += offset.y;
 }
 
 fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
