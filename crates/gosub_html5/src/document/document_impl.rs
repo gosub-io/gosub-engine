@@ -687,10 +687,13 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.node_by_id(id)
     }
 
-    /// Returns the root node reference
-    pub fn get_root(&self) -> &NodeImpl {
-        #[allow(clippy::expect_used)] // PANIC-SAFE: the root node is created in Document::new()
-        self.arena.node_ref(NodeId::root()).expect("Root node not found")
+    /// Returns the root node reference, which every document built through
+    /// `Document::new()` has.
+    ///
+    /// `Option` rather than an `expect`, because both callers walk the tree and have something
+    /// sensible to do with a document that has no root: print nothing, visit nothing.
+    pub fn get_root(&self) -> Option<&NodeImpl> {
+        self.arena.node_ref(NodeId::root())
     }
 
     /// Register a node (assigns id, marks registered). Does NOT attach to tree.
@@ -1033,8 +1036,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
 impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let root = self.get_root();
-        self.print_tree(root, String::new(), true, f);
+        if let Some(root) = self.get_root() {
+            self.print_tree(root, String::new(), true, f);
+        }
         Ok(())
     }
 }
@@ -1082,8 +1086,9 @@ pub fn walk_document_tree<C: HasDocument<Document = DocumentImpl<C>>>(
     doc: &DocumentImpl<C>,
     visitor: &mut dyn Visitor,
 ) {
-    let root = doc.get_root();
-    internal_visit(doc, root, visitor);
+    if let Some(root) = doc.get_root() {
+        internal_visit(doc, root, visitor);
+    }
 }
 
 fn internal_visit<C: HasDocument<Document = DocumentImpl<C>>>(
