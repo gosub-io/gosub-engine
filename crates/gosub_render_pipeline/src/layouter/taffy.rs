@@ -1847,6 +1847,8 @@ impl TaffyLayouter {
                     // collapsible whitespace, so a node holding just an `&nbsp;` came out 0 wide -
                     // and since Parsoid gives every entity its own element, Wikipedia's
                     // `Designed<span>&nbsp;</span>by` rendered as "Designedby".
+                    // A provisional width; the real one is measured below, once the font is
+                    // known. This stands in if that measurement comes back empty.
                     let space_width = (font_size * 0.3) as f32;
                     taffy_style.size.width = Dimension::from_length(space_width);
                     taffy_style.flex_shrink = 0.0;
@@ -1893,6 +1895,24 @@ impl TaffyLayouter {
                     underline: text_decoration.contains("underline"),
                     line_through: text_decoration.contains("line-through"),
                 };
+
+                // The gap between two words of a mixed inline run is one of these whitespace
+                // boxes, so a width a fifth too wide reads as loose spacing across a whole
+                // paragraph. Measure it rather than estimating: the text is a non-breaking space
+                // by now, which - unlike a plain one - parley will not trim away, so its advance
+                // at max-content is the font's real space width.
+                if whitespace_only {
+                    let measured = {
+                        let mut font_system = self.font_system.lock();
+                        get_text_layout(&text, &font_info, MAX_CONTENT_WIDTH, &mut *font_system)
+                            .ok()
+                            .map(|d| d.width as f32)
+                            .filter(|w| *w > 0.0)
+                    };
+                    if let Some(width) = measured {
+                        taffy_style.size.width = Dimension::from_length(width);
+                    }
+                }
 
                 taffy_context = Some(TaffyContext::text(
                     text.as_str(),

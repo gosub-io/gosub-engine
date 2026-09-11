@@ -731,7 +731,7 @@ pub fn resolve_bands_in_document_order(
             continue;
         }
 
-        if !has_inline_content(layout_tree, id) {
+        if !holds_line_boxes(layout_tree, id) {
             continue;
         }
 
@@ -793,6 +793,31 @@ pub fn resolve_bands_in_document_order(
         );
     }
     bands
+}
+
+/// Whether `node` is a block container holding inline content, i.e. whether it has line boxes of
+/// its own for a float to shorten.
+///
+/// The block-container half matters as much as the inline-content half. An `<a>` or `<span>` has
+/// text children, so a check for inline content alone calls it a block - and then every inline
+/// element inside a float got banded against the float containing it, which for a float that
+/// enclosed them produced a band of zero width. On the Wikipedia article **52 of the 60 bands were
+/// this**, all of them inside the infobox. An inline box has no line boxes; it sits on its
+/// parent's.
+fn holds_line_boxes(layout_tree: &LayoutTree, node: LayoutElementId) -> bool {
+    if !has_inline_content(layout_tree, node) {
+        return false;
+    }
+    let Some(el) = layout_tree.arena.get(&node) else {
+        return false;
+    };
+    !matches!(
+        layout_tree
+            .render_tree
+            .doc
+            .get_style(el.dom_node_id, &StyleProperty::Display),
+        Value::Display(crate::common::document::style::Display::Inline)
+    )
 }
 
 /// Whether `node` holds inline content directly (text, or an inline box), meaning it is the block

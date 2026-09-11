@@ -774,6 +774,42 @@ pub trait PipelineDocument: Send + Sync {
         // element's font-size (16px default). `em` is relative to the *parent's* computed
         // font-size for `font-size` itself, and to the element's *own* computed font-size
         // for every other property (e.g. `max-width: 17ch` lands here as `em`).
+        // `font-size` written as a percentage or a keyword. Neither could be turned into pixels,
+        // so `font_size_px` fell back to its 16px default and the element rendered at full body
+        // size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and anything using
+        // the UA's `sup { font-size: smaller }` or `<small>`.
+        //
+        // A percentage is against the *parent's* computed size, as are `smaller`/`larger`, which
+        // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
+        // `medium` at 16px.
+        if matches!(prop, StyleProperty::FontSize) {
+            let parent_size = || match self.parent(id) {
+                Some(parent) => self.font_size_px(parent),
+                None => 16.0,
+            };
+            if let Value::Unit(pct, Unit::Percent) = &raw {
+                return Value::Unit(parent_size() * pct / 100.0, Unit::Px);
+            }
+            if let Value::Keyword(kw) = &raw {
+                let px = match crate::common::document::style::lookup(*kw).as_str() {
+                    "xx-small" => Some(9.0),
+                    "x-small" => Some(10.0),
+                    "small" => Some(13.0),
+                    "medium" => Some(16.0),
+                    "large" => Some(18.0),
+                    "x-large" => Some(24.0),
+                    "xx-large" => Some(32.0),
+                    "xxx-large" => Some(48.0),
+                    "smaller" => Some(parent_size() / 1.2),
+                    "larger" => Some(parent_size() * 1.2),
+                    _ => None,
+                };
+                if let Some(px) = px {
+                    return Value::Unit(px, Unit::Px);
+                }
+            }
+        }
+
         match &raw {
             Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
             Value::Unit(v, Unit::Em) => {
