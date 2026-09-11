@@ -12,6 +12,7 @@ use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
+use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
 use crate::system::Css3System;
@@ -643,6 +644,61 @@ pub struct CssProperty {
     // Actual value used in the rendering (after rounding, clipping etc.)
     pub actual: CssValue,
     pub inherited: CssValue,
+    /// The px value an `em` in this property resolves against.
+    ///
+    /// For every property but `font-size` that is the element's *own* computed font-size; for
+    /// `font-size` itself it is the parent's, since `font-size: 2em` doubles what it inherits
+    /// rather than itself. Set by the cascade, which is the only place that knows either.
+    pub font_size_basis: f32,
+    /// The px value a `rem` in this property resolves against: the root element's computed
+    /// `font-size`, the same for every property on every element in the document.
+    ///
+    /// The root's own `font-size` is the exception - it is what defines a `rem`, so `rem` inside
+    /// it refers to the initial font-size instead of to the value being declared.
+    pub root_font_size_basis: f32,
+}
+
+/// The initial `font-size`, and so the `rem` basis until the root element declares otherwise.
+pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+/// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
+///
+/// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
+/// computed-value time and that a math function is simplified there, so a consumer downstream
+/// never sees either - `width: calc(2em + 10px)` on a 20px element leaves here as `50px`.
+///
+/// What survives is what genuinely cannot be decided yet: a percentage, which needs a containing
+/// block, and the units nothing has a value for (`ch`, `lh`, the container-query units).
+fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
+    let recurse = |v: &CssValue| resolve_computed(v, em_basis, rem_basis);
+    match value {
+        CssValue::Unit(val, unit) if unit.eq_ignore_ascii_case("em") => {
+            CssValue::Unit(val * em_basis, "px".to_string())
+        }
+        CssValue::Unit(val, unit) if unit.eq_ignore_ascii_case("rem") => {
+            CssValue::Unit(val * rem_basis, "px".to_string())
+        }
+        CssValue::List(values) => CssValue::List(values.iter().map(recurse).collect()),
+        // `calc()` keeps its body as text rather than as arguments, so it is evaluated rather
+        // than recursed into. A body that comes down to a single value *is* that value here:
+        // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
+        CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
+            let units = calc::Units::computed(em_basis, rem_basis);
+            match args.first() {
+                Some(CssValue::String(body)) => calc::evaluate(body, &units, true).unwrap_or_else(|| value.clone()),
+                _ => value.clone(),
+            }
+        }
+        CssValue::Function(name, args) => {
+            let args: Vec<CssValue> = args.iter().map(recurse).collect();
+            // A comparison function is evaluated here rather than when the declaration was
+            // collected, because only now is an `em` among its arguments worth anything. The
+            // cascade also tries this earlier, where the basis is not yet known - and got
+            // `min(2em, 50px)` wrong by resolving the `em` against the default 16px.
+            crate::functions::math::resolve_math(name, &args).unwrap_or(CssValue::Function(name.clone(), args))
+        }
+        other => other.clone(),
+    }
 }
 
 impl CssProperty {
@@ -658,6 +714,8 @@ impl CssProperty {
             used: CssValue::None,
             actual: CssValue::None,
             inherited: CssValue::None,
+            font_size_basis: DEFAULT_FONT_SIZE_PX,
+            root_font_size_basis: DEFAULT_FONT_SIZE_PX,
         }
     }
 
@@ -696,11 +754,16 @@ impl CssProperty {
     }
 
     fn find_computed_value(&self) -> CssValue {
-        if self.specified != CssValue::None {
-            return self.specified.clone();
-        }
+        let specified = if self.specified == CssValue::None {
+            self.get_initial_value().unwrap_or(CssValue::None)
+        } else {
+            self.specified.clone()
+        };
 
-        self.get_initial_value().unwrap_or(CssValue::None)
+        // Font-relative lengths become px here, which is what the computed stage is for. Before
+        // this the specified value was passed through untouched and `width: 2em` stayed `2em`
+        // all the way out to anything reading a computed value.
+        resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis)
     }
 
     fn find_used_value(&self) -> CssValue {
@@ -709,23 +772,15 @@ impl CssProperty {
 
     fn find_actual_value(&self) -> CssValue {
         // @TODO: stuff like clipping and such should occur as well
-        // Bare numbers and percentages are ratios/multipliers and must keep their fractional
-        // value: rounding `opacity: 0.15` to 0 makes an element vanish, `line-height: 1.7`
-        // to 2.0 inflates every paragraph, `flex-grow: 0.5` to 1 doubles an item's share.
-        // Relative units (em, rem, vw, vh) must not be rounded either - 1.5em rounded to
-        // 2.0em would make h2 render at h1 size. Only absolute lengths (px, pt, in, cm, mm)
-        // are snapped to whole values here.
-        match &self.used {
-            CssValue::Unit(value, unit) => {
-                let absolute = matches!(unit.as_str(), "px" | "pt" | "in" | "cm" | "mm" | "pc" | "q");
-                if absolute {
-                    CssValue::Unit(value.round(), unit.clone())
-                } else {
-                    self.used.clone()
-                }
-            }
-            _ => self.used.clone(),
-        }
+        //
+        // No rounding happens here. This used to snap absolute lengths to whole values, a
+        // leftover from when every value was rounded; the carve-outs for bare numbers
+        // (`opacity: 0.15` must not become 0) and for relative units (`1.5em` must not become
+        // `2em`) were added one at a time until only absolute lengths were left. Those turn
+        // fractional too the moment a font-relative length resolves - `0.14em` against a 20px
+        // font-size is exactly 2.8px, and that is what a computed value has to report.
+        // Snapping to the device pixel grid is the renderer's job, not the value's.
+        self.used.clone()
     }
 
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
@@ -888,6 +943,16 @@ impl css3::CssProperty<Css3System> for CssProperty {
 pub struct CssProperties {
     pub properties: HashMap<String, CssProperty>,
     pub dirty: bool,
+    /// This element's computed `font-size` in px, resolved while the map was built.
+    ///
+    /// Kept on the map so a child can read its parent's basis without recomputing it - `em`
+    /// resolves against the element's own font-size, which is itself inherited when undeclared,
+    /// so every level needs the level above it.
+    pub font_size_px: f32,
+    /// The root element's computed `font-size` in px - what a `rem` is worth anywhere in the
+    /// document. Carried down the tree rather than looked up, since the cascade walks top-down
+    /// and only ever holds the parent's map.
+    pub root_font_size_px: f32,
     /// Custom properties (`--*`) in scope for this node, own declarations layered over the
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
@@ -907,6 +972,8 @@ impl CssProperties {
             properties: HashMap::new(),
             dirty: true,
             custom: Arc::new(HashMap::new()),
+            font_size_px: DEFAULT_FONT_SIZE_PX,
+            root_font_size_px: DEFAULT_FONT_SIZE_PX,
         }
     }
 

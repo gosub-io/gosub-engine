@@ -367,6 +367,105 @@ mod rendertree_from_engine {
         );
     }
 
+    #[test]
+    fn rem_follows_the_root_font_size_and_em_the_elements_own() {
+        // `rem` used to be hard-coded to the initial 16px, so a document that resizes its root
+        // laid out at the wrong scale everywhere. `min()` is here because its operands are
+        // font-relative too, and it is only resolvable once the basis exists.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html   { font-size: 20px; }
+                    #rem   { width: 2rem; }
+                    #em    { font-size: 25px; width: 2em; }
+                    #cmp   { font-size: 25px; width: min(2em, 30px); }
+                </style>
+            </head>
+            <body>
+                <div id="rem"></div>
+                <div id="em"></div>
+                <div id="cmp"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.get_style(node, &StyleProperty::Width)
+        };
+
+        for (id_attr, expected) in [("rem", 40.0), ("em", 50.0), ("cmp", 30.0)] {
+            let width = width_of(id_attr);
+            assert!(
+                matches!(width, Value::Unit(px, Unit::Px) if (px - expected).abs() < 0.1),
+                "expected width {expected}px on #{id_attr}, got {width:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn calc_reaches_layout_as_a_length() {
+        // `calc()` bodies were carried to layout as text and never evaluated, so every one of
+        // these arrived as the string it was written as and contributed no length at all.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html    { font-size: 20px; }
+                    #plain  { width: calc(10px + 20px); }
+                    #nested { width: calc(10px + calc(10px + calc(10px + calc(10px + 1px)))); }
+                    #units  { width: calc(1in + 1px); }
+                    #rel    { font-size: 25px; width: calc(2em + 1rem); }
+                    #scaled { width: calc((10px + 20px) * 2 / 3); }
+                </style>
+            </head>
+            <body>
+                <div id="plain"></div>
+                <div id="nested"></div>
+                <div id="units"></div>
+                <div id="rel"></div>
+                <div id="scaled"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for (id_attr, expected) in [
+            ("plain", 30.0),
+            ("nested", 41.0),
+            // 1in is 96px by definition.
+            ("units", 97.0),
+            // 2em at 25px, plus 1rem against the root's 20px.
+            ("rel", 70.0),
+            ("scaled", 20.0),
+        ] {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            let width = adapter.get_style(node, &StyleProperty::Width);
+            assert!(
+                matches!(width, Value::Unit(px, Unit::Px) if (px - expected).abs() < 0.1),
+                "expected width {expected}px on #{id_attr}, got {width:?}"
+            );
+        }
+    }
+
     // Regression: `line-height: 1.7` once rounded to 2.0, inflating every paragraph.
     #[test]
     fn unitless_line_height_keeps_fraction() {

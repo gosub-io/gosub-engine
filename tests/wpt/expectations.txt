@@ -55,6 +55,7 @@ FILE dom/events/Event-dispatch-multiple-cancelBubble.html
 FILE dom/events/Event-dispatch-multiple-stopPropagation.html
 FILE dom/events/Event-dispatch-omitted-capture.html
 FILE dom/events/Event-dispatch-on-disabled-elements.html
+HARNESS dom/events/Event-dispatch-on-disabled-elements.html
 PASS dom/events/Event-dispatch-on-disabled-elements.html :: Can dispatch untrusted 'click' Events at disabled HTML elements.
 PASS dom/events/Event-dispatch-on-disabled-elements.html :: Can dispatch untrusted Events at disabled HTML elements.
 FILE dom/events/Event-dispatch-order-at-target.html

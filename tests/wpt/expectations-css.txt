@@ -66,7 +66,6 @@ FILE css/css-syntax/charset-is-not-a-rule.html
 FILE css/css-syntax/custom-property-rule-ambiguity.html
 FILE css/css-syntax/decimal-points-in-numbers.html
 FILE css/css-syntax/declarations-trim-whitespace.html
-HARNESS css/css-syntax/declarations-trim-whitespace.html
 FILE css/css-syntax/escaped-eof.html
 FILE css/css-syntax/ident-three-code-points.html
 HARNESS css/css-syntax/ident-three-code-points.html
@@ -109,33 +108,28 @@ FILE css/css-values/animations/calc-interpolation.html
 HARNESS css/css-values/animations/calc-interpolation.html
 FILE css/css-values/animations/line-height-lh-transition.html
 FILE css/css-values/attr-IACVT.html
-HARNESS css/css-values/attr-IACVT.html
 FILE css/css-values/attr-all-types.html
-HARNESS css/css-values/attr-all-types.html
+PASS css/css-values/attr-all-types.html :: Invariant behaviour for var
 FILE css/css-values/attr-argument-grammar.html
+PASS css/css-values/attr-argument-grammar.html :: Untitled
 FILE css/css-values/attr-container-style-query.html
 FILE css/css-values/attr-css-wide-keywords.html
 FILE css/css-values/attr-cycle.html
-HARNESS css/css-values/attr-cycle.html
+PASS css/css-values/attr-cycle.html :: Untitled
 FILE css/css-values/attr-invalidation.html
 PASS css/css-values/attr-invalidation.html :: Untitled
 FILE css/css-values/attr-length-specified.html
-HARNESS css/css-values/attr-length-specified.html
 FILE css/css-values/attr-pseudo-elem-invalidation-2.html
-HARNESS css/css-values/attr-pseudo-elem-invalidation-2.html
 FILE css/css-values/attr-pseudo-elem-invalidation.html
-HARNESS css/css-values/attr-pseudo-elem-invalidation.html
 FILE css/css-values/attr-pseudo-element-originating.html
 HARNESS css/css-values/attr-pseudo-element-originating.html
 FILE css/css-values/attr-revert-rule.html
 FILE css/css-values/attr-security-animation.html
 FILE css/css-values/attr-security-if.html
-HARNESS css/css-values/attr-security-if.html
 FILE css/css-values/attr-security-transition-2.html
 FILE css/css-values/attr-security-transition-interpolated.html
 FILE css/css-values/attr-security-transition.html
 FILE css/css-values/attr-security.html
-HARNESS css/css-values/attr-security.html
 FILE css/css-values/attr-serialization.html
 FILE css/css-values/attr-universal-selector.html
 FILE css/css-values/calc-angle-values.html
@@ -236,9 +230,7 @@ HARNESS css/css-values/calc-size/calc-size-flex-basis-on-column.html
 FILE css/css-values/calc-size/calc-size-flex-basis-on-row.html
 HARNESS css/css-values/calc-size/calc-size-flex-basis-on-row.html
 FILE css/css-values/calc-size/calc-size-height-box-sizing.html
-HARNESS css/css-values/calc-size/calc-size-height-box-sizing.html
 FILE css/css-values/calc-size/calc-size-height.html
-HARNESS css/css-values/calc-size/calc-size-height.html
 FILE css/css-values/calc-size/calc-size-parsing.html
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(auto, size)" should set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['min-width'] = "calc-size(auto, size)" should set the property value
@@ -275,7 +267,6 @@ PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['flex-basis'] = 
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(0px, 0px)" should set the property value
 FILE css/css-values/calc-size/calc-size-typed-om.html
 FILE css/css-values/calc-size/calc-size-width-box-sizing.html
-HARNESS css/css-values/calc-size/calc-size-width-box-sizing.html
 FILE css/css-values/calc-size/calc-size-width.html
 HARNESS css/css-values/calc-size/calc-size-width.html
 FILE css/css-values/calc-size/interpolate-size-computed.html
@@ -286,8 +277,17 @@ PASS css/css-values/calc-size/interpolate-size-parsing.html :: e.style['interpol
 PASS css/css-values/calc-size/interpolate-size-parsing.html :: e.style['interpolate-size'] = "none" should not set the property value
 PASS css/css-values/calc-size/interpolate-size-parsing.html :: e.style['interpolate-size'] = "100%" should not set the property value
 FILE css/css-values/calc-time-values.html
+PASS css/css-values/calc-time-values.html :: addition of 2 time units: s plus s
+PASS css/css-values/calc-time-values.html :: addition of 2 time units: s plus ms
+PASS css/css-values/calc-time-values.html :: addition of 2 time units: ms plus ms
+PASS css/css-values/calc-time-values.html :: substraction of time unit: s minus s
+PASS css/css-values/calc-time-values.html :: substraction of time unit: s minus ms
+PASS css/css-values/calc-time-values.html :: multiplication of integer with a time unit: int multiplied by s
+PASS css/css-values/calc-time-values.html :: multiplication of integer with a time unit: int multiplied by ms
+PASS css/css-values/calc-time-values.html :: division of time unit with integer: s divided by int
+PASS css/css-values/calc-time-values.html :: division of time unit with integer: ms divided by int
+PASS css/css-values/calc-time-values.html :: conversion of time unit: ms into s
 FILE css/css-values/calc-unit-analysis.html
-HARNESS css/css-values/calc-unit-analysis.html
 FILE css/css-values/calc-z-index-fractions-001.html
 FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
@@ -300,7 +300,6 @@ FILE css/css-values/clamp-color-invalid.html
 FILE css/css-values/clamp-integer-computed.html
 FILE css/css-values/clamp-integer-invalid.html
 FILE css/css-values/clamp-length-computed.html
-HARNESS css/css-values/clamp-length-computed.html
 FILE css/css-values/clamp-length-invalid.html
 FILE css/css-values/clamp-length-serialize.html
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "clamp(1px, 1em, 1vh)" should set the property value
@@ -315,11 +314,24 @@ FILE css/css-values/exp-log-compute.html
 FILE css/css-values/exp-log-invalid.html
 FILE css/css-values/exp-log-serialize.html
 FILE css/css-values/getComputedStyle-border-radius-001.html
+PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-top-left-radius: calc(25% + 10px) calc(25% + 20px)
+PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-top-right-radius: calc(25% + 16px)
+PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-bottom-right-radius: 25%
+PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-bottom-left-radius: 25px
 FILE css/css-values/getComputedStyle-border-radius-002.html
+PASS css/css-values/getComputedStyle-border-radius-002.html :: simple percentage conversion test 1
+PASS css/css-values/getComputedStyle-border-radius-002.html :: simple percentage conversion test 2
+PASS css/css-values/getComputedStyle-border-radius-002.html :: simple percentage conversion test 3
+PASS css/css-values/getComputedStyle-border-radius-002.html :: simple percentage conversion test 4
+PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conversion test 5
+PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conversion test 6
+PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conversion test 7
+PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conversion test 8
 FILE css/css-values/getComputedStyle-border-radius-003.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-001.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-002.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-003.html
+PASS css/css-values/getComputedStyle-calc-mixed-units-003.html :: testing width: calc(100px * 1px / 1px / 1)
 FILE css/css-values/hypot-pow-sqrt-computed.html
 FILE css/css-values/hypot-pow-sqrt-invalid.html
 PASS css/css-values/hypot-pow-sqrt-invalid.html :: e.style['outline-offset'] = "calc(sqrt(100px)" should not set the property value
@@ -332,8 +344,45 @@ PASS css/css-values/ident-function-parsing.html :: e.style['view-transition-name
 PASS css/css-values/ident-function-parsing.html :: e.style['view-transition-name'] = "ident({})" should not set the property value
 PASS css/css-values/ident-function-parsing.html :: e.style['view-transition-name'] = "ident(a, b)" should not set the property value
 FILE css/css-values/ident-function-substitution.html
+PASS css/css-values/ident-function-substitution.html :: an unresolvable argument makes ident() invalid at computed-value time
+PASS css/css-values/ident-function-substitution.html :: an argument that is not <ident-arg>+ makes ident() invalid at computed-value time
+PASS css/css-values/ident-function-substitution.html :: a cycle through the ident() argument
+PASS css/css-values/ident-function-substitution.html :: ident() substituting a value the property does not accept
 FILE css/css-values/if-conditionals.html
+PASS css/css-values/if-conditionals.html :: Untitled 6
+PASS css/css-values/if-conditionals.html :: Untitled 7
+PASS css/css-values/if-conditionals.html :: Untitled 28
+PASS css/css-values/if-conditionals.html :: Untitled 29
+PASS css/css-values/if-conditionals.html :: Untitled 185
+PASS css/css-values/if-conditionals.html :: Untitled 186
+PASS css/css-values/if-conditionals.html :: Untitled 187
+PASS css/css-values/if-conditionals.html :: Untitled 188
+PASS css/css-values/if-conditionals.html :: Untitled 189
+PASS css/css-values/if-conditionals.html :: Untitled 190
+PASS css/css-values/if-conditionals.html :: Untitled 194
+PASS css/css-values/if-conditionals.html :: Untitled 195
+PASS css/css-values/if-conditionals.html :: Untitled 196
+PASS css/css-values/if-conditionals.html :: Untitled 197
+PASS css/css-values/if-conditionals.html :: Untitled 198
+PASS css/css-values/if-conditionals.html :: Untitled 199
 FILE css/css-values/if-cycle.html
+PASS css/css-values/if-cycle.html :: Untitled
+PASS css/css-values/if-cycle.html :: Untitled 1
+PASS css/css-values/if-cycle.html :: Untitled 2
+PASS css/css-values/if-cycle.html :: Untitled 3
+PASS css/css-values/if-cycle.html :: Untitled 4
+PASS css/css-values/if-cycle.html :: Untitled 5
+PASS css/css-values/if-cycle.html :: Untitled 6
+PASS css/css-values/if-cycle.html :: Untitled 7
+PASS css/css-values/if-cycle.html :: Untitled 8
+PASS css/css-values/if-cycle.html :: Untitled 9
+PASS css/css-values/if-cycle.html :: Untitled 10
+PASS css/css-values/if-cycle.html :: Untitled 11
+PASS css/css-values/if-cycle.html :: Untitled 12
+PASS css/css-values/if-cycle.html :: Untitled 13
+PASS css/css-values/if-cycle.html :: Untitled 14
+PASS css/css-values/if-cycle.html :: Untitled 15
+PASS css/css-values/if-cycle.html :: Untitled 16
 FILE css/css-values/if-function-revert-rule.html
 FILE css/css-values/if-initial-unregistered.html
 FILE css/css-values/if-invalidation.html
@@ -355,7 +404,14 @@ FILE css/css-values/integer_interpolation_round_half_002.html
 FILE css/css-values/integer_interpolation_round_half_towards_positive_infinity_order.html
 FILE css/css-values/integer_interpolation_round_half_towards_positive_infinity_z_index.html
 FILE css/css-values/lh-rlh-on-root-001.html
-HARNESS css/css-values/lh-rlh-on-root-001.html
+PASS css/css-values/lh-rlh-on-root-001.html :: lh in line-height on root
+PASS css/css-values/lh-rlh-on-root-001.html :: rlh in line-height on root
+PASS css/css-values/lh-rlh-on-root-001.html :: lh in font-size on root
+PASS css/css-values/lh-rlh-on-root-001.html :: rlh in font-size on root
+PASS css/css-values/lh-rlh-on-root-001.html :: 2lh in line-height on root
+PASS css/css-values/lh-rlh-on-root-001.html :: 2rlh in line-height on root
+PASS css/css-values/lh-rlh-on-root-001.html :: 2lh in font-size on root
+PASS css/css-values/lh-rlh-on-root-001.html :: 2rlh in font-size on root
 FILE css/css-values/lh-rlh-percentage-line-height-with-zoom.html
 FILE css/css-values/lh-unit-003.html
 FILE css/css-values/lh-unit-004.html
@@ -364,7 +420,6 @@ FILE css/css-values/line-break-ch-unit.html
 FILE css/css-values/minmax-angle-computed.html
 FILE css/css-values/minmax-angle-invalid.html
 FILE css/css-values/minmax-angle-serialize.html
-HARNESS css/css-values/minmax-angle-serialize.html
 FILE css/css-values/minmax-integer-computed.html
 FILE css/css-values/minmax-length-computed.html
 FILE css/css-values/minmax-length-invalid.html
@@ -473,7 +528,23 @@ PASS css/css-values/progress-invalid.html :: e.style['opacity'] = "progress(10px
 PASS css/css-values/progress-invalid.html :: e.style['opacity'] = "progress(10px, 10px * 10px, 10px * 10px)" should not set the property value
 FILE css/css-values/progress-serialize.html
 FILE css/css-values/random-alias-property.tentative.html
+PASS css/css-values/random-alias-property.tentative.html :: Alias properties with property-dependant random() values should resolve to the same value
 FILE css/css-values/random-computed.tentative.html
+PASS css/css-values/random-computed.tentative.html :: Shared by property and index in list value: random(a, b)
+PASS css/css-values/random-computed.tentative.html :: random(property-scoped, ...) in a custom property should be equal between elements
+PASS css/css-values/random-computed.tentative.html :: two random() functions in the same custom property should not be shared
+PASS css/css-values/random-computed.tentative.html :: Shared by name within an element: 'random(--identifier element-scoped, a, b)'
+PASS css/css-values/random-computed.tentative.html :: Shared by name within an element - shorthand: random(--identifier element-scoped, a, b))
+PASS css/css-values/random-computed.tentative.html :: Shared between elements within a property: random(property-index-scoped, a, b)
+PASS css/css-values/random-computed.tentative.html :: Shared between elements within a property, random inside color functions: random(property-index-scoped, a, b)
+PASS css/css-values/random-computed.tentative.html :: Shared between elements within a property, unresolved percentage values: random(property-index-scoped, a, b)
+PASS css/css-values/random-computed.tentative.html :: Shared globally: random(--identifier, a, b)
+PASS css/css-values/random-computed.tentative.html :: Shared globally - shorthand: random(--other-identifier, a, b)
+PASS css/css-values/random-computed.tentative.html :: random() values should not be allowed as initial values in @property
+PASS css/css-values/random-computed.tentative.html :: random() shared by property in var()
+PASS css/css-values/random-computed.tentative.html :: random() shared by property in attr()
+PASS css/css-values/random-computed.tentative.html :: random() shared by property in typed attr()
+PASS css/css-values/random-computed.tentative.html :: Test user specified <random-ua-ident>
 FILE css/css-values/random-in-animations.tentative.html
 HARNESS css/css-values/random-in-animations.tentative.html
 FILE css/css-values/random-in-container-query.tentative.html
@@ -482,6 +553,11 @@ FILE css/css-values/random-in-custom-function.tentative.html
 FILE css/css-values/random-in-descriptors.tentative.html
 ERROR css/css-values/random-in-descriptors.tentative.html
 FILE css/css-values/random-in-if.tentative.html
+PASS css/css-values/random-in-if.tentative.html :: Sharing property-scoped random() in same if() condition
+PASS css/css-values/random-in-if.tentative.html :: Sharing element-scoped random() in if() style() condition across different properties
+PASS css/css-values/random-in-if.tentative.html :: Sharing property-index-scoped random() in if() style() condition across different elements
+PASS css/css-values/random-in-if.tentative.html :: Sharing property-scoped random() in if() style() condition across different elements
+PASS css/css-values/random-in-if.tentative.html :: Sharing property-index-scoped random() in if() style() condition across different elements with different property counts
 FILE css/css-values/random-in-keyframe.html
 FILE css/css-values/random-in-media.tentative.html
 ERROR css/css-values/random-in-media.tentative.html
@@ -526,6 +602,10 @@ PASS css/css-values/random-invalid.tentative.html :: e.style['width'] = "random(
 PASS css/css-values/random-invalid.tentative.html :: e.style['width'] = "random(property-index-scoped 1px, 2px)" should not set the property value
 PASS css/css-values/random-invalid.tentative.html :: e.style['width'] = "random(property-index-scoped property-scoped, 1px, 2px)" should not set the property value
 FILE css/css-values/random-item-computed.html
+PASS css/css-values/random-item-computed.html :: random-item() selection is stable across style recalculation
+PASS css/css-values/random-item-computed.html :: A shared dashed-ident key selects the same item across properties
+PASS css/css-values/random-item-computed.html :: A bare element-scoped key selects the same item across random-item() instances
+PASS css/css-values/random-item-computed.html :: random() and random-item() share the base value for a bare element-scoped key
 FILE css/css-values/random-item-in-container-query.tentative.html
 ERROR css/css-values/random-item-in-container-query.tentative.html
 FILE css/css-values/random-item-in-keyframe.html
@@ -577,10 +657,13 @@ PASS css/css-values/rcap-invalidation.html :: Untitled
 FILE css/css-values/rch-invalidation.html
 PASS css/css-values/rch-invalidation.html :: Untitled
 FILE css/css-values/rem-unit-root-element.html
-HARNESS css/css-values/rem-unit-root-element.html
+PASS css/css-values/rem-unit-root-element.html :: rem based margin.
+PASS css/css-values/rem-unit-root-element.html :: rem based padding.
+PASS css/css-values/rem-unit-root-element.html :: rem based line-height.
 FILE css/css-values/rex-invalidation.html
 PASS css/css-values/rex-invalidation.html :: Untitled
 FILE css/css-values/rgba-011.html
+PASS css/css-values/rgba-011.html :: testing background-color: rgba(0.4 127.5 0.3)
 FILE css/css-values/ric-invalidation.html
 PASS css/css-values/ric-invalidation.html :: Untitled
 FILE css/css-values/rlh-invalidation.html

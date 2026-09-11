@@ -761,9 +761,14 @@ impl Display for CssValue {
             CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
             CssValue::Function(name, args) => {
                 write!(f, "{name}(")?;
+                // The argument list carries its own separators: the parser keeps each `,` as a
+                // `CssValue::Comma` among the arguments. Joining with ", " as well emitted both,
+                // so `min(50%, 100px)` came back as `min(50%, ,, 100px)`. Write a space only
+                // where one belongs - after a comma, or between two arguments written side by
+                // side as in `translate(1px 2px)` - and never before a comma.
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                    if i > 0 && !matches!(arg, CssValue::Comma) {
+                        write!(f, " ")?;
                     }
                     write!(f, "{arg}")?;
                 }
@@ -772,15 +777,18 @@ impl Display for CssValue {
             CssValue::Initial => write!(f, "initial"),
             CssValue::Inherit => write!(f, "inherit"),
             CssValue::Comma => write!(f, ","),
+            // A list is how several values for one property are held - `margin: 1px 2px`, or the
+            // single-element list `resolve_functions` wraps its result in. `List(1px, 2px)` was a
+            // debug rendering that reached anything reading a computed value as text; the CSS is
+            // the values themselves, separated the way they were written.
             CssValue::List(v) => {
-                write!(f, "List(")?;
                 for (i, value) in v.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                    if i > 0 && !matches!(value, CssValue::Comma) {
+                        write!(f, " ")?;
                     }
                     write!(f, "{value}")?;
                 }
-                write!(f, ")")
+                Ok(())
             }
         }
     }
@@ -902,12 +910,22 @@ impl CssValue {
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
             crate::node::NodeType::Operator(value) => Ok(CssValue::String(value)),
             crate::node::NodeType::Calc { expr } => {
-                // Preserve the raw body of calc(...) so the layout engine can evaluate it later.
+                // The body of a `calc()` is kept as text, and simplified as far as it can be
+                // without knowing the element: the arithmetic and the absolute lengths, which is
+                // why `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
+                // percentages all need something only the cascade or layout has, so they survive
+                // to be finished in `resolve_computed`. A body this cannot make sense of (an
+                // unsubstituted `var()`, say) is kept exactly as written.
                 let body = match expr.node_type {
                     crate::node::NodeType::Raw { value } => value,
                     _ => String::new(),
                 };
-                Ok(CssValue::Function("calc".to_string(), vec![CssValue::String(body)]))
+                let simplified = crate::functions::calc::simplify(&body, &crate::functions::calc::Units::none())
+                    .map_or(body, |sum| sum.serialize());
+                Ok(CssValue::Function(
+                    "calc".to_string(),
+                    vec![CssValue::String(simplified)],
+                ))
             }
             crate::node::NodeType::Url { url } => {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
@@ -1262,6 +1280,53 @@ mod test {
     use std::vec;
 
     use super::*;
+
+    #[test]
+    fn a_function_does_not_double_its_comma_separators() {
+        // The argument list carries its own `,` as a `CssValue::Comma`, so joining with ", "
+        // as well wrote both: `min(50%, 100px)` came back as `min(50%, ,, 100px)`. Anything
+        // reading a computed value as text got that.
+        let value = CssValue::Function(
+            "min".to_string(),
+            vec![
+                CssValue::Percentage(50.0),
+                CssValue::Comma,
+                CssValue::Unit(100.0, "px".to_string()),
+            ],
+        );
+        assert_eq!(value.to_string(), "min(50%, 100px)");
+    }
+
+    #[test]
+    fn space_separated_arguments_keep_their_space() {
+        // `translate(1px 2px)` has no comma at all; the arguments must not run together.
+        let value = CssValue::Function(
+            "translate".to_string(),
+            vec![
+                CssValue::Unit(1.0, "px".to_string()),
+                CssValue::Unit(2.0, "px".to_string()),
+            ],
+        );
+        assert_eq!(value.to_string(), "translate(1px 2px)");
+    }
+
+    #[test]
+    fn a_list_serializes_as_css_rather_than_as_a_debug_wrapper() {
+        // `margin: 1px 2px` is held as a list. `List(1px, 2px)` was a debug rendering that
+        // reached every consumer reading a computed value as text.
+        let value = CssValue::List(vec![
+            CssValue::Unit(1.0, "px".to_string()),
+            CssValue::Unit(2.0, "px".to_string()),
+        ]);
+        assert_eq!(value.to_string(), "1px 2px");
+
+        let commas = CssValue::List(vec![
+            CssValue::String("a".to_string()),
+            CssValue::Comma,
+            CssValue::String("b".to_string()),
+        ]);
+        assert_eq!(commas.to_string(), "a, b");
+    }
 
     /// `calc()` keeps its body as raw text, so the units in it never become `CssValue::Unit`.
     /// Missing them leaves `uses_viewport_units` false, the style fingerprint then omits the

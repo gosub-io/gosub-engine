@@ -17,10 +17,12 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::document::Document as _;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use rquickjs::{Class, Ctx, Object, Value};
 use url::Url;
 
+mod computed_style;
 mod document;
 pub mod event;
 mod node;
@@ -58,6 +60,14 @@ pub fn parse_document(html: &str, url: Option<Url>) -> anyhow::Result<(DocHandle
     let mut doc = DocumentBuilderImpl::new_document::<DomConfig>(url);
     let errors = Html5Parser::<DomConfig>::parse_document(&mut stream, &mut doc, None)
         .map_err(|e| anyhow::anyhow!("html parse failed: {e}"))?;
+
+    // The cascade has to start somewhere. Without the user-agent sheet every computed value
+    // would come back as the property's initial value, so a `<div>` would report `display:
+    // inline` - the tests would be measuring the absence of a stylesheet rather than the
+    // engine. The parser has already collected any `<style>` elements into the document;
+    // `<link>` sheets are out of reach here, there being no network.
+    doc.add_stylesheet(gosub_css3::load_default_useragent_stylesheet());
+
     let messages = errors.into_iter().map(|e| e.message).collect();
     Ok((Rc::new(RefCell::new(doc)), messages))
 }
@@ -76,6 +86,7 @@ pub fn install(ctx: &Ctx<'_>, doc: DocHandle, timers: &timers::Timers) -> rquick
     event::install(ctx)?;
     timers::install(ctx, timers)?;
     style::install(ctx)?;
+    computed_style::install(ctx, doc.clone())?;
     globals.set(WRAPPER_CACHE, ctx.eval::<Value, _>("new Map()")?)?;
 
     let document = Class::instance(ctx.clone(), GosubDocument::new(doc))?;

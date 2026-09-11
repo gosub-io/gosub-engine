@@ -1,12 +1,12 @@
 use crate::colors::RgbColor;
 use crate::functions::attr::resolve_attr;
-use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{
     cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
+    DEFAULT_FONT_SIZE_PX,
 };
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
@@ -512,7 +512,53 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
+    resolve_font_size_basis(&mut css_map_entry, inherited);
+
     Some(css_map_entry)
+}
+
+/// Work out what an `em` and a `rem` mean on this element, and tell every property.
+///
+/// `font-size` has to go first and is the only one measured against the *parent*: `font-size:
+/// 2em` doubles what it inherits, not itself. Every other property then resolves against this
+/// element's own size. The result is stored on the map so a child can read its parent's basis
+/// without recomputing the parent's cascade.
+fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProperties>) {
+    let parent_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.font_size_px);
+    // No parent map means no element above this one, so this is the root - and the root is what
+    // a `rem` is measured against. Its own `font-size` is therefore the one declaration a `rem`
+    // cannot refer to without circularity, so there it means the initial size.
+    let parent_root_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.root_font_size_px);
+
+    let own_px = match map.properties.get_mut("font-size") {
+        Some(font_size) => {
+            font_size.font_size_basis = parent_px;
+            font_size.root_font_size_basis = parent_root_px;
+            font_size.mark_dirty();
+            match font_size.compute_value() {
+                CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px,
+                // A keyword (`larger`), a percentage, or anything else this does not resolve:
+                // inheriting the parent's size is closer than falling back to the initial one.
+                _ => parent_px,
+            }
+        }
+        // Undeclared, so inherited - which is what `font-size` does by default.
+        None => parent_px,
+    };
+    map.font_size_px = own_px;
+
+    let root_px = if inherited.is_some() { parent_root_px } else { own_px };
+    map.root_font_size_px = root_px;
+
+    for (name, property) in &mut map.properties {
+        if name != "font-size" {
+            property.font_size_basis = own_px;
+            property.root_font_size_basis = root_px;
+            // The basis changed after the property was built, so any value computed before now
+            // used the default and has to be recomputed.
+            property.mark_dirty();
+        }
+    }
 }
 
 fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
@@ -758,15 +804,18 @@ pub fn resolve_functions<C: HasDocument>(
                 let resolved = match func.as_str() {
                     "attr" => resolve_attr::<C>(values, doc, id),
                     "var" => resolve_var(values, custom_props),
-                    "clamp" | "min" | "max" => {
-                        resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
-                    }
                     // Unresolved, the whole declaration fails validation - the UA sheet uses it
                     // on form controls.
                     "light-dark" | "-internal-light-dark" => values
                         .split(|v| matches!(v, CssValue::Comma))
                         .nth(usize::from(crate::stylesheet::prefers_dark()))
                         .map_or_else(Vec::new, <[CssValue]>::to_vec),
+                    // `min`/`max`/`clamp` are deliberately *not* evaluated here. Their operands
+                    // may be font-relative, and this runs while declarations are still being
+                    // collected - before the element's font-size is known - so an `em` would be
+                    // measured against the default 16px. `min(2em, 50px)` came out as 32px on an
+                    // element with `font-size: 20px`, where it should be 40px. The computed
+                    // stage evaluates them instead, once the basis exists.
                     _ => vec![val.clone()],
                 };
 

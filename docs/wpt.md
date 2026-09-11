@@ -102,8 +102,8 @@ It prints the suites that crash the engine first, then the ones that partly pass
 working first. That ordering is the recommendation: a crash is a bug a real page could reach,
 and after that the closer a suite is to passing the smaller the gap left to understand.
 
-Suites that fully fail are left out. A suite at 0/40 is usually missing a whole binding -
-`getComputedStyle`, the CSSOM stylesheet - and is a project rather than an afternoon; one that
+Suites that fully fail are left out. A suite at 0/40 is usually missing a whole binding - the
+CSSOM stylesheet, named access on `window` - and is a project rather than an afternoon; one that
 partly passes has an engine that already understands the shape of the thing and is wrong about
 a detail, which is what you want.
 
@@ -212,10 +212,10 @@ into strict mode: most suites were dying on their first sloppy-mode line and rep
 at all. The rate fell from 8.9% to 4.7% because what was being measured before was the handful
 of suites that happened to survive, not the corpus.
 
-The CSS component's 6.3% is close to a floor rather than a measurement of the parser: 156 of
-its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
-canonical serialization the engine does not produce. Where the parser is actually reached the
-numbers are much higher - `calc-size` at 32%, `urls` at 31%, `position` at 25%.
+The CSS component's rate is close to a floor rather than a measurement of the parser: most of
+its 309 suites assert a canonical serialization the engine does not produce, handing back the
+author's text instead. Where the parser is actually reached the numbers are much higher -
+`calc-size` at 32%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
 engine does, rather than DOM and Web APIs, which it mostly does not. Within CSS2 the
@@ -481,9 +481,10 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
   normalization (`calc(1vh + 2px + 3%)` should serialize as `calc(3% + 2px + 1vh)`) is a few
   hundred subtests on its own. Writing a serializer in the bindings would make those tests
   measure the binding rather than the engine, so the work belongs in `gosub_css3`.
-- **No `getComputedStyle`**, so nothing about the cascade, inheritance or used values is
-  reachable. 156 of the 309 suites in the CSS component need it and none of them can pass
-  without it - it is the single largest thing standing between the engine and those numbers.
+- **`getComputedStyle` reads the cascade but not the `style` attribute.** The cascade only
+  collects custom properties from that attribute; the render pipeline layers the ordinary
+  declarations on separately, so a computed value does not see them. A test that sets
+  `el.style.fontSize` and reads the result back therefore still fails.
 - **No CSSOM stylesheet.** `style.sheet`, `insertRule`, `deleteRule` and `cssRules[i].cssText`
   are all missing, which is what `test_valid_selector` and `test_valid_rule` drive - so the
   selector and at-rule parsers have no coverage here yet.

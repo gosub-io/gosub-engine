@@ -23,6 +23,17 @@ pub struct GosubNode {
     pub(crate) id: NodeId,
 }
 
+/// The node a JS value stands for, when it is one of our wrappers.
+///
+/// `getComputedStyle(el)` receives the wrapper rather than a node id, and the element it names
+/// is already recorded inside it - re-finding it in the document would be both slower and a
+/// different answer for a node that has since moved.
+pub(crate) fn node_id_of(value: &rquickjs::Value<'_>) -> Option<NodeId> {
+    let class = rquickjs::Class::<GosubNode>::from_value(value).ok()?;
+    let node = class.try_borrow().ok()?;
+    Some(node.id)
+}
+
 impl GosubNode {
     pub(crate) fn new(doc: DocHandle, id: NodeId) -> Self {
         Self { doc, id }

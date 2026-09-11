@@ -78,10 +78,13 @@ If the listing opens with a **Crashes** section, start there instead: those are 
 panicked the engine, which is a bug a real page could reach rather than a feature it lacks.
 There are none at the time of writing, but they come back.
 
-If nothing there appeals, the two big structural gaps are always open, and either is worth
-hundreds of subtests: **CSSOM serialization** (the engine hands back the author's text rather
-than a canonical form) and **`getComputedStyle`** (156 of the 309 CSS suites need it and none
-can pass without it).
+If nothing there appeals, the big structural gap is always open and is worth hundreds of
+subtests: **CSSOM serialization**. `el.style.width = "calc(calc(100px))"` reads back exactly
+that, because the engine stores the author's text rather than the serialization of the value it
+parsed — so `1PX` comes back `1PX` too. Fixing it is a small change in
+`crates/gosub_domjs/src/style.rs` and a larger one in what `CssValue`'s `Display` emits, which
+is wrong for colours (`#7f7f7fff` where the CSSOM wants `rgb(...)`) and for `url()` (it drops
+the quotes).
 
 Run your pick on its own. Every failing line carries the assertion and what the engine gave
 instead:
