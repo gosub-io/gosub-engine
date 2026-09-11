@@ -963,6 +963,15 @@ impl CssValue {
                         return Ok(CssValue::Color(color));
                     }
                 }
+                // A math function is simplified here for the same reason a `calc()` body is, and
+                // as far as the same knowledge allows. What reduces serializes as `calc()` -
+                // `min(1px, 2px)` is `calc(1px)` - and what does not (`min(1em, 2px)`, before
+                // there is a font-size) stays exactly as written.
+                if let Some(reduced) =
+                    crate::functions::calc::evaluate_call(&name, &list, &crate::functions::calc::Units::none(), false)
+                {
+                    return Ok(reduced);
+                }
                 Ok(CssValue::Function(name, list))
             }
 

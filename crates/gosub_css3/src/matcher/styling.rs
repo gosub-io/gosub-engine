@@ -691,10 +691,15 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
         }
         CssValue::Function(name, args) => {
             let args: Vec<CssValue> = args.iter().map(recurse).collect();
-            // A comparison function is evaluated here rather than when the declaration was
-            // collected, because only now is an `em` among its arguments worth anything. The
-            // cascade also tries this earlier, where the basis is not yet known - and got
-            // `min(2em, 50px)` wrong by resolving the `em` against the default 16px.
+            // A math function is evaluated here rather than when the declaration was collected,
+            // because only now is an `em` among its arguments worth anything. Parsing tries the
+            // same thing with less to go on, and what it could not reduce lands here.
+            let units = calc::Units::computed(em_basis, rem_basis);
+            if let Some(reduced) = calc::evaluate_call(name, &args, &units, true) {
+                return reduced;
+            }
+            // `resolve_math` still covers the units the evaluator leaves symbolic, since it
+            // reduces everything through `unit_to_px` rather than comparing like with like.
             crate::functions::math::resolve_math(name, &args).unwrap_or(CssValue::Function(name.clone(), args))
         }
         other => other.clone(),

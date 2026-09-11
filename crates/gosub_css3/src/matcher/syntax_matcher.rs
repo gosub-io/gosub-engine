@@ -1057,6 +1057,7 @@ fn is_math_function(name: &str) -> bool {
         "min",
         "max",
         "clamp",
+        "progress",
         "round",
         "mod",
         "rem",

@@ -255,6 +255,34 @@ pub fn evaluate(body: &str, units: &Units, unwrap: bool) -> Option<CssValue> {
     ))
 }
 
+/// Evaluate a whole math-function call - `min(1px, 2px)`, `progress(100px, 0px, 100px)` - rather
+/// than a `calc()` body.
+///
+/// Only `calc()` used to be folded, because only `calc()` held its expression as text. Everything
+/// else kept its arguments as values and reached serialization untouched, so
+/// `progress(100px, 0px, 100px)` came back as itself where it should read `calc(1)`.
+///
+/// `None` means it did not reduce, and the call should be left exactly as it was.
+#[must_use]
+pub fn evaluate_call(name: &str, args: &[CssValue], units: &Units, unwrap: bool) -> Option<CssValue> {
+    if !is_evaluable(name) || name.eq_ignore_ascii_case("calc") || has_unevaluable(args) {
+        return None;
+    }
+    let text = CssValue::Function(name.to_string(), args.to_vec()).to_string();
+    let sum = simplify(&text, units)?;
+    if unwrap {
+        if let Some(value) = sum.single_value() {
+            return Some(make_finite(value));
+        }
+    }
+    // A reduced math function serializes as `calc()`, whatever function it started as - the
+    // expression is gone, and what is left is a plain value in a math context.
+    Some(CssValue::Function(
+        "calc".to_string(),
+        vec![CssValue::String(sum.serialize())],
+    ))
+}
+
 /// The largest length this engine will admit, which is what an infinity becomes once a value has
 /// to be a real number.
 ///
@@ -337,7 +365,10 @@ pub enum MathType {
 /// The math functions whose arguments this can evaluate. Anything else - `sin()`, `round()`,
 /// `var()` - makes the whole expression undecidable rather than invalid.
 fn is_evaluable(name: &str) -> bool {
-    matches!(name.cow_to_ascii_lowercase().as_ref(), "calc" | "min" | "max" | "clamp")
+    matches!(
+        name.cow_to_ascii_lowercase().as_ref(),
+        "calc" | "min" | "max" | "clamp" | "progress"
+    )
 }
 
 /// Whether anything in here is a function this cannot evaluate.
@@ -386,86 +417,32 @@ pub fn math_function_type(name: &str, args: &[CssValue], units: &Units) -> MathT
         return MathType::Unknown;
     }
 
-    // `calc()` holds one body, as text. Everything else holds a comma-separated argument list,
-    // which arrives as values with the commas kept among them.
-    let groups: Vec<String> = if name.eq_ignore_ascii_case("calc") {
-        match args {
-            [CssValue::String(body)] => vec![body.clone()],
-            _ => return MathType::Invalid,
-        }
-    } else {
-        split_on_commas(args)
-    };
-
-    // `clamp()` is MIN, VAL, MAX and nothing else; `min()` and `max()` take at least one.
-    let arity_ok = if name.eq_ignore_ascii_case("clamp") {
-        groups.len() == 3
-    } else {
-        !groups.is_empty()
-    };
-    if !arity_ok {
+    // Evaluate the call as a whole rather than reasoning about its arguments here. The grammar
+    // lives in one place that way - arity, `clamp()`'s `none` bounds, `progress()`'s `no-clamp`
+    // and the fact that `progress()` returns a *number* whatever its arguments were. Picking
+    // arguments apart separately got all four of those wrong.
+    //
+    // `Display` on a `CssValue` is its CSS serialization, so writing the call back out and
+    // re-reading it is exact.
+    let text = CssValue::Function(name.to_string(), args.to_vec()).to_string();
+    let Some(sum) = simplify_with(&text, units, Mode::TypeOnly) else {
         return MathType::Invalid;
-    }
+    };
 
-    let is_clamp = name.eq_ignore_ascii_case("clamp");
     let mut kinds: Vec<&'static str> = Vec::new();
-    for (index, group) in groups.iter().enumerate() {
-        // An empty argument - `min(1px, )`, `min(,)` - is a syntax error, not an omission.
-        if group.trim().is_empty() {
-            return MathType::Invalid;
-        }
-        // `clamp()` takes `none` for either bound, meaning "do not clamp on this side"
-        // (css-values-5). It is a keyword rather than a value, so it carries no datatype and
-        // the arithmetic never sees it.
-        if is_clamp && index != 1 && group.trim().eq_ignore_ascii_case("none") {
-            continue;
-        }
-        let Some(sum) = simplify_with(group, units, Mode::TypeOnly) else {
-            return MathType::Invalid;
-        };
-        let Some((unit, _)) = sum.single_term() else {
-            // Two terms left means a percentage against a length, which is a legal
-            // `<length-percentage>`; report both so the caller can decide.
-            for unit in sum.terms.keys() {
-                let Some(kind) = unit_datatype(unit) else {
-                    return MathType::Invalid;
-                };
-                if !kinds.contains(&kind) {
-                    kinds.push(kind);
-                }
-            }
-            continue;
-        };
-        let Some(kind) = unit_datatype(&unit) else {
+    for unit in sum.terms.keys() {
+        let Some(kind) = unit_datatype(unit) else {
             return MathType::Invalid;
         };
         if !kinds.contains(&kind) {
             kinds.push(kind);
         }
     }
-
+    if kinds.is_empty() {
+        return MathType::Invalid;
+    }
     kinds.sort_unstable();
     MathType::Resolved(kinds)
-}
-
-/// Split an argument list on its `Comma` separators, serializing each group back to text so the
-/// evaluator can read it. The values came from the parser, and `Display` is their CSS
-/// serialization, so the round-trip is exact.
-fn split_on_commas(args: &[CssValue]) -> Vec<String> {
-    let mut groups = Vec::new();
-    let mut current = String::new();
-    for arg in args {
-        if matches!(arg, CssValue::Comma) {
-            groups.push(std::mem::take(&mut current));
-            continue;
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        let _ = write!(current, "{arg}");
-    }
-    groups.push(current);
-    groups
 }
 
 fn finite(value: f32) -> f32 {
@@ -545,6 +522,8 @@ enum Tok {
     Open,
     /// A comparison function that takes this expression as one of its arguments.
     Func(String),
+    /// A bare identifier. Only `no-clamp`, at the head of a `progress()`, means anything.
+    Ident(String),
     Comma,
     Close,
 }
@@ -631,12 +610,16 @@ fn lex(body: &str) -> Option<Vec<Lexed>> {
                         i += 1;
                         Tok::Open
                     }
-                    "min" | "max" | "clamp" if opens => {
+                    "min" | "max" | "clamp" | "progress" if opens => {
                         i += 1;
                         Tok::Func(name)
                     }
                     _ if opens => return None,
-                    _ => Tok::Value(constant(&name)?, String::new()),
+                    // A constant, else an identifier the grammar may or may not allow here.
+                    _ => match constant(&name) {
+                        Some(value) => Tok::Value(value, String::new()),
+                        None => Tok::Ident(name),
+                    },
                 }
             }
             _ => {
@@ -735,6 +718,24 @@ impl Parser<'_> {
         self.tokens.get(self.pos).map(|l| &l.tok)
     }
 
+    /// Consume a `none` standing alone as a whole `clamp()` argument, if that is what is here.
+    ///
+    /// It has to be the entire argument - `clamp(none + 1px, ...)` is not a bound with a keyword
+    /// in it - so the token after it must end the argument.
+    fn take_none_bound(&mut self) -> bool {
+        if !matches!(self.peek(), Some(Tok::Ident(word)) if word == "none") {
+            return false;
+        }
+        if !matches!(
+            self.tokens.get(self.pos + 1).map(|l| &l.tok),
+            Some(Tok::Comma | Tok::Close)
+        ) {
+            return false;
+        }
+        self.pos += 1;
+        true
+    }
+
     fn sum(&mut self) -> Option<Sum> {
         let mut acc = self.product()?;
         while let Some(lexed) = self.tokens.get(self.pos) {
@@ -814,9 +815,25 @@ impl Parser<'_> {
             Tok::Func(name) => {
                 let name = name.clone();
                 self.pos += 1;
-                let mut args = Vec::new();
+                // `progress()` may open with `no-clamp`, which turns off the clamping it
+                // otherwise does on its first argument.
+                let mut clamped = true;
+                if matches!(self.peek(), Some(Tok::Ident(word)) if word == "no-clamp") {
+                    if !name.eq_ignore_ascii_case("progress") {
+                        return None;
+                    }
+                    clamped = false;
+                    self.pos += 1;
+                }
+                let is_clamp = name.eq_ignore_ascii_case("clamp");
+                // `None` is `clamp()`'s `none` bound: no limit on that side (css-values-5).
+                let mut args: Vec<Option<Sum>> = Vec::new();
                 loop {
-                    args.push(self.sum()?);
+                    if is_clamp && self.take_none_bound() {
+                        args.push(None);
+                    } else {
+                        args.push(Some(self.sum()?));
+                    }
                     match self.peek() {
                         Some(Tok::Comma) => self.pos += 1,
                         Some(Tok::Close) => {
@@ -826,11 +843,83 @@ impl Parser<'_> {
                         _ => return None,
                     }
                 }
+
+                // An unbounded side is simply not compared against, so `clamp()` with one comes
+                // out as the comparison that remains. That keeps the arity check honest and
+                // means nothing downstream has to know about the keyword.
+                if is_clamp {
+                    let [low, value, high] = args.as_slice() else {
+                        return None;
+                    };
+                    return match (low, high) {
+                        (None, None) => value.clone(),
+                        (None, Some(high)) => fold_comparison("min", &[value.clone()?, high.clone()], self.mode),
+                        (Some(low), None) => fold_comparison("max", &[low.clone(), value.clone()?], self.mode),
+                        (Some(low), Some(high)) => {
+                            fold_comparison("clamp", &[low.clone(), value.clone()?, high.clone()], self.mode)
+                        }
+                    };
+                }
+
+                let args: Option<Vec<Sum>> = args.into_iter().collect();
+                let args = args?;
+                if name.eq_ignore_ascii_case("progress") {
+                    return fold_progress(&args, clamped, self.mode);
+                }
                 fold_comparison(&name, &args, self.mode)
             }
-            Tok::Star | Tok::Slash | Tok::Close | Tok::Comma => None,
+            // A bare identifier is not a value. `no-clamp` is handled above, where it belongs.
+            Tok::Ident(_) | Tok::Star | Tok::Slash | Tok::Close | Tok::Comma => None,
         }
     }
+}
+
+/// Fold `progress(V, S, E)` - how far `V` has got from `S` towards `E`, as a `<number>`.
+///
+/// All three arguments have to be the same kind of thing, and the answer never is: three lengths
+/// give a number, and that is the point of the function.
+///
+/// By default `V` is clamped into the range before the division, *not* the result afterwards.
+/// The two agree everywhere except when `S` and `E` are the same, and that is the case the wpt
+/// suite pins down: `progress(2rad, 1rad, 1rad)` is `0`, where clamping the result would make it
+/// `1` (the raw value is `+infinity`, which `no-clamp` does report). `no-clamp` skips it.
+fn fold_progress(args: &[Sum], clamped: bool, mode: Mode) -> Option<Sum> {
+    let [value, start, end] = args else {
+        return None;
+    };
+
+    if mode == Mode::TypeOnly {
+        // Whatever the arguments are, they must agree, and the result is a number either way.
+        let mut kind: Option<&'static str> = None;
+        for arg in args {
+            for unit in arg.terms.keys() {
+                let found = unit_datatype(unit)?;
+                if *kind.get_or_insert(found) != found {
+                    return None;
+                }
+            }
+        }
+        return Some(Sum::term("", 0.0));
+    }
+
+    let (value_unit, value) = value.single_term()?;
+    let (start_unit, start) = start.single_term()?;
+    let (end_unit, end) = end.single_term()?;
+    if value_unit != start_unit || start_unit != end_unit {
+        return None;
+    }
+
+    // Written to hold however the range is ordered, rather than assuming `S <= E`.
+    let value = if clamped {
+        value.max(start.min(end)).min(start.max(end))
+    } else {
+        value
+    };
+    let progress = (value - start) / (end - start);
+    // `0 / 0` is NaN, and `progress(1rad, 1rad, 1rad)` is defined to be 0 - the value did get
+    // all the way from the start to the end, the distance was just zero. The other two
+    // degenerate cases fall out of the division as the infinities the suite expects.
+    Some(Sum::term("", if progress.is_nan() { 0.0 } else { progress }))
 }
 
 /// Fold `min()`, `max()` or `clamp()` over arguments that have already been simplified.
@@ -868,6 +957,14 @@ fn fold_comparison(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
         values.push(value);
     }
     let unit = unit?;
+
+    // Percentages have no order of their own. The basis one is taken of can be negative, and
+    // then the larger percentage is the smaller length - so `min(1%, 2%)` cannot be decided
+    // until there is something to be a percentage *of*, and has to survive to layout as written.
+    // (`progress()` is untouched by this: its basis cancels in the ratio.)
+    if unit == "%" {
+        return None;
+    }
 
     // NaN is contagious through a comparison, which `f32::min` and `f32::max` are not: they are
     // defined to *ignore* it and return the other operand, so `max(NaN, 0)` would come out 0
@@ -1020,6 +1117,112 @@ mod tests {
         // Including one inside a `calc()` body, which is text rather than values.
         let body = vec![CssValue::String("1px + sin(45deg)".to_string())];
         assert_eq!(math_function_type("calc", &body, &Units::none()), MathType::Unknown);
+    }
+
+    #[test]
+    fn progress_compares_across_units_of_one_datatype() {
+        // Arguments need to be the same *kind* of thing, not the same unit. Anything with a
+        // fixed conversion is canonicalised before the comparison, so these mix freely.
+        assert_eq!(parsed("progress(1in, 0px, 192px)").as_deref(), Some("0.5"));
+        assert_eq!(parsed("progress(96px, 0in, 2in)").as_deref(), Some("0.5"));
+        assert_eq!(parsed("progress(0.5turn, 0deg, 360deg)").as_deref(), Some("0.5"));
+        assert_eq!(parsed("progress(500ms, 0s, 1s)").as_deref(), Some("0.5"));
+
+        // A unit whose conversion is not known yet waits, rather than being wrong: `em` and
+        // `vw` become px once there is a font-size and a viewport.
+        let computed = Units::computed(10.0, 16.0);
+        assert_eq!(parsed("progress(10em, 0px, 10em)"), None);
+        assert_eq!(body("progress(10em, 0px, 10em)", &computed).as_deref(), Some("1"));
+        assert_eq!(parsed("progress(1vw, 0px, 10px)"), None);
+
+        // `ch` depends on a font this never sees, so it stays unresolved at every stage.
+        assert_eq!(parsed("progress(1ch, 0px, 10px)"), None);
+        assert_eq!(body("progress(1ch, 0px, 10px)", &computed), None);
+
+        // Different datatypes are not a question of conversion - there is no answer.
+        assert_eq!(parsed("progress(10deg, 0, 10)"), None);
+        assert_eq!(parsed("progress(1px, 0%, 100%)"), None);
+    }
+
+    #[test]
+    fn percentages_have_no_order_to_compare() {
+        // The basis a percentage is taken of can be negative, and then the larger percentage is
+        // the smaller length - so a comparison over percentages cannot be decided until there is
+        // something to be a percentage *of*, and has to reach layout as written.
+        assert_eq!(parsed("min(1%, 2%, 3%)"), None);
+        assert_eq!(parsed("max(-1%, 1%)"), None);
+        assert_eq!(parsed("clamp(1%, 2%, 3%)"), None);
+        // A percentage against a length is not comparable either, for the same reason.
+        assert_eq!(parsed("min(1%, 2px)"), None);
+        // `progress()` is untouched: its basis cancels in the ratio.
+        assert_eq!(parsed("progress(1%, (10% - 10%), 100%)").as_deref(), Some("0.01"));
+    }
+
+    #[test]
+    fn progress_measures_how_far_a_value_got() {
+        assert_eq!(parsed("progress(100px, 0px, 100px)").as_deref(), Some("1"));
+        assert_eq!(parsed("progress(1%, (10% - 10%), 100%)").as_deref(), Some("0.01"));
+        // Three lengths in, a number out - which is the point of the function.
+        assert_eq!(
+            parsed("calc(50px * progress(100px, 0px, 100px))").as_deref(),
+            Some("50px")
+        );
+        // Arguments that disagree are not comparable.
+        assert_eq!(parsed("progress(10deg, 0, 10)"), None);
+        assert_eq!(parsed("progress(10, 0px, 10)"), None);
+        assert_eq!(parsed("progress(1px, 2px)"), None);
+    }
+
+    #[test]
+    fn progress_clamps_its_input_by_default() {
+        // Out of range in both directions.
+        assert_eq!(
+            parsed("calc(0.5 * progress(200px, 0px, 100px))").as_deref(),
+            Some("0.5")
+        );
+        assert_eq!(parsed("calc(0.5 * progress(-100px, 0px, 100px))").as_deref(), Some("0"));
+        // `no-clamp` reports the raw value instead.
+        assert_eq!(
+            parsed("calc(0.5 * progress(no-clamp 200px, 0px, 100px))").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            parsed("calc(0.5 * progress(no-clamp -100px, 0px, 100px))").as_deref(),
+            Some("-0.5")
+        );
+        // `no-clamp` belongs to `progress()` alone.
+        assert_eq!(parsed("min(no-clamp 1px, 2px)"), None);
+    }
+
+    #[test]
+    fn progress_over_an_empty_range() {
+        // Clamping the *input* is what makes these zero: the value is pulled onto the start, so
+        // it has travelled the whole of a zero-length range. Clamping the result instead would
+        // make the first one 1, since the raw value is +infinity.
+        assert_eq!(parsed("progress(2rad, 1rad, 1rad)").as_deref(), Some("0"));
+        assert_eq!(parsed("progress(1rad, 1rad, 1rad)").as_deref(), Some("0"));
+        assert_eq!(parsed("progress(0rad, 1rad, 1rad)").as_deref(), Some("0"));
+        // Unclamped, the division says what it says - and `0 / 0` is the one that is defined to
+        // be zero rather than NaN.
+        assert_eq!(
+            parsed("progress(no-clamp 2rad, 1rad, 1rad)").as_deref(),
+            Some("infinity")
+        );
+        assert_eq!(parsed("progress(no-clamp 1rad, 1rad, 1rad)").as_deref(), Some("0"));
+        assert_eq!(
+            parsed("progress(no-clamp 0rad, 1rad, 1rad)").as_deref(),
+            Some("-infinity")
+        );
+    }
+
+    #[test]
+    fn progress_waits_for_the_cascade_like_everything_else() {
+        // `em` against `px` cannot be compared before a font-size exists, so the expression
+        // stays as written - which is exactly what its specified serialization should be.
+        assert_eq!(parsed("progress(10em, 0px, 10em)"), None);
+        let units = Units::computed(10.0, 16.0);
+        assert_eq!(body("progress(10em, 0px, 10em)", &units).as_deref(), Some("1"));
+        assert_eq!(body("progress(10em, 0px, 10rem)", &units).as_deref(), Some("0.625"));
     }
 
     #[test]
