@@ -53,7 +53,7 @@ impl Css3<'_> {
     pub fn consume_any_number(&mut self) -> CssResult<Number> {
         let t = self.tokenizer.consume();
         match t.token_type {
-            TokenType::Number(value) => Ok(value),
+            TokenType::Number(value, _) => Ok(value),
             _ => Err(CssError::with_location(
                 format!("Expected number, got {t:?}").as_str(),
                 self.tokenizer.current_location(),

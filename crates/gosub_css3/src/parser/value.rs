@@ -92,8 +92,8 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Percentage { value }, t.location);
                 Ok(Some(node))
             }
-            TokenType::Number(value) => {
-                let node = Node::new(NodeType::Number { value }, t.location);
+            TokenType::Number(value, kind) => {
+                let node = Node::new(NodeType::Number { value, kind }, t.location);
                 Ok(Some(node))
             }
             TokenType::Function(ref name) => {
@@ -143,7 +143,7 @@ impl Css3<'_> {
                             },
                             t.location,
                         ),
-                        TokenType::Number(default_value) => Node::new(
+                        TokenType::Number(default_value, _) => Node::new(
                             NodeType::MSIdent {
                                 value: value.to_string(),
                                 default_value: default_value.to_string(),

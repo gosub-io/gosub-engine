@@ -43,7 +43,7 @@ pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
 fn operand_px(value: &CssValue) -> Option<f32> {
     match value {
         CssValue::Unit(..) => Some(value.unit_to_px()),
-        CssValue::Number(n) => Some(*n),
+        CssValue::Number(n, _) => Some(*n),
         CssValue::Zero => Some(0.0),
         _ => None,
     }

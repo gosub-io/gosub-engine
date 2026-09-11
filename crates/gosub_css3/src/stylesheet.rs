@@ -14,6 +14,7 @@ use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
 use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
 use crate::supports::SupportsCondition;
+use crate::tokenizer::NumberKind;
 
 /// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
 /// computations on this thread. The render flow calls this before building and laying out the
@@ -704,7 +705,10 @@ pub enum CssValue {
     None,
     Color(RgbColor),
     Zero,
-    Number(f32),
+    /// A number, with the type flag css-syntax gave it. `<integer>` reads the flag rather than
+    /// asking whether the value happens to be whole, so `1e1` is a `<number>` and not an
+    /// `<integer>` even though it is ten.
+    Number(f32, NumberKind),
     Percentage(f32),
     String(String),
     Unit(f32, String),
@@ -777,7 +781,7 @@ impl Display for CssValue {
             // form is not a serialization any CSS consumer expects; it was a debug rendering.
             CssValue::Color(col) => write!(f, "{col}"),
             CssValue::Zero => write!(f, "0"),
-            CssValue::Number(num) => write!(f, "{num}"),
+            CssValue::Number(num, _) => write!(f, "{num}"),
             CssValue::Percentage(p) => write!(f, "{p}%"),
             CssValue::String(s) => write!(f, "{s}"),
             CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
@@ -923,13 +927,18 @@ impl CssValue {
     pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
         match node.node_type {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Number { value } => {
+            crate::node::NodeType::Number { value, kind } => {
                 if value == 0.0 {
                     // Zero is a special case since we need to do some pattern matching once in a while, and
-                    // this is not possible (anymore) with floating point 0.0 it seems
+                    // this is not possible (anymore) with floating point 0.0 it seems.
+                    //
+                    // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
+                    // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
+                    // bare zero through this variant, so giving it a flag is a wider change than
+                    // the one case it would fix.
                     Ok(CssValue::Zero)
                 } else {
-                    Ok(CssValue::Number(value))
+                    Ok(CssValue::Number(value, kind))
                 }
             }
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
@@ -1013,7 +1022,13 @@ impl CssValue {
         }
 
         if let Ok(num) = value.parse::<f32>() {
-            return Ok(CssValue::Number(num));
+            // This reads text, so it can see the spelling css-syntax keys the type flag on.
+            let kind = if value.contains(['.', 'e', 'E']) {
+                NumberKind::Number
+            } else {
+                NumberKind::Integer
+            };
+            return Ok(CssValue::Number(num, kind));
         }
 
         // Color values
@@ -1096,7 +1111,7 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
     let nums: Vec<f32> = args
         .iter()
         .filter_map(|v| match v {
-            CssValue::Number(n) => Some(*n),
+            CssValue::Number(n, _) => Some(*n),
             CssValue::Percentage(p) => Some(*p),
             CssValue::Zero => Some(0.0),
             CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(0.0),
@@ -1117,7 +1132,7 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
     let is_pct: Vec<bool> = args
         .iter()
         .filter_map(|v| match v {
-            CssValue::Number(_) | CssValue::Zero => Some(false),
+            CssValue::Number(..) | CssValue::Zero => Some(false),
             CssValue::Percentage(_) => Some(true),
             CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(false),
             _ => None,
@@ -1273,7 +1288,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn new_number(value: f32) -> Self {
-        CssValue::Number(value)
+        CssValue::Number(value, NumberKind::Integer)
     }
 
     fn new_list(value: Vec<Self>) -> Self {
@@ -1318,7 +1333,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_number(&self) -> Option<f32> {
         match self {
-            CssValue::Number(num) => Some(*num),
+            CssValue::Number(num, _) => Some(*num),
             // Bare `0` (no unit) is a valid zero value for any numeric property.
             CssValue::Zero => Some(0.0),
             _ => None,
@@ -1392,15 +1407,15 @@ mod test {
         let unresolved = CssValue::Function(
             "calc".to_string(),
             vec![
-                CssValue::Number(0.1),
+                CssValue::Number(0.1, NumberKind::Integer),
                 CssValue::String("*".to_string()),
                 CssValue::Function("sibling-index".to_string(), vec![]),
             ],
         );
         let args = vec![
-            CssValue::Number(0.5),
-            CssValue::Number(0.2),
-            CssValue::Number(180.0),
+            CssValue::Number(0.5, NumberKind::Integer),
+            CssValue::Number(0.2, NumberKind::Integer),
+            CssValue::Number(180.0, NumberKind::Integer),
             unresolved,
         ];
         assert_eq!(parse_css_color_function("oklch", &args), None);
@@ -1409,12 +1424,16 @@ mod test {
         let resolvable = CssValue::Function(
             "calc".to_string(),
             vec![
-                CssValue::Number(100.0),
+                CssValue::Number(100.0, NumberKind::Integer),
                 CssValue::String("+".to_string()),
-                CssValue::Number(55.0),
+                CssValue::Number(55.0, NumberKind::Integer),
             ],
         );
-        let args = vec![resolvable, CssValue::Number(0.0), CssValue::Number(0.0)];
+        let args = vec![
+            resolvable,
+            CssValue::Number(0.0, NumberKind::Integer),
+            CssValue::Number(0.0, NumberKind::Integer),
+        ];
         assert_eq!(
             parse_css_color_function("rgb", &args),
             Some(RgbColor::new(155.0, 0.0, 0.0, 255.0))
@@ -1686,13 +1705,13 @@ mod test {
         let c = parse_css_color_function(
             "rgba",
             &[
-                CssValue::Number(14.0),
+                CssValue::Number(14.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(42.0),
+                CssValue::Number(42.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(54.0),
+                CssValue::Number(54.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(0.5),
+                CssValue::Number(0.5, NumberKind::Integer),
             ],
         )
         .expect("rgba should parse");
@@ -1702,7 +1721,11 @@ mod test {
         // rgb() without alpha is fully opaque.
         let c = parse_css_color_function(
             "rgb",
-            &[CssValue::Number(255.0), CssValue::Number(0.0), CssValue::Number(0.0)],
+            &[
+                CssValue::Number(255.0, NumberKind::Integer),
+                CssValue::Number(0.0, NumberKind::Integer),
+                CssValue::Number(0.0, NumberKind::Integer),
+            ],
         )
         .unwrap();
         assert_eq!((c.r, c.g, c.b, c.a), (255.0, 0.0, 0.0, 255.0));
@@ -1711,7 +1734,7 @@ mod test {
         let c = parse_css_color_function(
             "hsl",
             &[
-                CssValue::Number(0.0),
+                CssValue::Number(0.0, NumberKind::Integer),
                 CssValue::Percentage(100.0),
                 CssValue::Percentage(50.0),
             ],

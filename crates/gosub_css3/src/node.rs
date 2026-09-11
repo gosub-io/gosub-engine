@@ -1,3 +1,4 @@
+use crate::tokenizer::NumberKind;
 use core::fmt::{Display, Formatter};
 use gosub_shared::byte_stream::Location;
 
@@ -45,6 +46,8 @@ pub enum NodeType {
     },
     Number {
         value: Number,
+        /// Whether it was written as an integer. `<integer>` needs the spelling, not the value.
+        kind: NumberKind,
     },
     Percentage {
         value: Number,
@@ -300,7 +303,7 @@ impl Node {
     #[must_use]
     pub fn as_number(&self) -> Option<&Number> {
         match &self.node_type {
-            NodeType::Number { value } => Some(value),
+            NodeType::Number { value, .. } => Some(value),
             _ => None,
         }
     }
@@ -470,7 +473,7 @@ impl Display for Node {
                 .collect::<String>(),
             NodeType::IdSelector { value } => value.clone(),
             NodeType::Ident { value } => value.clone(),
-            NodeType::Number { value } => value.to_string(),
+            NodeType::Number { value, .. } => value.to_string(),
             NodeType::Percentage { value } => format!("{value}%"),
             NodeType::Dimension { value, unit } => format!("{value}{unit}"),
             NodeType::Hash { value } => format!("#{}", value.clone()),

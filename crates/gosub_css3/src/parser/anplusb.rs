@@ -84,7 +84,7 @@ impl Css3<'_> {
                 self.consume_delim('+')?;
                 false
             }
-            TokenType::Number(_) => false,
+            TokenType::Number(_, _) => false,
             _ => {
                 return Err(CssError::with_location(
                     format!(
@@ -185,7 +185,7 @@ impl Css3<'_> {
 
         let t = self.tokenizer.consume();
         match t.token_type {
-            TokenType::Number(_) => {
+            TokenType::Number(_, _) => {
                 self.tokenizer.reconsume(t);
                 b = self.consume_any_number()?.to_string();
             }

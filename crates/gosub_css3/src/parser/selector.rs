@@ -328,7 +328,7 @@ impl Css3<'_> {
                 }
                 TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
 
-                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
+                TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, t.location),
 
                 TokenType::Percentage(value) => Node::new(NodeType::Percentage { value }, t.location),
 

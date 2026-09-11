@@ -52,6 +52,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::stylesheet::CssValue;
+use crate::tokenizer::NumberKind;
 
 /// What the relative units are worth at the point of evaluation.
 ///
@@ -146,7 +147,7 @@ impl Sum {
         #[expect(clippy::cast_possible_truncation, reason = "CssValue is f32; see above")]
         let value = *value as f32;
         Some(match unit.as_str() {
-            "" => CssValue::Number(value),
+            "" => CssValue::Number(value, NumberKind::Integer),
             "%" => CssValue::Percentage(value),
             unit => CssValue::Unit(value, unit.to_string()),
         })
@@ -233,7 +234,7 @@ fn term_values(value: f64, unit: &str) -> Vec<CssValue> {
     #[expect(clippy::cast_possible_truncation, reason = "the value it becomes is an f32")]
     let value = value as f32;
     match unit {
-        "" => vec![CssValue::Number(value)],
+        "" => vec![CssValue::Number(value, NumberKind::Integer)],
         "%" => vec![CssValue::Percentage(value)],
         unit => vec![CssValue::Unit(value, unit.to_string())],
     }
@@ -347,7 +348,7 @@ pub const MAX_FINITE: f32 = 33_554_428.0;
 /// `width: calc(NaN * 1%)` - there is nothing left to take a percentage of.
 fn make_finite(value: CssValue) -> CssValue {
     match value {
-        CssValue::Number(n) if !n.is_finite() => CssValue::Number(finite(n)),
+        CssValue::Number(n, kind) if !n.is_finite() => CssValue::Number(finite(n), kind),
         CssValue::Percentage(p) if !p.is_finite() => {
             if p.is_nan() {
                 CssValue::Unit(0.0, "px".to_string())
@@ -685,7 +686,7 @@ fn lex_values(values: &[CssValue], out: &mut Vec<Lexed>) -> Option<()> {
     for value in values {
         let tok = match value {
             CssValue::Zero => Tok::Value(0.0, String::new()),
-            CssValue::Number(number) => Tok::Value(f64::from(*number), String::new()),
+            CssValue::Number(number, _) => Tok::Value(f64::from(*number), String::new()),
             CssValue::Percentage(percentage) => Tok::Value(f64::from(*percentage), "%".to_string()),
             CssValue::Unit(number, unit) => Tok::Value(f64::from(*number), unit.cow_to_ascii_lowercase().into_owned()),
             CssValue::Comma => Tok::Comma,
@@ -1334,7 +1335,7 @@ mod tests {
             );
         }
         if let Ok(number) = token.parse::<f32>() {
-            return CssValue::Number(number);
+            return CssValue::Number(number, NumberKind::Integer);
         }
         let split = token.find(|c: char| c.is_ascii_alphabetic());
         match split.filter(|i| *i > 0).and_then(|i| {

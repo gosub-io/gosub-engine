@@ -69,7 +69,7 @@ impl Css3<'_> {
                     name: String::new(),
                     arguments: self.recurse(Self::parse_calc_tokens)?,
                 },
-                TokenType::Number(value) => NodeType::Number { value },
+                TokenType::Number(value, kind) => NodeType::Number { value, kind },
                 TokenType::Dimension { value, unit } => NodeType::Dimension { value, unit },
                 TokenType::Percentage(value) => NodeType::Percentage { value },
                 // An identifier is a numeric constant (`pi`, `e`, `infinity`, `NaN`) or a

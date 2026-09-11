@@ -708,7 +708,7 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
         let val = match value {
             CssValue::Unit(v, _) => v as i64,
             CssValue::Zero => 0,
-            CssValue::Number(v) => v as i64,
+            CssValue::Number(v, _) => v as i64,
             _ => {
                 return Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify)));
             }

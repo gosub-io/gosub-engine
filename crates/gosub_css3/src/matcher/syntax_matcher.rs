@@ -3,6 +3,7 @@ use crate::functions::calc;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
+use crate::tokenizer::NumberKind;
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -424,12 +425,23 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 },
                 "number" => match value {
                     CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Number(n) if range.contains(*n) => return first_match(input),
+                    CssValue::Number(n, _) if range.contains(*n) => return first_match(input),
                     _ => {}
                 },
+                // An `<integer>` is spelled as digits with an optional sign: no decimal point
+                // and no exponent. `1e1` and `10` are the same number and only one of them is an
+                // integer, so the css-syntax type flag decides this and not the value - asking
+                // whether the value happens to be whole says yes to `z-index: 1e1`.
+                //
+                // A math function is not held to the spelling: `calc(1e1)` and `calc(10.1)` are
+                // both valid here, because css-values rounds a math function's result to the
+                // nearest integer in an `<integer>` context. Those arrive as a function and are
+                // answered by the `is_math_function` branch above, never here.
                 "integer" => match value {
                     CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Number(n) if n.fract() == 0.0 && range.contains(*n) => return first_match(input),
+                    CssValue::Number(n, NumberKind::Integer) if n.fract() == 0.0 && range.contains(*n) => {
+                        return first_match(input)
+                    }
                     _ => {}
                 },
                 "system-color" => {
@@ -509,7 +521,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // A bare `0` is a valid value for any unit-typed component (e.g. `<length>`):
                 // it parses to the dedicated `Zero` variant, and `Number(0)` is the same case.
                 CssValue::Zero => return first_match(input),
-                CssValue::Number(n) if *n == 0.0 => return first_match(input),
+                CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
                 CssValue::Unit(n, u)
                     if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) =>
                 {

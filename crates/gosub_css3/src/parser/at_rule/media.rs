@@ -13,7 +13,7 @@ impl Css3<'_> {
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
-            TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
+            TokenType::Number(value, kind) => Ok(Node::new(NodeType::Number { value, kind }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(_) => {
                 self.tokenizer.reconsume(t);
@@ -98,7 +98,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             let first = match t.token_type {
-                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
+                TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, t.location),
                 TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
                 TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
                 TokenType::Function(_) => {

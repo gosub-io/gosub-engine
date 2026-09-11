@@ -75,7 +75,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::Ident { value } => {
             writeln!(f, "{prefix}[Ident] {value}")?;
         }
-        NodeType::Number { value } => {
+        NodeType::Number { value, .. } => {
             writeln!(f, "{prefix}[Number] {value}")?;
         }
         NodeType::Percentage { value } => {

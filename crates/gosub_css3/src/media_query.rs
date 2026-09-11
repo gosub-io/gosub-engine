@@ -344,7 +344,7 @@ pub enum FeatureValue {
 impl FeatureValue {
     fn from_ast(node: &Node) -> Option<Self> {
         match &node.node_type {
-            NodeType::Number { value } => Some(FeatureValue::Number(*value)),
+            NodeType::Number { value, .. } => Some(FeatureValue::Number(*value)),
             NodeType::Ident { value } => Some(FeatureValue::Ident(value.cow_to_lowercase().into_owned())),
             NodeType::Dimension { value, unit } => Self::from_dimension(*value, unit),
             // `(max-width: calc(1120px - 1px))`. The media prelude parser reads a function token

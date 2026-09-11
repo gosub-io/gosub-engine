@@ -10,6 +10,19 @@ use crate::unicode::{get_unicode_char, UnicodeChar};
 
 pub type Number = f32;
 
+/// The type flag css-syntax-3 gives every `<number-token>`: "integer" when it is written as
+/// digits with an optional sign, "number" when it carries a decimal point or an exponent.
+///
+/// The flag is about the *spelling*, not the value, and that is the whole point of it: `1e1` and
+/// `10` are the same number, but only one of them is an `<integer>`. Without it the grammar has
+/// to ask whether the value happens to be whole, which says yes to `z-index: 1e1` - a
+/// declaration no browser accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberKind {
+    Integer,
+    Number,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     /// A [`<at-keyword-token>`](<https://drafts.csswg.org/css-syntax/#at-keyword-token>-     diagram)
@@ -27,7 +40,9 @@ pub enum TokenType {
         unit: String,
     },
     Percentage(Number),
-    Number(Number),
+    /// A [`<number-token>`](https://drafts.csswg.org/css-syntax/#number-token-diagram), with
+    /// the type flag css-syntax gives it.
+    Number(Number, NumberKind),
     /// A [`<string-token>`](https://drafts.csswg.org/css-syntax/#string-token-diagram)
     ///
     /// The value does not include the quotes.
@@ -113,8 +128,15 @@ impl Token {
         Token::new(TokenType::AtKeyword(keyword.into()), location)
     }
 
+    /// A number written as plain digits. Only tests build one this way; the tokenizer itself
+    /// uses [`Token::new_number_of_kind`], which carries the type flag it read.
+    #[cfg(test)]
     fn new_number(value: Number, location: Location) -> Token {
-        Token::new(TokenType::Number(value), location)
+        Token::new(TokenType::Number(value, NumberKind::Integer), location)
+    }
+
+    fn new_number_of_kind(value: Number, kind: NumberKind, location: Location) -> Token {
+        Token::new(TokenType::Number(value, kind), location)
     }
 
     fn new_percentage(value: Number, location: Location) -> Token {
@@ -200,7 +222,7 @@ impl fmt::Display for Token {
             | TokenType::BadString(val) => val,
             TokenType::UnicodeRange(val) => val,
             TokenType::Delim(val) => val.to_string(),
-            TokenType::Number(val) => val.to_string(),
+            TokenType::Number(val, _) => val.to_string(),
             TokenType::Percentage(val) => format!("{val}%"),
             TokenType::Dimension { unit, value } => format!("{value}{unit}"),
             TokenType::Cdc => "-->".into(),
@@ -481,7 +503,7 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_numeric_token(&mut self) -> Token {
         let loc = self.current_location();
 
-        let number = self.consume_number();
+        let (number, kind) = self.consume_number();
 
         if self.is_next_3_points_starts_ident_seq(0) {
             let unit = self.consume_ident();
@@ -493,7 +515,7 @@ impl<'stream> Tokenizer<'stream> {
             return Token::new_percentage(number, loc);
         }
 
-        Token::new_number(number, loc)
+        Token::new_number_of_kind(number, kind, loc)
     }
 
     /// Returns true if the stream starts a `<unicode-range-token>`: the current code point is
@@ -609,8 +631,9 @@ impl<'stream> Tokenizer<'stream> {
     /// 4.3.12. [Consume a number](https://www.w3.org/TR/css-syntax-3/#consume-number)
     ///
     /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
-    fn consume_number(&mut self) -> Number {
+    fn consume_number(&mut self) -> (Number, NumberKind) {
         let mut value = String::new();
+        let mut kind = NumberKind::Integer;
         let lookahead = self.current_char();
 
         if matches!(lookahead, Ch('+' | '-')) {
@@ -622,7 +645,7 @@ impl<'stream> Tokenizer<'stream> {
         if self.current_char() == Ch('.') && matches!(self.stream.look_ahead(1), Ch(c) if c.is_numeric()) {
             value.push_str(&self.consume_chars(2));
 
-            // type should be "number"
+            kind = NumberKind::Number;
             value.push_str(&self.consume_digits());
         }
 
@@ -638,9 +661,10 @@ impl<'stream> Tokenizer<'stream> {
             value.push(self.next_char().into());
             value.push(self.next_char().into());
             value.push_str(&self.consume_digits());
+            kind = NumberKind::Number;
         }
 
-        value.parse().unwrap_or(0.0)
+        (value.parse().unwrap_or(0.0), kind)
     }
 
     /// 4.3.4. [Consume an ident-like token](https://www.w3.org/TR/css-syntax-3/#consume-ident-like-token)
@@ -997,23 +1021,28 @@ mod test {
     fn parse_numbers() {
         let mut chars = ByteStream::new(Encoding::UTF8, None);
 
+        // The type flag is part of what a number token is (css-syntax-3 §4.3.12): "integer" for
+        // plain digits, "number" once a decimal point or an exponent appears. The value alone
+        // cannot tell `1e1` from `10`, which is the whole reason `<integer>` needs the flag. The
+        // integer cases here were commented out while the flag did not exist and there was
+        // nothing to say about them beyond the value.
         let num_tokens = vec![
-            // ("12", 12.0),
-            // ("+34", 34.0),
-            // ("-56", -56.0),
-            // ("7.8", 7.8),
-            // ("-9.10", -9.10),
-            // ("0.0001", 0.0001),
-            ("1e+1", 1e+1),
-            ("1e1", 1e1),
-            ("1e-1", 1e-1),
+            ("12", 12.0, NumberKind::Integer),
+            ("+34", 34.0, NumberKind::Integer),
+            ("-56", -56.0, NumberKind::Integer),
+            ("7.8", 7.8, NumberKind::Number),
+            ("-9.10", -9.10, NumberKind::Number),
+            ("0.0001", 0.0001, NumberKind::Number),
+            ("1e+1", 1e+1, NumberKind::Number),
+            ("1e1", 1e1, NumberKind::Number),
+            ("1e-1", 1e-1, NumberKind::Number),
         ];
 
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
-        for (raw_num, num_token) in num_tokens {
+        for (raw_num, value, kind) in num_tokens {
             tokenizer.stream.read_from_str(raw_num, Some(Encoding::UTF8));
-            assert_eq!(tokenizer.consume_number(), num_token);
+            assert_eq!(tokenizer.consume_number(), (value, kind), "{raw_num}");
         }
     }
 

@@ -758,6 +758,7 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
 mod tests {
     use super::*;
     use crate::colors::RgbColor;
+    use crate::tokenizer::NumberKind;
 
     macro_rules! assert_false {
         ($e:expr) => {
@@ -1904,14 +1905,14 @@ mod tests {
 
         assert_true!(def.matches(&[str!("normal")]));
 
-        assert_true!(def.matches(&[str!("wgth"), CssValue::Number(100.0)]));
+        assert_true!(def.matches(&[str!("wgth"), CssValue::Number(100.0, NumberKind::Integer)]));
 
         assert_true!(def.matches(&[
             str!("wgth"),
-            CssValue::Number(100.0),
+            CssValue::Number(100.0, NumberKind::Integer),
             CssValue::Comma,
             str!("ital"),
-            CssValue::Number(100.0)
+            CssValue::Number(100.0, NumberKind::Integer)
         ]));
     }
 }
