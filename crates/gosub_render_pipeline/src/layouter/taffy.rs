@@ -11,7 +11,9 @@ use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
-use crate::layouter::float::{float_side, line_box_insets, position_is_out_of_flow, post_process_floats, FloatBand};
+use crate::layouter::float::{
+    float_side, position_is_out_of_flow, post_process_floats, resolve_bands_in_document_order, FloatBand,
+};
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
@@ -28,12 +30,30 @@ use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
 
-const DEFAULT_FONT_SIZE: f64 = 16.0;
+/// Whether a text node is nothing but the whitespace CSS collapses.
+///
+/// Deliberately ASCII: `str::trim` and `char::is_whitespace` use the Unicode set, which counts
+/// U+00A0 and the other fixed-width spaces. Those are content - they exist to be kept - so a node
+/// holding only an `&nbsp;` must not be mistaken for source indentation and dropped. Parsoid wraps
+/// every entity in its own element, so that mistake cost Wikipedia's infoboxes every one of their
+/// non-breaking spaces: "Designedby", "Firstappeared", "May1, 1964".
+fn is_collapsible_whitespace(text: &str) -> bool {
+    text.trim_matches(|c: char| c.is_ascii_whitespace()).is_empty()
+}
 
-/// How many times the page may be laid out before the float bands are taken as settled. Two is
-/// the old behaviour (measure, then apply); the third lets a paragraph that grew taller under its
-/// new line widths move the floats below it and be re-measured against where they ended up.
-const MAX_LAYOUT_PASSES: usize = 3;
+/// Split text on the whitespace CSS actually collapses.
+///
+/// CSS `white-space` processing operates on spaces, tabs and newlines - not on every character
+/// Unicode marks as white space. `str::split_whitespace` uses the Unicode set, which includes
+/// U+00A0 NO-BREAK SPACE, so a text node holding only an `&nbsp;` split into *no* words at all and
+/// was dropped. Parsoid wraps every entity in its own element, so Wikipedia's
+/// `Designed<span typeof="mw:Entity">&nbsp;</span>by` rendered as "Designedby", and the same for
+/// "First appeared", "May 1, 1964" and "; 62 years ago".
+fn split_collapsible_whitespace(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| c.is_ascii_whitespace()).filter(|s| !s.is_empty())
+}
+
+const DEFAULT_FONT_SIZE: f64 = 16.0;
 
 /// Width an inline item is measured at to get its natural size. Large enough that nothing wraps;
 /// `f64::MAX` overflows inside the text stack, as the measure callback already notes.
@@ -43,7 +63,11 @@ const MAX_CONTENT_WIDTH: f64 = 1_000_000_000.0;
 /// words and what CSS drops at a line break.
 fn is_whitespace_item(layout_tree: &LayoutTree, id: &LayoutElementId) -> bool {
     match layout_tree.arena.get(id).map(|el| &el.context) {
-        Some(ElementContext::Text(text)) => !text.text.is_empty() && text.text.chars().all(char::is_whitespace),
+        // `is_ascii_whitespace`, not `is_whitespace`: an `&nbsp;` is a character to render, not
+        // a break opportunity, so it must not be dropped at a band boundary.
+        Some(ElementContext::Text(text)) => {
+            !text.text.is_empty() && text.text.chars().all(|c: char| c.is_ascii_whitespace())
+        }
         _ => false,
     }
 }
@@ -462,38 +486,20 @@ impl CanLayout for TaffyLayouter {
         self.table_widths.clear();
         let (mut layout_tree, placed, stretched, table_widths) = self.layout_pass(render_tree, root_id, viewport);
 
-        let insets = line_box_insets(&layout_tree, &placed);
+        // Float bands are resolved in document order from this one baseline layout rather than by
+        // laying the page out over and over until the answer stops moving - which it did not: see
+        // `resolve_bands_in_document_order`. Two passes total, always.
+        let insets = resolve_bands_in_document_order(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() && table_widths.is_empty() {
             dump_layout_to_json(&layout_tree);
             return layout_tree;
         }
 
-        // Float bands are read off one layout and applied to the next, but applying them changes
-        // the very geometry they were measured from: narrower line boxes make a paragraph taller,
-        // which moves everything below it and so moves the floats. One extra pass leaves a
-        // paragraph flowing at the width its *previous*, shorter self needed. Re-measure and go
-        // again until the bands stop moving, with a hard cap so a layout that oscillates between
-        // two answers still terminates rather than looping.
-        let mut insets = insets;
-        let mut stretched = stretched;
-        let mut table_widths = table_widths;
-        for _ in 0..MAX_LAYOUT_PASSES - 1 {
-            self.float_insets.clone_from(&insets);
-            self.abspos_insets.clone_from(&stretched);
-            self.table_widths.clone_from(&table_widths);
-            let (next_tree, placed, next_stretched, next_widths) =
-                self.layout_pass(layout_tree.render_tree, root_id, viewport);
-            layout_tree = next_tree;
-
-            let next_insets = line_box_insets(&layout_tree, &placed);
-            let settled = next_insets == insets && next_stretched == stretched && next_widths == table_widths;
-            insets = next_insets;
-            stretched = next_stretched;
-            table_widths = next_widths;
-            if settled {
-                break;
-            }
-        }
+        self.float_insets = insets;
+        self.abspos_insets = stretched;
+        self.table_widths = table_widths;
+        let (final_tree, _, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        layout_tree = final_tree;
         self.float_insets.clear();
         self.abspos_insets.clear();
         self.table_widths.clear();
@@ -523,6 +529,8 @@ fn dump_layout_to_json(layout_tree: &LayoutTree) {
         // Children are pushed in reverse so the walk emits them in document order.
         stack.extend(el.children.iter().rev().map(|child| (*child, depth + 1)));
 
+        // Text boxes are included as `#text` with their content: a box that is the wrong size
+        // because its *text* went missing is invisible in an element-only dump.
         let (tag, id_attr, class_attr) = match doc.get_node_by_id(el.dom_node_id) {
             Some(Node {
                 node_type: NodeType::Element(element),
@@ -532,7 +540,10 @@ fn dump_layout_to_json(layout_tree: &LayoutTree) {
                 element.attributes.get("id").cloned().unwrap_or_default(),
                 element.attributes.get("class").cloned().unwrap_or_default(),
             ),
-            _ => continue,
+            _ => match &el.context {
+                ElementContext::Text(text) => ("#text".to_string(), String::new(), text.text.clone()),
+                _ => continue,
+            },
         };
 
         let b = el.box_model.border_box;
@@ -1147,7 +1158,9 @@ impl TaffyLayouter {
             (
                 full.starts_with(|c: char| c.is_ascii_whitespace()),
                 full.ends_with(|c: char| c.is_ascii_whitespace()),
-                full.split_whitespace().map(str::to_string).collect::<Vec<_>>(),
+                split_collapsible_whitespace(full)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
             )
         };
         if words.is_empty() {
@@ -1310,7 +1323,7 @@ impl TaffyLayouter {
             // Whitespace-only nodes fall through to the normal NBSP-separator path below.
             if has_inline_element_child {
                 if let NodeType::Text(text) = &child_node.node_type {
-                    if !text.trim().is_empty() {
+                    if !is_collapsible_whitespace(text) {
                         self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
                         trailing_ws_count = 0;
                         continue;
@@ -1328,7 +1341,7 @@ impl TaffyLayouter {
             if parent_is_flex_or_grid {
                 // Still discard pure-whitespace text nodes; they carry no visual content.
                 if let NodeType::Text(text) = &child_node.node_type {
-                    if text.trim().is_empty() {
+                    if is_collapsible_whitespace(text) {
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
                         // whitespace - it collapses to a single space in extract_taffy_data and
                         // visually separates adjacent inline elements (e.g. between </span><span>).
@@ -1366,7 +1379,11 @@ impl TaffyLayouter {
                     continue;
                 }
                 let is_ws = if let NodeType::Text(text) = &child_node.node_type {
-                    if text.trim().is_empty() {
+                    // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
+                    // node holding only an `&nbsp;` looked like source formatting and was skipped
+                    // as leading whitespace. Parsoid gives every entity its own element, which is
+                    // how Wikipedia's `Designed<span>&nbsp;</span>by` lost its space entirely.
+                    if is_collapsible_whitespace(text) {
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
                         // whitespace - it collapses to a single space in extract_taffy_data and
                         // visually separates adjacent inline elements (e.g. between </span><span>).
@@ -1758,13 +1775,18 @@ impl TaffyLayouter {
                 // pango would render as a blank first line if left untouched.
                 // Whitespace-only source nodes (e.g. "\n  " between </span><span>) collapse
                 // to a single space so they produce an inter-element gap when kept.
-                let is_whitespace_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
+                // Two different "all whitespace" questions. *Collapsible* whitespace (spaces,
+                // tabs, newlines) is source formatting that collapses to one space. Whitespace
+                // that CSS does not collapse - U+00A0 and the other fixed-width spaces - is
+                // content, and the node must keep exactly what it says.
+                let collapsible_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
+                let whitespace_only = !text.is_empty() && text.chars().all(char::is_whitespace);
                 // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
                 // pango does not wrap at the boundary space, while still rendering a visible gap.
                 let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace());
                 let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace());
-                let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !is_whitespace_only {
+                let mut text: String = split_collapsible_whitespace(text).collect::<Vec<_>>().join(" ");
+                if !collapsible_only {
                     if had_leading_space && !text.is_empty() {
                         text.insert(0, '\u{00A0}');
                     }
@@ -1772,13 +1794,18 @@ impl TaffyLayouter {
                         text.push('\u{00A0}');
                     }
                 }
-                if is_whitespace_only {
+                if collapsible_only {
                     // Inter-element whitespace (e.g. between </span><span>). Collapse to a single
-                    // NBSP so the text context is non-empty. We bypass parley measurement entirely
-                    // by setting an explicit taffy width (~0.3em), because parley returns 0 for
-                    // spaces when called with MinContent (max_advance=0), causing the flex item to
-                    // collapse. flex_shrink=0 prevents the space from being squeezed away.
+                    // NBSP so the text context is non-empty and pango does not wrap at it.
                     text = "\u{00A0}".to_string();
+                }
+                if whitespace_only {
+                    // Parley measures a run of only whitespace as 0 wide when called with
+                    // MinContent (max_advance=0), which collapses the flex item to nothing, so the
+                    // width is set explicitly and `flex_shrink` pinned. This used to apply only to
+                    // collapsible whitespace, so a node holding just an `&nbsp;` came out 0 wide -
+                    // and since Parsoid gives every entity its own element, Wikipedia's
+                    // `Designed<span>&nbsp;</span>by` rendered as "Designedby".
                     let space_width = (font_size * 0.3) as f32;
                     taffy_style.size.width = Dimension::from_length(space_width);
                     taffy_style.flex_shrink = 0.0;
@@ -2082,5 +2109,50 @@ mod band_cursor_tests {
         cursor.exhaust();
         assert_eq!(cursor.current().line_width, 600.0);
         assert!(cursor.current().height.is_none());
+    }
+}
+
+#[cfg(test)]
+mod whitespace_tests {
+    use super::{is_collapsible_whitespace, split_collapsible_whitespace};
+
+    const NBSP: &str = "\u{a0}";
+
+    #[test]
+    fn source_formatting_is_collapsible() {
+        assert!(is_collapsible_whitespace(" "));
+        assert!(is_collapsible_whitespace("\n    "));
+        assert!(is_collapsible_whitespace("\t\r\n"));
+        assert!(is_collapsible_whitespace(""));
+    }
+
+    #[test]
+    fn a_non_breaking_space_is_content() {
+        // The bug in one line: `str::trim` and `char::is_whitespace` use the Unicode set, which
+        // counts U+00A0, so a text node holding only an `&nbsp;` was discarded as indentation.
+        // Parsoid gives every entity its own element, so Wikipedia's
+        // `Designed<span>&nbsp;</span>by` lost its space and read "Designedby".
+        assert!(!is_collapsible_whitespace(NBSP));
+        assert!(!is_collapsible_whitespace(&format!(" {NBSP} ")));
+        // The other fixed-width spaces are content too.
+        assert!(!is_collapsible_whitespace("\u{2009}"));
+        assert!(!is_collapsible_whitespace("\u{2007}"));
+    }
+
+    #[test]
+    fn words_split_on_collapsible_whitespace_only() {
+        assert_eq!(
+            split_collapsible_whitespace("a b\n c").collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+        // An nbsp binds its neighbours into one word - that is what it is for.
+        let joined = format!("May{NBSP}1,");
+        assert_eq!(
+            split_collapsible_whitespace(&joined).collect::<Vec<_>>(),
+            [joined.as_str()]
+        );
+        // And on its own it is a word, not a separator that vanishes.
+        assert_eq!(split_collapsible_whitespace(NBSP).collect::<Vec<_>>(), [NBSP]);
+        assert!(split_collapsible_whitespace("   ").next().is_none());
     }
 }

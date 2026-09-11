@@ -10,7 +10,7 @@
 //! as it fits at its current vertical offset, never above the top of an earlier float in the same
 //! block, and drops below the floats already there when it does not fit beside them.
 //!
-//! Text flows around a float rather than under it: [`line_box_insets`] turns the placed floats
+//! Text flows around a float rather than under it: [`resolve_bands_in_document_order`] turns the placed floats
 //! into per-block insets that the layouter's second pass applies to its line boxes. A float's
 //! position is only known after layout, so the insets are derived from the first pass and fed
 //! back into a second one. The block itself keeps its full width - it is the line boxes that
@@ -26,7 +26,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{lookup, StyleProperty, Value};
 use crate::common::geo::Rect;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutTree};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Which edge a float is pinned to.
@@ -593,63 +593,206 @@ fn bands_for_block(content: Rect, floats: &[(Rect, FloatSide)]) -> Option<Vec<Fl
     Some(bands)
 }
 
-/// The bands of every block whose line boxes a float shortens, keyed by DOM node.
+/// How tall `block` becomes once its line boxes follow `bands`.
 ///
-/// Blocks that no float reaches are absent, and a block whose bands are all full width is left
-/// out too - there is nothing for the inline layout to do differently.
-pub fn line_box_insets(layout_tree: &LayoutTree, placed: &[PlacedFloat]) -> HashMap<DomNodeId, Vec<FloatBand>> {
-    let mut insets: HashMap<DomNodeId, Vec<FloatBand>> = HashMap::new();
-    if placed.is_empty() {
-        return insets;
+/// This is what lets the float resolution run as a single forward sweep instead of a fixed-point
+/// iteration. Narrowing a block's lines makes it taller, which moves every float below it, which
+/// changes *their* bands - so a sweep has to know the new height at the moment it decides the
+/// bands, before it has laid anything out again. The widths it needs are already known: the
+/// baseline pass measured every word box, and packing those widths into the bands is the same
+/// greedy fill the inline layout will perform.
+///
+/// `None` when the block holds nothing measurable, in which case the caller keeps its height.
+pub fn predict_banded_height(layout_tree: &LayoutTree, block: LayoutElementId, bands: &[FloatBand]) -> Option<f64> {
+    let el = layout_tree.arena.get(&block)?;
+
+    // Word widths and the line height, in document order, from the baseline layout.
+    let mut widths: Vec<f64> = Vec::new();
+    let mut line_height = 0.0_f64;
+    for child in &el.children {
+        let Some(child) = layout_tree.arena.get(child) else {
+            continue;
+        };
+        match &child.context {
+            ElementContext::Text(text) => {
+                if line_height <= 0.0 {
+                    line_height = text.font_info.line_height;
+                }
+                widths.push(child.box_model.border_box.width);
+            }
+            // A replaced element on the line takes its own width; anything else contributes
+            // whatever box the baseline gave it.
+            _ => widths.push(child.box_model.border_box.width),
+        }
+    }
+    if widths.is_empty() || line_height <= 0.0 {
+        return None;
     }
 
-    for (&block_id, block) in layout_tree.arena.iter() {
-        // Only blocks that actually hold text need bands; a wrapper contributes nothing and
-        // would double-count against its children.
-        if !has_inline_content(layout_tree, block_id) {
+    Some(stacked_height(&widths, line_height, bands))
+}
+
+/// Pack `widths` into `bands` as whole lines and report the height that takes.
+///
+/// The greedy fill the inline layout performs, over the word widths a previous layout measured:
+/// words go onto a line until the next will not fit, and when a band has no room for another line
+/// the tail it leaves is skipped, because a line that would still touch the float starts below it.
+fn stacked_height(widths: &[f64], line_height: f64, bands: &[FloatBand]) -> f64 {
+    let mut height = 0.0_f64;
+    let mut index = 0usize;
+    let mut used_in_band = 0.0_f64;
+    let mut line_used = 0.0_f64;
+
+    for &width in widths {
+        let band = bands[index.min(bands.len().saturating_sub(1))];
+        if line_used > 0.0 && line_used + width > f64::from(band.line_width) {
+            // Close the line and charge it to the band.
+            height += line_height;
+            used_in_band += line_height;
+            line_used = 0.0;
+
+            // Out of room for another whole line? Step to the next band, skipping the tail.
+            if let Some(band_height) = band.height {
+                if used_in_band + line_height > f64::from(band_height) {
+                    height += (f64::from(band_height) - used_in_band).max(0.0);
+                    used_in_band = 0.0;
+                    if index + 1 < bands.len() {
+                        index += 1;
+                    }
+                }
+            }
+        }
+        line_used += width;
+    }
+    // The line left open at the end still occupies one line box.
+    if line_used > 0.0 {
+        height += line_height;
+    }
+    height
+}
+
+/// Resolve every block's float bands in one forward sweep, in document order.
+///
+/// The iterative version of this measured bands from a finished layout and fed them into the next
+/// one, which cannot settle: narrowing a block makes it taller, a float of fixed height then meets
+/// fewer blocks, those blocks lose their bands and are short again. On the Wikipedia article the
+/// banded-block count cycled 133 -> 100 -> 92 -> 133 forever, so *where you stopped* decided the
+/// page.
+///
+/// A browser has no such problem because it lays out in document order and places each float as it
+/// meets it: a line box only ever sees floats above it, and information flows one way. This does
+/// the same. Walking top to bottom, each block's bands come from the floats already placed, and
+/// the height it will have once banded is predicted (see [`predict_banded_height`]) so that
+/// everything below it - floats included - is offset by the growth before its own turn comes.
+/// Nothing later can change an earlier answer, so one sweep is the answer.
+pub fn resolve_bands_in_document_order(
+    layout_tree: &LayoutTree,
+    placed: &[PlacedFloat],
+) -> HashMap<DomNodeId, Vec<FloatBand>> {
+    let mut bands: HashMap<DomNodeId, Vec<FloatBand>> = HashMap::new();
+    if placed.is_empty() {
+        return bands;
+    }
+
+    // Floats by the box they were placed against, so the sweep can pick them up when it reaches
+    // them rather than looking at all of them for every block.
+    let by_id: HashMap<LayoutElementId, &PlacedFloat> = placed.iter().map(|f| (f.layout_id, f)).collect();
+
+    // Floats seen so far, with their positions corrected for the growth of everything above them.
+    // The id is kept so a float can be excluded from the blocks it contains.
+    let mut seen: Vec<(LayoutElementId, Rect, FloatSide)> = Vec::new();
+    // Growth accumulated from blocks that got taller once banded. Everything below moves by it.
+    let mut shift = 0.0_f64;
+
+    let mut stack = vec![layout_tree.root_id];
+    let mut order: Vec<LayoutElementId> = Vec::new();
+    while let Some(id) = stack.pop() {
+        order.push(id);
+        if let Some(el) = layout_tree.arena.get(&id) {
+            stack.extend(el.children.iter().rev().copied());
+        }
+    }
+
+    let mut added: HashSet<LayoutElementId> = HashSet::new();
+    for id in &order {
+        let id = *id;
+        let Some(el) = layout_tree.arena.get(&id) else {
+            continue;
+        };
+
+        if let Some(float) = by_id.get(&id) {
+            // A float takes the shift of the content above it, then joins the context so every
+            // block after it is measured against where it actually ends up.
+            if added.insert(id) {
+                let mut rect = float.rect;
+                rect.y += shift;
+                seen.push((id, rect, float.side));
+            }
             continue;
         }
 
-        let content = block.box_model.content_box;
+        if !has_inline_content(layout_tree, id) {
+            continue;
+        }
+
+        // A float *inside* this block shortens this block's own line boxes - it sits at the top of
+        // its container's content, so document order reaching the container first must not hide
+        // it. Written as `<p><span class="thumb">…</span>text…</p>`, which is how a figure beside
+        // a paragraph is usually marked up, the float is a descendant of the very block it
+        // displaces.
+        for (float_id, float) in &by_id {
+            if added.contains(float_id) || !is_ancestor(layout_tree, id, *float_id) {
+                continue;
+            }
+            added.insert(*float_id);
+            let mut rect = float.rect;
+            rect.y += shift;
+            seen.push((*float_id, rect, float.side));
+        }
+        let mut content = el.box_model.content_box;
         if content.width <= 0.0 || content.height <= 0.0 {
             continue;
         }
-        let block_top = content.y;
-        let block_bottom = content.y + content.height;
-        let block_left = content.x;
-        let block_right = content.x + content.width;
+        content.y += shift;
 
-        // Floats that reach this block at all. A float never displaces its own contents, nor the
-        // contents of anything inside it.
-        let relevant: Vec<&PlacedFloat> = placed
+        // Only floats that are already placed can affect this block - that is the whole point.
+        let relevant: Vec<(Rect, FloatSide)> = seen
             .iter()
-            .filter(|float| {
-                if float.layout_id == block_id || is_ancestor(layout_tree, float.layout_id, block_id) {
+            .filter(|(float_id, rect, _)| {
+                // A float never displaces its own contents. Without this the infobox - itself a
+                // float - banded every paragraph inside it against its own edges, and its caption
+                // came out one character per line.
+                if *float_id == id || is_ancestor(layout_tree, *float_id, id) {
                     return false;
                 }
-                let r = float.rect;
-                r.y < block_bottom && r.y + r.height > block_top && r.x < block_right && r.x + r.width > block_left
+                rect.y < content.y + content.height
+                    && rect.y + rect.height > content.y
+                    && rect.x < content.x + content.width
+                    && rect.x + rect.width > content.x
             })
+            .map(|(_, rect, side)| (*rect, *side))
             .collect();
         if relevant.is_empty() {
             continue;
         }
-
-        let bands = bands_for_block(
-            content,
-            &relevant
-                .iter()
-                .map(|float| (float.rect, float.side))
-                .collect::<Vec<_>>(),
-        );
-        let Some(bands) = bands else {
+        let Some(block_bands) = bands_for_block(content, &relevant) else {
             continue;
         };
 
-        insets.insert(block.dom_node_id, bands);
+        if let Some(height) = predict_banded_height(layout_tree, id, &block_bands) {
+            shift += (height - content.height).max(0.0);
+        }
+        bands.insert(el.dom_node_id, block_bands);
     }
 
-    insets
+    if std::env::var("GOSUB_DEBUG_FLOAT_BANDS").is_ok() {
+        eprintln!(
+            "float bands: {} placed floats, {} blocks banded in one document-order sweep",
+            placed.len(),
+            bands.len()
+        );
+    }
+    bands
 }
 
 /// Whether `node` holds inline content directly (text, or an inline box), meaning it is the block
@@ -697,6 +840,66 @@ mod tests {
     /// A 600x100 block at the origin, the shape most of the band tests use.
     fn block() -> Rect {
         rect(0.0, 0.0, 600.0, 100.0)
+    }
+
+    fn open(line_width: f32) -> FloatBand {
+        FloatBand {
+            left_inset: 0.0,
+            line_width,
+            height: None,
+        }
+    }
+
+    fn narrow(line_width: f32, height: f32) -> FloatBand {
+        FloatBand {
+            left_inset: 0.0,
+            line_width,
+            height: Some(height),
+        }
+    }
+
+    #[test]
+    fn height_without_a_float_is_just_the_lines() {
+        // Six 50px words at a 100px width: two per line, three lines.
+        let widths = vec![50.0; 6];
+        assert_eq!(stacked_height(&widths, 20.0, &[open(100.0)]), 60.0);
+    }
+
+    #[test]
+    fn a_narrower_band_makes_the_block_taller() {
+        // The same words at half the width take twice as many lines. This is the number the
+        // document-order sweep needs *before* it lays anything out: it is what moves every float
+        // below this block, and getting it after the fact is what made the old iteration cycle.
+        let widths = vec![50.0; 6];
+        let tall = stacked_height(&widths, 20.0, &[open(50.0)]);
+        let short = stacked_height(&widths, 20.0, &[open(100.0)]);
+        assert!(tall > short, "{tall} vs {short}");
+        assert_eq!(tall, 120.0);
+    }
+
+    #[test]
+    fn text_widens_again_below_the_float() {
+        // 40px of band holds two 20px lines at the narrow width; the rest runs at full width.
+        // Four words fit two-to-a-line while narrow, then three-to-a-line after.
+        let widths = vec![50.0; 10];
+        let banded = stacked_height(&widths, 20.0, &[narrow(100.0, 40.0), open(200.0)]);
+        let narrow_throughout = stacked_height(&widths, 20.0, &[open(100.0)]);
+        assert!(banded < narrow_throughout, "{banded} vs {narrow_throughout}");
+    }
+
+    #[test]
+    fn a_bands_unused_tail_is_skipped() {
+        // One 50px word in a band 100px tall: the line takes 20px and the remaining 80px are
+        // skipped, because the next line would still be beside the float.
+        let widths = vec![50.0, 50.0, 50.0];
+        // Two words fill the 50px-wide band's single line, the third starts below the band.
+        let height = stacked_height(&widths, 20.0, &[narrow(60.0, 25.0), open(200.0)]);
+        assert!(height >= 45.0, "the tail of the first band must be skipped: {height}");
+    }
+
+    #[test]
+    fn an_empty_run_has_no_height() {
+        assert_eq!(stacked_height(&[], 20.0, &[open(100.0)]), 0.0);
     }
 
     #[test]

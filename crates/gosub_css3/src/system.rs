@@ -669,7 +669,14 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
 
     match doc.node_type(id) {
         NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),
-        NodeType::TextNode => doc.text_value(id).is_some_and(|v| v.chars().all(char::is_whitespace)),
+        // Only *collapsible* whitespace makes a text node unrenderable. `char::is_whitespace` is
+        // the Unicode set, which includes U+00A0 NO-BREAK SPACE and the other fixed-width spaces -
+        // characters CSS renders like any other, and which exist precisely to be kept. Parsoid
+        // wraps every entity in its own element, so `Designed<span>&nbsp;</span>by` had the whole
+        // span dropped and Wikipedia's infoboxes read "Designedby", "Firstappeared", "May1, 1964".
+        NodeType::TextNode => doc
+            .text_value(id)
+            .is_some_and(|v| v.chars().all(|c: char| c.is_ascii_whitespace())),
         _ => false,
     }
 }
