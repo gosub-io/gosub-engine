@@ -20,6 +20,12 @@ pub struct PipelineTableTree<'a> {
     dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     /// Relative CellLayouts written by `compute_table_layout`.
     pending: HashMap<DomNodeId, CellLayout>,
+    /// Border-box width the column algorithm gave each cell, harvested for the layouter to pin on
+    /// the next pass. Taffy sizes a cell by flex before the columns are known, so its width is
+    /// indefinite and the anonymous line boxes inside it have nothing to wrap against - the text
+    /// then takes its max-content width and runs past the cell. Feeding the settled width back is
+    /// the same trick already used for the table's own width.
+    cell_widths: HashMap<DomNodeId, f32>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -33,6 +39,7 @@ impl<'a> PipelineTableTree<'a> {
             layout_tree,
             dom_to_layout,
             pending: HashMap::new(),
+            cell_widths: HashMap::new(),
         }
     }
 
@@ -256,6 +263,9 @@ impl TableTree for PipelineTableTree<'_> {
     }
 
     fn set_layout(&mut self, id: DomNodeId, layout: CellLayout) {
+        if self.table_role(id) == TableRole::Cell {
+            self.cell_widths.insert(id, layout.size.width);
+        }
         self.pending.insert(id, layout);
     }
 
@@ -348,7 +358,14 @@ pub fn post_process_tables(
             table_nodes.iter().rev().copied().collect()
         };
         for (table_dom_id, table_layout_id) in order {
-            if let Some(width) = lay_out_one_table(&*doc, layout_tree, dom_to_layout, table_dom_id, table_layout_id) {
+            if let Some(width) = lay_out_one_table(
+                &*doc,
+                layout_tree,
+                dom_to_layout,
+                table_dom_id,
+                table_layout_id,
+                &mut widths,
+            ) {
                 widths.insert(table_dom_id, width);
             }
         }
@@ -364,6 +381,7 @@ fn lay_out_one_table(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
+    widths: &mut HashMap<DomNodeId, f32>,
 ) -> Option<f32> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -392,6 +410,7 @@ fn lay_out_one_table(
             if table_width <= 0.0 && table_height <= 0.0 {
                 return None;
             }
+            widths.extend(tree.cell_widths.drain());
             tree.apply_positions(table_dom_id);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
