@@ -21,8 +21,11 @@
 //! # Representation
 //!
 //! css-values-4 defines simplification as reducing to a sum with one term per unit, and that is
-//! what [`Sum`] is. Multiplication is only defined when one side is a plain number, and division
-//! only by a plain number, so a term never needs an exponent - `px²` cannot arise from valid CSS.
+//! what [`Sum`] is. A term carries a unit but no exponent, which is the model's one real limit:
+//! `calc(100px * 1px / 1px)` is valid CSS - the units cancel before the expression ends, so the
+//! *result* is a length - but it needs `px²` to exist along the way, and this cannot express
+//! that. Such an expression is left unevaluated rather than answered wrongly. Lifting it means
+//! keeping an exponent per unit in the key; the `calc-mixed-units-*` suites are what measure it.
 //!
 //! The result goes back into the same `CssValue::Function("calc", [String(body)])` the parser
 //! produced, with the body rewritten in canonical form. Giving `CssValue` a typed variant would
@@ -77,11 +80,11 @@ impl Units {
 /// letter.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sum {
-    terms: BTreeMap<String, f32>,
+    terms: BTreeMap<String, f64>,
 }
 
 impl Sum {
-    fn term(unit: &str, value: f32) -> Self {
+    fn term(unit: &str, value: f64) -> Self {
         let mut terms = BTreeMap::new();
         terms.insert(unit.to_string(), value);
         Self { terms }
@@ -89,21 +92,21 @@ impl Sum {
 
     /// The coefficient when this is a plain number and nothing else, which is what
     /// multiplication and division require of one of their operands.
-    fn as_number(&self) -> Option<f32> {
+    fn as_number(&self) -> Option<f64> {
         match self.terms.len() {
             1 => self.terms.get("").copied(),
             _ => None,
         }
     }
 
-    fn add(mut self, other: &Self, sign: f32) -> Self {
+    fn add(mut self, other: &Self, sign: f64) -> Self {
         for (unit, value) in &other.terms {
             *self.terms.entry(unit.clone()).or_insert(0.0) += value * sign;
         }
         self
     }
 
-    fn scale(mut self, factor: f32) -> Self {
+    fn scale(mut self, factor: f64) -> Self {
         for value in self.terms.values_mut() {
             *value *= factor;
         }
@@ -123,15 +126,20 @@ impl Sum {
             1 => self.terms.iter().next()?,
             _ => return None,
         };
+        // The arithmetic above runs in f64 and only narrows here. `CssValue` holds f32, and
+        // doing the sums in f32 made `2ms + 3ms` come out `0.0050000004s`: each operand picks up
+        // its own error converting to seconds, and there is no width left to absorb it.
+        #[expect(clippy::cast_possible_truncation, reason = "CssValue is f32; see above")]
+        let value = *value as f32;
         Some(match unit.as_str() {
-            "" => CssValue::Number(*value),
-            "%" => CssValue::Percentage(*value),
-            unit => CssValue::Unit(*value, unit.to_string()),
+            "" => CssValue::Number(value),
+            "%" => CssValue::Percentage(value),
+            unit => CssValue::Unit(value, unit.to_string()),
         })
     }
 
     /// The unit and coefficient this sum came down to, if it came down to one term.
-    fn single_term(&self) -> Option<(String, f32)> {
+    fn single_term(&self) -> Option<(String, f64)> {
         match self.terms.len() {
             1 => self.terms.iter().next().map(|(unit, value)| (unit.clone(), *value)),
             _ => None,
@@ -158,7 +166,7 @@ impl Sum {
     }
 }
 
-fn format_term(value: f32, unit: &str) -> String {
+fn format_term(value: f64, unit: &str) -> String {
     // css-values-4 serializes a non-finite dimension as a product with a one-unit multiplier -
     // `calc(NaN * 1px)`, never `NaNpx` - because `NaN` and `infinity` are `<number>` keywords
     // and cannot carry a unit themselves. A plain number is just the keyword.
@@ -175,6 +183,11 @@ fn format_term(value: f32, unit: &str) -> String {
             unit => format!("{keyword} * 1{unit}"),
         };
     }
+    // Narrowed before printing: the sum is carried in f64 so intermediate steps do not
+    // accumulate error, but the value this becomes is an f32, and serializing at f64 width would
+    // print seventeen digits of a precision the stored value does not have.
+    #[expect(clippy::cast_possible_truncation, reason = "the value it serializes is an f32")]
+    let value = value as f32;
     match unit {
         "" => format!("{value}"),
         unit => format!("{value}{unit}"),
@@ -273,8 +286,8 @@ fn finite(value: f32) -> f32 {
 ///
 /// Returns `None` for a unit this cannot reduce (`ch`, `lh`, the container-query units), which
 /// keeps it as its own term rather than guessing at a value.
-fn canonical(unit: &str, units: &Units) -> Option<(String, f32)> {
-    let px = |factor: f32| Some(("px".to_string(), factor));
+fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
+    let px = |factor: f64| Some(("px".to_string(), factor));
     match unit {
         "px" => px(1.0),
         // 1in is 96px by definition, and every other absolute length is a fraction of an inch.
@@ -284,27 +297,27 @@ fn canonical(unit: &str, units: &Units) -> Option<(String, f32)> {
         "cm" => px(96.0 / 2.54),
         "mm" => px(96.0 / 25.4),
         "q" => px(96.0 / 101.6),
-        "em" => units.em_px.and_then(px),
-        "rem" => units.rem_px.and_then(px),
-        "vw" | "svw" | "lvw" | "dvw" => units.viewport.then(|| viewport().0 / 100.0).and_then(px),
-        "vh" | "svh" | "lvh" | "dvh" => units.viewport.then(|| viewport().1 / 100.0).and_then(px),
+        "em" => units.em_px.map(f64::from).and_then(px),
+        "rem" => units.rem_px.map(f64::from).and_then(px),
+        "vw" | "svw" | "lvw" | "dvw" => units.viewport.then(|| f64::from(viewport().0) / 100.0).and_then(px),
+        "vh" | "svh" | "lvh" | "dvh" => units.viewport.then(|| f64::from(viewport().1) / 100.0).and_then(px),
         "vmin" => units
             .viewport
             .then(|| {
                 let (w, h) = viewport();
-                w.min(h) / 100.0
+                f64::from(w.min(h)) / 100.0
             })
             .and_then(px),
         "vmax" => units
             .viewport
             .then(|| {
                 let (w, h) = viewport();
-                w.max(h) / 100.0
+                f64::from(w.max(h)) / 100.0
             })
             .and_then(px),
         "deg" => Some(("deg".to_string(), 1.0)),
         "grad" => Some(("deg".to_string(), 0.9)),
-        "rad" => Some(("deg".to_string(), 180.0 / std::f32::consts::PI)),
+        "rad" => Some(("deg".to_string(), 180.0 / std::f64::consts::PI)),
         "turn" => Some(("deg".to_string(), 360.0)),
         "s" => Some(("s".to_string(), 1.0)),
         "ms" => Some(("s".to_string(), 0.001)),
@@ -327,7 +340,7 @@ fn viewport() -> (f32, f32) {
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     /// A number, with its unit: `""` plain, `"%"` a percentage, else a dimension.
-    Value(f32, String),
+    Value(f64, String),
     Plus,
     Minus,
     Star,
@@ -343,12 +356,12 @@ enum Tok {
 /// The numeric constants css-values-4 allows wherever a `<number>` may appear inside a math
 /// function. They are keywords rather than identifiers, and ASCII case-insensitive - `nan`,
 /// `NaN` and `nAn` are the same token.
-fn constant(name: &str) -> Option<f32> {
+fn constant(name: &str) -> Option<f64> {
     match name {
-        "pi" => Some(std::f32::consts::PI),
-        "e" => Some(std::f32::consts::E),
-        "infinity" => Some(f32::INFINITY),
-        "nan" => Some(f32::NAN),
+        "pi" => Some(std::f64::consts::PI),
+        "e" => Some(std::f64::consts::E),
+        "infinity" => Some(f64::INFINITY),
+        "nan" => Some(f64::NAN),
         _ => None,
     }
 }
@@ -462,7 +475,7 @@ fn starts_number(bytes: &[u8]) -> bool {
 
 /// Read a CSS `<number>`: an optional sign, digits around an optional point, an optional
 /// exponent.
-fn scan_number(bytes: &[u8]) -> Option<(f32, usize)> {
+fn scan_number(bytes: &[u8]) -> Option<(f64, usize)> {
     let mut i = 0;
     if matches!(bytes.first(), Some(b'+' | b'-')) {
         i += 1;
@@ -494,7 +507,7 @@ fn scan_number(bytes: &[u8]) -> Option<(f32, usize)> {
         }
     }
     let text = std::str::from_utf8(&bytes[..i]).ok()?;
-    Some((text.parse::<f32>().ok()?, i))
+    Some((text.parse::<f64>().ok()?, i))
 }
 
 /// Read the unit after a number: `%`, an identifier, or nothing.
@@ -644,12 +657,12 @@ fn fold_comparison(name: &str, args: &[Sum]) -> Option<Sum> {
     // defined to *ignore* it and return the other operand, so `max(NaN, 0)` would come out 0
     // where CSS requires NaN.
     if values.iter().any(|v| v.is_nan()) {
-        return Some(Sum::term(&unit, f32::NAN));
+        return Some(Sum::term(&unit, f64::NAN));
     }
 
     let folded = match name {
-        "min" => values.into_iter().reduce(f32::min)?,
-        "max" => values.into_iter().reduce(f32::max)?,
+        "min" => values.into_iter().reduce(f64::min)?,
+        "max" => values.into_iter().reduce(f64::max)?,
         // clamp(MIN, VAL, MAX) is max(MIN, min(VAL, MAX)).
         "clamp" => match values[..] {
             [low, value, high] => value.min(high).max(low),

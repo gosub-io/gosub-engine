@@ -483,10 +483,10 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
   of being kept as the token stream css-values-5 calls an arbitrary substitution value, so
   `random-item(auto, ,)` comes back with its whitespace normalised. Shorthands also do not
   reserialize from their longhands.
-- **`getComputedStyle` reads the cascade but not the `style` attribute.** The cascade only
-  collects custom properties from that attribute; the render pipeline layers the ordinary
-  declarations on separately, so a computed value does not see them. A test that sets
-  `el.style.fontSize` and reads the result back therefore still fails.
+- **No layout behind `getComputedStyle`.** It reports computed values, not used ones, so any
+  suite that measures a box - `getComputedStyle(el).height` on an abspos, anything comparing
+  against a laid-out reference element - reads back `auto` and cannot pass. Several suites that
+  look like value bugs are really this.
 - **No CSSOM stylesheet.** `style.sheet`, `insertRule`, `deleteRule` and `cssRules[i].cssText`
   are all missing, which is what `test_valid_selector` and `test_valid_rule` drive - so the
   selector and at-rule parsers have no coverage here yet.

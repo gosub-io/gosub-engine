@@ -328,6 +328,43 @@ fn a_declaration_reads_back_serialized_not_as_it_was_written() {
 }
 
 #[test]
+fn a_computed_value_sees_the_style_attribute() {
+    // The cascade read only custom properties out of the `style` attribute - the render pipeline
+    // layered the ordinary declarations on afterwards, outside the cascade - so `getComputedStyle`
+    // could not see a single thing set through `element.style`. That is what wpt's
+    // `test_computed_value` does before every assertion it makes.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.width = 'calc(2em + 10px)'; \
+         el.style.fontSize = '20px'; \
+         getComputedStyle(el).width;",
+    );
+    assert_eq!(value, "50px");
+}
+
+#[test]
+fn the_style_attribute_outranks_a_stylesheet_rule() {
+    let value = eval(
+        "<style>#target { color: red }</style><div id=target style='color: blue'></div>",
+        "getComputedStyle(document.getElementById('target')).color;",
+    );
+    assert_eq!(value, "blue");
+}
+
+#[test]
+fn an_inline_shorthand_reaches_the_computed_longhands() {
+    // Inline declarations go through the same path as a stylesheet rule, so a shorthand written
+    // in the attribute expands the way one in a rule does.
+    let value = eval(
+        "<div id=target style='margin: 1px 2px'></div>",
+        "const s = getComputedStyle(document.getElementById('target')); \
+         s.marginTop + '|' + s.marginRight + '|' + s.marginBottom + '|' + s.marginLeft;",
+    );
+    assert_eq!(value, "1px|2px|1px|2px");
+}
+
+#[test]
 fn assigning_the_empty_string_removes_the_declaration() {
     // wpt's helpers clear a property this way before setting the value under test, so an
     // assignment that did nothing here would let the previous value be read back as a pass.

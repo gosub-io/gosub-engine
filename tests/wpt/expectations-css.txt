@@ -100,6 +100,8 @@ FILE css/css-syntax/var-with-blocks.html
 FILE css/css-syntax/whitespace.html
 FILE css/css-values/absolute-length-units-001.html
 FILE css/css-values/acos-asin-atan-atan2-computed.html
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px) should be computed-value-equivalent to calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px)
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(1px * pow(tan(atan2(50%, 1px)), 1)) should be computed-value-equivalent to calc(1px * pow(tan(atan2(50%, 1px)), 1))
 FILE css/css-values/acos-asin-atan-atan2-invalid.html
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos( () 30deg - 0.523599rad ))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( () 30deg - 0.523599rad ))" should not set the property value
@@ -109,9 +111,7 @@ HARNESS css/css-values/animations/calc-interpolation.html
 FILE css/css-values/animations/line-height-lh-transition.html
 FILE css/css-values/attr-IACVT.html
 FILE css/css-values/attr-all-types.html
-PASS css/css-values/attr-all-types.html :: Invariant behaviour for var
 FILE css/css-values/attr-argument-grammar.html
-PASS css/css-values/attr-argument-grammar.html :: Untitled
 FILE css/css-values/attr-container-style-query.html
 FILE css/css-values/attr-css-wide-keywords.html
 FILE css/css-values/attr-cycle.html
@@ -134,6 +134,12 @@ FILE css/css-values/attr-serialization.html
 FILE css/css-values/attr-universal-selector.html
 FILE css/css-values/calc-angle-values.html
 FILE css/css-values/calc-background-position-002.html
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(2px + 3px) calc(4px + 5px)
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(18px - 7px) calc(19px - 7px)
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(4 * 5px) calc(6px * 4)
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(100px / 4) calc(119px / 7)
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(6px + 21%) calc(7em + 22%)
+PASS css/css-values/calc-background-position-002.html :: testing background-position: calc(-8px + 23%) calc(-9em + 24%)
 FILE css/css-values/calc-background-position-003.html
 PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(2px + 3px) calc(4px + 5px)
 PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(18px - 7px) calc(19px - 7px)
@@ -217,6 +223,33 @@ FILE css/css-values/calc-in-font-feature-settings.html
 FILE css/css-values/calc-in-media-queries-with-mixed-units.html
 HARNESS css/css-values/calc-in-media-queries-with-mixed-units.html
 FILE css/css-values/calc-infinity-nan-computed.html
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(NaN * 1px)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(NaN * 1%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(infinity * 1px)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(infinity * 1%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(infinity * 1cm)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(NaN * 1rem)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(10.135262721212548pc - 199pt / NaN)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(min(NaN * 1px, infinity * 1px) + max(infinity * 1px, -infinity * 1px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property width value 'calc(max(infinity * 1px, 10px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(-infinity * 1px)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(-infinity * 1%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(max(10000px, 0px) + min(-infinity * 1px, infinity * 1px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(-infinity * 1px - infinity * 1px)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(min(-infinity * 1px, 10px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property animation-duration value 'calc(infinity * 1s)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property animation-duration value 'calc(1 / 0 * 1s)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(-infinity* 1s)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(max(10000s, 0s) + min(-infinity * 1s, infinity * 1s))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(min(-infinity * 1s, 10s))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(max(infinity, 10))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(infinity)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(-infinity * 10)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(max(infinity * 100%, 1000%))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(infinity * 100%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(-infinity * 1000%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(infinity * 100%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(-infinity * 1000%)'
 FILE css/css-values/calc-infinity-nan-serialize-angle.html
 PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
 PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1rad * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
@@ -381,9 +414,25 @@ PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(0,
 PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(-Infinity, 0, infinity))' as a specified value should serialize as 'calc(0s)'.
 PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(-inFinity, infinity, 10))' as a specified value should serialize as 'calc(10s)'.
 FILE css/css-values/calc-integer.html
+PASS css/css-values/calc-integer.html :: Sanity
+PASS css/css-values/calc-integer.html :: Basic division works
+PASS css/css-values/calc-integer.html :: Operation between <integer> and <number> works
+PASS css/css-values/calc-integer.html :: Only rounds at the end of the conversion
 FILE css/css-values/calc-invalid-parsing.html
 FILE css/css-values/calc-letter-spacing.html
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(100%)
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(10px) bla
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(bla) 10px
+PASS css/css-values/calc-letter-spacing.html :: testing letter-spacing: calc(10px)
 FILE css/css-values/calc-linear-radial-conic-gradient-001.html
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(rgb(0, 128, 0) calc(0%), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(calc(90deg), rgb(0, 128, 0), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(calc(90deg), rgb(0, 128, 0) calc(0%), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(calc(0.1turn + 0.15turn), rgb(0, 128, 0), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(calc(150grad - 50grad), rgb(0, 128, 0), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: linear-gradient(calc(200grad - 90deg), rgb(0, 128, 0), rgb(0, 0, 255))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: radial-gradient(rgb(0, 128, 0) calc(10% + 20%), rgb(0, 0, 255) calc(30% + 40%))
+PASS css/css-values/calc-linear-radial-conic-gradient-001.html :: testing background-image: conic-gradient(rgb(0, 128, 0) calc(50% + 10%), rgb(0, 0, 255) calc(60% + 20%))
 FILE css/css-values/calc-mix-computed.tentative.html
 FILE css/css-values/calc-mix-invalid.tentative.html
 PASS css/css-values/calc-mix-invalid.tentative.html :: e.style['scale'] = "calc-mix()" should not set the property value
@@ -428,10 +477,112 @@ PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(calc(2 * calc(c
 PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(50px + calc(40%))" should set the property value
 PASS css/css-values/calc-nesting.html :: e.style['border'] = "calc(calc(10px)) solid pink" should set the property value
 FILE css/css-values/calc-numbers.html
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 * 3)
+PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4)
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 / 4)
+PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4) * 1px
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(10px) bla
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(bla) 10px
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(10px)
 FILE css/css-values/calc-rgb-percent-001.html
 PASS css/css-values/calc-rgb-percent-001.html :: testing rgb(calc(5% + 15%), calc(40% / 2), calc(5% * 4))
 FILE css/css-values/calc-rounds-to-integer.html
-HARNESS css/css-values/calc-rounds-to-integer.html
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should accept "steps(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should accept "steps(calc(10))"
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should accept "steps(calc(10.1))"
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should accept "steps(calc(1e1))"
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should accept "steps(calc(1.1e1))"
+PASS css/css-values/calc-rounds-to-integer.html :: animation-timing-function should not accept "steps(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: column-span should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should accept "foo 10"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should accept "foo calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should accept "foo calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should accept "foo calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should accept "foo calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-increment should not accept "foo 10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should accept "foo 10"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should accept "foo calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should accept "foo calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should accept "foo calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should accept "foo calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-reset should not accept "foo 10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should accept "foo 10"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should accept "foo calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should accept "foo calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should accept "foo calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should accept "foo calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: counter-set should not accept "foo 10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should accept ""fooo" 10"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should accept ""fooo" calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should accept ""fooo" calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should accept ""fooo" calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should accept ""fooo" calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: font-feature-settings should not accept ""fooo" 10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-row should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should accept "repeat(10, 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should accept "repeat(calc(10), 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should accept "repeat(calc(10.1), 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should accept "repeat(calc(1e1), 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should accept "repeat(calc(1.1e1), 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: grid-template-rows should not accept "repeat(10.1, 10px)"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: hyphenate-limit-chars should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should accept "1.1 10"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should accept "1.1 calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should accept "1.1 calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should accept "1.1 calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should accept "1.1 calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: initial-letter should not accept "1.1 10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: max-lines should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: order should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: order should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: order should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: order should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: order should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: order should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: orphans should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should accept "steps(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should accept "steps(calc(10))"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should accept "steps(calc(10.1))"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should accept "steps(calc(1e1))"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should accept "steps(calc(1.1e1))"
+PASS css/css-values/calc-rounds-to-integer.html :: transition-timing-function should not accept "steps(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: widows should not accept "10.1"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should accept "10"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should accept "calc(10)"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should accept "calc(10.1)"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should accept "calc(1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should accept "calc(1.1e1)"
+PASS css/css-values/calc-rounds-to-integer.html :: z-index should not accept "10.1"
 FILE css/css-values/calc-serialization-002.html
 PASS css/css-values/calc-serialization-002.html :: testing calc(1vh + 2px + 3%)
 PASS css/css-values/calc-serialization-002.html :: testing calc(4px + 1vh)
@@ -537,6 +688,8 @@ FILE css/css-values/calc-size/calc-size-width-box-sizing.html
 FILE css/css-values/calc-size/calc-size-width.html
 HARNESS css/css-values/calc-size/calc-size-width.html
 FILE css/css-values/calc-size/interpolate-size-computed.html
+PASS css/css-values/calc-size/interpolate-size-computed.html :: Property interpolate-size value 'numeric-only'
+PASS css/css-values/calc-size/interpolate-size-computed.html :: Property interpolate-size value 'allow-keywords'
 FILE css/css-values/calc-size/interpolate-size-parsing.html
 PASS css/css-values/calc-size/interpolate-size-parsing.html :: e.style['interpolate-size'] = "numeric-only" should set the property value
 PASS css/css-values/calc-size/interpolate-size-parsing.html :: e.style['interpolate-size'] = "allow-keywords" should set the property value
@@ -555,6 +708,9 @@ PASS css/css-values/calc-time-values.html :: division of time unit with integer:
 PASS css/css-values/calc-time-values.html :: division of time unit with integer: ms divided by int
 PASS css/css-values/calc-time-values.html :: conversion of time unit: ms into s
 FILE css/css-values/calc-unit-analysis.html
+PASS css/css-values/calc-unit-analysis.html :: 0px_in_calc
+PASS css/css-values/calc-unit-analysis.html :: multiplication_of_length_and_number
+PASS css/css-values/calc-unit-analysis.html :: multiplication_of_number_and_length
 FILE css/css-values/calc-z-index-fractions-001.html
 FILE css/css-values/cap-invalidation.html
 PASS css/css-values/cap-invalidation.html :: Untitled
@@ -567,6 +723,22 @@ FILE css/css-values/clamp-color-invalid.html
 FILE css/css-values/clamp-integer-computed.html
 FILE css/css-values/clamp-integer-invalid.html
 FILE css/css-values/clamp-length-computed.html
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 20px, 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 5px, 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 35px, 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 35px , 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px, 35px /*foo*/, 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(10px , 35px, 30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(30px, 100px, 20px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(-30px, -20px, -10px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(-30px, -100px, -10px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(-30px, 100px, -10px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(-10px, 100px, -30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'clamp(-10px, -100px, -30px)'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px + clamp(10px, 20px, 30px))'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px - clamp(10px, 20px, 30px))'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px + clamp(30px, 100px, 20px))'
+PASS css/css-values/clamp-length-computed.html :: Property letter-spacing value 'calc(0px - clamp(30px, 100px, 20px))'
 FILE css/css-values/clamp-length-invalid.html
 FILE css/css-values/clamp-length-serialize.html
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, 3px))" should set the property value
@@ -621,10 +793,14 @@ PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conver
 PASS css/css-values/getComputedStyle-border-radius-002.html :: percentage conversion test 8
 FILE css/css-values/getComputedStyle-border-radius-003.html
 FILE css/css-values/getComputedStyle-calc-mixed-units-001.html
+PASS css/css-values/getComputedStyle-calc-mixed-units-001.html :: testing background-size: calc(67% - 54% + 4em) 50%
 FILE css/css-values/getComputedStyle-calc-mixed-units-002.html
+PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(4em + 2.6458333cm)
+PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing width: calc(2in + 101.6Q)
+PASS css/css-values/getComputedStyle-calc-mixed-units-002.html :: testing height: calc(1pc + 3pt)
 FILE css/css-values/getComputedStyle-calc-mixed-units-003.html
-PASS css/css-values/getComputedStyle-calc-mixed-units-003.html :: testing width: calc(100px * 1px / 1px / 1)
 FILE css/css-values/hypot-pow-sqrt-computed.html
+PASS css/css-values/hypot-pow-sqrt-computed.html :: calc(pow(tan(atan2(round(up,1px,100%),round(up,1px,100%))),2)*1px) should be computed-value-equivalent to calc(pow(tan(atan2(round(up,1px,100%),round(up,1px,100%))),2)*1px)
 FILE css/css-values/hypot-pow-sqrt-invalid.html
 PASS css/css-values/hypot-pow-sqrt-invalid.html :: e.style['outline-offset'] = "calc(sqrt(100px)" should not set the property value
 FILE css/css-values/hypot-pow-sqrt-serialize.html
@@ -639,7 +815,6 @@ FILE css/css-values/ident-function-substitution.html
 PASS css/css-values/ident-function-substitution.html :: an unresolvable argument makes ident() invalid at computed-value time
 PASS css/css-values/ident-function-substitution.html :: an argument that is not <ident-arg>+ makes ident() invalid at computed-value time
 PASS css/css-values/ident-function-substitution.html :: a cycle through the ident() argument
-PASS css/css-values/ident-function-substitution.html :: ident() substituting a value the property does not accept
 FILE css/css-values/if-conditionals.html
 PASS css/css-values/if-conditionals.html :: Untitled 6
 PASS css/css-values/if-conditionals.html :: Untitled 7
@@ -698,55 +873,136 @@ FILE css/css-values/integer_interpolation_round_half_towards_positive_infinity_z
 FILE css/css-values/lh-rlh-on-root-001.html
 PASS css/css-values/lh-rlh-on-root-001.html :: lh in line-height on root
 PASS css/css-values/lh-rlh-on-root-001.html :: rlh in line-height on root
-PASS css/css-values/lh-rlh-on-root-001.html :: lh in font-size on root
-PASS css/css-values/lh-rlh-on-root-001.html :: rlh in font-size on root
 PASS css/css-values/lh-rlh-on-root-001.html :: 2lh in line-height on root
 PASS css/css-values/lh-rlh-on-root-001.html :: 2rlh in line-height on root
-PASS css/css-values/lh-rlh-on-root-001.html :: 2lh in font-size on root
-PASS css/css-values/lh-rlh-on-root-001.html :: 2rlh in font-size on root
 FILE css/css-values/lh-rlh-percentage-line-height-with-zoom.html
 FILE css/css-values/lh-unit-003.html
 FILE css/css-values/lh-unit-004.html
 FILE css/css-values/lh-unit-005.html
 FILE css/css-values/line-break-ch-unit.html
 FILE css/css-values/minmax-angle-computed.html
+PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) + 0.125turn) should be used-value-equivalent to 135deg
+PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) - 0.125turn) should be used-value-equivalent to 45deg
+PASS css/css-values/minmax-angle-computed.html :: calc(max(90deg, 1.56rad) - 0.125turn) should be used-value-equivalent to 45deg
+PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) + max(0.125turn, 49grad)) should be used-value-equivalent to 135deg
+PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) - max(0.25turn, 99grad)) should be used-value-equivalent to 0deg
 FILE css/css-values/minmax-angle-invalid.html
 FILE css/css-values/minmax-angle-serialize.html
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(30deg) + max(60deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(30deg) + max(60deg)))' as a computed value should serialize as 'rotate(90deg)'.
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + min(45deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + min(45deg)))' as a computed value should serialize as 'rotate(90deg)'.
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(45deg) + 50grad))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(45deg) + 50grad))' as a computed value should serialize as 'rotate(90deg)'.
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + max(45deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + max(45deg)))' as a computed value should serialize as 'rotate(90deg)'.
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(max(45deg) + 50grad))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(max(45deg) + 50grad))' as a computed value should serialize as 'rotate(90deg)'.
 FILE css/css-values/minmax-integer-computed.html
 FILE css/css-values/minmax-length-computed.html
+PASS css/css-values/minmax-length-computed.html :: min(1px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: min(1em) should be used-value-equivalent to 1em
+PASS css/css-values/minmax-length-computed.html :: min(1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: max(1px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: max(1em) should be used-value-equivalent to 1em
+PASS css/css-values/minmax-length-computed.html :: max(1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: min(1px, 2px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: min(1em, 2em) should be used-value-equivalent to 1em
+PASS css/css-values/minmax-length-computed.html :: min(1rem, 2rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: max(1px, 2px) should be used-value-equivalent to 2px
+PASS css/css-values/minmax-length-computed.html :: max(1em, 2em) should be used-value-equivalent to 2em
+PASS css/css-values/minmax-length-computed.html :: max(1rem, 2rem) should be used-value-equivalent to 2rem
+PASS css/css-values/minmax-length-computed.html :: min(95px, 1in) should be used-value-equivalent to 95px
+PASS css/css-values/minmax-length-computed.html :: min(15px, 1em) should be used-value-equivalent to 15px
+PASS css/css-values/minmax-length-computed.html :: min(25px, 1em) should be used-value-equivalent to 20px
+PASS css/css-values/minmax-length-computed.html :: max(15px, 1em) should be used-value-equivalent to 20px
+PASS css/css-values/minmax-length-computed.html :: max(25px, 1em) should be used-value-equivalent to 25px
+PASS css/css-values/minmax-length-computed.html :: min(15px, 1em) should be used-value-equivalent to 10px; fontSize=10px
+PASS css/css-values/minmax-length-computed.html :: max(15px, 2em) should be used-value-equivalent to 20px; fontSize=10px
+PASS css/css-values/minmax-length-computed.html :: min(25px, max(15px, 1em)) should be used-value-equivalent to 20px
+PASS css/css-values/minmax-length-computed.html :: max(15px, min(25px, 1em)) should be used-value-equivalent to 20px
+PASS css/css-values/minmax-length-computed.html :: calc(min(1em, 21px) + 10px) should be used-value-equivalent to 30px
+PASS css/css-values/minmax-length-computed.html :: calc(min(1em, 21px) - 10px) should be used-value-equivalent to 10px
+PASS css/css-values/minmax-length-computed.html :: calc(max(1em, 19px) + 10px) should be used-value-equivalent to 30px
+PASS css/css-values/minmax-length-computed.html :: calc(max(1em, 19px) - 10px) should be used-value-equivalent to 10px
+PASS css/css-values/minmax-length-computed.html :: calc(min(1em, 21px) + max(0.9em, 20px)) should be used-value-equivalent to 40px
+PASS css/css-values/minmax-length-computed.html :: calc(min(1em + 1px, 22px) - max(0.9em, 20px)) should be used-value-equivalent to 1px
 FILE css/css-values/minmax-length-invalid.html
 FILE css/css-values/minmax-length-percent-computed.html
 FILE css/css-values/minmax-length-percent-invalid.html
 FILE css/css-values/minmax-length-percent-serialize.html
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px)' as a used value should serialize as '1px'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(1px)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(1px)' as a used value should serialize as '1px'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px, 2px)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1px, 2px)' as a used value should serialize as '1px'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(20px, 10%)' as a specified value should serialize as 'min(20px, 10%)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(20px, 10%)' as a computed value should serialize as 'min(20px, 10%)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1em, 10%)' as a specified value should serialize as 'min(1em, 10%)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(1em, 10%)' as a computed value should serialize as 'min(16px, 10%)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(10%, 20px)' as a specified value should serialize as 'min(10%, 20px)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(10%, 20px)' as a computed value should serialize as 'min(10%, 20px)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'min(10%, 1em)' as a specified value should serialize as 'min(10%, 1em)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'min(10%, 1em)' as a computed value should serialize as 'min(10%, 16px)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(20px, 10%)' as a specified value should serialize as 'max(20px, 10%)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(20px, 10%)' as a computed value should serialize as 'max(20px, 10%)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(1em, 10%)' as a specified value should serialize as 'max(1em, 10%)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(1em, 10%)' as a computed value should serialize as 'max(16px, 10%)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 20px)' as a specified value should serialize as 'max(10%, 20px)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 20px)' as a computed value should serialize as 'max(10%, 20px)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 1em)' as a specified value should serialize as 'max(10%, 1em)'.
+PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 1em)' as a computed value should serialize as 'max(10%, 16px)'.
 FILE css/css-values/minmax-length-serialize.html
+PASS css/css-values/minmax-length-serialize.html :: 'min(1px)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-serialize.html :: 'min(1in)' as a computed value should serialize as '96px'.
+PASS css/css-values/minmax-length-serialize.html :: 'max(1px)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-serialize.html :: 'max(1in)' as a computed value should serialize as '96px'.
+PASS css/css-values/minmax-length-serialize.html :: 'min(1PX)' as a computed value should serialize as '1px'.
 PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + min(1in, 100px))' as a specified value should serialize as 'calc(97px)'.
+PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + min(1in, 100px))' as a computed value should serialize as '97px'.
 PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + max(1in, 100px))' as a specified value should serialize as 'calc(101px)'.
+PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + max(1in, 100px))' as a computed value should serialize as '101px'.
 PASS css/css-values/minmax-length-serialize.html :: 'min(1px, 1em)' as a specified value should serialize as 'min(1px, 1em)'.
+PASS css/css-values/minmax-length-serialize.html :: 'min(1px, 1em)' as a computed value should serialize as '1px'.
+PASS css/css-values/minmax-length-serialize.html :: 'calc(min(1px, 1in) + max(100px + 1em, 10px + 1in) + 1px)' as a computed value should serialize as '118px'.
+PASS css/css-values/minmax-length-serialize.html :: 'calc(2 * (.2 * min(1em, 1px)) + 1px)' as a computed value should serialize as '1.4px'.
 FILE css/css-values/minmax-number-computed.html
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) + 0.05) should be used-value-equivalent to 0.15
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) - 0.05) should be used-value-equivalent to 0.05
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) * 2) should be used-value-equivalent to 0.2
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) / 2) should be used-value-equivalent to 0.05
+PASS css/css-values/minmax-number-computed.html :: calc(max(0.1, 0.2) + 0.05) should be used-value-equivalent to 0.25
+PASS css/css-values/minmax-number-computed.html :: calc(max(0.1, 0.2) - 0.05) should be used-value-equivalent to 0.15
+PASS css/css-values/minmax-number-computed.html :: calc(max(0.1, 0.2) * 2) should be used-value-equivalent to 0.4
+PASS css/css-values/minmax-number-computed.html :: calc(max(0.1, 0.2) / 2) should be used-value-equivalent to 0.1
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) + max(0.1, 0.05)) should be used-value-equivalent to 0.2
+PASS css/css-values/minmax-number-computed.html :: calc(min(0.1, 0.2) - max(0.1, 0.05)) should be used-value-equivalent to 0
 FILE css/css-values/minmax-number-invalid.html
 FILE css/css-values/minmax-number-serialize.html
 PASS css/css-values/minmax-number-serialize.html :: 'calc(min(.1) + min(.2))' as a specified value should serialize as 'calc(0.3)'.
 PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(min(.1) + min(.2)))' as a specified value should serialize as 'scale(calc(0.3))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(min(.1) + min(.2))' as a computed value should serialize as '0.3'.
 PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + max(.2))' as a specified value should serialize as 'calc(0.3)'.
 PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(max(.1) + max(.2)))' as a specified value should serialize as 'scale(calc(0.3))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + max(.2))' as a computed value should serialize as '0.3'.
 PASS css/css-values/minmax-number-serialize.html :: 'calc(.1 + min(.1))' as a specified value should serialize as 'calc(0.2)'.
 PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(.1 + min(.1)))' as a specified value should serialize as 'scale(calc(0.2))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(.1 + min(.1))' as a computed value should serialize as '0.2'.
 PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + .1)' as a specified value should serialize as 'calc(0.2)'.
 PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(max(.1) + .1))' as a specified value should serialize as 'scale(calc(0.2))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + .1)' as a computed value should serialize as '0.2'.
 FILE css/css-values/minmax-percentage-computed.html
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) + 5%) should be used-value-equivalent to 15%
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) - 5%) should be used-value-equivalent to 5%
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) * 2) should be used-value-equivalent to 20%
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) / 2) should be used-value-equivalent to 5%
+PASS css/css-values/minmax-percentage-computed.html :: calc(max(10%, 20%) + 5%) should be used-value-equivalent to 25%
+PASS css/css-values/minmax-percentage-computed.html :: calc(max(10%, 20%) - 5%) should be used-value-equivalent to 15%
+PASS css/css-values/minmax-percentage-computed.html :: calc(max(10%, 20%) * 2) should be used-value-equivalent to 40%
+PASS css/css-values/minmax-percentage-computed.html :: calc(max(10%, 20%) / 2) should be used-value-equivalent to 10%
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(10%, 20%) + max(10%, 5%)) should be used-value-equivalent to 20%
+PASS css/css-values/minmax-percentage-computed.html :: calc(min(11%, 20%) - max(10%, 5%)) should be used-value-equivalent to 1%
 FILE css/css-values/minmax-percentage-invalid.html
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1#)" should not set the property value
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(%1)" should not set the property value
@@ -754,18 +1010,38 @@ PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "max(%1)" should not set the property value
 FILE css/css-values/minmax-percentage-serialize.html
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%)' as a specified value should serialize as 'min(1%, 2%, 3%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%)' as a computed value should serialize as 'min(1%, 2%, 3%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(3%, 2%, 1%)' as a specified value should serialize as 'min(3%, 2%, 1%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'min(3%, 2%, 1%)' as a computed value should serialize as 'min(3%, 2%, 1%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(-1%, 1%)' as a specified value should serialize as 'min(-1%, 1%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'min(-1%, 1%)' as a computed value should serialize as 'min(-1%, 1%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'max(1%, 2%, 3%)' as a specified value should serialize as 'max(1%, 2%, 3%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'max(1%, 2%, 3%)' as a computed value should serialize as 'max(1%, 2%, 3%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'max(3%, 2%, 1%)' as a specified value should serialize as 'max(3%, 2%, 1%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'max(3%, 2%, 1%)' as a computed value should serialize as 'max(3%, 2%, 1%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'max(-1%, 1%)' as a specified value should serialize as 'max(-1%, 1%)'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'max(-1%, 1%)' as a computed value should serialize as 'max(-1%, 1%)'.
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%) 0px' as a specified value should serialize as 'min(1%, 2%, 3%) 0px'.
+PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%) 0px' as a computed value should serialize as 'min(1%, 2%, 3%) 0px'.
 FILE css/css-values/minmax-time-computed.html
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) + 500ms) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.6s, 700ms) - 500ms) should be used-value-equivalent to 0.1s
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) * 2) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) / 2) should be used-value-equivalent to 0.25s
+PASS css/css-values/minmax-time-computed.html :: calc(max(0.5s, 400ms) + 500ms) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: calc(max(0.5s, 400ms) - 400ms) should be used-value-equivalent to 0.1s
+PASS css/css-values/minmax-time-computed.html :: calc(max(0.5s, 400ms) * 2) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: calc(max(0.5s, 400ms) / 2) should be used-value-equivalent to 0.25s
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) + max(500ms, 0.4s)) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: calc(min(0.6s, 700ms) - max(500ms, 0.4s)) should be used-value-equivalent to 0.1s
+PASS css/css-values/minmax-time-computed.html :: calc(min(1s, 2s) + max(3s, 4s) + 10s) should be used-value-equivalent to 15s
 FILE css/css-values/minmax-time-invalid.html
 FILE css/css-values/minmax-time-serialize.html
 PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a specified value should serialize as 'calc(15s)'.
+PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a computed value should serialize as '15s'.
 FILE css/css-values/percentage-without-context.html
 FILE css/css-values/position/position-computed.tentative.html
+PASS css/css-values/position/position-computed.tentative.html :: Property object-position value '-20% -30px'
 FILE css/css-values/position/position-invalid.tentative.html
 PASS css/css-values/position/position-invalid.tentative.html :: e.style['object-position'] = "auto" should not set the property value
 PASS css/css-values/position/position-invalid.tentative.html :: e.style['object-position'] = "left top garbage" should not set the property value
@@ -1058,6 +1334,7 @@ FILE css/css-values/urls/referrer-policy/no-referrer/url-import-referrer-policy.
 FILE css/css-values/urls/resolve-relative-to-base.sub.html
 FILE css/css-values/urls/resolve-relative-to-stylesheet.html
 FILE css/css-values/urls/url-request-modifiers-computed.sub.html
+PASS css/css-values/urls/url-request-modifiers-computed.sub.html :: Property background-image value 'url("http://{{hosts[][]}}:{{ports[http][0]}}/css/support/1x1-green.png")'
 FILE css/css-values/urls/url-request-modifiers-font-face-parsing.html
 FILE css/css-values/urls/url-request-modifiers-import-parsing.sub.html
 FILE css/css-values/urls/url-request-modifiers-invalid.sub.html
@@ -1102,6 +1379,7 @@ PASS css/css-values/urls/url-request-modifiers-invalid.sub.html :: e.style['back
 FILE css/css-values/urls/url-request-modifiers-serialize.sub.html
 PASS css/css-values/urls/url-request-modifiers-serialize.sub.html :: e.style['background-image'] = "url(\\"http://{{hosts[][]}}:{{ports[http][0]}}/css/support/1x1-green.png\\")" should set the property value
 FILE css/css-values/using-font-relative-units-in-font-properties.html
+PASS css/css-values/using-font-relative-units-in-font-properties.html :: Property font-size value 'calc(1em / 1)'
 FILE css/css-values/various-values-important.html
 FILE css/css-values/viewport-relative-lengths-scaled-viewport.html
 FILE css/css-values/viewport-units-after-font-load.html

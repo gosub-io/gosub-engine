@@ -192,6 +192,23 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         classes: doc.attribute(id, "class").unwrap_or(""),
         tag: doc.tag_name(id),
     };
+    // The `style` attribute, parsed as a one-rule stylesheet so it can join the cascade as a
+    // rule like any other. Declared before `matched` so it outlives the borrows taken of it.
+    //
+    // It used to be parsed only when it contained a `--`, and only its custom properties were
+    // read: the render pipeline layered the ordinary declarations on afterwards, outside the
+    // cascade entirely. Anything else asking the cascade what an element computes to - which is
+    // to say `getComputedStyle` - therefore could not see a single thing set through
+    // `element.style`.
+    let inline_sheet = pseudo
+        .is_none()
+        .then(|| doc.attribute(id, "style"))
+        .flatten()
+        .filter(|style| !style.trim().is_empty())
+        .and_then(|style| {
+            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
+        });
+
     let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity, u16)> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
     // rule. Unconditional rules never look at it.
@@ -227,6 +244,12 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         }
     }
 
+    // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
+    // to the element's own tree, so it ranks at that tree's depth rather than the document's.
+    if let Some((sheet, rule)) = inline_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
+        matched.push((sheet, rule, INLINE_SPECIFICITY, shadow_depth::<C>(doc, element_scope)));
+    }
+
     // Custom properties: the parent's scope with this node's own declarations cascaded on
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
@@ -256,38 +279,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             }
         }
     }
-    // The `style` attribute cascades above every stylesheet rule; it is parsed here only
-    // when it can carry a custom property (it usually cannot), through the real parser.
-    let inline_sheet = pseudo
-        .is_none()
-        .then(|| doc.attribute(id, "style"))
-        .flatten()
-        .filter(|style| style.contains("--"))
-        .and_then(|style| {
-            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
-        });
-    if let Some(rule) = inline_sheet.as_ref().and_then(|sheet| sheet.rules.first()) {
-        for decl in rule.declarations() {
-            if !decl.property.starts_with("--") {
-                continue;
-            }
-            // The `style` attribute belongs to the element's own tree, so depth 0 applies.
-            let rank = (
-                cascade_rank(CssOrigin::Author, decl.important),
-                tree_rank(0, decl.important),
-                INLINE_SPECIFICITY,
-            );
-            match own_custom.entry(decl.property.as_str()) {
-                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
-                    slot.insert((rank, &decl.value));
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(slot) => {
-                    slot.insert((rank, &decl.value));
-                }
-            }
-        }
-    }
+    // The `style` attribute needs no pass of its own here: it is one of the rules in `matched`,
+    // so the loop above already cascaded its custom properties at inline specificity.
     let changes_scope = own_custom
         .iter()
         .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
