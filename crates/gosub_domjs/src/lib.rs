@@ -23,6 +23,7 @@ use rquickjs::{Class, Ctx, Object, Value};
 use url::Url;
 
 mod computed_style;
+mod css_namespace;
 mod document;
 pub mod event;
 mod node;
@@ -86,6 +87,7 @@ pub fn install(ctx: &Ctx<'_>, doc: DocHandle, timers: &timers::Timers) -> rquick
     event::install(ctx)?;
     timers::install(ctx, timers)?;
     style::install(ctx)?;
+    css_namespace::install(ctx)?;
     computed_style::install(ctx, doc.clone())?;
     globals.set(WRAPPER_CACHE, ctx.eval::<Value, _>("new Map()")?)?;
 

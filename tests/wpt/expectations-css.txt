@@ -142,6 +142,27 @@ PASS css/css-values/calc-background-position-003.html :: testing background-posi
 PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(6px + 21%) calc(7em + 22%)
 PASS css/css-values/calc-background-position-003.html :: testing background-position: calc(-8px + 23%) calc(-9em + 24%)
 FILE css/css-values/calc-catch-divide-by-0.html
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px * 0 / 0)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px / 0)' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px / (0))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px / (2 - 2))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px / (2 - (-62 + 64)))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px * (1 / 0))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px * (1 / (0)))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px * (1 / (2 - 2)))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(100px * (1 / (2 - (-62 + 64))))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * max(1/0, 0))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * min(1/0, 0))' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * max(0/0, 0))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * min(0/0, 0))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * max(0/0, min(0,10)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * clamp(0/0, 0, 10))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * max(0, min(10, 0/0)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * clamp(0, 10, 0/0))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * max(0, min(0/0, 10)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * clamp(0, 0/0, 10))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * clamp(-1/0, 0, 1/0))' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-catch-divide-by-0.html :: 'calc(1px * clamp(-1/0, 1/0, 10))' as a specified value should serialize as 'calc(10px)'.
 FILE css/css-values/calc-complex-unresolved-serialize.html
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(2, sign(1em - 18px)))' as a specified value should serialize as 'calc(pow(2, sign(1em - 18px)))'.
 PASS css/css-values/calc-complex-unresolved-serialize.html :: 'calc(pow(sign(1em - 18px), 2))' as a specified value should serialize as 'calc(pow(sign(1em - 18px), 2))'.
@@ -197,13 +218,168 @@ FILE css/css-values/calc-in-media-queries-with-mixed-units.html
 HARNESS css/css-values/calc-in-media-queries-with-mixed-units.html
 FILE css/css-values/calc-infinity-nan-computed.html
 FILE css/css-values/calc-infinity-nan-serialize-angle.html
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1rad * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1turn * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1grad * nan))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * infinity / infinity))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * 0 * infinity))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * (infinity + -infinity)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * (-infinity + infinity)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * (infinity - infinity)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * infinity))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * -infinity))' as a specified value should serialize as 'rotate(calc(-infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * iNFinIty))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * (infinity + infinity)))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * (-infinity + -infinity)))' as a specified value should serialize as 'rotate(calc(-infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * 1/infinity))' as a specified value should serialize as 'rotate(calc(0deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * infinity * infinity))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * -infinity * -infinity))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1 * max(INFinity*3deg, 0deg)))' as a specified value should serialize as 'rotate(calc(infinity * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1 * min(inFInity*4deg, 0deg)))' as a specified value should serialize as 'rotate(calc(0deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1 * max(nAn*2deg, 0deg)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1 * min(nan*3deg, 0deg)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1 * clamp(-INFINITY*20deg, 0deg, infiniTY*10deg)))' as a specified value should serialize as 'rotate(calc(0deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * max(NaN, min(0,10))))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * clamp(NaN, 0, 10)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * max(0, min(10, NaN))))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * clamp(0, 10, NaN)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * max(0, min(NaN, 10))))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * clamp(0, NaN, 10)))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * clamp(-Infinity, 0, infinity)))' as a specified value should serialize as 'rotate(calc(0deg))'.
+PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * clamp(-inFinity, infinity, 10)))' as a specified value should serialize as 'rotate(calc(10deg))'.
 FILE css/css-values/calc-infinity-nan-serialize-length.html
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1% * NaN)' as a specified value should serialize as 'calc(NaN * 1%)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1in * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1cm * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1mm * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1q * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1pt * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1pc * NaN)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * nan)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * infinity / infinity)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * 0 * infinity)' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * (infinity + -infinity))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * (-infinity + infinity))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * (infinity - infinity))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * infinity)' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * -infinity)' as a specified value should serialize as 'calc(-infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1% * infinity)' as a specified value should serialize as 'calc(infinity * 1%)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1% * -infinity)' as a specified value should serialize as 'calc(-infinity * 1%)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * iNFinIty)' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * (infinity + infinity))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * (-infinity + -infinity))' as a specified value should serialize as 'calc(-infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * 1/infinity)' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * infinity * infinity)' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * -infinity * -infinity)' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * max(INFinity*3px, 0px))' as a specified value should serialize as 'calc(infinity * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * min(inFInity*4px, 0px))' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * max(nAn*2px, 0px))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * min(nan*3px, 0px))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * clamp(-INFINITY*20px, 0px, infiniTY*10px))' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * max(NaN, min(0,10)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * clamp(NaN, 0, 10))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * max(0, min(10, NaN)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * clamp(0, 10, NaN))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * max(0, min(NaN, 10)))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * clamp(0, NaN, 10))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * clamp(-Infinity, 0, infinity))' as a specified value should serialize as 'calc(0px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1px * clamp(-inFinity, infinity, 10))' as a specified value should serialize as 'calc(10px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * min(NaN * 1pt, NaN * 1cm))' as a specified value should serialize as 'calc(NaN * 1px)'.
+PASS css/css-values/calc-infinity-nan-serialize-length.html :: 'calc(1 * max(NaN * 1cm, NaN * 2Q))' as a specified value should serialize as 'calc(NaN * 1px)'.
 FILE css/css-values/calc-infinity-nan-serialize-number.html
 PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(NaN)' as a specified value should serialize as 'calc(NaN)'.
 PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(infinity)' as a specified value should serialize as 'calc(infinity)'.
 PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(-infinity)' as a specified value should serialize as 'calc(-infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * NaN)' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * nan)' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * infinity / infinity)' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * 0 * infinity)' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * (infinity + -infinity))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * (-infinity + infinity))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * (infinity - infinity))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * infinity)' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * -infinity)' as a specified value should serialize as 'calc(-infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * iNFinIty)' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * (infinity + infinity))' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * (-infinity + -infinity))' as a specified value should serialize as 'calc(-infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * 1/infinity)' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * infinity * infinity)' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * -infinity * -infinity)' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * max(INFinity*3, 0))' as a specified value should serialize as 'calc(infinity)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * min(inFInity*4, 0))' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * max(nAn*2, 0))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * min(nan*3, 0))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(-INFINITY*20, 0, infiniTY*10))' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * max(NaN, min(0,10)))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(NaN, 0, 10))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * max(0, min(10, NaN)))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(0, 10, NaN))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * max(0, min(NaN, 10)))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(0, NaN, 10))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(-Infinity, 0, infinity))' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/calc-infinity-nan-serialize-number.html :: 'calc(1 * clamp(-inFinity, infinity, 10))' as a specified value should serialize as 'calc(10)'.
 FILE css/css-values/calc-infinity-nan-serialize-resolution.html
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1x * NaN))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1x * nan))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * NaN))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * infinity / infinity))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * 0 * infinity))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * (infinity + -infinity)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * (-infinity + infinity)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * (infinity - infinity)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * infinity))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * -infinity))' as a specified value should serialize as 'image-set(url("") calc(-infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * iNFinIty))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * (infinity + infinity)))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * (-infinity + -infinity)))' as a specified value should serialize as 'image-set(url("") calc(-infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * 1/infinity))' as a specified value should serialize as 'image-set(url("") calc(0dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * infinity * infinity))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * -infinity * -infinity))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1 * max(INFinity*3dppx, 0dppx)))' as a specified value should serialize as 'image-set(url("") calc(infinity * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1 * min(inFInity*4dppx, 0dppx)))' as a specified value should serialize as 'image-set(url("") calc(0dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1 * max(nAn*2dppx, 0dppx)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1 * min(nan*3dppx, 0dppx)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1 * clamp(-INFINITY*20dppx, 0dppx, infiniTY*10dppx)))' as a specified value should serialize as 'image-set(url("") calc(0dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * max(NaN, min(0,10))))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * clamp(NaN, 0, 10)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * max(0, min(10, NaN))))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * clamp(0, 10, NaN)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * max(0, min(NaN, 10))))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * clamp(0, NaN, 10)))' as a specified value should serialize as 'image-set(url("") calc(NaN * 1dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * clamp(-Infinity, 0, infinity)))' as a specified value should serialize as 'image-set(url("") calc(0dppx))'.
+PASS css/css-values/calc-infinity-nan-serialize-resolution.html :: 'image-set(url("") calc(1dppx * clamp(-inFinity, infinity, 10)))' as a specified value should serialize as 'image-set(url("") calc(10dppx))'.
 FILE css/css-values/calc-infinity-nan-serialize-time.html
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * NaN)' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * nan)' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1ms * NaN)' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * infinity / infinity)' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * 0 * infinity)' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * (infinity + -infinity))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * (-infinity + infinity))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * (infinity - infinity))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * infinity)' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * -infinity)' as a specified value should serialize as 'calc(-infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * iNFinIty)' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * (infinity + infinity))' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * (-infinity + -infinity))' as a specified value should serialize as 'calc(-infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * 1/infinity)' as a specified value should serialize as 'calc(0s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * infinity * infinity)' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * -infinity * -infinity)' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1 * max(INFinity*3s, 0s))' as a specified value should serialize as 'calc(infinity * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1 * min(inFInity*4s, 0s))' as a specified value should serialize as 'calc(0s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1 * max(nAn*2s, 0s))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1 * min(nan*3s, 0s))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1 * clamp(-INFINITY*20s, 0s, infiniTY*10s))' as a specified value should serialize as 'calc(0s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * max(NaN, min(0,10)))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(NaN, 0, 10))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * max(0, min(10, NaN)))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(0, 10, NaN))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * max(0, min(NaN, 10)))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(0, NaN, 10))' as a specified value should serialize as 'calc(NaN * 1s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(-Infinity, 0, infinity))' as a specified value should serialize as 'calc(0s)'.
+PASS css/css-values/calc-infinity-nan-serialize-time.html :: 'calc(1s * clamp(-inFinity, infinity, 10))' as a specified value should serialize as 'calc(10s)'.
 FILE css/css-values/calc-integer.html
 FILE css/css-values/calc-invalid-parsing.html
 FILE css/css-values/calc-letter-spacing.html
@@ -393,6 +569,28 @@ FILE css/css-values/clamp-integer-invalid.html
 FILE css/css-values/clamp-length-computed.html
 FILE css/css-values/clamp-length-invalid.html
 FILE css/css-values/clamp-length-serialize.html
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, 3px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, clamp(2px, 3px, 4px)))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px, 5px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px, 35px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px, 35px , 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px, 35px /*foo*/, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px /* foo */ , 35px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(10px , 35px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(30px, 100px, 20px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(-30px, -20px, -10px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(-30px, -100px, -10px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(-30px, 100px, -10px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(-10px, 100px, -30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(-10px, -100px, -30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px + clamp(10px, 20px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(calc(0px + clamp(10px, 20px, 30px)))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px - clamp(10px, 20px, 30px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(calc(0px - clamp(10px, 20px, 30px)))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px + clamp(30px, 100px, 20px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(calc(0px + clamp(30px, 100px, 20px)))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px - clamp(30px, 100px, 20px))" should set the property value
+PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(calc(0px - clamp(30px, 100px, 20px)))" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "clamp(1px, 1em, 1vh)" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "clamp(-18px, 3vw, -3vw)" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(0px + clamp(1px, 1em, 1vh))" should set the property value
@@ -514,6 +712,11 @@ FILE css/css-values/line-break-ch-unit.html
 FILE css/css-values/minmax-angle-computed.html
 FILE css/css-values/minmax-angle-invalid.html
 FILE css/css-values/minmax-angle-serialize.html
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(30deg) + max(60deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + min(45deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(min(45deg) + 50grad))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(50grad + max(45deg)))' as a specified value should serialize as 'rotate(calc(90deg))'.
+PASS css/css-values/minmax-angle-serialize.html :: 'rotate(calc(max(45deg) + 50grad))' as a specified value should serialize as 'rotate(calc(90deg))'.
 FILE css/css-values/minmax-integer-computed.html
 FILE css/css-values/minmax-length-computed.html
 FILE css/css-values/minmax-length-invalid.html
@@ -529,10 +732,20 @@ PASS css/css-values/minmax-length-percent-serialize.html :: 'max(1em, 10%)' as a
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 20px)' as a specified value should serialize as 'max(10%, 20px)'.
 PASS css/css-values/minmax-length-percent-serialize.html :: 'max(10%, 1em)' as a specified value should serialize as 'max(10%, 1em)'.
 FILE css/css-values/minmax-length-serialize.html
+PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + min(1in, 100px))' as a specified value should serialize as 'calc(97px)'.
+PASS css/css-values/minmax-length-serialize.html :: 'calc(1px + max(1in, 100px))' as a specified value should serialize as 'calc(101px)'.
 PASS css/css-values/minmax-length-serialize.html :: 'min(1px, 1em)' as a specified value should serialize as 'min(1px, 1em)'.
 FILE css/css-values/minmax-number-computed.html
 FILE css/css-values/minmax-number-invalid.html
 FILE css/css-values/minmax-number-serialize.html
+PASS css/css-values/minmax-number-serialize.html :: 'calc(min(.1) + min(.2))' as a specified value should serialize as 'calc(0.3)'.
+PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(min(.1) + min(.2)))' as a specified value should serialize as 'scale(calc(0.3))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + max(.2))' as a specified value should serialize as 'calc(0.3)'.
+PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(max(.1) + max(.2)))' as a specified value should serialize as 'scale(calc(0.3))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(.1 + min(.1))' as a specified value should serialize as 'calc(0.2)'.
+PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(.1 + min(.1)))' as a specified value should serialize as 'scale(calc(0.2))'.
+PASS css/css-values/minmax-number-serialize.html :: 'calc(max(.1) + .1)' as a specified value should serialize as 'calc(0.2)'.
+PASS css/css-values/minmax-number-serialize.html :: 'scale(calc(max(.1) + .1))' as a specified value should serialize as 'scale(calc(0.2))'.
 FILE css/css-values/minmax-percentage-computed.html
 FILE css/css-values/minmax-percentage-invalid.html
 PASS css/css-values/minmax-percentage-invalid.html :: e.style['margin-left'] = "min(1#)" should not set the property value
@@ -550,6 +763,7 @@ PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%) 0px' as
 FILE css/css-values/minmax-time-computed.html
 FILE css/css-values/minmax-time-invalid.html
 FILE css/css-values/minmax-time-serialize.html
+PASS css/css-values/minmax-time-serialize.html :: 'calc(min(1s, 2s) + max(3s, 4s) + 10s)' as a specified value should serialize as 'calc(15s)'.
 FILE css/css-values/percentage-without-context.html
 FILE css/css-values/position/position-computed.tentative.html
 FILE css/css-values/position/position-invalid.tentative.html

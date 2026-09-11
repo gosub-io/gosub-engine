@@ -130,27 +130,51 @@ impl Sum {
         })
     }
 
+    /// The unit and coefficient this sum came down to, if it came down to one term.
+    fn single_term(&self) -> Option<(String, f32)> {
+        match self.terms.len() {
+            1 => self.terms.iter().next().map(|(unit, value)| (unit.clone(), *value)),
+            _ => None,
+        }
+    }
+
     /// The body text, without the surrounding `calc(` and `)`.
     #[must_use]
     pub fn serialize(&self) -> String {
         let mut out = String::new();
         for (i, (unit, value)) in self.terms.iter().enumerate() {
-            // Only the first term carries its own sign; after that the sign is the operator, and
-            // `calc(40% - 50px)` reads better than `calc(40% + -50px)` (and is what browsers
-            // serialize).
-            if i == 0 {
-                let _ = write!(out, "{}", format_term(*value, unit));
-            } else if *value < 0.0 {
+            // A non-finite term carries its sign inside the keyword, so it is never written as
+            // the right-hand side of a subtraction.
+            if i > 0 && value.is_finite() && *value < 0.0 {
                 let _ = write!(out, " - {}", format_term(-*value, unit));
-            } else {
-                let _ = write!(out, " + {}", format_term(*value, unit));
+                continue;
             }
+            if i > 0 {
+                out.push_str(" + ");
+            }
+            let _ = write!(out, "{}", format_term(*value, unit));
         }
         out
     }
 }
 
 fn format_term(value: f32, unit: &str) -> String {
+    // css-values-4 serializes a non-finite dimension as a product with a one-unit multiplier -
+    // `calc(NaN * 1px)`, never `NaNpx` - because `NaN` and `infinity` are `<number>` keywords
+    // and cannot carry a unit themselves. A plain number is just the keyword.
+    if !value.is_finite() {
+        let keyword = if value.is_nan() {
+            "NaN"
+        } else if value > 0.0 {
+            "infinity"
+        } else {
+            "-infinity"
+        };
+        return match unit {
+            "" => keyword.to_string(),
+            unit => format!("{keyword} * 1{unit}"),
+        };
+    }
     match unit {
         "" => format!("{value}"),
         unit => format!("{value}{unit}"),
@@ -188,13 +212,61 @@ pub fn evaluate(body: &str, units: &Units, unwrap: bool) -> Option<CssValue> {
     let sum = simplify(body, units)?;
     if unwrap {
         if let Some(value) = sum.single_value() {
-            return Some(value);
+            return Some(make_finite(value));
         }
     }
     Some(CssValue::Function(
         "calc".to_string(),
         vec![CssValue::String(sum.serialize())],
     ))
+}
+
+/// The largest length this engine will admit, which is what an infinity becomes once a value has
+/// to be a real number.
+///
+/// css-values-4 says an infinite computed value is clamped to "the maximum value the UA
+/// supports" without naming one, so this matches what Chrome uses. It has to be far enough below
+/// `f32::MAX` that arithmetic downstream - a layout adding two of them - cannot overflow back to
+/// infinity, and far enough above any real page that clamping is never visible.
+pub const MAX_FINITE: f32 = 33_554_428.0;
+
+/// Replace a non-finite computed value with the finite one css-values-4 requires.
+///
+/// A specified value keeps `NaN` and `infinity` (they serialize as keywords, and the
+/// `calc-infinity-nan-serialize-*` suites check exactly that), but a *computed* value is a real
+/// number that layout will do arithmetic on. NaN becomes zero; an infinity is clamped.
+///
+/// The zero is a plain `0px` whatever unit the NaN carried, which is what a browser reports for
+/// `width: calc(NaN * 1%)` - there is nothing left to take a percentage of.
+fn make_finite(value: CssValue) -> CssValue {
+    match value {
+        CssValue::Number(n) if !n.is_finite() => CssValue::Number(finite(n)),
+        CssValue::Percentage(p) if !p.is_finite() => {
+            if p.is_nan() {
+                CssValue::Unit(0.0, "px".to_string())
+            } else {
+                CssValue::Percentage(finite(p))
+            }
+        }
+        CssValue::Unit(n, unit) if !n.is_finite() => {
+            if n.is_nan() {
+                CssValue::Unit(0.0, "px".to_string())
+            } else {
+                CssValue::Unit(finite(n), unit)
+            }
+        }
+        other => other,
+    }
+}
+
+fn finite(value: f32) -> f32 {
+    if value.is_nan() {
+        0.0
+    } else if value > 0.0 {
+        MAX_FINITE
+    } else {
+        -MAX_FINITE
+    }
 }
 
 /// How many of the canonical unit one of `unit` is worth, and which canonical unit that is.
@@ -262,7 +334,23 @@ enum Tok {
     Slash,
     /// `(` or `calc(` - the two are the same thing to the grammar.
     Open,
+    /// A comparison function that takes this expression as one of its arguments.
+    Func(String),
+    Comma,
     Close,
+}
+
+/// The numeric constants css-values-4 allows wherever a `<number>` may appear inside a math
+/// function. They are keywords rather than identifiers, and ASCII case-insensitive - `nan`,
+/// `NaN` and `nAn` are the same token.
+fn constant(name: &str) -> Option<f32> {
+    match name {
+        "pi" => Some(std::f32::consts::PI),
+        "e" => Some(std::f32::consts::E),
+        "infinity" => Some(f32::INFINITY),
+        "nan" => Some(f32::NAN),
+        _ => None,
+    }
 }
 
 /// A token and whether whitespace came before it, which `+` and `-` need: CSS requires them to
@@ -297,6 +385,10 @@ fn lex(body: &str) -> Option<Vec<Lexed>> {
                 i += 1;
                 Tok::Close
             }
+            b',' => {
+                i += 1;
+                Tok::Comma
+            }
             b'*' => {
                 i += 1;
                 Tok::Star
@@ -316,17 +408,27 @@ fn lex(body: &str) -> Option<Vec<Lexed>> {
                 i += 1;
                 Tok::Minus
             }
-            // An identifier can only be the name of a nested function here, and `calc()` is the
-            // only one that is transparent to this - `min()`, `var()` and the rest each need
-            // their own evaluation, which is not this function's to do. A bare identifier (the
-            // `e` and `pi` constants, say) is not understood either.
+            // An identifier is either a numeric constant or the name of a nested function.
+            // `calc()` is transparent - its parentheses are just parentheses - while the
+            // comparison functions take an argument list and are folded when it closes.
+            // Anything else (`var()`, `attr()`, a function this does not implement) means the
+            // expression cannot be evaluated here, and the whole body is left alone.
             c if c.is_ascii_alphabetic() => {
                 let (name, used) = scan_unit(&bytes[i..]);
-                if name != "calc" || bytes.get(i + used) != Some(&b'(') {
-                    return None;
+                let opens = bytes.get(i + used) == Some(&b'(');
+                i += used;
+                match name.as_str() {
+                    "calc" if opens => {
+                        i += 1;
+                        Tok::Open
+                    }
+                    "min" | "max" | "clamp" if opens => {
+                        i += 1;
+                        Tok::Func(name)
+                    }
+                    _ if opens => return None,
+                    _ => Tok::Value(constant(&name)?, String::new()),
                 }
-                i += used + 1;
-                Tok::Open
             }
             _ => {
                 let (value, rest) = scan_number(&bytes[i..])?;
@@ -460,11 +562,11 @@ impl Parser<'_> {
                     (None, Some(n)) => acc.scale(n),
                     (None, None) => return None,
                 },
-                // And you can only divide by a plain number.
-                _ => match rhs.as_number() {
-                    Some(n) if n != 0.0 => acc.scale(1.0 / n),
-                    _ => return None,
-                },
+                // And you can only divide by a plain number - but dividing by *zero* is fine.
+                // css-values-4 makes that infinity rather than an error, so `100px / 0` is a
+                // valid length of `calc(infinity * 1px)`, and `100px * 0 / 0` is NaN. Rejecting
+                // it here would have thrown away a declaration the spec says to keep.
+                _ => acc.scale(1.0 / rhs.as_number()?),
             };
         }
         Some(acc)
@@ -499,9 +601,63 @@ impl Parser<'_> {
                     None => Sum::term(&unit, value),
                 })
             }
-            Tok::Star | Tok::Slash | Tok::Close => None,
+            Tok::Func(name) => {
+                let name = name.clone();
+                self.pos += 1;
+                let mut args = Vec::new();
+                loop {
+                    args.push(self.sum()?);
+                    match self.peek() {
+                        Some(Tok::Comma) => self.pos += 1,
+                        Some(Tok::Close) => {
+                            self.pos += 1;
+                            break;
+                        }
+                        _ => return None,
+                    }
+                }
+                fold_comparison(&name, &args)
+            }
+            Tok::Star | Tok::Slash | Tok::Close | Tok::Comma => None,
         }
     }
+}
+
+/// Fold `min()`, `max()` or `clamp()` over arguments that have already been simplified.
+///
+/// Every argument has to have come down to a single term in the same unit - comparing a length
+/// with a number is not a thing CSS can do, and a sum that still has two terms in it (a
+/// percentage against a length, say) has no order yet either.
+fn fold_comparison(name: &str, args: &[Sum]) -> Option<Sum> {
+    let mut unit: Option<String> = None;
+    let mut values = Vec::with_capacity(args.len());
+    for arg in args {
+        let (term_unit, value) = arg.single_term()?;
+        if unit.get_or_insert_with(|| term_unit.clone()) != &term_unit {
+            return None;
+        }
+        values.push(value);
+    }
+    let unit = unit?;
+
+    // NaN is contagious through a comparison, which `f32::min` and `f32::max` are not: they are
+    // defined to *ignore* it and return the other operand, so `max(NaN, 0)` would come out 0
+    // where CSS requires NaN.
+    if values.iter().any(|v| v.is_nan()) {
+        return Some(Sum::term(&unit, f32::NAN));
+    }
+
+    let folded = match name {
+        "min" => values.into_iter().reduce(f32::min)?,
+        "max" => values.into_iter().reduce(f32::max)?,
+        // clamp(MIN, VAL, MAX) is max(MIN, min(VAL, MAX)).
+        "clamp" => match values[..] {
+            [low, value, high] => value.min(high).max(low),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    Some(Sum::term(&unit, folded))
 }
 
 #[cfg(test)]
@@ -536,7 +692,6 @@ mod tests {
     fn rejects_products_of_two_dimensions() {
         assert_eq!(parsed("2px * 3px"), None);
         assert_eq!(parsed("6px / 2px"), None);
-        assert_eq!(parsed("6px / 0"), None);
     }
 
     #[test]
@@ -611,7 +766,113 @@ mod tests {
     #[test]
     fn unresolved_substitutions_are_left_alone() {
         assert_eq!(parsed("100% - var(--x)"), None);
-        assert_eq!(parsed("min(1px, 2px) + 3px"), None);
+        assert_eq!(parsed("attr(data-w) + 3px"), None);
+        // A bare identifier that is not one of the constants is not a value either.
+        assert_eq!(parsed("1px + banana"), None);
+    }
+
+    #[test]
+    fn the_numeric_constants_are_values() {
+        assert_eq!(parsed("pi").as_deref(), Some("3.1415927"));
+        assert_eq!(parsed("e").as_deref(), Some("2.7182817"));
+        assert_eq!(parsed("2 * pi").as_deref(), Some("6.2831855"));
+        // Keywords, so ASCII case-insensitive.
+        assert_eq!(parsed("1px * iNFinIty").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("1px * nAn").as_deref(), Some("NaN * 1px"));
+    }
+
+    #[test]
+    fn a_non_finite_dimension_serializes_as_a_product() {
+        // `NaN` and `infinity` are `<number>` keywords and cannot carry a unit, so css-values-4
+        // writes a non-finite length as a product with a one-unit multiplier.
+        assert_eq!(parsed("1px * NaN").as_deref(), Some("NaN * 1px"));
+        assert_eq!(parsed("1in * NaN").as_deref(), Some("NaN * 1px"));
+        assert_eq!(parsed("1rad * NaN").as_deref(), Some("NaN * 1deg"));
+        assert_eq!(parsed("1% * NaN").as_deref(), Some("NaN * 1%"));
+        assert_eq!(parsed("1px * infinity").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("1px * -infinity").as_deref(), Some("-infinity * 1px"));
+        // A plain number is just the keyword.
+        assert_eq!(parsed("NaN").as_deref(), Some("NaN"));
+        assert_eq!(parsed("-infinity").as_deref(), Some("-infinity"));
+    }
+
+    #[test]
+    fn infinities_cancel_into_nan() {
+        for body in [
+            "1px * infinity / infinity",
+            "1px * 0 * infinity",
+            "1px * (infinity + -infinity)",
+            "1px * (infinity - infinity)",
+        ] {
+            assert_eq!(parsed(body).as_deref(), Some("NaN * 1px"), "{body}");
+        }
+        assert_eq!(parsed("1px * infinity * infinity").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("1px * -infinity * -infinity").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("1px * (1 / infinity)").as_deref(), Some("0px"));
+    }
+
+    #[test]
+    fn dividing_by_zero_is_infinity_not_an_error() {
+        // css-values-4 keeps the declaration and makes it non-finite; rejecting it would throw
+        // away a value the spec says is valid.
+        assert_eq!(parsed("100px / 0").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("100px / (2 - 2)").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("100px * 0 / 0").as_deref(), Some("NaN * 1px"));
+    }
+
+    #[test]
+    fn comparison_functions_fold_inside_calc() {
+        assert_eq!(parsed("1px * max(1/0, 0)").as_deref(), Some("infinity * 1px"));
+        assert_eq!(parsed("1px * min(1/0, 0)").as_deref(), Some("0px"));
+        assert_eq!(parsed("min(1px, 2px) + 3px").as_deref(), Some("4px"));
+        assert_eq!(parsed("clamp(-infinity, 0, infinity)").as_deref(), Some("0"));
+        assert_eq!(parsed("clamp(-infinity, infinity, 10)").as_deref(), Some("10"));
+        // Comparing a length with a number has no meaning, so the body stays as written.
+        assert_eq!(parsed("min(1px, 2)"), None);
+    }
+
+    #[test]
+    fn a_computed_value_is_always_finite() {
+        // A *specified* value keeps the keywords - that is what the serialization above is - but
+        // a computed one is a real number layout will do arithmetic on. NaN becomes zero, and an
+        // infinity is clamped to something a layout can add to without coming back to infinity.
+        let units = Units::computed(16.0, 16.0);
+        assert_eq!(
+            evaluate("1px * NaN", &units, true),
+            Some(CssValue::Unit(0.0, "px".to_string()))
+        );
+        // Whatever unit the NaN carried: there is nothing left to take a percentage of.
+        assert_eq!(
+            evaluate("1% * NaN", &units, true),
+            Some(CssValue::Unit(0.0, "px".to_string()))
+        );
+        assert_eq!(
+            evaluate("1px * infinity", &units, true),
+            Some(CssValue::Unit(MAX_FINITE, "px".to_string()))
+        );
+        assert_eq!(
+            evaluate("1px * -infinity", &units, true),
+            Some(CssValue::Unit(-MAX_FINITE, "px".to_string()))
+        );
+        // Unwrapped only when it came down to one term, so the specified path is untouched.
+        assert_eq!(
+            evaluate("1px * NaN", &units, false),
+            Some(CssValue::Function(
+                "calc".to_string(),
+                vec![CssValue::String("NaN * 1px".to_string())]
+            ))
+        );
+    }
+
+    #[test]
+    fn nan_is_contagious_through_a_comparison() {
+        // `f32::min`/`max` are defined to *ignore* NaN and return the other operand, which is
+        // the opposite of what CSS requires.
+        assert_eq!(parsed("max(NaN, min(0, 10))").as_deref(), Some("NaN"));
+        assert_eq!(parsed("max(0, min(10, NaN))").as_deref(), Some("NaN"));
+        assert_eq!(parsed("clamp(NaN, 0, 10)").as_deref(), Some("NaN"));
+        assert_eq!(parsed("clamp(0, 10, NaN)").as_deref(), Some("NaN"));
+        assert_eq!(parsed("clamp(0, NaN, 10)").as_deref(), Some("NaN"));
     }
 
     #[test]
