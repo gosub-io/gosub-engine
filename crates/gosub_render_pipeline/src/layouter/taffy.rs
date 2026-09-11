@@ -27,7 +27,6 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use parking_lot::{Mutex, RwLock};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
@@ -1722,7 +1721,7 @@ impl TaffyLayouter {
         // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
         // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
         // typically large - e.g. 400x300 - so cover/contain downscale and stay crisp.)
-        match &*self.media_store.get(media_id, MediaType::Image) {
+        match self.media_store.get(media_id, MediaType::Image).as_deref()? {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
                 natural: (mi.image.width() as f32, mi.image.height() as f32),
@@ -1801,10 +1800,10 @@ impl TaffyLayouter {
                             // Resolve the intrinsic size, whether this is an SVG, and whether the
                             // decoded raster is fully transparent (nothing visible to paint) - all
                             // in one borrow.
-                            let (dimension, is_svg, is_transparent) = match media.borrow() {
+                            let (dimension, is_svg, is_transparent) = match media.as_deref() {
                                 // Use the SVG's intrinsic size so the element gets a non-zero box.
                                 // A failed/placeholder load uses the same small fixed size as images.
-                                Media::Svg(media_svg) => {
+                                Some(Media::Svg(media_svg)) => {
                                     let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
@@ -1813,7 +1812,7 @@ impl TaffyLayouter {
                                     };
                                     (d, true, false)
                                 }
-                                Media::Image(media_image) => {
+                                Some(Media::Image(media_image)) => {
                                     let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
@@ -1836,6 +1835,9 @@ impl TaffyLayouter {
                                             .all(|px| px[3] == 0);
                                     (d, false, transparent)
                                 }
+                                // No media and no placeholder either: nothing to size the box
+                                // from and nothing to paint.
+                                None => (geo::Dimension::ZERO, false, true),
                             };
 
                             // Pin the intrinsic aspect ratio so a block-level replaced element keeps
@@ -1927,8 +1929,8 @@ impl TaffyLayouter {
                     {
                         Ok(media_id) => {
                             let media = self.media_store.get(media_id, MediaType::Svg);
-                            let dimension = match media.borrow() {
-                                Media::Svg(media_svg) => {
+                            let dimension = match media.as_deref() {
+                                Some(Media::Svg(media_svg)) => {
                                     let size = media_svg.svg.tree.size();
                                     geo::Dimension::new(size.width() as f64, size.height() as f64)
                                 }

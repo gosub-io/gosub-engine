@@ -44,7 +44,9 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 return;
             }
 
-            let media = media_store.get_image(*media_id);
+            let Some(media) = media_store.get_image(*media_id) else {
+                return;
+            };
             let img = &media.image;
 
             if img.width() == 0 || img.height() == 0 {

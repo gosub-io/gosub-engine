@@ -214,13 +214,16 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let t = self.consume_any()?;
 
+        // Asking once for the identifier, rather than testing `is_ident()` and then matching
+        // for it again with an `unreachable!()` for the case the test already excluded. `t`
+        // itself is kept whole, because the `else` branch below reconsumes it.
         let nt = self.tokenizer.lookahead_sc(0);
-        if t.is_ident() && nt.token_type != TokenType::LParen {
-            let ident = match t.token_type {
-                TokenType::Ident(s) => s,
-                _ => unreachable!(),
-            };
+        let bare_ident = match &t.token_type {
+            TokenType::Ident(ident) if nt.token_type != TokenType::LParen => Some(ident.clone()),
+            _ => None,
+        };
 
+        if let Some(ident) = bare_ident {
             let s = ident.cow_to_lowercase();
             media_type = if ["not", "only"].contains(&s.as_ref()) {
                 self.consume_whitespace_comments();

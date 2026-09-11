@@ -64,10 +64,14 @@ pub struct MediaStore {
     source: RwLock<Option<Arc<dyn MediaSource>>>,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
-    /// Compiled-in placeholder returned when an SVG is missing or failed to load
-    default_svg: Arc<Media>,
-    /// Compiled-in placeholder returned when an image is missing or failed to load
-    default_image: Arc<Media>,
+    /// Compiled-in placeholder returned when an SVG is missing or failed to load. `None` only
+    /// if the compiled-in asset itself would not decode, which is a bug in this repository and
+    /// not something a page can cause - but it used to be an `expect`, so that bug reached a
+    /// user as a browser that would not start rather than as a missing placeholder.
+    default_svg: Option<Arc<Media>>,
+    /// Compiled-in placeholder returned when an image is missing or failed to load. See
+    /// [`MediaStore::default_svg`].
+    default_image: Option<Arc<Media>>,
     decoders: MediaDecoderRegistry,
 }
 
@@ -85,28 +89,39 @@ impl MediaStore {
     pub fn new() -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
-        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
-        let default_svg = match decoders
-            .decode(Some("image/svg+xml"), DEFAULT_SVG_DATA)
-            .expect("Failed to decode default svg")
-        {
-            DecodedMedia::Vector(tree) => Arc::new(Media::svg("gosub://default/svg", Svg::new(*tree))),
-            DecodedMedia::Raster(_) => unreachable!("default svg decoded as a raster image"),
+        let default_svg = match decoders.decode(Some("image/svg+xml"), DEFAULT_SVG_DATA) {
+            Ok(DecodedMedia::Vector(tree)) => Some(Arc::new(Media::svg("gosub://default/svg", Svg::new(*tree)))),
+            Ok(DecodedMedia::Raster(_)) => {
+                log::error!("the built-in placeholder SVG decoded as a raster image; there will be no SVG placeholder");
+                None
+            }
+            Err(e) => {
+                log::error!("the built-in placeholder SVG would not decode, so there will be none: {e:?}");
+                None
+            }
         };
 
-        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
-        let default_image = match decoders
-            .decode(None, DEFAULT_IMAGE_DATA)
-            .expect("Failed to decode default image")
-        {
-            DecodedMedia::Raster(img) => Arc::new(Media::image("gosub://default/image", img)),
-            DecodedMedia::Vector(_) => unreachable!("default image decoded as an svg"),
+        let default_image = match decoders.decode(None, DEFAULT_IMAGE_DATA) {
+            Ok(DecodedMedia::Raster(img)) => Some(Arc::new(Media::image("gosub://default/image", img))),
+            Ok(DecodedMedia::Vector(_)) => {
+                log::error!("the built-in placeholder image decoded as an SVG; there will be no image placeholder");
+                None
+            }
+            Err(e) => {
+                log::error!("the built-in placeholder image would not decode, so there will be none: {e:?}");
+                None
+            }
         };
 
-        let entries = HashMap::from([
-            (DEFAULT_SVG_ID, Arc::clone(&default_svg)),
-            (DEFAULT_IMAGE_ID, Arc::clone(&default_image)),
-        ]);
+        let entries = [
+            default_svg.as_ref().map(|media| (DEFAULT_SVG_ID, Arc::clone(media))),
+            default_image
+                .as_ref()
+                .map(|media| (DEFAULT_IMAGE_ID, Arc::clone(media))),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<HashMap<_, _>>();
 
         MediaStore {
             entries: RwLock::new(entries),
@@ -247,10 +262,7 @@ impl MediaStore {
         if let Some(id) = self.cache.read().get(&key) {
             return Some(*id);
         }
-        let media = self.get(svg_media_id, MediaType::Svg);
-        let Media::Svg(svg) = &*media else {
-            return None;
-        };
+        let svg = self.get_svg(svg_media_id)?;
         let image = render_svg_tree_to_image(&svg.svg.tree, w, h)?;
         let media_id = self.allocate_media_id();
         self.entries
@@ -277,35 +289,29 @@ impl MediaStore {
         Ok(media_id)
     }
 
-    /// Falls back to the default image if `media_id` is missing or is not an image.
-    pub fn get_image(&self, media_id: MediaId) -> Arc<MediaImage> {
-        let media = self.get(media_id, MediaType::Image);
-        match &*media {
-            Media::Image(media_image) => media_image.clone(),
-            _ => {
-                log::warn!("Media {:?} is not an image, returning default", media_id);
-                let default = self.default_media(MediaType::Image);
-                match &*default {
-                    Media::Image(img) => img.clone(),
-                    _ => unreachable!("Default image is not an image"),
-                }
-            }
+    /// Falls back to the default image if `media_id` is missing or is not an image, and to
+    /// `None` if there is no default either.
+    pub fn get_image(&self, media_id: MediaId) -> Option<Arc<MediaImage>> {
+        if let Some(Media::Image(media_image)) = self.get(media_id, MediaType::Image).as_deref() {
+            return Some(media_image.clone());
+        }
+        log::warn!("Media {media_id:?} is not an image, returning default");
+        match self.default_media(MediaType::Image).as_deref() {
+            Some(Media::Image(img)) => Some(img.clone()),
+            _ => None,
         }
     }
 
-    /// Falls back to the default SVG if `media_id` is missing or is not an SVG.
-    pub fn get_svg(&self, media_id: MediaId) -> Arc<MediaSvg> {
-        let media = self.get(media_id, MediaType::Svg);
-        match &*media {
-            Media::Svg(media_svg) => media_svg.clone(),
-            _ => {
-                log::warn!("Media {:?} is not an SVG, returning default", media_id);
-                let default = self.default_media(MediaType::Svg);
-                match &*default {
-                    Media::Svg(svg) => svg.clone(),
-                    _ => unreachable!("Default SVG is not an SVG"),
-                }
-            }
+    /// Falls back to the default SVG if `media_id` is missing or is not an SVG, and to `None` if
+    /// there is no default either.
+    pub fn get_svg(&self, media_id: MediaId) -> Option<Arc<MediaSvg>> {
+        if let Some(Media::Svg(media_svg)) = self.get(media_id, MediaType::Svg).as_deref() {
+            return Some(media_svg.clone());
+        }
+        log::warn!("Media {media_id:?} is not an SVG, returning default");
+        match self.default_media(MediaType::Svg).as_deref() {
+            Some(Media::Svg(svg)) => Some(svg.clone()),
+            _ => None,
         }
     }
 
@@ -320,20 +326,22 @@ impl MediaStore {
         entries.insert(media_id, media);
     }
 
-    /// Falls back to `media_type`'s default resource if `media_id` does not exist.
-    pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Arc<Media> {
+    /// Falls back to `media_type`'s default resource if `media_id` does not exist, and to
+    /// `None` if even that is absent - which means there is nothing to draw, and every caller
+    /// already had a path for that.
+    pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Option<Arc<Media>> {
         let entries = self.entries.read();
 
         match entries.get(&media_id) {
-            Some(media) => media.clone(),
+            Some(media) => Some(media.clone()),
             None => self.default_media(media_type),
         }
     }
 
-    fn default_media(&self, media_type: MediaType) -> Arc<Media> {
+    fn default_media(&self, media_type: MediaType) -> Option<Arc<Media>> {
         match media_type {
-            MediaType::Svg => Arc::clone(&self.default_svg),
-            MediaType::Image => Arc::clone(&self.default_image),
+            MediaType::Svg => self.default_svg.clone(),
+            MediaType::Image => self.default_image.clone(),
         }
     }
 
@@ -469,7 +477,7 @@ mod tests {
                 "{format:?} fell back to the placeholder instead of decoding"
             );
 
-            let img = store.get_image(media_id);
+            let img = store.get_image(media_id).expect("decoded image should be in the store");
             assert_eq!(img.image.width(), 8, "{format:?} width");
             assert_eq!(img.image.height(), 4, "{format:?} height");
         }
@@ -515,7 +523,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("svg failed to load: {e}"));
 
         assert!(!store.is_placeholder(media_id), "svg fell back to the placeholder");
-        let svg = store.get_svg(media_id);
+        let svg = store.get_svg(media_id).expect("decoded svg should be in the store");
         let size = svg.svg.tree.size();
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
     }

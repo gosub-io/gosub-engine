@@ -697,7 +697,10 @@ fn match_group_at_least_one_any_order<'a>(
                 }
             }
         } else {
-            unreachable!("resolver-less matching is handled by at_least_one_any_order_pass");
+            // No resolver: `at_least_one_any_order_pass` handles that case and this function is
+            // never called without one. Stopping leaves `components_matched` as it stands, and
+            // the check below decides the match on that - an answer rather than an abort.
+            break;
         }
     }
 
@@ -831,7 +834,10 @@ fn match_group_all_any_order<'a>(
                 }
             }
         } else {
-            unreachable!("resolver-less matching is handled by all_any_order_pass");
+            // No resolver: `all_any_order_pass` handles that case and this function is never
+            // called without one. Stopping leaves `components_matched` as it stands, and the
+            // check below decides the match on that - an answer rather than an abort.
+            break;
         }
     }
 

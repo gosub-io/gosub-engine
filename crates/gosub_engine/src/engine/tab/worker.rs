@@ -136,8 +136,17 @@ fn scopeguard<F: FnMut()>(f: F) -> impl Drop {
 }
 
 /// Fallback URL used when a navigation has no usable URL.
+///
+/// The one `unwrap` left in this crate, and deliberately: both callers need a concrete `Url` for
+/// the navigation event API, so making this fallible would push an `Option` out through
+/// `NavigationEvent` and `NavigationResult` to every consumer of a navigation event - a long way
+/// to carry a case that cannot happen. `url` offers no infallible constructor, so parsing is the
+/// only way to build one.
+///
+/// What makes "cannot happen" more than a comment is `about_blank_parses` below, which is the
+/// test the old `// PANIC-SAFE: literal URL` was implicitly claiming existed.
+#[allow(clippy::unwrap_used)]
 fn about_blank() -> Url {
-    #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
     Url::parse("about:blank").unwrap()
 }
 
@@ -2225,6 +2234,13 @@ mod tests {
     use crate::net::SharedBody;
     use bytes::Bytes;
     use futures_util::TryStreamExt;
+
+    /// `about_blank()` keeps an `unwrap`, so the claim that it cannot fail is checked rather
+    /// than asserted in a comment.
+    #[test]
+    fn about_blank_parses() {
+        assert_eq!(super::about_blank().as_str(), "about:blank");
+    }
 
     mod favicon_url {
         use crate::html::DefaultRenderConfig;

@@ -169,7 +169,9 @@ fn draw_image_brush(
     if w <= 0.0 || h <= 0.0 {
         return;
     }
-    let media = media_store.get_image(media_id);
+    let Some(media) = media_store.get_image(media_id) else {
+        return;
+    };
     let img = &media.image;
     let (iw, ih) = (img.width(), img.height());
     if iw == 0 || ih == 0 {
