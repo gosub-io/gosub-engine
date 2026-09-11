@@ -168,8 +168,14 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     };
 
     let css_data = include_str!("../resources/useragent.css");
-    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by every parser test
-    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
+    // A compiled-in sheet that will not parse is a bug in this repository, not in any page - but
+    // it used to be an `expect`, so that bug reached a user as a browser that would not start. An
+    // empty user-agent sheet renders every page unstyled, which is bad and visible and
+    // recoverable; the error says why.
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).unwrap_or_else(|e| {
+        log::error!("Could not parse the built-in user-agent stylesheet, continuing without it: {e:?}");
+        CssStylesheet::empty(CssOrigin::UserAgent, url)
+    })
 }
 
 /// The rules the HTML spec adds for documents in quirks mode; attached after the default sheet.

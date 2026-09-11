@@ -559,13 +559,13 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return first_match(input);
             }
         }
-        e => {
-            #[allow(clippy::panic)]
-            // PANIC-SAFE: components come from the compiled-in definitions, which the test suite matches exhaustively
-            {
-                panic!("Unknown syntax component: {e:?}");
-            }
-        }
+        // A group never reaches here - `match_component` sends it to `match_component_group`
+        // instead - but naming it keeps this match exhaustive, which is the point: a component
+        // variant added later is now a compile error rather than a panic in front of a user.
+        // It used to be a catch-all `panic!`, justified on the grounds that the test suite
+        // covers every variant. That is a promise about test coverage; this is a promise the
+        // compiler keeps.
+        SyntaxComponent::Group { .. } => {}
     }
 
     no_match(input)

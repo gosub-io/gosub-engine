@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::LazyLock;
 
-use log::warn;
-
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
@@ -170,9 +168,14 @@ pub struct SyntaxDefinition {
     pub ty: SyntaxType,
 }
 
+/// Whether a value-definition entry named itself as a value type.
+///
+/// There used to be a third case, `Quoted`, for the `<'property'>` form. Nothing ever read it,
+/// and nothing ever legitimately produced it either: the loader read each name through
+/// `serde_json::Value::to_string`, which wraps it in JSON quotes, and mistook that quote for the
+/// CSS one - so every *bare* name in the file was tagged `Quoted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyntaxType {
-    Quoted,
     Definition,
     None,
 }
@@ -387,11 +390,21 @@ impl CssDefinitions {
                     }
                 }
 
-                #[allow(clippy::panic)]
-                // PANIC-SAFE: datatypes come from the compiled-in definitions; the test suite resolves them all
-                {
-                    panic!("Unknown datatype encountered: {datatype:?}");
-                }
+                // Nothing defines this datatype. That means the compiled-in definitions are
+                // inconsistent - a stylesheet cannot reach here, since a datatype name only
+                // ever comes from those files - so it is a bug in our own data rather than in
+                // the page. It used to be a `panic!`, which answered a corrupt lookup table by
+                // killing the browser.
+                //
+                // Leaving the reference unresolved is what the cycle guard above already does,
+                // and the matcher handles it: `SyntaxComponent::Definition` matches nothing
+                // (see `match_component_single`). So the property that named it stops matching
+                // and every other property is unaffected, which is the smallest correct blast
+                // radius for our own data being wrong.
+                log::error!(
+                    "Unknown datatype {datatype:?} in the definitions for {prop_name:?}; leaving it unresolved"
+                );
+                component.clone()
             }
             SyntaxComponent::Group {
                 components,
@@ -456,16 +469,63 @@ pub static CSS_PROPERTIES: LazyLock<indexmap::IndexMap<String, PropertyDefinitio
 pub const DEFINITIONS_VALUES: &str = include_str!("../../resources/definitions/definitions_values.json");
 pub const DEFINITIONS_PROPERTIES: &str = include_str!("../../resources/definitions/definitions_properties.json");
 
-#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
-fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).expect("JSON was not well-formatted");
-    parse_syntax_file(json)
+/// One entry of `definitions_values.json`: a named value type and its grammar.
+#[derive(serde::Deserialize)]
+struct RawSyntax {
+    name: String,
+    syntax: String,
 }
 
-#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
+/// One entry of `definitions_properties.json`.
+///
+/// The file also carries an `initial` key on every entry, which nothing reads - see
+/// [`PropertyDefinition::initial_value`], which is `None` for all 666 properties because the
+/// loader looked for a key named `initial_value` that the file has never had. Naming the field
+/// here would imply it is used, so it is left out until something uses it.
+#[derive(serde::Deserialize)]
+struct RawProperty {
+    name: String,
+    syntax: String,
+    computed: Vec<String>,
+    inherited: bool,
+}
+
+/// Read one of the compiled-in definition files, entry by entry.
+///
+/// Entries are deserialized individually so that one malformed record costs one datatype rather
+/// than the whole table, which is how `parse_syntax_file` already treats a grammar it cannot
+/// compile. A file that is not a JSON array at all does cost the table - but it still *returns*.
+/// Both of these used to be `expect`, and a corrupt lookup table is a bug in our own compiled-in
+/// data, never something a page can cause: answering it by aborting the browser turns a
+/// degradation into an outage. With no definitions every property takes the unvalidated path in
+/// `compute_properties` and pages still render.
+fn load_definitions<T: serde::de::DeserializeOwned>(text: &str, file: &str) -> Vec<T> {
+    let entries: Vec<serde_json::Value> = match serde_json::from_str(text) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::error!("{file} is not a JSON array, so no definitions were loaded from it: {e}");
+            return Vec::new();
+        }
+    };
+
+    entries
+        .into_iter()
+        .filter_map(|entry| match serde_json::from_value(entry) {
+            Ok(parsed) => Some(parsed),
+            Err(e) => {
+                log::error!("skipping a malformed entry in {file}: {e}");
+                None
+            }
+        })
+        .collect()
+}
+
+fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
+    parse_syntax_file(load_definitions(DEFINITIONS_VALUES, "definitions_values.json"))
+}
+
 fn get_properties<M: Map<String, PropertyDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).expect("JSON was not well-formatted");
-    parse_property_file(json)
+    parse_property_file(load_definitions(DEFINITIONS_PROPERTIES, "definitions_properties.json"))
 }
 
 /// Parses the internal CSS definition file
@@ -545,84 +605,70 @@ impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
 }
 
 /// Parses a syntax JSON import file
-#[allow(clippy::unwrap_used)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
-fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) -> M {
+/// Parses a syntax JSON import file
+fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(entries: Vec<RawSyntax>) -> M {
     let mut syntaxes = M::new();
 
-    let entries = json.as_array().unwrap();
     for entry in entries {
-        let syntax_str = entry.get("syntax").unwrap().as_str().unwrap();
-        if syntax_str.is_empty() {
+        if entry.syntax.is_empty() {
             continue;
         }
-        match CssSyntax::new(syntax_str).compile() {
-            Ok(ast) => {
-                let mut name = entry.get("name").unwrap().to_string();
-                let mut ty = SyntaxType::None;
-
-                if name.starts_with('"') {
-                    name = name[1..].to_string();
-                    ty = SyntaxType::Quoted;
-                }
-
-                if name.starts_with('<') {
-                    name = name[1..].to_string();
-                    ty = SyntaxType::Definition;
-                }
-
-                if name.ends_with('"') {
-                    name.pop();
-                }
-
-                if name.ends_with('>') {
-                    name.pop();
-                }
-
-                // Genuine token primitives are matched directly by the syntax matcher.
-                // Don't let a value definition of the same name shadow the builtin: MDN,
-                // for instance, defines `integer` as `<number-token>`, which would make
-                // `<integer>` accept any token and defeat validation.
-                if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
-                    continue;
-                }
-
-                // The definitions carry many names in BOTH forms: a bracketed value type
-                // `<scale()>` (the modern spec grammar, from webref value types / MDN
-                // syntaxes) and a bare `scale()` (a legacy per-property grammar fragment
-                // from webref). Both strip to the same key, and the bare form sorts
-                // last, so it silently shadowed the modern grammar (e.g. scale() lost
-                // its css-transforms-2 percentage form). Prefer the bracketed
-                // Definition-typed entry over any other form.
-                if ty != SyntaxType::Definition {
-                    if let Some(existing) = syntaxes.get(&name) {
-                        if existing.ty == SyntaxType::Definition {
-                            continue;
-                        }
-                    }
-                }
-
-                syntaxes.insert(
-                    name.clone(),
-                    SyntaxDefinition {
-                        // name,
-                        syntax: ast.clone(),
-                        resolved: false,
-                        ty,
-                    },
-                );
-            }
+        let ast = match CssSyntax::new(&entry.syntax).compile() {
+            Ok(ast) => ast,
             Err(e) => {
                 // Type-definition compilation failures are expected for some advanced CSS
                 // grammar constructs (e.g. structural `{ }` blocks in @keyframes, bare `)`
                 // literals inside `[ ]` in <general-enclosed>). These types are not used
                 // in property value matching anyway, so log at debug rather than warn.
-                log::debug!(
-                    "Could not compile syntax for syntax {:?}: {:?}",
-                    entry.get("name").unwrap().to_string(),
-                    e
-                );
+                log::debug!("Could not compile syntax for syntax {:?}: {:?}", entry.name, e);
+                continue;
+            }
+        };
+
+        // `<length>` names a value type; `abs()` is a legacy per-property grammar fragment.
+        // This used to read the name through `serde_json::Value::to_string`, which wraps it in
+        // JSON quotes, so it stripped a `"` first and every bare name came out tagged
+        // `SyntaxType::Quoted` - a type meant for the `<'property'>` form, which this file does
+        // not contain. Nothing ever read that tag, so removing it changes nothing.
+        let (name, ty) = match entry.name.strip_prefix('<') {
+            Some(rest) => (
+                rest.strip_suffix('>').unwrap_or(rest).to_string(),
+                SyntaxType::Definition,
+            ),
+            None => (entry.name, SyntaxType::None),
+        };
+
+        // Genuine token primitives are matched directly by the syntax matcher.
+        // Don't let a value definition of the same name shadow the builtin: MDN,
+        // for instance, defines `integer` as `<number-token>`, which would make
+        // `<integer>` accept any token and defeat validation.
+        if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
+            continue;
+        }
+
+        // The definitions carry many names in BOTH forms: a bracketed value type
+        // `<scale()>` (the modern spec grammar, from webref value types / MDN
+        // syntaxes) and a bare `scale()` (a legacy per-property grammar fragment
+        // from webref). Both strip to the same key, and the bare form sorts
+        // last, so it silently shadowed the modern grammar (e.g. scale() lost
+        // its css-transforms-2 percentage form). Prefer the bracketed
+        // Definition-typed entry over any other form.
+        if ty != SyntaxType::Definition {
+            if let Some(existing) = syntaxes.get(&name) {
+                if existing.ty == SyntaxType::Definition {
+                    continue;
+                }
             }
         }
+
+        syntaxes.insert(
+            name,
+            SyntaxDefinition {
+                syntax: ast,
+                resolved: false,
+                ty,
+            },
+        );
     }
 
     // Resolve all typedefs since we now have loaded them all
@@ -631,57 +677,37 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-#[allow(clippy::unwrap_used, clippy::panic)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
-fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Value) -> M {
+/// Parses the JSON input into a CSS property definitions structure
+fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawProperty>) -> M {
     let mut properties = M::new();
 
-    for obj in json.as_array().unwrap() {
-        let name = obj["name"].as_str().unwrap().to_string();
-
-        // Compile syntax
-        let syntax = obj.get("syntax").unwrap().as_str().unwrap();
-        let syntax = CssSyntax::new(syntax)
-            .compile()
-            .unwrap_or_else(|_| panic!("Could not compile syntax for {name}: {syntax:?}"));
-
-        //
-        let computed = if obj["computed"].is_array() {
-            obj["computed"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect()
-        } else if obj["computed"].is_string() {
-            vec![obj["computed"].as_str().unwrap().to_string()]
-        } else {
-            warn!("Computed property is not a string or array {obj:?}");
-            vec![]
-        };
-
-        let initial_value = if obj["initial_value"].is_array() {
-            warn!("Initial value is an array, not supported {obj:?}");
-            None
-        } else if obj["initial_value"].is_string() {
-            match CssValue::parse_str(obj["initial_value"].as_str().unwrap()) {
-                Ok(value) => Some(value),
-                Err(e) => {
-                    warn!("Could not parse initial value: {e:?}");
-                    None
-                }
+    for entry in entries {
+        // A property whose grammar will not compile is skipped, with the name in the log so it
+        // can be found. This used to `panic!`, which meant one unparseable line of a data file
+        // took the whole browser with it.
+        let syntax = match CssSyntax::new(&entry.syntax).compile() {
+            Ok(syntax) => syntax,
+            Err(e) => {
+                log::error!(
+                    "Could not compile the grammar for {:?} ({:?}), so the property is unvalidated: {e:?}",
+                    entry.name,
+                    entry.syntax
+                );
+                continue;
             }
-        } else {
-            None
         };
 
         properties.insert(
-            name.clone(),
+            entry.name.clone(),
             PropertyDefinition {
-                name: name.clone(),
+                name: entry.name,
                 syntax,
-                computed,
-                initial_value,
-                inherited: obj["inherited"].as_bool().unwrap(),
+                computed: entry.computed,
+                // Always `None`: see `RawProperty`. The file's key is `initial`, the loader read
+                // `initial_value`, and so every property's initial value has been absent since
+                // the definitions were introduced.
+                initial_value: None,
+                inherited: entry.inherited,
                 resolved: false,
                 shorthands: None,
             },

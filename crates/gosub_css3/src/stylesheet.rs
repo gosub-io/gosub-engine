@@ -220,6 +220,23 @@ impl PartialEq for CssStylesheet {
 }
 
 impl CssStylesheet {
+    /// A stylesheet with no rules, for the cases where a sheet could not be produced and the
+    /// caller has to carry on without one.
+    #[must_use]
+    pub fn empty(origin: CssOrigin, url: &str) -> Self {
+        CssStylesheet {
+            rules: Vec::new(),
+            font_faces: Vec::new(),
+            imports: Vec::new(),
+            uses_viewport_units: false,
+            origin,
+            scope: None,
+            url: url.to_string(),
+            parse_log: Vec::new(),
+            index: parking_lot::RwLock::new(None),
+        }
+    }
+
     #[must_use]
     pub fn new(origin: CssOrigin, url: &str) -> Self {
         Self {
