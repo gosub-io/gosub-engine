@@ -672,11 +672,19 @@ pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
     let recurse = |v: &CssValue| resolve_computed(v, em_basis, rem_basis);
     match value {
-        CssValue::Unit(val, unit) if unit.eq_ignore_ascii_case("em") => {
-            CssValue::Unit(val * em_basis, "px".to_string())
-        }
-        CssValue::Unit(val, unit) if unit.eq_ignore_ascii_case("rem") => {
-            CssValue::Unit(val * rem_basis, "px".to_string())
+        // Every unit with a known conversion becomes the canonical one - px for a length, deg
+        // for an angle, s for a time. That is what a computed value is: `margin: 12cm` computes
+        // to `453.5433px`, the same as any expression that arrives at that length by another
+        // route. Only `em` and `rem` needed an element to resolve against, and only they used to
+        // be done here, so a bare `12cm` and a `round(10cm, 6cm)` that equals it disagreed.
+        CssValue::Unit(val, unit) => {
+            let units = calc::Units::computed(em_basis, rem_basis);
+            match calc::to_canonical(*val, unit, &units) {
+                Some((canonical, converted)) => CssValue::Unit(converted, canonical),
+                // `ch`, `lh` and the container-query units have no value here, and a percentage
+                // needs a containing block. They travel on as written.
+                None => value.clone(),
+            }
         }
         CssValue::List(values) => CssValue::List(values.iter().map(recurse).collect()),
         // `calc()` keeps its body as text rather than as arguments, so it is evaluated rather

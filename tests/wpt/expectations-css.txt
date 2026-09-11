@@ -99,6 +99,13 @@ FILE css/css-syntax/url-whitespace-consumption.html
 FILE css/css-syntax/var-with-blocks.html
 FILE css/css-syntax/whitespace.html
 FILE css/css-values/absolute-length-units-001.html
+PASS css/css-values/absolute-length-units-001.html :: t1
+PASS css/css-values/absolute-length-units-001.html :: t2
+PASS css/css-values/absolute-length-units-001.html :: t3
+PASS css/css-values/absolute-length-units-001.html :: t4
+PASS css/css-values/absolute-length-units-001.html :: t5
+PASS css/css-values/absolute-length-units-001.html :: t6
+PASS css/css-values/absolute-length-units-001.html :: t7
 FILE css/css-values/acos-asin-atan-atan2-computed.html
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px) should be computed-value-equivalent to calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px)
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(1px * pow(tan(atan2(50%, 1px)), 1)) should be computed-value-equivalent to calc(1px * pow(tan(atan2(50%, 1px)), 1))
@@ -427,6 +434,8 @@ PASS css/css-values/calc-integer.html :: Operation between <integer> and <number
 PASS css/css-values/calc-integer.html :: Only rounds at the end of the conversion
 FILE css/css-values/calc-invalid-parsing.html
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc(7px * up)" should not set the property value
+PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "round(nearest, 1px, 1px, 1px)" should not set the property value
+PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "round(nearest, 1px)" should not set the property value
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc([])" should not set the property value
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc( [])" should not set the property value
 FILE css/css-values/calc-letter-spacing.html
@@ -979,11 +988,26 @@ FILE css/css-values/lh-unit-005.html
 FILE css/css-values/line-break-ch-unit.html
 FILE css/css-values/minmax-angle-computed.html
 PASS css/css-values/minmax-angle-computed.html :: min(1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/minmax-angle-computed.html :: min(1grad) should be used-value-equivalent to 1grad
+PASS css/css-values/minmax-angle-computed.html :: min(1rad) should be used-value-equivalent to 1rad
+PASS css/css-values/minmax-angle-computed.html :: min(1turn) should be used-value-equivalent to 1turn
 PASS css/css-values/minmax-angle-computed.html :: max(1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/minmax-angle-computed.html :: max(1grad) should be used-value-equivalent to 1grad
+PASS css/css-values/minmax-angle-computed.html :: max(1rad) should be used-value-equivalent to 1rad
+PASS css/css-values/minmax-angle-computed.html :: max(1turn) should be used-value-equivalent to 1turn
 PASS css/css-values/minmax-angle-computed.html :: min(1deg, 2deg) should be used-value-equivalent to 1deg
+PASS css/css-values/minmax-angle-computed.html :: min(1grad, 2grad) should be used-value-equivalent to 1grad
+PASS css/css-values/minmax-angle-computed.html :: min(1rad, 2rad) should be used-value-equivalent to 1rad
+PASS css/css-values/minmax-angle-computed.html :: min(1turn, 2turn) should be used-value-equivalent to 1turn
 PASS css/css-values/minmax-angle-computed.html :: max(1deg, 2deg) should be used-value-equivalent to 2deg
+PASS css/css-values/minmax-angle-computed.html :: max(1grad, 2grad) should be used-value-equivalent to 2grad
+PASS css/css-values/minmax-angle-computed.html :: max(1rad, 2rad) should be used-value-equivalent to 2rad
+PASS css/css-values/minmax-angle-computed.html :: max(1turn, 2turn) should be used-value-equivalent to 2turn
 PASS css/css-values/minmax-angle-computed.html :: min(90deg, 0.26turn) should be used-value-equivalent to 90deg
+PASS css/css-values/minmax-angle-computed.html :: min(1.57rad, 95deg) should be used-value-equivalent to 1.57rad
 PASS css/css-values/minmax-angle-computed.html :: max(91deg, 0.25turn) should be used-value-equivalent to 91deg
+PASS css/css-values/minmax-angle-computed.html :: min(270deg, max(0.25turn, 3.14rad)) should be used-value-equivalent to 3.14rad
+PASS css/css-values/minmax-angle-computed.html :: max(0.25turn, min(270deg, 3.14rad)) should be used-value-equivalent to 3.14rad
 PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) + 0.125turn) should be used-value-equivalent to 135deg
 PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) - 0.125turn) should be used-value-equivalent to 45deg
 PASS css/css-values/minmax-angle-computed.html :: calc(max(90deg, 1.56rad) - 0.125turn) should be used-value-equivalent to 45deg
@@ -1034,26 +1058,67 @@ PASS css/css-values/minmax-integer-computed.html :: min(1) should be used-value-
 PASS css/css-values/minmax-integer-computed.html :: max(1) should be used-value-equivalent to 1
 FILE css/css-values/minmax-length-computed.html
 PASS css/css-values/minmax-length-computed.html :: min(1px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: min(1cm) should be used-value-equivalent to 1cm
+PASS css/css-values/minmax-length-computed.html :: min(1mm) should be used-value-equivalent to 1mm
+PASS css/css-values/minmax-length-computed.html :: min(1Q) should be used-value-equivalent to 1Q
+PASS css/css-values/minmax-length-computed.html :: min(1in) should be used-value-equivalent to 1in
+PASS css/css-values/minmax-length-computed.html :: min(1pc) should be used-value-equivalent to 1pc
+PASS css/css-values/minmax-length-computed.html :: min(1pt) should be used-value-equivalent to 1pt
 PASS css/css-values/minmax-length-computed.html :: min(1em) should be used-value-equivalent to 1em
 PASS css/css-values/minmax-length-computed.html :: min(1ex) should be used-value-equivalent to 1ex
 PASS css/css-values/minmax-length-computed.html :: min(1ch) should be used-value-equivalent to 1ch
 PASS css/css-values/minmax-length-computed.html :: min(1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: min(1vh) should be used-value-equivalent to 1vh
+PASS css/css-values/minmax-length-computed.html :: min(1vw) should be used-value-equivalent to 1vw
+PASS css/css-values/minmax-length-computed.html :: min(1vmin) should be used-value-equivalent to 1vmin
+PASS css/css-values/minmax-length-computed.html :: min(1vmax) should be used-value-equivalent to 1vmax
 PASS css/css-values/minmax-length-computed.html :: max(1px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: max(1cm) should be used-value-equivalent to 1cm
+PASS css/css-values/minmax-length-computed.html :: max(1mm) should be used-value-equivalent to 1mm
+PASS css/css-values/minmax-length-computed.html :: max(1Q) should be used-value-equivalent to 1Q
+PASS css/css-values/minmax-length-computed.html :: max(1in) should be used-value-equivalent to 1in
+PASS css/css-values/minmax-length-computed.html :: max(1pc) should be used-value-equivalent to 1pc
+PASS css/css-values/minmax-length-computed.html :: max(1pt) should be used-value-equivalent to 1pt
 PASS css/css-values/minmax-length-computed.html :: max(1em) should be used-value-equivalent to 1em
 PASS css/css-values/minmax-length-computed.html :: max(1ex) should be used-value-equivalent to 1ex
 PASS css/css-values/minmax-length-computed.html :: max(1ch) should be used-value-equivalent to 1ch
 PASS css/css-values/minmax-length-computed.html :: max(1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: max(1vh) should be used-value-equivalent to 1vh
+PASS css/css-values/minmax-length-computed.html :: max(1vw) should be used-value-equivalent to 1vw
+PASS css/css-values/minmax-length-computed.html :: max(1vmin) should be used-value-equivalent to 1vmin
+PASS css/css-values/minmax-length-computed.html :: max(1vmax) should be used-value-equivalent to 1vmax
 PASS css/css-values/minmax-length-computed.html :: min(1px, 2px) should be used-value-equivalent to 1px
+PASS css/css-values/minmax-length-computed.html :: min(1cm, 2cm) should be used-value-equivalent to 1cm
+PASS css/css-values/minmax-length-computed.html :: min(1mm, 2mm) should be used-value-equivalent to 1mm
+PASS css/css-values/minmax-length-computed.html :: min(1Q, 2Q) should be used-value-equivalent to 1Q
+PASS css/css-values/minmax-length-computed.html :: min(1in, 2in) should be used-value-equivalent to 1in
+PASS css/css-values/minmax-length-computed.html :: min(1pc, 2pc) should be used-value-equivalent to 1pc
+PASS css/css-values/minmax-length-computed.html :: min(1pt, 2pt) should be used-value-equivalent to 1pt
 PASS css/css-values/minmax-length-computed.html :: min(1em, 2em) should be used-value-equivalent to 1em
 PASS css/css-values/minmax-length-computed.html :: min(1ex, 2ex) should be used-value-equivalent to 1ex
 PASS css/css-values/minmax-length-computed.html :: min(1ch, 2ch) should be used-value-equivalent to 1ch
 PASS css/css-values/minmax-length-computed.html :: min(1rem, 2rem) should be used-value-equivalent to 1rem
+PASS css/css-values/minmax-length-computed.html :: min(1vh, 2vh) should be used-value-equivalent to 1vh
+PASS css/css-values/minmax-length-computed.html :: min(1vw, 2vw) should be used-value-equivalent to 1vw
+PASS css/css-values/minmax-length-computed.html :: min(1vmin, 2vmin) should be used-value-equivalent to 1vmin
+PASS css/css-values/minmax-length-computed.html :: min(1vmax, 2vmax) should be used-value-equivalent to 1vmax
 PASS css/css-values/minmax-length-computed.html :: max(1px, 2px) should be used-value-equivalent to 2px
+PASS css/css-values/minmax-length-computed.html :: max(1cm, 2cm) should be used-value-equivalent to 2cm
+PASS css/css-values/minmax-length-computed.html :: max(1mm, 2mm) should be used-value-equivalent to 2mm
+PASS css/css-values/minmax-length-computed.html :: max(1Q, 2Q) should be used-value-equivalent to 2Q
+PASS css/css-values/minmax-length-computed.html :: max(1in, 2in) should be used-value-equivalent to 2in
+PASS css/css-values/minmax-length-computed.html :: max(1pc, 2pc) should be used-value-equivalent to 2pc
+PASS css/css-values/minmax-length-computed.html :: max(1pt, 2pt) should be used-value-equivalent to 2pt
 PASS css/css-values/minmax-length-computed.html :: max(1em, 2em) should be used-value-equivalent to 2em
 PASS css/css-values/minmax-length-computed.html :: max(1ex, 2ex) should be used-value-equivalent to 2ex
 PASS css/css-values/minmax-length-computed.html :: max(1ch, 2ch) should be used-value-equivalent to 2ch
 PASS css/css-values/minmax-length-computed.html :: max(1rem, 2rem) should be used-value-equivalent to 2rem
+PASS css/css-values/minmax-length-computed.html :: max(1vh, 2vh) should be used-value-equivalent to 2vh
+PASS css/css-values/minmax-length-computed.html :: max(1vw, 2vw) should be used-value-equivalent to 2vw
+PASS css/css-values/minmax-length-computed.html :: max(1vmin, 2vmin) should be used-value-equivalent to 2vmin
+PASS css/css-values/minmax-length-computed.html :: max(1vmax, 2vmax) should be used-value-equivalent to 2vmax
 PASS css/css-values/minmax-length-computed.html :: min(95px, 1in) should be used-value-equivalent to 95px
+PASS css/css-values/minmax-length-computed.html :: max(95px, 1in) should be used-value-equivalent to 1in
 PASS css/css-values/minmax-length-computed.html :: min(15px, 1em) should be used-value-equivalent to 15px
 PASS css/css-values/minmax-length-computed.html :: min(25px, 1em) should be used-value-equivalent to 20px
 PASS css/css-values/minmax-length-computed.html :: max(15px, 1em) should be used-value-equivalent to 20px
@@ -1348,10 +1413,16 @@ PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%) 0px' as
 PASS css/css-values/minmax-percentage-serialize.html :: 'min(1%, 2%, 3%) 0px' as a computed value should serialize as 'min(1%, 2%, 3%) 0px'.
 FILE css/css-values/minmax-time-computed.html
 PASS css/css-values/minmax-time-computed.html :: min(1s) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: min(1ms) should be used-value-equivalent to 1ms
 PASS css/css-values/minmax-time-computed.html :: max(1s) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: max(1ms) should be used-value-equivalent to 1ms
 PASS css/css-values/minmax-time-computed.html :: min(1s, 2s) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: min(1ms, 2ms) should be used-value-equivalent to 1ms
 PASS css/css-values/minmax-time-computed.html :: max(1s, 2s) should be used-value-equivalent to 2s
+PASS css/css-values/minmax-time-computed.html :: max(1ms, 2ms) should be used-value-equivalent to 2ms
 PASS css/css-values/minmax-time-computed.html :: min(1s, 1100ms) should be used-value-equivalent to 1s
+PASS css/css-values/minmax-time-computed.html :: max(0.9s, 1000ms) should be used-value-equivalent to 1000ms
+PASS css/css-values/minmax-time-computed.html :: min(2s, max(1s, 1500ms)) should be used-value-equivalent to 1500ms
 PASS css/css-values/minmax-time-computed.html :: max(1000ms, min(2000ms, 1.5s)) should be used-value-equivalent to 1.5s
 PASS css/css-values/minmax-time-computed.html :: calc(min(0.5s, 600ms) + 500ms) should be used-value-equivalent to 1s
 PASS css/css-values/minmax-time-computed.html :: calc(min(0.6s, 700ms) - 500ms) should be used-value-equivalent to 0.1s
@@ -1712,9 +1783,546 @@ FILE css/css-values/rlh-invalidation.html
 PASS css/css-values/rlh-invalidation.html :: Untitled
 FILE css/css-values/rlh-on-root-lengths.html
 FILE css/css-values/round-function.html
+PASS css/css-values/round-function.html :: round(23px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(18px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(15px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(13px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(-13px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(-18px, 10px) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: round(23, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(18, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(15, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(13, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(-13, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(-18, 10) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: round(nearest, 23px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(nearest, 18px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(nearest, 15px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(nearest, 13px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(nearest, -13px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(nearest, -18px, 10px) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: round(nearest, 23, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(nearest, 18, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(nearest, 15, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(nearest, 13, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(nearest, -13, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(nearest, -18, 10) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: round(down, 23px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(down, 18px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(down, 15px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(down, 13px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(down, -13px, 10px) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: round(down, -18px, 10px) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: round(down, 23, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(down, 18, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(down, 15, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(down, 13, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(down, -13, 10) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: round(down, -18, 10) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: round(up, 23px, 10px) should be used-value-equivalent to 30px
+PASS css/css-values/round-function.html :: round(up, 18px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(up, 15px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(up, 13px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(up, -13px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(up, -18px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(up, 23, 10) should be used-value-equivalent to 30
+PASS css/css-values/round-function.html :: round(up, 18, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(up, 15, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(up, 13, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(up, -13, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(up, -18, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(to-zero, 23px, 10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(to-zero, 18px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(to-zero, 15px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(to-zero, 13px, 10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(to-zero, -13px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(to-zero, -18px, 10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(to-zero, 23, 10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(to-zero, 18, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(to-zero, 15, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(to-zero, 13, 10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(to-zero, -13, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(to-zero, -18, 10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(23px, -10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(18px, -10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(15px, -10px) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: round(13px, -10px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(-13px, -10px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(-18px, -10px) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: round(23, -10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(18, -10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(15, -10) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: round(13, -10) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(-13, -10) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(-18, -10) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: round(10px, 5px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(nearest, 10px, 5px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(down, 10px, 5px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(up, 10px, 5px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(to-zero, 10px, 5px) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: round(10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(nearest, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(down, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(up, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(to-zero, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(-10px, 5px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(nearest, -10px, 5px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(down, -10px, 5px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(up, -10px, 5px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(to-zero, -10px, 5px) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: round(-10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(nearest, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(down, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(up, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: round(to-zero, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0px - round(23px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(18px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(15px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(13px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(-13px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0px - round(-18px, 10px)) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: calc(0 - round(23, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(18, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(15, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(13, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(-13, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: calc(0 - round(-18, 10)) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, 23px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, 18px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, 15px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, 13px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, -13px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0px - round(nearest, -18px, 10px)) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, 23, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, 18, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, 15, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, 13, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, -13, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: calc(0 - round(nearest, -18, 10)) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: calc(0px - round(down, 23px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(down, 18px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(down, 15px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(down, 13px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(down, -13px, 10px)) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: calc(0px - round(down, -18px, 10px)) should be used-value-equivalent to 20px
+PASS css/css-values/round-function.html :: calc(0 - round(down, 23, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(down, 18, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(down, 15, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(down, 13, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(down, -13, 10)) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: calc(0 - round(down, -18, 10)) should be used-value-equivalent to 20
+PASS css/css-values/round-function.html :: calc(0px - round(up, 23px, 10px)) should be used-value-equivalent to -30px
+PASS css/css-values/round-function.html :: calc(0px - round(up, 18px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(up, 15px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(up, 13px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(up, -13px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0px - round(up, -18px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0 - round(up, 23, 10)) should be used-value-equivalent to -30
+PASS css/css-values/round-function.html :: calc(0 - round(up, 18, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(up, 15, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(up, 13, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(up, -13, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: calc(0 - round(up, -18, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, 23px, 10px)) should be used-value-equivalent to -20px
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, 18px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, 15px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, 13px, 10px)) should be used-value-equivalent to -10px
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, -13px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0px - round(to-zero, -18px, 10px)) should be used-value-equivalent to 10px
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, 23, 10)) should be used-value-equivalent to -20
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, 18, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, 15, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, 13, 10)) should be used-value-equivalent to -10
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, -13, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: calc(0 - round(to-zero, -18, 10)) should be used-value-equivalent to 10
+PASS css/css-values/round-function.html :: round(1.5) should be used-value-equivalent to 2
+PASS css/css-values/round-function.html :: round(up, 1.5) should be used-value-equivalent to 2
+PASS css/css-values/round-function.html :: round(down, 1.5) should be used-value-equivalent to 1
+PASS css/css-values/round-function.html :: round(to-zero, 1.5) should be used-value-equivalent to 1
+PASS css/css-values/round-function.html :: round(-1.5) should be used-value-equivalent to -1
+PASS css/css-values/round-function.html :: round(up, -1.5) should be used-value-equivalent to -1
+PASS css/css-values/round-function.html :: round(down, -1.5) should be used-value-equivalent to -2
+PASS css/css-values/round-function.html :: round(to-zero, -1.5) should be used-value-equivalent to -1
+PASS css/css-values/round-function.html :: round(5, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: calc(-1 * round(5, 0)) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: round(infinity, infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: calc(-1 * round(infinity, infinity)) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: round(infinity, -infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: calc(-1 * round(infinity, -infinity)) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: round(-infinity, infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: calc(-1 * round(-infinity, infinity)) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: round(-infinity, -infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: calc(-1 * round(-infinity, -infinity)) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-function.html :: round(infinity, 5) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: round(infinity, -5) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: round(-infinity, 5) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: round(-infinity, -5) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(5, infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(5, -infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(-5, infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(-5, -infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(to-zero, 5, infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(to-zero, 5, -infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(to-zero, -5, infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(to-zero, -5, -infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: round(up, 1, infinity) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(up, 0, infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(up, -1 * 0, infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(up, -1, infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: round(down, -1, infinity) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(down, -1 * 0, infinity)) should be used-value-equivalent to calc(-infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(down, 0, infinity)) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/round-function.html :: calc(1 / round(down, 1, infinity)) should be used-value-equivalent to calc(infinity)
 FILE css/css-values/round-mod-rem-computed.html
+PASS css/css-values/round-mod-rem-computed.html :: round(10,10) should be used-value-equivalent to 10
+PASS css/css-values/round-mod-rem-computed.html :: mod(1,1) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(0,-2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(2,-2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(4,-2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(-2,-2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(-4,-2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(0, 2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(2, 2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(-2, 2) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: mod(1, 2) should be used-value-equivalent to 1
+PASS css/css-values/round-mod-rem-computed.html :: mod(3, 2) should be used-value-equivalent to 1
+PASS css/css-values/round-mod-rem-computed.html :: mod(-1, 2) should be used-value-equivalent to 1
+PASS css/css-values/round-mod-rem-computed.html :: mod(1, -2) should be used-value-equivalent to -1
+PASS css/css-values/round-mod-rem-computed.html :: mod(3, -2) should be used-value-equivalent to -1
+PASS css/css-values/round-mod-rem-computed.html :: mod(-1, -2) should be used-value-equivalent to -1
+PASS css/css-values/round-mod-rem-computed.html :: rem(1,1) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(100,10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(up, 101,10)) should be used-value-equivalent to 110
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(down, 106,10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(to-zero, 105, 10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(to-zero, -105, 10)) should be used-value-equivalent to -100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(-100, 10)) should be used-value-equivalent to -100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(up, -103, 10)) should be used-value-equivalent to -100
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 0, 5) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 0, 5) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 0, 5) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 0, 5) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 5, 5) should be used-value-equivalent to 5
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 5, 5) should be used-value-equivalent to 5
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 5, 5) should be used-value-equivalent to 5
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 5, 5) should be used-value-equivalent to 5
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -5, 5) should be used-value-equivalent to -5
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -5, 5) should be used-value-equivalent to -5
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -5, 5) should be used-value-equivalent to -5
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -5, 5) should be used-value-equivalent to -5
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 10, 5) should be used-value-equivalent to 10
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -10, 5) should be used-value-equivalent to -10
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 20, 5) should be used-value-equivalent to 20
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 20, 5) should be used-value-equivalent to 20
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 20, 5) should be used-value-equivalent to 20
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 20, 5) should be used-value-equivalent to 20
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -20, 5) should be used-value-equivalent to -20
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -20, 5) should be used-value-equivalent to -20
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -20, 5) should be used-value-equivalent to -20
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -20, 5) should be used-value-equivalent to -20
+PASS css/css-values/round-mod-rem-computed.html :: mod(18,5) should be used-value-equivalent to 3
+PASS css/css-values/round-mod-rem-computed.html :: rem(18,5) should be used-value-equivalent to 3
+PASS css/css-values/round-mod-rem-computed.html :: mod(-140,-90) should be used-value-equivalent to -50
+PASS css/css-values/round-mod-rem-computed.html :: mod(-18,5) should be used-value-equivalent to 2
+PASS css/css-values/round-mod-rem-computed.html :: rem(-18,5) should be used-value-equivalent to -3
+PASS css/css-values/round-mod-rem-computed.html :: mod(140,-90) should be used-value-equivalent to -40
+PASS css/css-values/round-mod-rem-computed.html :: rem(140,-90) should be used-value-equivalent to 50
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(round(100,10), 10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(up, round(100,10) + 1,10)) should be used-value-equivalent to 110
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(down, round(100,10) + 2 * 3,10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(to-zero,round(100,10) * 2 - 95, 10)) should be used-value-equivalent to 100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(round(100,10)* -1,10)) should be used-value-equivalent to -100
+PASS css/css-values/round-mod-rem-computed.html :: calc(round(up, -103 + -103 / -103 - 1,10)) should be used-value-equivalent to -100
+PASS css/css-values/round-mod-rem-computed.html :: calc(mod(18,5) * 2 + mod(17,5)) should be used-value-equivalent to 8
+PASS css/css-values/round-mod-rem-computed.html :: calc(rem(mod(18,5),5)) should be used-value-equivalent to 3
+PASS css/css-values/round-mod-rem-computed.html :: calc(rem(mod(18,5),mod(17,5))) should be used-value-equivalent to 1
+PASS css/css-values/round-mod-rem-computed.html :: calc(mod(-140,-90)) should be used-value-equivalent to -50
+PASS css/css-values/round-mod-rem-computed.html :: calc(mod(rem(1,18)* -1,5)) should be used-value-equivalent to 4
+PASS css/css-values/round-mod-rem-computed.html :: round(10px,6px) should be used-value-equivalent to 12px
+PASS css/css-values/round-mod-rem-computed.html :: round(10cm,6cm) should be used-value-equivalent to 12cm
+PASS css/css-values/round-mod-rem-computed.html :: round(10mm,6mm) should be used-value-equivalent to 12mm
+PASS css/css-values/round-mod-rem-computed.html :: round(10Q, 6Q) should be used-value-equivalent to 12Q
+PASS css/css-values/round-mod-rem-computed.html :: round(10in,6in) should be used-value-equivalent to 12in
+PASS css/css-values/round-mod-rem-computed.html :: round(10pc,6pc) should be used-value-equivalent to 12pc
+PASS css/css-values/round-mod-rem-computed.html :: round(10pt,6pt) should be used-value-equivalent to 12pt
+PASS css/css-values/round-mod-rem-computed.html :: round(10em,6em) should be used-value-equivalent to 12em
+PASS css/css-values/round-mod-rem-computed.html :: round(10ex,6ex) should be used-value-equivalent to 12ex
+PASS css/css-values/round-mod-rem-computed.html :: round(10ch,6ch) should be used-value-equivalent to 12ch
+PASS css/css-values/round-mod-rem-computed.html :: round(10rem,6rem) should be used-value-equivalent to 12rem
+PASS css/css-values/round-mod-rem-computed.html :: round(10vh,6vh) should be used-value-equivalent to 12vh
+PASS css/css-values/round-mod-rem-computed.html :: round(10vw,6vw) should be used-value-equivalent to 12vw
+PASS css/css-values/round-mod-rem-computed.html :: round(10vmin,6vmin) should be used-value-equivalent to 12vmin
+PASS css/css-values/round-mod-rem-computed.html :: round(10vmax,6vmax) should be used-value-equivalent to 12vmax
+PASS css/css-values/round-mod-rem-computed.html :: round(10s,6s) should be used-value-equivalent to 12s
+PASS css/css-values/round-mod-rem-computed.html :: round(10ms,6ms) should be used-value-equivalent to 12ms
+PASS css/css-values/round-mod-rem-computed.html :: round(10deg,6deg) should be used-value-equivalent to 12deg
+PASS css/css-values/round-mod-rem-computed.html :: round(10grad,6grad) should be used-value-equivalent to 12grad
+PASS css/css-values/round-mod-rem-computed.html :: round(10rad,6rad) should be used-value-equivalent to 12rad
+PASS css/css-values/round-mod-rem-computed.html :: round(10turn,6turn) should be used-value-equivalent to 12turn
+PASS css/css-values/round-mod-rem-computed.html :: mod(10px,6px) should be used-value-equivalent to 4px
+PASS css/css-values/round-mod-rem-computed.html :: mod(10cm,6cm) should be used-value-equivalent to 4cm
+PASS css/css-values/round-mod-rem-computed.html :: mod(10mm,6mm) should be used-value-equivalent to 4mm
+PASS css/css-values/round-mod-rem-computed.html :: mod(10Q, 6Q) should be used-value-equivalent to 4Q
+PASS css/css-values/round-mod-rem-computed.html :: mod(10in,6in) should be used-value-equivalent to 4in
+PASS css/css-values/round-mod-rem-computed.html :: mod(10pc,6pc) should be used-value-equivalent to 4pc
+PASS css/css-values/round-mod-rem-computed.html :: mod(10em,6em) should be used-value-equivalent to 4em
+PASS css/css-values/round-mod-rem-computed.html :: mod(10ex,6ex) should be used-value-equivalent to 4ex
+PASS css/css-values/round-mod-rem-computed.html :: mod(10ch,6ch) should be used-value-equivalent to 4ch
+PASS css/css-values/round-mod-rem-computed.html :: mod(10rem,6rem) should be used-value-equivalent to 4rem
+PASS css/css-values/round-mod-rem-computed.html :: mod(10vh,6vh) should be used-value-equivalent to 4vh
+PASS css/css-values/round-mod-rem-computed.html :: mod(10vw,6vw) should be used-value-equivalent to 4vw
+PASS css/css-values/round-mod-rem-computed.html :: mod(10vmin,6vmin) should be used-value-equivalent to 4vmin
+PASS css/css-values/round-mod-rem-computed.html :: mod(10vmax,6vmax) should be used-value-equivalent to 4vmax
+PASS css/css-values/round-mod-rem-computed.html :: mod(10s,6s) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: mod(10ms,6ms) should be used-value-equivalent to 4ms
+PASS css/css-values/round-mod-rem-computed.html :: mod(10deg,6deg) should be used-value-equivalent to 4deg
+PASS css/css-values/round-mod-rem-computed.html :: mod(10grad,6grad) should be used-value-equivalent to 4grad
+PASS css/css-values/round-mod-rem-computed.html :: mod(10rad,6rad) should be used-value-equivalent to 4rad
+PASS css/css-values/round-mod-rem-computed.html :: mod(10turn,6turn) should be used-value-equivalent to 4turn
+PASS css/css-values/round-mod-rem-computed.html :: rem(10px,6px) should be used-value-equivalent to 4px
+PASS css/css-values/round-mod-rem-computed.html :: rem(10cm,6cm) should be used-value-equivalent to 4cm
+PASS css/css-values/round-mod-rem-computed.html :: rem(10mm,6mm) should be used-value-equivalent to 4mm
+PASS css/css-values/round-mod-rem-computed.html :: rem(10Q, 6Q) should be used-value-equivalent to 4Q
+PASS css/css-values/round-mod-rem-computed.html :: rem(10in,6in) should be used-value-equivalent to 4in
+PASS css/css-values/round-mod-rem-computed.html :: rem(10pc,6pc) should be used-value-equivalent to 4pc
+PASS css/css-values/round-mod-rem-computed.html :: rem(10em,6em) should be used-value-equivalent to 4em
+PASS css/css-values/round-mod-rem-computed.html :: rem(10ex,6ex) should be used-value-equivalent to 4ex
+PASS css/css-values/round-mod-rem-computed.html :: rem(10ch,6ch) should be used-value-equivalent to 4ch
+PASS css/css-values/round-mod-rem-computed.html :: rem(10rem,6rem) should be used-value-equivalent to 4rem
+PASS css/css-values/round-mod-rem-computed.html :: rem(10vh,6vh) should be used-value-equivalent to 4vh
+PASS css/css-values/round-mod-rem-computed.html :: rem(10vw,6vw) should be used-value-equivalent to 4vw
+PASS css/css-values/round-mod-rem-computed.html :: rem(10vmin,6vmin) should be used-value-equivalent to 4vmin
+PASS css/css-values/round-mod-rem-computed.html :: rem(10vmax,6vmax) should be used-value-equivalent to 4vmax
+PASS css/css-values/round-mod-rem-computed.html :: rem(10s,6s) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: rem(10ms,6ms) should be used-value-equivalent to 4ms
+PASS css/css-values/round-mod-rem-computed.html :: rem(10deg,6deg) should be used-value-equivalent to 4deg
+PASS css/css-values/round-mod-rem-computed.html :: rem(10grad,6grad) should be used-value-equivalent to 4grad
+PASS css/css-values/round-mod-rem-computed.html :: rem(10rad,6rad) should be used-value-equivalent to 4rad
+PASS css/css-values/round-mod-rem-computed.html :: rem(10turn,6turn) should be used-value-equivalent to 4turn
+PASS css/css-values/round-mod-rem-computed.html :: round(2rem,5px) should be used-value-equivalent to 30px
+PASS css/css-values/round-mod-rem-computed.html :: round(100px,1rem) should be used-value-equivalent to 96px
+PASS css/css-values/round-mod-rem-computed.html :: round(10s,6000ms) should be used-value-equivalent to 12s
+PASS css/css-values/round-mod-rem-computed.html :: round(10000ms,6s) should be used-value-equivalent to 12s
+PASS css/css-values/round-mod-rem-computed.html :: mod(2rem,5px) should be used-value-equivalent to 2px
+PASS css/css-values/round-mod-rem-computed.html :: mod(100px,1rem) should be used-value-equivalent to 4px
+PASS css/css-values/round-mod-rem-computed.html :: mod(10s,6000ms) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: mod(10000ms,6s) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: mod(18%,5%) should be used-value-equivalent to 3%
+PASS css/css-values/round-mod-rem-computed.html :: mod(-19%,5%) should be used-value-equivalent to 1%
+PASS css/css-values/round-mod-rem-computed.html :: mod(18vw,5vw) should be used-value-equivalent to 3vw
+PASS css/css-values/round-mod-rem-computed.html :: mod(-18vw,5vw) should be used-value-equivalent to 2vw
+PASS css/css-values/round-mod-rem-computed.html :: rem(2rem,5px) should be used-value-equivalent to 2px
+PASS css/css-values/round-mod-rem-computed.html :: rem(100px,1rem) should be used-value-equivalent to 4px
+PASS css/css-values/round-mod-rem-computed.html :: rem(10s,6000ms) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: rem(10000ms,6s) should be used-value-equivalent to 4s
+PASS css/css-values/round-mod-rem-computed.html :: rem(18vw,5vw) should be used-value-equivalent to 3vw
+PASS css/css-values/round-mod-rem-computed.html :: rem(-18vw,5vw) should be used-value-equivalent to -3vw
+PASS css/css-values/round-mod-rem-computed.html :: round(0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(-0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(-Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(-4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(-Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(-Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(-0, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(-Infinity, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(-4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(4, 0) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(-Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(Infinity, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: rem(-Infinity, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, Infinity, 4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -Infinity, 4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, Infinity, -4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -Infinity, -4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, Infinity, 4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -Infinity, 4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, Infinity, -4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -Infinity, -4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, Infinity, 4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -Infinity, 4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, Infinity, -4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -Infinity, -4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, Infinity, 4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -Infinity, 4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, Infinity, -4) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -Infinity, -4) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 0, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 4, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -4, Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 0, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, 4, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(nearest, -4, -Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 0, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 4, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -4, Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 0, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, 4, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(to-zero, -4, -Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 1, Infinity) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 0, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -1, Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 1, -Infinity) should be used-value-equivalent to calc(Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(up, 0, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(up, -1, -Infinity) should be used-value-equivalent to calc(-0)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 0, Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -1, Infinity) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: round(down, 0, -Infinity) should be used-value-equivalent to 0
+PASS css/css-values/round-mod-rem-computed.html :: round(down, -1, -Infinity) should be used-value-equivalent to calc(-Infinity)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-0, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(0, -Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(-4, Infinity) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/round-mod-rem-computed.html :: mod(4, -Infinity) should be used-value-equivalent to calc(NaN)
 FILE css/css-values/round-mod-rem-invalid.html
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round()" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round( )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(,)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(, 1)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1 + )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1 - )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1 * )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1 / )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(nearest, 1 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, nearest, 12)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, nearest)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(nearest, 1, nearest)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, , 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod()" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod( )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(,)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(, 1)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1 + )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1 - )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1 * )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1 / )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, , 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem()" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem( )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(,)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(, 1)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1 + )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1 - )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1 * )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1 / )" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, , 2)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 1%)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "round(1, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 1%)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "mod(1, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 1%)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['opacity'] = "rem(1, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px, 0s))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px, 0deg))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px, 0Hz))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px, 0dpi))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "round(0px, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(round(0px, 0fr))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "mod(0px, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(mod(0px, 0s))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "mod(0px, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(mod(0px, 0deg))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "mod(0px, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(mod(0px, 0Hz))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "mod(0px, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(mod(0px, 0dpi))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "mod(0px, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(mod(0px, 0fr))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "rem(0px, 0s)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(rem(0px, 0s))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "rem(0px, 0deg)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(rem(0px, 0deg))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "rem(0px, 0Hz)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(rem(0px, 0Hz))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "rem(0px, 0dpi)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(rem(0px, 0dpi))" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "rem(0px, 0fr)" should not set the property value
+PASS css/css-values/round-mod-rem-invalid.html :: e.style['height'] = "calc(rem(0px, 0fr))" should not set the property value
 FILE css/css-values/round-mod-rem-serialize.html
+PASS css/css-values/round-mod-rem-serialize.html :: 'round(1.1,1)' as a specified value should serialize as 'calc(1)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(round(1.1,1))' as a specified value should serialize as 'scale(calc(1))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'round(1.1,1)' as a computed value should serialize as '1'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'mod(1,1)' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(mod(1,1))' as a specified value should serialize as 'scale(calc(0))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'mod(1,1)' as a computed value should serialize as '0'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'rem(1,1)' as a specified value should serialize as 'calc(0)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(rem(1,1))' as a specified value should serialize as 'scale(calc(0))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'rem(1,1)' as a computed value should serialize as '0'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(round(1,0))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(calc(round(1,0)))' as a specified value should serialize as 'scale(calc(NaN))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(round(1,0))' as a computed value should serialize as '0'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(mod(1,0))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(calc(mod(1,0)))' as a specified value should serialize as 'scale(calc(NaN))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(mod(1,0))' as a computed value should serialize as '0'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(rem(1,0))' as a specified value should serialize as 'calc(NaN)'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'scale(calc(rem(1,0)))' as a specified value should serialize as 'scale(calc(NaN))'.
+PASS css/css-values/round-mod-rem-serialize.html :: 'calc(rem(1,0))' as a computed value should serialize as '0'.
 FILE css/css-values/sign-in-keyframes-with-relative-units.html
 FILE css/css-values/signed-zero.html
 FILE css/css-values/signs-abs-computed.html
@@ -1886,8 +2494,23 @@ PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1vb" shou
 PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1vmin" should set the property value
 PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1vmax" should set the property value
 PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svw" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svh" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svi" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svb" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svmin" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1svmax" should set the property value
 PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvw" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvh" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvi" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvb" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvmin" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1lvmax" should set the property value
 PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvw" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvh" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvi" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvb" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvmin" should set the property value
+PASS css/css-values/viewport-units-parsing.html :: e.style['width'] = "1dvmax" should set the property value
 FILE css/css-values/viewport-units-scroll-no-cycles-001.tentative.html
 HARNESS css/css-values/viewport-units-scroll-no-cycles-001.tentative.html
 FILE css/css-values/viewport-units-scrollbars-compute.html

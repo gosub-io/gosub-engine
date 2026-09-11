@@ -367,7 +367,7 @@ pub enum MathType {
 fn is_evaluable(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
-        "calc" | "min" | "max" | "clamp" | "progress"
+        "calc" | "min" | "max" | "clamp" | "progress" | "round" | "mod" | "rem"
     )
 }
 
@@ -459,6 +459,19 @@ fn finite(value: f32) -> f32 {
 ///
 /// Returns `None` for a unit this cannot reduce (`ch`, `lh`, the container-query units), which
 /// keeps it as its own term rather than guessing at a value.
+/// Convert one value to its canonical unit, for the cascade.
+///
+/// The multiplication happens in f64 and narrows once at the end, exactly as it does inside a
+/// `calc()` body. Narrowing the *factor* first and multiplying in f32 instead puts the two paths
+/// one ULP apart - `12cm` came out `453.54333px` where `round(10cm, 6cm)` gave `453.5433px`,
+/// which is the very comparison this is here to make agree.
+#[must_use]
+pub fn to_canonical(value: f32, unit: &str, units: &Units) -> Option<(String, f32)> {
+    let (name, factor) = canonical(unit, units)?;
+    #[expect(clippy::cast_possible_truncation, reason = "CssValue holds f32")]
+    Some((name, (f64::from(value) * factor) as f32))
+}
+
 fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
     let px = |factor: f64| Some(("px".to_string(), factor));
     match unit {
@@ -610,7 +623,7 @@ fn lex(body: &str) -> Option<Vec<Lexed>> {
                         i += 1;
                         Tok::Open
                     }
-                    "min" | "max" | "clamp" | "progress" if opens => {
+                    "min" | "max" | "clamp" | "progress" | "round" | "mod" | "rem" if opens => {
                         i += 1;
                         Tok::Func(name)
                     }
@@ -825,6 +838,24 @@ impl Parser<'_> {
                     clamped = false;
                     self.pos += 1;
                 }
+                // `round()` may open with its rounding strategy, and only there: `round(1,
+                // nearest)` names a multiple that does not exist.
+                let mut strategy = Strategy::Nearest;
+                if let Some(Tok::Ident(word)) = self.peek() {
+                    if let Some(named) = Strategy::from_keyword(word) {
+                        if !name.eq_ignore_ascii_case("round") {
+                            return None;
+                        }
+                        strategy = named;
+                        self.pos += 1;
+                        // The strategy is followed by the value it applies to, not by the end of
+                        // the argument list.
+                        match self.peek() {
+                            Some(Tok::Comma) => self.pos += 1,
+                            _ => return None,
+                        }
+                    }
+                }
                 let is_clamp = name.eq_ignore_ascii_case("clamp");
                 // `None` is `clamp()`'s `none` bound: no limit on that side (css-values-5).
                 let mut args: Vec<Option<Sum>> = Vec::new();
@@ -866,6 +897,9 @@ impl Parser<'_> {
                 if name.eq_ignore_ascii_case("progress") {
                     return fold_progress(&args, clamped, self.mode);
                 }
+                if matches!(name.cow_to_ascii_lowercase().as_ref(), "round" | "mod" | "rem") {
+                    return fold_stepped(&name, &args, strategy, self.mode);
+                }
                 fold_comparison(&name, &args, self.mode)
             }
             // A bare identifier is not a value. `no-clamp` is handled above, where it belongs.
@@ -883,6 +917,136 @@ impl Parser<'_> {
 /// The two agree everywhere except when `S` and `E` are the same, and that is the case the wpt
 /// suite pins down: `progress(2rad, 1rad, 1rad)` is `0`, where clamping the result would make it
 /// `1` (the raw value is `+infinity`, which `no-clamp` does report). `no-clamp` skips it.
+/// Which multiple `round()` picks when the value falls between two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Strategy {
+    /// The closest, ties going to the multiple nearer +infinity - so `round(-1.5)` is `-1`, not
+    /// `-2`. That is not what `f64::round` does, which takes ties away from zero.
+    Nearest,
+    Up,
+    Down,
+    ToZero,
+}
+
+impl Strategy {
+    fn from_keyword(word: &str) -> Option<Self> {
+        Some(match word {
+            "nearest" => Self::Nearest,
+            "up" => Self::Up,
+            "down" => Self::Down,
+            "to-zero" => Self::ToZero,
+            _ => return None,
+        })
+    }
+}
+
+/// Fold `round()`, `mod()` and `rem()` - the stepped-value functions of css-values-4 §10.5.
+///
+/// All the arguments have to be the same kind of thing, and so is the answer. `round()` with no
+/// step rounds to whole numbers, which is why `round(0px)` is invalid rather than a no-op: the
+/// implicit step is a *number*, and a length cannot be a multiple of one.
+fn fold_stepped(name: &str, args: &[Sum], strategy: Strategy, mode: Mode) -> Option<Sum> {
+    let is_round = name.eq_ignore_ascii_case("round");
+    // The step `round()` leaves out is 1, and it is a number - which is what makes the type
+    // check reject a lone length.
+    let implicit_step = Sum::term("", 1.0);
+    let args: Vec<&Sum> = match (is_round, args.len()) {
+        (true, 1) => vec![&args[0], &implicit_step],
+        (_, 2) => vec![&args[0], &args[1]],
+        _ => return None,
+    };
+
+    if mode == Mode::TypeOnly {
+        let mut kind: Option<&'static str> = None;
+        let mut carried = Sum { terms: BTreeMap::new() };
+        for arg in &args {
+            for unit in arg.terms.keys() {
+                let found = unit_datatype(unit)?;
+                if *kind.get_or_insert(found) != found {
+                    return None;
+                }
+                carried.terms.insert(unit.clone(), 0.0);
+            }
+        }
+        return (!carried.terms.is_empty()).then_some(carried);
+    }
+
+    let (value_unit, value) = args[0].single_term()?;
+    let (step_unit, step) = args[1].single_term()?;
+    if value_unit != step_unit {
+        return None;
+    }
+
+    let result = if is_round {
+        round_to(value, step, strategy)
+    } else if name.eq_ignore_ascii_case("mod") {
+        modulo(value, step)
+    } else {
+        remainder(value, step)
+    };
+    Some(Sum::term(&value_unit, result))
+}
+
+/// `value` rounded to a multiple of `step`.
+fn round_to(value: f64, step: f64, strategy: Strategy) -> f64 {
+    if step == 0.0 || (value.is_infinite() && step.is_infinite()) {
+        return f64::NAN;
+    }
+    // An infinite value is already every multiple away; it stays itself.
+    if value.is_infinite() {
+        return value;
+    }
+    if step.is_infinite() {
+        // The multiples of infinity are -infinity, -0, +0 and +infinity, and nothing between.
+        let zero = if value.is_sign_negative() { -0.0 } else { 0.0 };
+        return match strategy {
+            Strategy::Nearest | Strategy::ToZero => zero,
+            Strategy::Up if value > 0.0 => f64::INFINITY,
+            Strategy::Down if value < 0.0 => f64::NEG_INFINITY,
+            Strategy::Up | Strategy::Down => zero,
+        };
+    }
+    // The multiples of a step and of its magnitude are the same set, and working from the
+    // magnitude keeps the tie-break pointing at +infinity whichever sign was written.
+    let step = step.abs();
+    let quotient = value / step;
+    let multiple = match strategy {
+        Strategy::Nearest => (quotient + 0.5).floor(),
+        Strategy::Up => quotient.ceil(),
+        Strategy::Down => quotient.floor(),
+        Strategy::ToZero => quotient.trunc(),
+    };
+    multiple * step
+}
+
+/// `mod()`: the remainder takes the sign of the *divisor*, so `mod(-18, 5)` is `2`.
+fn modulo(value: f64, step: f64) -> f64 {
+    if step == 0.0 || value.is_infinite() {
+        return f64::NAN;
+    }
+    if step.is_infinite() {
+        // Everything is within one infinite step of zero, but only on the divisor's side of it.
+        return if value == 0.0 || value.is_sign_negative() == step.is_sign_negative() {
+            value
+        } else {
+            f64::NAN
+        };
+    }
+    value - step * (value / step).floor()
+}
+
+/// `rem()`: the remainder takes the sign of the *dividend*, so `rem(-18, 5)` is `-3`. That is
+/// what `%` already does.
+fn remainder(value: f64, step: f64) -> f64 {
+    if step == 0.0 || value.is_infinite() {
+        return f64::NAN;
+    }
+    if step.is_infinite() {
+        return value;
+    }
+    value % step
+}
+
 fn fold_progress(args: &[Sum], clamped: bool, mode: Mode) -> Option<Sum> {
     let [value, start, end] = args else {
         return None;
@@ -1142,6 +1306,74 @@ mod tests {
         // Different datatypes are not a question of conversion - there is no answer.
         assert_eq!(parsed("progress(10deg, 0, 10)"), None);
         assert_eq!(parsed("progress(1px, 0%, 100%)"), None);
+    }
+
+    #[test]
+    fn round_picks_a_multiple_of_the_step() {
+        assert_eq!(parsed("round(100, 10)").as_deref(), Some("100"));
+        assert_eq!(parsed("round(up, 101, 10)").as_deref(), Some("110"));
+        assert_eq!(parsed("round(down, 106, 10)").as_deref(), Some("100"));
+        assert_eq!(parsed("round(to-zero, 105, 10)").as_deref(), Some("100"));
+        assert_eq!(parsed("round(to-zero, -105, 10)").as_deref(), Some("-100"));
+        assert_eq!(parsed("round(up, -103, 10)").as_deref(), Some("-100"));
+        assert_eq!(parsed("round(10px, 6px)").as_deref(), Some("12px"));
+        // Ties go to the multiple nearer +infinity, which is not what `f64::round` does - it
+        // takes ties away from zero, and would make this -2.
+        assert_eq!(parsed("round(-1.5)").as_deref(), Some("-1"));
+        assert_eq!(parsed("round(1.5)").as_deref(), Some("2"));
+        // The step written negative names the same set of multiples.
+        assert_eq!(parsed("round(105, -10)").as_deref(), Some("110"));
+    }
+
+    #[test]
+    fn mod_takes_the_sign_of_the_divisor_and_rem_of_the_dividend() {
+        assert_eq!(parsed("mod(18, 5)").as_deref(), Some("3"));
+        assert_eq!(parsed("rem(18, 5)").as_deref(), Some("3"));
+        assert_eq!(parsed("mod(-18, 5)").as_deref(), Some("2"));
+        assert_eq!(parsed("rem(-18, 5)").as_deref(), Some("-3"));
+        assert_eq!(parsed("mod(140, -90)").as_deref(), Some("-40"));
+        assert_eq!(parsed("rem(140, -90)").as_deref(), Some("50"));
+        assert_eq!(parsed("mod(-140, -90)").as_deref(), Some("-50"));
+        assert_eq!(parsed("mod(10px, 6px)").as_deref(), Some("4px"));
+    }
+
+    #[test]
+    fn stepped_functions_over_infinities() {
+        assert_eq!(parsed("round(infinity, infinity)").as_deref(), Some("NaN"));
+        assert_eq!(parsed("round(-infinity, 5)").as_deref(), Some("-infinity"));
+        assert_eq!(parsed("round(infinity, -5)").as_deref(), Some("infinity"));
+        // The multiples of infinity are the infinities and zero, and nothing between.
+        assert_eq!(parsed("round(5, infinity)").as_deref(), Some("0"));
+        assert_eq!(parsed("round(up, 1, infinity)").as_deref(), Some("infinity"));
+        assert_eq!(parsed("round(down, -1, infinity)").as_deref(), Some("-infinity"));
+        assert_eq!(parsed("round(down, 1, infinity)").as_deref(), Some("0"));
+        // A zero step has no multiples to land on.
+        assert_eq!(parsed("round(1, 0)").as_deref(), Some("NaN"));
+        assert_eq!(parsed("mod(1, 0)").as_deref(), Some("NaN"));
+        assert_eq!(parsed("rem(1, 0)").as_deref(), Some("NaN"));
+    }
+
+    #[test]
+    fn stepped_functions_check_their_shape() {
+        // The step is a *number* when it is left out, so a lone length has nothing to be a
+        // multiple of.
+        assert_eq!(comparison("round", &["0px"]), MathType::Invalid);
+        assert_eq!(comparison("round", &["1", "1%"]), MathType::Invalid);
+        assert_eq!(comparison("round", &["1", "0s"]), MathType::Invalid);
+        assert_eq!(comparison("round", &["1.5"]), MathType::Resolved(vec!["number"]));
+        // `mod()` and `rem()` take exactly two.
+        assert_eq!(comparison("mod", &["0px"]), MathType::Invalid);
+        assert_eq!(comparison("mod", &["1", "2", "3"]), MathType::Invalid);
+        assert_eq!(comparison("rem", &["1"]), MathType::Invalid);
+        // Malformed argument lists.
+        assert_eq!(comparison("round", &[]), MathType::Invalid);
+        assert_eq!(comparison("round", &["1", ""]), MathType::Invalid);
+        assert_eq!(comparison("round", &["1 2"]), MathType::Invalid);
+        assert_eq!(parsed("round(1, nearest)"), None);
+        assert_eq!(parsed("round(1, nearest, 12)"), None);
+        assert_eq!(parsed("round(nearest, 1, nearest)"), None);
+        // The strategy belongs to `round()` alone.
+        assert_eq!(parsed("mod(up, 1, 2)"), None);
     }
 
     #[test]

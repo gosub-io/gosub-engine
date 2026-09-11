@@ -15,10 +15,14 @@ pub struct MatchResult<'a> {
     pub matched_values: Vec<CssValue>,
 }
 
-const LENGTH_UNITS: [&str; 34] = [
-    "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw", "vmax", "vmin", "vb",
-    "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm", "Q", "in", "pc", "pt", "svw", "lvw", "dvw",
-];
+/// Whether `unit` is a length, asked of the one table that knows.
+///
+/// This used to be a list of its own, and the two drifted: it spelled `Q` in capitals and was
+/// compared exactly, so once units were folded to lowercase at parse time `1Q` stopped being a
+/// length at all; and of the twenty-four viewport units it named three.
+fn is_length_unit(unit: &str) -> bool {
+    calc::unit_datatype(unit) == Some("length")
+}
 
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
@@ -398,9 +402,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 },
                 "length" => match value {
                     CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Unit(n, u) if LENGTH_UNITS.contains(&u.as_str()) && range.contains(*n) => {
-                        return first_match(input)
-                    }
+                    CssValue::Unit(n, u) if is_length_unit(u) && range.contains(*n) => return first_match(input),
                     _ => {}
                 },
                 "time" => match value {

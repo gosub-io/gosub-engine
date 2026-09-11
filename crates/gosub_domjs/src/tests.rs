@@ -328,6 +328,32 @@ fn a_declaration_reads_back_serialized_not_as_it_was_written() {
 }
 
 #[test]
+fn a_computed_length_is_in_canonical_units() {
+    // A computed value is canonical: `12cm` and a `round()` that arrives at the same length have
+    // to come out the same, and they did not while only `em` and `rem` were converted here.
+    let cases = [
+        ("width", "12cm", "453.5433px"),
+        ("width", "round(10cm, 6cm)", "453.5433px"),
+        ("width", "1in", "96px"),
+        ("width", "12pt", "16px"),
+        // Units with nothing to resolve against travel on as written.
+        ("width", "10ch", "10ch"),
+    ];
+
+    for (property, input, expected) in cases {
+        let value = eval(
+            "<div id=target></div>",
+            &format!(
+                "const el = document.getElementById('target'); \
+                 el.style.setProperty('{property}', '{input}'); \
+                 getComputedStyle(el)['{property}'];"
+            ),
+        );
+        assert_eq!(value, expected, "{property}: {input}");
+    }
+}
+
+#[test]
 fn a_computed_value_sees_the_style_attribute() {
     // The cascade read only custom properties out of the `style` attribute - the render pipeline
     // layered the ordinary declarations on afterwards, outside the cascade - so `getComputedStyle`
