@@ -7,11 +7,12 @@ use crate::TableTree;
 /// Algorithm:
 /// 1. The available space is `table_width` minus the horizontal border-spacing
 ///    gutters (one between each pair of columns plus the outer two).
-/// 2. Scan the first non-empty row across all provided grids (header first,
-///    then body, then footer).  For each single-column cell in that row:
-///    - If it has an explicit CSS `width` in px or %, assign that to its column.
-///    - Record its pre-pass natural width (from `cell_content_width`) for use
-///      in step 3.
+/// 2. Scan every row of every provided grid (header first, then body, then
+///    footer).  For each single-column cell:
+///    - If it has an explicit CSS `width` in px or % and its column has no
+///      width yet, assign that to the column.
+///    - Keep the widest pre-pass natural width (from `cell_content_width`)
+///      seen in the column, for use in step 3.
 /// 3. Remaining space is distributed to auto columns proportionally to their
 ///    natural content width. Falls back to equal distribution if no content
 ///    width information is available.
@@ -33,38 +34,35 @@ pub fn compute_column_widths<T: TableTree>(
     let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
     let mut natural: Vec<f32> = vec![0.0; n_cols];
 
-    // Scan for explicit widths and natural content widths, taking the first row that actually
-    // says something about individual columns.
+    // Scan every row for explicit widths and natural content widths.
     //
-    // A row made only of spanning cells says nothing: it covers several columns at once and cannot
-    // tell them apart. Stopping at the first *non-empty* row therefore learned nothing at all from
-    // a table whose first row is a `colspan` title - Wikipedia's infobox, whose heading spans both
-    // columns - and every column fell through to equal widths. That gave the label column half the
-    // box and left the values overflowing it.
-    'outer: for grid in grids {
+    // A column's natural width is the widest of its cells, so all of them have to be looked at.
+    // Reading a single row instead cannot describe a table whose columns are not all introduced at
+    // once: Wikipedia's dialect table heads columns 0-6 in its first row and puts columns 7 and 8
+    // in a *second* header row, under a `colspan=2` title. The first row says nothing about those
+    // two, so they measured 0 and collapsed to the narrow floor - 14 px each - while their content
+    // spilled out to the right. Only cells spanning one column are counted: a spanning cell covers
+    // several at once and cannot tell them apart.
+    for grid in grids {
         for row_idx in 0..grid.n_rows {
-            let mut found_single = false;
             for cell in grid.cells_in_row(row_idx) {
-                if cell.colspan == 1 {
-                    found_single = true;
-                    let cw = tree.cell_content_width(cell.node);
-                    if explicit[cell.col].is_none() {
-                        // A specified width cannot shrink a cell below its content's min-width
-                        // (CSS: used width = max(specified, min-content)). Without this, e.g. a
-                        // `width:18px` cell holding a 20px image clips it and eats the padding.
-                        match tree.css_length(cell.node, CssProp::Width) {
-                            CssLength::Px(px) => explicit[cell.col] = Some(px.max(cw)),
-                            CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(cw)),
-                            _ => {}
-                        }
-                    }
-                    if cw > natural[cell.col] {
-                        natural[cell.col] = cw;
+                if cell.colspan != 1 || cell.col >= n_cols {
+                    continue;
+                }
+                let cw = tree.cell_content_width(cell.node);
+                if explicit[cell.col].is_none() {
+                    // A specified width cannot shrink a cell below its content's min-width
+                    // (CSS: used width = max(specified, min-content)). Without this, e.g. a
+                    // `width:18px` cell holding a 20px image clips it and eats the padding.
+                    match tree.css_length(cell.node, CssProp::Width) {
+                        CssLength::Px(px) => explicit[cell.col] = Some(px.max(cw)),
+                        CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(cw)),
+                        _ => {}
                     }
                 }
-            }
-            if found_single {
-                break 'outer;
+                if cw > natural[cell.col] {
+                    natural[cell.col] = cw;
+                }
             }
         }
     }

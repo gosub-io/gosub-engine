@@ -134,6 +134,16 @@ impl<'a> CssTaffyConverter<'a> {
                 // put Wikipedia's infobox image caption in a narrow strip beside the picture
                 // instead of underneath it.
                 ts.flex_direction = FlexDirection::Column;
+                // The cell's own `text-align` positions its line boxes. They are shrink-to-fit
+                // items of a flex column, so the axis that moves them across the cell is the
+                // *cross* axis - `align_items`, not `justify_content`, which only arranges words
+                // inside a line box that already hugs them. Wikipedia's infobox section headers
+                // are `text-align: center` and came out flush left for want of this.
+                ts.align_items = match self.doc.get_style(self.node_id, &StyleProperty::TextAlign) {
+                    Value::TextAlign(CssTextAlign::Center) => Some(AlignItems::CENTER),
+                    Value::TextAlign(CssTextAlign::End | CssTextAlign::Right) => Some(AlignItems::FLEX_END),
+                    _ => Some(AlignItems::FLEX_START),
+                };
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {

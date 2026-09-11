@@ -450,6 +450,50 @@ mod layout_tests {
         assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
     }
 
+    // A column is only described by the rows it appears in, so every row has to be scanned.
+    // Wikipedia's dialect table heads seven columns in its first row and introduces the last two
+    // in a *second* header row, under a `colspan=2` title; reading only the first row left those
+    // two measuring nothing and they collapsed to the 14px narrow floor with their content
+    // hanging out to the right.
+    #[test]
+    fn columns_introduced_in_a_later_row_are_measured() {
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .header_row(vec![
+                cell("plain").rowspan(2).content_width(80.0).height(10.0).padding(0.0),
+                cell("group").colspan(2).height(10.0).padding(0.0),
+            ])
+            .header_row(vec![
+                cell("sub-a").content_width(110.0).height(10.0).padding(0.0),
+                cell("sub-b").content_width(90.0).height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("x").height(10.0).padding(0.0),
+                cell("y").height(10.0).padding(0.0),
+                cell("z").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let sub_a = tree.layout(cells[2]).expect("sub-a laid out").size.width;
+        let sub_b = tree.layout(cells[3]).expect("sub-b laid out").size.width;
+        assert!(
+            sub_a > 50.0 && sub_b > 50.0,
+            "the second header row's columns must take their content widths, not the narrow floor: {sub_a} and {sub_b}"
+        );
+        assert!(
+            sub_a > sub_b,
+            "and they share space proportionally to that content: {sub_a} vs {sub_b}"
+        );
+        assert_approx!(
+            tree.layout(cells[0]).expect("plain laid out").size.width + sub_a + sub_b,
+            300.0,
+            "the columns still fill the table"
+        );
+    }
+
     // 16. Rowspan never escapes its section: a rowspan=3 in a 1-row header is
     //     clamped and does not reach into the body rows.
     #[test]

@@ -202,7 +202,22 @@ impl TableTree for PipelineTableTree<'_> {
     type NodeId = DomNodeId;
 
     fn children(&self, id: DomNodeId) -> Vec<DomNodeId> {
-        self.doc.children(id)
+        // Whitespace between table-internal boxes is discarded (CSS 2.1 §17.2.1). The newline and
+        // indentation between two `<tr>`s is a text node like any other, and since a run of
+        // non-table children is wrapped in an anonymous cell, keeping them invented a row made of
+        // nothing but indentation - which then became the first row the column scan found, so the
+        // real cells' widths were never measured and every column fell back to an equal share.
+        self.doc
+            .children(id)
+            .into_iter()
+            .filter(|child| match self.doc.get_node_by_id(*child) {
+                Some(node) => match &node.node_type {
+                    NodeType::Text(text) => !text.trim_matches(|c: char| c.is_ascii_whitespace()).is_empty(),
+                    _ => true,
+                },
+                None => true,
+            })
+            .collect()
     }
 
     fn table_role(&self, id: DomNodeId) -> TableRole {

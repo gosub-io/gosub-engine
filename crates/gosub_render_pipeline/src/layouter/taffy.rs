@@ -94,6 +94,17 @@ fn skip_leading_whitespace<'a>(
     &items[start..]
 }
 
+/// How a block wants its line boxes laid out, beyond where they sit.
+#[derive(Debug, Clone, Copy)]
+struct LineStyle {
+    /// The block's `text-align`, which positions runs that do not fill the line box.
+    justify: Option<taffy::JustifyContent>,
+    /// The block is a table cell: a flex column, where the axis that moves a line box across the
+    /// cell is the cross axis. Its `align_items` does that, and an `align_self` on the line box
+    /// would override it, so inside a cell the line box sets none.
+    cell_aligned: bool,
+}
+
 /// Where one line box goes: which band it sits in, and how far below the previous one it starts.
 #[derive(Debug, Clone, Copy)]
 struct LinePlacement {
@@ -893,6 +904,20 @@ impl TaffyLayouter {
         // container *is* the line box here, so a block crossed by a float needs one container per
         // band rather than one for the whole block. `cursor` carries the position in that band
         // list across the whole block, including over `<br>` boundaries.
+        // A table cell is a flex column, so the axis that moves a line box across the cell is the
+        // cross axis - the cell's `align_items`, set from its `text-align`. An `align_self` on the
+        // line box would override that, so inside a cell it is left off. Wikipedia's infobox
+        // section headers are `text-align: center` and came out flush left for want of this.
+        let line_style = LineStyle {
+            justify,
+            cell_aligned: matches!(
+                layout_tree
+                    .render_tree
+                    .doc
+                    .get_style(element_node.dom_node_id, &StyleProperty::Display),
+                Value::Display(CssDisplay::TableCell)
+            ),
+        };
         let bands = self.float_insets.get(&element_node.dom_node_id).cloned();
         let mut cursor = bands.as_ref().map(|bands| BandCursor::new(bands));
 
@@ -909,9 +934,16 @@ impl TaffyLayouter {
                         if let Some(c) = cursor.as_mut() {
                             c.take_lines(1, *lh as f32);
                         }
-                        self.emit_line(&[], Some(*lh), element_node, leaf_id, justify, placement);
+                        self.emit_line(&[], Some(*lh), element_node, leaf_id, line_style, placement);
                     } else {
-                        self.emit_banded(layout_tree, &segment, element_node, leaf_id, justify, cursor.as_mut());
+                        self.emit_banded(
+                            layout_tree,
+                            &segment,
+                            element_node,
+                            leaf_id,
+                            line_style,
+                            cursor.as_mut(),
+                        );
                         segment.clear();
                         // The break itself ends the line the segment left open.
                         if let Some(c) = cursor.as_mut() {
@@ -922,7 +954,14 @@ impl TaffyLayouter {
             }
         }
         if !segment.is_empty() {
-            self.emit_banded(layout_tree, &segment, element_node, leaf_id, justify, cursor.as_mut());
+            self.emit_banded(
+                layout_tree,
+                &segment,
+                element_node,
+                leaf_id,
+                line_style,
+                cursor.as_mut(),
+            );
         }
     }
 
@@ -938,11 +977,11 @@ impl TaffyLayouter {
         items: &[(LayoutElementId, TaffyNodeId)],
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
-        justify: Option<taffy::JustifyContent>,
+        line_style: LineStyle,
         cursor: Option<&mut BandCursor>,
     ) {
         let Some(cursor) = cursor else {
-            self.emit_line(items, None, element_node, leaf_id, justify, None);
+            self.emit_line(items, None, element_node, leaf_id, line_style, None);
             return;
         };
 
@@ -957,7 +996,7 @@ impl TaffyLayouter {
             let Some((taken, lines)) = self.fill_band(layout_tree, rest, band, capacity) else {
                 let placement = cursor.placement();
                 cursor.exhaust();
-                self.emit_line(rest, None, element_node, leaf_id, justify, Some(placement));
+                self.emit_line(rest, None, element_node, leaf_id, line_style, Some(placement));
                 return;
             };
             if taken == 0 {
@@ -965,7 +1004,7 @@ impl TaffyLayouter {
                 // drop to the next one rather than emitting an empty container. CSS puts a line
                 // that cannot fit beside a float below it, which is exactly this.
                 if !cursor.advance() {
-                    self.emit_line(rest, None, element_node, leaf_id, justify, Some(cursor.placement()));
+                    self.emit_line(rest, None, element_node, leaf_id, line_style, Some(cursor.placement()));
                     return;
                 }
                 continue;
@@ -980,7 +1019,7 @@ impl TaffyLayouter {
                 None,
                 element_node,
                 leaf_id,
-                justify,
+                line_style,
                 Some(placement),
             );
             cursor.take_lines(lines, line_height);
@@ -1073,7 +1112,7 @@ impl TaffyLayouter {
         empty_line_height: Option<f64>,
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
-        justify: Option<taffy::JustifyContent>,
+        line_style: LineStyle,
         placement: Option<LinePlacement>,
     ) {
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
@@ -1085,8 +1124,8 @@ impl TaffyLayouter {
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
             // The block's `text-align`: positions runs that don't fill the line box.
-            justify_content: justify,
-            align_self: Some(AlignSelf::FLEX_START),
+            justify_content: line_style.justify,
+            align_self: (!line_style.cell_aligned).then_some(AlignSelf::FLEX_START),
             // FlexStart ensures multi-row intrinsic height = sum of all row heights.
             // Taffy's default (None = Stretch) fails to include wrapped rows in the
             // container's auto height, causing rows beyond the first to overflow.
@@ -1574,6 +1613,14 @@ impl TaffyLayouter {
                 // width and then drags the table out to match.
                 if let Some(&width) = self.table_widths.get(&dom_node.node_id) {
                     taffy_style.size.width = Dimension::from_length(width);
+                    // A cell is a flex item with `flex_grow: 1`, which would stretch it back to
+                    // an equal share of its row and undo the pin. It only shows up in a row that
+                    // does not span every column - the dialect table's second header row holds
+                    // two cells under a `colspan=2` title, and they grew to half the table each,
+                    // leaving their centred text far to the right of the cells lattice then
+                    // moved into place.
+                    taffy_style.flex_grow = 0.0;
+                    taffy_style.flex_shrink = 0.0;
                 }
 
                 // Second pass only: replace the CSS insets of an absolutely positioned box that
