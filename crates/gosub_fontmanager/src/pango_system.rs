@@ -19,12 +19,6 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
-/// Serialises every direct fontconfig call in this module. Mutating the process-global config
-/// (`FcConfigAppFontAddFile`/`FcConfigBuildFonts`) while another thread matches against it
-/// (`FcFontMatch`) segfaults - fontconfig's documented thread safety does not cover concurrent
-/// mutation of the current config.
-static FONTCONFIG_LOCK: Mutex<()> = Mutex::new(());
-
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
 ///
 /// The bytes are written to a uniquely-named file in the temp dir - intentionally left on
@@ -64,7 +58,7 @@ fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> R
         .ok_or_else(|| FontError::InvalidFont("non-UTF-8 font path".to_string()))?;
     let c_path = std::ffi::CString::new(path_str).map_err(|e| FontError::InvalidFont(format!("font path: {e}")))?;
 
-    let _guard = FONTCONFIG_LOCK.lock();
+    let _guard = crate::fontconfig_lock::hold();
 
     #[allow(unsafe_code)] // fontconfig has no safe Rust binding for app-font registration
     // SAFETY: `FcConfigGetCurrent` returns the process-global config (auto-initialised, not
@@ -158,7 +152,7 @@ fn fontconfig_match(
         .filter_map(|f| std::ffi::CString::new(*f).ok())
         .collect();
 
-    let _guard = FONTCONFIG_LOCK.lock();
+    let _guard = crate::fontconfig_lock::hold();
 
     #[allow(unsafe_code)] // fontconfig has no safe Rust binding for font matching
     // SAFETY: `FcConfigGetCurrent` returns the process-global config (checked for null). The
@@ -367,6 +361,9 @@ impl PangoFontSystem {
     fn build_layout(&self, text: &str, style: &TextStyle) -> Option<pango::Layout> {
         use pangocairo::functions::{context_set_resolution, create_layout};
 
+        // Same global config as `families()`: `create_layout` and `find_available_font` both
+        // read the fontconfig-backed font map.
+        let _guard = crate::fontconfig_lock::hold();
         let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).ok()?;
         let cr = cairo::Context::new(&surface).ok()?;
         let layout = create_layout(&cr);
@@ -538,6 +535,9 @@ impl FontSystem for PangoFontSystem {
         // default font map - the fontconfig database, including web fonts registered before
         // the font map was first built.
         use pangocairo::functions::create_layout;
+        // Walking the font map reads the global fontconfig config, so it must not overlap a
+        // thread registering a web font into it or building a fresh one.
+        let _guard = crate::fontconfig_lock::hold();
         let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
             return Vec::new();
         };
