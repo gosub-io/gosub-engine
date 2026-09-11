@@ -33,13 +33,20 @@ pub fn compute_column_widths<T: TableTree>(
     let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
     let mut natural: Vec<f32> = vec![0.0; n_cols];
 
-    // Scan the first non-empty row for explicit widths and natural content widths.
+    // Scan for explicit widths and natural content widths, taking the first row that actually
+    // says something about individual columns.
+    //
+    // A row made only of spanning cells says nothing: it covers several columns at once and cannot
+    // tell them apart. Stopping at the first *non-empty* row therefore learned nothing at all from
+    // a table whose first row is a `colspan` title - Wikipedia's infobox, whose heading spans both
+    // columns - and every column fell through to equal widths. That gave the label column half the
+    // box and left the values overflowing it.
     'outer: for grid in grids {
         for row_idx in 0..grid.n_rows {
-            let mut found_any = false;
+            let mut found_single = false;
             for cell in grid.cells_in_row(row_idx) {
-                found_any = true;
                 if cell.colspan == 1 {
+                    found_single = true;
                     let cw = tree.cell_content_width(cell.node);
                     if explicit[cell.col].is_none() {
                         // A specified width cannot shrink a cell below its content's min-width
@@ -56,7 +63,7 @@ pub fn compute_column_widths<T: TableTree>(
                     }
                 }
             }
-            if found_any {
+            if found_single {
                 break 'outer;
             }
         }

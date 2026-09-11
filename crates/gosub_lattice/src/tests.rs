@@ -414,6 +414,42 @@ mod layout_tests {
         assert_approx!(l.size.width, 100.0, "single column takes full width");
     }
 
+    // A first row made only of spanning cells says nothing about individual columns, so the
+    // column scan must look past it. Wikipedia's infobox opens with a `colspan=2` title; stopping
+    // there learned no content widths at all and every column fell back to an equal share, which
+    // gave the narrow label column half the box and left the values overflowing it.
+    #[test]
+    fn a_spanning_first_row_does_not_hide_the_column_widths() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let group = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, group);
+
+        let title_row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(group, title_row);
+        let title = tree.alloc_cell(cell("title").colspan(2).height(10.0).padding(0.0));
+        tree.add_child(title_row, title);
+
+        let data_row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(group, data_row);
+        let label = tree.alloc_cell(cell("label").content_width(60.0).height(10.0).padding(0.0));
+        tree.add_child(data_row, label);
+        let value = tree.alloc_cell(cell("value").content_width(240.0).height(10.0).padding(0.0));
+        tree.add_child(data_row, value);
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let label_w = tree.layout(label).expect("label laid out").size.width;
+        let value_w = tree.layout(value).expect("value laid out").size.width;
+        assert!(
+            value_w > label_w * 2.0,
+            "the second row's content widths must decide the split, not an equal share: {label_w} vs {value_w}"
+        );
+        assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
+    }
+
     // 16. Rowspan never escapes its section: a rowspan=3 in a 1-row header is
     //     clamped and does not reach into the body rows.
     #[test]
