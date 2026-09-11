@@ -8,25 +8,50 @@ impl Css3<'_> {
     pub fn parse_value_sequence(&mut self) -> CssResult<Vec<Node>> {
         log::trace!("parse_value_sequence");
 
-        let mut children = Vec::new();
+        let mut children: Vec<Node> = Vec::new();
 
         while !self.tokenizer.eof() {
-            let t = self.consume_any()?;
-            match t.token_type {
-                TokenType::Comment(_) => {
-                    // eat token
-                }
-                TokenType::Whitespace(_) => {
-                    // eat token
-                }
-                _ => {
-                    self.tokenizer.reconsume(t);
+            // Skip the run of whitespace and comments ahead of the next value, remembering
+            // whether any whitespace was among it. Whitespace is not a value, but css-values-4
+            // §10.1 makes its presence part of the meaning of `+` and `-`: both require
+            // whitespace on either side, and that is the only thing separating
+            // `calc(1px - 2px)` (a subtraction) from `calc(1px -2px)` (two adjacent values).
+            // Discarding it outright left that rule unenforceable for every math function whose
+            // arguments come through here.
+            //
+            // This loop also replaces a single-token skip that could not cope with whitespace
+            // and a comment in sequence: `1px /* c */ 2px` ended the value list at the comment.
+            let mut space_before = false;
+            loop {
+                let t = self.consume_any()?;
+                match t.token_type {
+                    TokenType::Whitespace(_) => space_before = true,
+                    TokenType::Comment(_) => {}
+                    _ => {
+                        self.tokenizer.reconsume(t);
+                        break;
+                    }
                 }
             }
 
-            let Some(child) = self.parse_value()? else {
+            // Whitespace ahead of this value is also whitespace *after* whatever preceded it.
+            if space_before {
+                if let Some(NodeType::Operator { space_after, .. }) =
+                    children.last_mut().map(|node| &mut node.node_type)
+                {
+                    *space_after = true;
+                }
+            }
+
+            let Some(mut child) = self.parse_value()? else {
                 break;
             };
+            if let NodeType::Operator {
+                space_before: before, ..
+            } = &mut child.node_type
+            {
+                *before = space_before;
+            }
             children.push(child);
         }
 

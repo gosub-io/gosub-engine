@@ -358,7 +358,7 @@ impl FeatureValue {
                 .map(FeatureValue::Length),
             // A ratio arrives as `<number> / <number>`.
             NodeType::Value { children } => match children.as_slice() {
-                [num, op, den] if matches!(&op.node_type, NodeType::Operator(o) if o == "/") => {
+                [num, op, den] if matches!(&op.node_type, NodeType::Operator { value, .. } if value == "/") => {
                     let num = Self::from_ast(num)?.as_number()?;
                     let den = Self::from_ast(den)?.as_number()?;
                     (den != 0.0).then_some(FeatureValue::Ratio(num / den))
@@ -677,7 +677,7 @@ enum Comparison {
 
 impl Comparison {
     fn from_ast(node: &Node) -> Option<Self> {
-        let NodeType::Operator(op) = &node.node_type else {
+        let NodeType::Operator { value: op, .. } = &node.node_type else {
             return None;
         };
         Some(match op.as_str() {

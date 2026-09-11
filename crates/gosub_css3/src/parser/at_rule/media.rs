@@ -33,7 +33,7 @@ impl Css3<'_> {
 
         let delim = self.consume_any_delim()?;
         if delim == '=' {
-            return Ok(Node::new(NodeType::Operator("=".into()), loc));
+            return Ok(Node::new(NodeType::operator("="), loc));
         }
 
         if delim == '>' || delim == '<' {
@@ -42,9 +42,9 @@ impl Css3<'_> {
             let la = self.tokenizer.lookahead(0);
             if la.is_delim('=') {
                 self.consume_any()?;
-                return Ok(Node::new(NodeType::Operator(format!("{delim}=")), loc));
+                return Ok(Node::new(NodeType::operator(format!("{delim}=")), loc));
             }
-            return Ok(Node::new(NodeType::Operator(format!("{delim}")), loc));
+            return Ok(Node::new(NodeType::operator(format!("{delim}")), loc));
         }
 
         Err(CssError::with_location("Expected comparison operator", loc))
@@ -122,7 +122,7 @@ impl Css3<'_> {
                 let second = self.parse_media_read_term()?;
                 Some(Node::new(
                     NodeType::Value {
-                        children: vec![first, Node::new(NodeType::Operator("/".into()), op_loc), second],
+                        children: vec![first, Node::new(NodeType::operator("/"), op_loc), second],
                     },
                     loc,
                 ))

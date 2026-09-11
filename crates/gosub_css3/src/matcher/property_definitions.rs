@@ -1274,13 +1274,18 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
-        // The parsed calc body must be the raw expression, not empty.
+        // The parsed calc body must be the expression itself, as the values it is made of -
+        // not the empty function it once was, and no longer a string anybody has to re-tokenize.
         let values = parse_decl_values("width", "calc(100% - 20px)");
         assert_eq!(
             values,
             vec![CssValue::Function(
                 "calc".to_string(),
-                vec![CssValue::String("100% - 20px".to_string())]
+                vec![
+                    CssValue::Percentage(100.0),
+                    CssValue::String("-".to_string()),
+                    CssValue::Unit(20.0, "px".to_string())
+                ]
             )]
         );
 

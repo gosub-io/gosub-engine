@@ -138,6 +138,26 @@ impl<'stream> Css3<'stream> {
     }
 }
 
+/// Parse the body of a `calc()` from text into the values it is made of.
+///
+/// This is the one way to get from CSS text to a math expression, and it goes through the real
+/// tokenizer and the real `calc()` token parser - there is no second lexer to disagree with them.
+/// Tests use it so they can be written against the text an author types while still exercising
+/// the path a stylesheet takes.
+///
+/// `None` when the body holds something that is not a math token at all.
+#[cfg(test)]
+pub(crate) fn parse_calc_body(text: &str) -> Option<Vec<stylesheet::CssValue>> {
+    let mut stream = ByteStream::from_str(text, Encoding::UTF8);
+    let mut parser = Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "calc");
+    let tokens = parser.parse_calc_tokens().ok()?;
+
+    tokens
+        .into_iter()
+        .map(|token| stylesheet::CssValue::parse_ast_node(token).ok())
+        .collect()
+}
+
 /// Loads the default user agent stylesheet
 #[must_use]
 pub fn load_default_useragent_stylesheet() -> CssStylesheet {

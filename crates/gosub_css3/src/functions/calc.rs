@@ -1,9 +1,9 @@
 //! `calc()` arithmetic.
 //!
-//! The parser keeps a `calc()` body as raw text (see [`crate::parser::calc`]) and nothing ever
-//! did anything with it: `width: calc(10px + 20px)` reached layout still spelled
-//! `calc(10px + 20px)`, and every consumer that wanted a length got a string it could not use.
-//! This is the arithmetic that was missing.
+//! The parser once kept a `calc()` body as raw text and nothing ever did anything with it:
+//! `width: calc(10px + 20px)` reached layout still spelled `calc(10px + 20px)`, and every
+//! consumer that wanted a length got a string it could not use. This is the arithmetic that was
+//! missing.
 //!
 //! Evaluation happens twice, against different knowledge:
 //!
@@ -27,14 +27,28 @@
 //! that. Such an expression is left unevaluated rather than answered wrongly. Lifting it means
 //! keeping an exponent per unit in the key; the `calc-mixed-units-*` suites are what measure it.
 //!
-//! The result goes back into the same `CssValue::Function("calc", [String(body)])` the parser
-//! produced, with the body rewritten in canonical form. Giving `CssValue` a typed variant would
-//! be tidier, but `calc()` flows through the syntax matcher as a function like any other, and
-//! every `match` over `CssValue` in the workspace would have to grow an arm to gain nothing that
-//! is not already recoverable by re-reading the (now canonical, and short) body.
+//! # Input
+//!
+//! A math expression arrives as the `CssValue`s the parser built - `Unit`, `Number`, a `String`
+//! holding an operator, a nested `Function` - and is read by `lex_values`. It used to arrive as
+//! *text*: the parser rebuilt its own tokens into a string (see [`crate::parser::calc`]) and a
+//! byte scanner here tokenized that string all over again. Two tokenizers for one input, and
+//! they had to agree to stay correct. They did not: the CSS tokenizer folds a leading `+` into
+//! the number after it, and a dimension prints without a positive sign, so `calc(1px +2px)`
+//! reached the scanner as `1px 2px`.
+//!
+//! Whitespace was the thing that round trip existed to carry, because css-values-4 §10.1 makes
+//! it load-bearing around `+` and `-`. It is now recorded on the operator nodes themselves
+//! ([`crate::node::NodeType::Operator`]) and checked once, when a declaration is parsed. By the
+//! time a stream reaches this module its spacing has already been ruled valid, which is why
+//! `lex_values` does not need whitespace to be representable in a `CssValue`.
+//!
+//! The result goes back into a `CssValue::Function("calc", body)` whose body is the values the
+//! sum came down to ([`Sum::to_values`]), so nothing downstream has to tokenize anything again.
 
 use cow_utils::CowUtils;
 use std::collections::BTreeMap;
+#[cfg(test)]
 use std::fmt::Write as _;
 
 use crate::stylesheet::CssValue;
@@ -146,27 +160,52 @@ impl Sum {
         }
     }
 
-    /// The body text, without the surrounding `calc(` and `)`.
+    /// The body, as the values that make it up: the `calc()` arguments this sum becomes.
+    ///
+    /// The stored form of a partially-simplified `calc()` used to be the body's *text*, which
+    /// meant every later reader had to tokenize it again. Values cost the same to serialize -
+    /// `CssValue::Function`'s `Display` writes the separating spaces itself, so a sum of terms
+    /// still comes back as `2em + 10px` - and cost nothing to read.
     #[must_use]
-    pub fn serialize(&self) -> String {
-        let mut out = String::new();
+    pub fn to_values(&self) -> Vec<CssValue> {
+        let mut out = Vec::new();
         for (i, (unit, value)) in self.terms.iter().enumerate() {
             // A non-finite term carries its sign inside the keyword, so it is never written as
             // the right-hand side of a subtraction.
-            if i > 0 && value.is_finite() && *value < 0.0 {
-                let _ = write!(out, " - {}", format_term(-*value, unit));
-                continue;
-            }
             if i > 0 {
-                out.push_str(" + ");
+                let subtract = value.is_finite() && *value < 0.0;
+                out.push(CssValue::String(if subtract { "-" } else { "+" }.to_string()));
+                if subtract {
+                    out.extend(term_values(-*value, unit));
+                    continue;
+                }
             }
-            let _ = write!(out, "{}", format_term(*value, unit));
+            out.extend(term_values(*value, unit));
+        }
+        out
+    }
+
+    /// The body text, without the surrounding `calc(` and `)`.
+    ///
+    /// Only tests read this: a sum is *stored* as [`Sum::to_values`], and the text is whatever
+    /// those values serialize to. It stays because an expected value is far easier to read as
+    /// `"2em + 10px"` than as the three values that spell it.
+    #[cfg(test)]
+    #[must_use]
+    pub fn serialize(&self) -> String {
+        let mut out = String::new();
+        for (i, value) in self.to_values().iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            let _ = write!(out, "{value}");
         }
         out
     }
 }
 
-fn format_term(value: f64, unit: &str) -> String {
+/// One term of a sum, as the values it serializes to.
+fn term_values(value: f64, unit: &str) -> Vec<CssValue> {
     // css-values-4 serializes a non-finite dimension as a product with a one-unit multiplier -
     // `calc(NaN * 1px)`, never `NaNpx` - because `NaN` and `infinity` are `<number>` keywords
     // and cannot carry a unit themselves. A plain number is just the keyword.
@@ -178,19 +217,25 @@ fn format_term(value: f64, unit: &str) -> String {
         } else {
             "-infinity"
         };
+        let keyword = CssValue::String(keyword.to_string());
         return match unit {
-            "" => keyword.to_string(),
-            unit => format!("{keyword} * 1{unit}"),
+            "" => vec![keyword],
+            unit => vec![
+                keyword,
+                CssValue::String("*".to_string()),
+                CssValue::Unit(1.0, unit.to_string()),
+            ],
         };
     }
-    // Narrowed before printing: the sum is carried in f64 so intermediate steps do not
-    // accumulate error, but the value this becomes is an f32, and serializing at f64 width would
-    // print seventeen digits of a precision the stored value does not have.
-    #[expect(clippy::cast_possible_truncation, reason = "the value it serializes is an f32")]
+    // Narrowed before storing: the sum is carried in f64 so intermediate steps do not accumulate
+    // error, but the value it becomes is an f32, and keeping f64 width would report seventeen
+    // digits of a precision the stored value does not have.
+    #[expect(clippy::cast_possible_truncation, reason = "the value it becomes is an f32")]
     let value = value as f32;
     match unit {
-        "" => format!("{value}"),
-        unit => format!("{value}{unit}"),
+        "" => vec![CssValue::Number(value)],
+        "%" => vec![CssValue::Percentage(value)],
+        unit => vec![CssValue::Unit(value, unit.to_string())],
     }
 }
 
@@ -201,7 +246,7 @@ fn format_term(value: f64, unit: &str) -> String {
 /// errors here - rejecting a declaration is the matcher's job, and this stage has to be safe to
 /// run over anything that parsed.
 #[must_use]
-pub fn simplify(body: &str, units: &Units) -> Option<Sum> {
+pub fn simplify(body: &[CssValue], units: &Units) -> Option<Sum> {
     simplify_with(body, units, Mode::Evaluate)
 }
 
@@ -221,8 +266,9 @@ enum Mode {
     TypeOnly,
 }
 
-fn simplify_with(body: &str, units: &Units, mode: Mode) -> Option<Sum> {
-    let tokens = lex(body)?;
+fn simplify_with(body: &[CssValue], units: &Units, mode: Mode) -> Option<Sum> {
+    let mut tokens = Vec::new();
+    lex_values(body, &mut tokens)?;
     let mut parser = Parser {
         tokens: &tokens,
         pos: 0,
@@ -242,21 +288,18 @@ fn simplify_with(body: &str, units: &Units, mode: Mode) -> Option<Sum> {
 /// computed value, where `calc(50px)` *is* `50px`, and wrong for a specified one, where the
 /// `calc()` wrapper is part of what the author wrote and what the CSSOM must give back.
 #[must_use]
-pub fn evaluate(body: &str, units: &Units, unwrap: bool) -> Option<CssValue> {
+pub fn evaluate(body: &[CssValue], units: &Units, unwrap: bool) -> Option<CssValue> {
     let sum = simplify(body, units)?;
     if unwrap {
         if let Some(value) = sum.single_value() {
             return Some(make_finite(value));
         }
     }
-    Some(CssValue::Function(
-        "calc".to_string(),
-        vec![CssValue::String(sum.serialize())],
-    ))
+    Some(CssValue::Function("calc".to_string(), sum.to_values()))
 }
 
-/// Evaluate a whole math-function call - `min(1px, 2px)`, `progress(100px, 0px, 100px)` - rather
-/// than a `calc()` body.
+/// Evaluate a whole math-function call - `min(1px, 2px)`, `progress(100px, 0px, 100px)` - and
+/// `calc()` itself, whose arguments are its body.
 ///
 /// Only `calc()` used to be folded, because only `calc()` held its expression as text. Everything
 /// else kept its arguments as values and reached serialization untouched, so
@@ -265,11 +308,16 @@ pub fn evaluate(body: &str, units: &Units, unwrap: bool) -> Option<CssValue> {
 /// `None` means it did not reduce, and the call should be left exactly as it was.
 #[must_use]
 pub fn evaluate_call(name: &str, args: &[CssValue], units: &Units, unwrap: bool) -> Option<CssValue> {
-    if !is_evaluable(name) || name.eq_ignore_ascii_case("calc") || has_unevaluable(args) {
+    if !is_evaluable(name) {
         return None;
     }
-    let text = CssValue::Function(name.to_string(), args.to_vec()).to_string();
-    let sum = simplify(&text, units)?;
+    // A `calc()` is its body, not a call: its parentheses group, they do not take an argument
+    // list. Everything else is wrapped back up so the grammar sees the call it expects.
+    let sum = if name.eq_ignore_ascii_case("calc") {
+        simplify(args, units)?
+    } else {
+        simplify(&[CssValue::Function(name.to_string(), args.to_vec())], units)?
+    };
     if unwrap {
         if let Some(value) = sum.single_value() {
             return Some(make_finite(value));
@@ -277,10 +325,7 @@ pub fn evaluate_call(name: &str, args: &[CssValue], units: &Units, unwrap: bool)
     }
     // A reduced math function serializes as `calc()`, whatever function it started as - the
     // expression is gone, and what is left is a plain value in a math context.
-    Some(CssValue::Function(
-        "calc".to_string(),
-        vec![CssValue::String(sum.serialize())],
-    ))
+    Some(CssValue::Function("calc".to_string(), sum.to_values()))
 }
 
 /// The largest length this engine will admit, which is what an infinity becomes once a value has
@@ -364,6 +409,43 @@ pub enum MathType {
 
 /// The math functions whose arguments this can evaluate. Anything else - `sin()`, `round()`,
 /// `var()` - makes the whole expression undecidable rather than invalid.
+/// Every function css-values-4 defines as a math function, whether or not this module can yet
+/// evaluate one.
+///
+/// The distinction matters: a math function's *syntax* rules - the whitespace required around
+/// `+` and `-`, most of all - apply to all of them, while [`is_evaluable`] names only the subset
+/// whose value this module can work out. Names are matched case-insensitively and without a
+/// vendor prefix, which callers strip.
+#[must_use]
+pub fn is_math_function_name(name: &str) -> bool {
+    matches!(
+        name.cow_to_ascii_lowercase().as_ref(),
+        "calc"
+            | "calc-size"
+            | "min"
+            | "max"
+            | "clamp"
+            | "progress"
+            | "round"
+            | "mod"
+            | "rem"
+            | "abs"
+            | "sign"
+            | "pow"
+            | "sqrt"
+            | "hypot"
+            | "log"
+            | "exp"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "asin"
+            | "acos"
+            | "atan"
+            | "atan2"
+    )
+}
+
 fn is_evaluable(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
@@ -388,32 +470,15 @@ fn is_evaluable(name: &str) -> bool {
 /// Whether anything in here is a function this cannot evaluate.
 fn has_unevaluable(values: &[CssValue]) -> bool {
     values.iter().any(|value| match value {
-        CssValue::Function(name, args) => !is_evaluable(name) || has_unevaluable(args),
+        // A parenthesized group is a call with no name, and it is transparent: it evaluates to
+        // whatever is inside it. Reading the empty name as "a function nobody implements" made
+        // every grouped expression answer "cannot tell" instead of being type-checked, so
+        // `width: calc((1% * 1deg) / 1px)` was accepted while the ungrouped `calc(1% * 1deg)`
+        // was correctly rejected.
+        CssValue::Function(name, args) => (!name.is_empty() && !is_evaluable(name)) || has_unevaluable(args),
         CssValue::List(items) => has_unevaluable(items),
-        // A `calc()` body is text, so its functions are not `CssValue`s to walk.
-        CssValue::String(text) => text_has_unevaluable(text),
         _ => false,
     })
-}
-
-/// The same question for a `calc()` body, which is held as text.
-fn text_has_unevaluable(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if !bytes[i].is_ascii_alphabetic() && bytes[i] != b'-' && bytes[i] != b'_' {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
-            i += 1;
-        }
-        if bytes.get(i) == Some(&b'(') && !is_evaluable(&text[start..i]) {
-            return true;
-        }
-    }
-    false
 }
 
 /// Type-check a math function's arguments against nothing in particular.
@@ -436,10 +501,8 @@ pub fn math_function_type(name: &str, args: &[CssValue], units: &Units) -> MathT
     // and the fact that `progress()` returns a *number* whatever its arguments were. Picking
     // arguments apart separately got all four of those wrong.
     //
-    // `Display` on a `CssValue` is its CSS serialization, so writing the call back out and
-    // re-reading it is exact.
-    let text = CssValue::Function(name.to_string(), args.to_vec()).to_string();
-    let Some(sum) = simplify_with(&text, units, Mode::TypeOnly) else {
+    let call = [CssValue::Function(name.to_string(), args.to_vec())];
+    let Some(sum) = simplify_with(&call, units, Mode::TypeOnly) else {
         return MathType::Invalid;
     };
 
@@ -559,13 +622,27 @@ enum Tok {
 /// function. They are keywords rather than identifiers, and ASCII case-insensitive - `nan`,
 /// `NaN` and `nAn` are the same token.
 fn constant(name: &str) -> Option<f64> {
-    match name {
-        "pi" => Some(std::f64::consts::PI),
-        "e" => Some(std::f64::consts::E),
-        "infinity" => Some(f64::INFINITY),
-        "nan" => Some(f64::NAN),
-        _ => None,
-    }
+    // A leading `-` belongs to the keyword rather than being an operator, because the CSS
+    // tokenizer reads `-infinity` as one identifier - an identifier may start with a hyphen.
+    // css-values-4 names `-infinity` as a keyword in its own right for exactly that reason. The
+    // byte scanner this replaced never saw the two joined up, so it took the `-` for a minus and
+    // got the same answer by a different route; `-pi` needs the sign handled here to keep it.
+    let (sign, name) = match name.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, name),
+    };
+
+    // Case-insensitive, as css-values-4 says: `nan`, `NaN` and `nAn` are one keyword. This used
+    // to be handled by the lexer, which lowercased every identifier before it got here.
+    let value = match name.cow_to_ascii_lowercase().as_ref() {
+        "pi" => std::f64::consts::PI,
+        "e" => std::f64::consts::E,
+        "infinity" => f64::INFINITY,
+        "nan" => f64::NAN,
+        _ => return None,
+    };
+
+    Some(sign * value)
 }
 
 /// A token and whether whitespace came before it, which `+` and `-` need: CSS requires them to
@@ -577,162 +654,86 @@ struct Lexed {
     space_before: bool,
 }
 
-fn lex(body: &str) -> Option<Vec<Lexed>> {
-    let bytes = body.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    let mut space = false;
-
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c.is_ascii_whitespace() {
-            space = true;
-            i += 1;
-            continue;
-        }
-
-        let tok = match c {
-            b'(' => {
-                i += 1;
-                Tok::Open
-            }
-            b')' => {
-                i += 1;
+/// Turn a math function's arguments into the token stream the expression parser reads.
+///
+/// The arguments arrive already parsed - `CssValue::Unit`, `CssValue::Function` and the rest -
+/// because the CSS tokenizer built them on the way in. This used to re-serialize them into a
+/// string and tokenize that string a second time, with a byte scanner of its own that had to
+/// agree with the real tokenizer to stay correct. It did not always: the tokenizer folds a
+/// leading `+` into the number it precedes, and a dimension prints without a positive sign, so
+/// `calc(1px +2px)` reached the scanner as `1px 2px`.
+///
+/// # Precision
+///
+/// A number arrives as the `f32` the tokenizer narrowed it to, and is widened back with
+/// `f64::from`, which keeps the `f32`'s exact value rather than the decimal behind it. That is
+/// the wrong answer for `calc(-80px + 25.4mm)`, where `f64::from(25.4f32)` is 25.399999618530273
+/// and the sum comes out as `15.999998px` instead of `16px`. Reading the shortest decimal back
+/// instead (`25.4`) fixes that case and four like it, and breaks twelve others - `tan(0.78539816)`
+/// among them, which needs the exact `f32` to round to 1. Neither is winnable here: the loss
+/// happens in the tokenizer, whose `Number` is an `f32`, and only widening *that* fixes both.
+///
+/// # Whitespace
+///
+/// Every token is marked as having whitespace before it, which is what lets the `+`/`-` rule in
+/// [`Parser::sum`] pass. That is sound rather than a shortcut: whitespace is checked once, at
+/// parse time, against the real whitespace on the operator nodes (see `math_spacing_is_valid` in
+/// `crate::ast`), and a declaration that fails the check never becomes a `CssValue` at all. By
+/// the time a stream reaches here its spacing has already been ruled valid, so re-deciding it
+/// from values that no longer carry whitespace would only be able to get it wrong.
+fn lex_values(values: &[CssValue], out: &mut Vec<Lexed>) -> Option<()> {
+    for value in values {
+        let tok = match value {
+            CssValue::Zero => Tok::Value(0.0, String::new()),
+            CssValue::Number(number) => Tok::Value(f64::from(*number), String::new()),
+            CssValue::Percentage(percentage) => Tok::Value(f64::from(*percentage), "%".to_string()),
+            CssValue::Unit(number, unit) => Tok::Value(f64::from(*number), unit.cow_to_ascii_lowercase().into_owned()),
+            CssValue::Comma => Tok::Comma,
+            // The parser lowers an operator to a plain string, so this is where `+` stops being
+            // an identifier and becomes arithmetic. Anything else is a keyword: a numeric
+            // constant if it names one, else an identifier the grammar may or may not allow
+            // (`no-clamp`, a `round()` strategy).
+            CssValue::String(text) => match text.as_str() {
+                "+" => Tok::Plus,
+                "-" => Tok::Minus,
+                "*" => Tok::Star,
+                "/" => Tok::Slash,
+                _ => match constant(text) {
+                    Some(number) => Tok::Value(number, String::new()),
+                    None => Tok::Ident(text.clone()),
+                },
+            },
+            CssValue::Function(name, args) => {
+                // `calc()` is transparent - its parentheses are just parentheses, and so is a
+                // bare group, which the parser records as a call with no name. Everything else
+                // is a call whose arguments the grammar reads for itself.
+                let opener = if name.is_empty() || name.eq_ignore_ascii_case("calc") {
+                    Tok::Open
+                } else if is_evaluable(name) {
+                    Tok::Func(name.cow_to_ascii_lowercase().into_owned())
+                } else {
+                    // `var()` before substitution, or a function this module does not implement.
+                    // Not knowing what it is worth means the whole expression is unevaluable.
+                    return None;
+                };
+                out.push(Lexed {
+                    tok: opener,
+                    space_before: true,
+                });
+                lex_values(args, out)?;
                 Tok::Close
             }
-            b',' => {
-                i += 1;
-                Tok::Comma
-            }
-            b'*' => {
-                i += 1;
-                Tok::Star
-            }
-            b'/' => {
-                i += 1;
-                Tok::Slash
-            }
-            // A sign only introduces a number when a number can start here; after a value it is
-            // an operator. The parser sorts that out - both are emitted as operator tokens and
-            // unary signs are handled by the grammar.
-            b'+' => {
-                i += 1;
-                Tok::Plus
-            }
-            b'-' if !starts_number(&bytes[i..]) => {
-                i += 1;
-                Tok::Minus
-            }
-            // An identifier is either a numeric constant or the name of a nested function.
-            // `calc()` is transparent - its parentheses are just parentheses - while the
-            // comparison functions take an argument list and are folded when it closes.
-            // Anything else (`var()`, `attr()`, a function this does not implement) means the
-            // expression cannot be evaluated here, and the whole body is left alone.
-            c if c.is_ascii_alphabetic() => {
-                let (name, used) = scan_unit(&bytes[i..]);
-                let opens = bytes.get(i + used) == Some(&b'(');
-                i += used;
-                match name.as_str() {
-                    "calc" if opens => {
-                        i += 1;
-                        Tok::Open
-                    }
-                    "min" | "max" | "clamp" | "progress" | "round" | "mod" | "rem" if opens => {
-                        i += 1;
-                        Tok::Func(name)
-                    }
-                    "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2" if opens => {
-                        i += 1;
-                        Tok::Func(name)
-                    }
-                    _ if opens => return None,
-                    // A constant, else an identifier the grammar may or may not allow here.
-                    _ => match constant(&name) {
-                        Some(value) => Tok::Value(value, String::new()),
-                        None => Tok::Ident(name),
-                    },
-                }
-            }
-            _ => {
-                let (value, rest) = scan_number(&bytes[i..])?;
-                i += rest;
-                let (unit, used) = scan_unit(&bytes[i..]);
-                i += used;
-                Tok::Value(value, unit)
-            }
+            // A colour, a url, a nested list: none of them are arithmetic.
+            _ => return None,
         };
 
         out.push(Lexed {
             tok,
-            space_before: space,
+            space_before: true,
         });
-        space = false;
     }
 
-    Some(out)
-}
-
-/// Whether a number token starts here, so that a leading `-` belongs to it rather than being an
-/// operator.
-fn starts_number(bytes: &[u8]) -> bool {
-    match bytes {
-        [b'-' | b'+', rest @ ..] => starts_number(rest),
-        [b'.', d, ..] => d.is_ascii_digit(),
-        [d, ..] => d.is_ascii_digit(),
-        [] => false,
-    }
-}
-
-/// Read a CSS `<number>`: an optional sign, digits around an optional point, an optional
-/// exponent.
-fn scan_number(bytes: &[u8]) -> Option<(f64, usize)> {
-    let mut i = 0;
-    if matches!(bytes.first(), Some(b'+' | b'-')) {
-        i += 1;
-    }
-    let digits_start = i;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        i += 1;
-    }
-    if i < bytes.len() && bytes[i] == b'.' {
-        i += 1;
-        while i < bytes.len() && bytes[i].is_ascii_digit() {
-            i += 1;
-        }
-    }
-    if i == digits_start {
-        return None;
-    }
-    // An `e` only starts an exponent when digits follow it, else it is the start of a unit.
-    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
-        let mut j = i + 1;
-        if matches!(bytes.get(j), Some(b'+' | b'-')) {
-            j += 1;
-        }
-        if bytes.get(j).is_some_and(u8::is_ascii_digit) {
-            while j < bytes.len() && bytes[j].is_ascii_digit() {
-                j += 1;
-            }
-            i = j;
-        }
-    }
-    let text = std::str::from_utf8(&bytes[..i]).ok()?;
-    Some((text.parse::<f64>().ok()?, i))
-}
-
-/// Read the unit after a number: `%`, an identifier, or nothing.
-fn scan_unit(bytes: &[u8]) -> (String, usize) {
-    if bytes.first() == Some(&b'%') {
-        return ("%".to_string(), 1);
-    }
-    let mut i = 0;
-    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
-        i += 1;
-    }
-    let unit = String::from_utf8_lossy(&bytes[..i])
-        .cow_to_ascii_lowercase()
-        .into_owned();
-    (unit, i)
+    Some(())
 }
 
 // --- parsing ---------------------------------------------------------------------------------
@@ -1294,8 +1295,13 @@ fn fold_comparison(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
 mod tests {
     use super::*;
 
+    /// The values a `calc()` body of this text is made of, as the parser produces them.
+    fn values(input: &str) -> Vec<CssValue> {
+        crate::parse_calc_body(input).expect("calc body should parse")
+    }
+
     fn body(input: &str, units: &Units) -> Option<String> {
-        simplify(input, units).map(|sum| sum.serialize())
+        simplify(&values(input), units).map(|sum| sum.serialize())
     }
 
     fn parsed(input: &str) -> Option<String> {
@@ -1419,9 +1425,12 @@ mod tests {
         assert_eq!(math_function_type("min", &args, &Units::none()), MathType::Unknown);
         // `pow()` stands in for whatever is not implemented yet; swap it when it is.
         assert_eq!(math_function_type("pow", &[], &Units::none()), MathType::Unknown);
-        // Including one inside a `calc()` body, which is text rather than values.
-        let body = vec![CssValue::String("1px + pow(2, 3)".to_string())];
-        assert_eq!(math_function_type("calc", &body, &Units::none()), MathType::Unknown);
+        // Including one inside a `calc()` body, which is values like any other argument list -
+        // it used to be text, and this was answered by scanning that text for a `name(`.
+        assert_eq!(
+            math_function_type("calc", &values("1px + pow(2, 3)"), &Units::none()),
+            MathType::Unknown
+        );
     }
 
     #[test]
@@ -1518,11 +1527,22 @@ mod tests {
     }
 
     /// Trig results are irrational; compare on the value rather than on its spelling.
+    ///
+    /// The tolerance is relative and sized to `f32`, because `f32` is the precision CSS text can
+    /// actually carry here: the tokenizer narrows every number it reads, so an argument written
+    /// as `0.7853981633974483rad` reaches the evaluator as the nearest `f32` and no answer can
+    /// be better than that. These used to be compared against a flat 1e-6 and passed, because
+    /// the test handed its own text straight to a byte scanner that read it at `f64` width - a
+    /// precision no stylesheet could ever have delivered.
     fn approx(input: &str, expected: f64, unit: &str) {
-        let sum = simplify(input, &Units::none()).unwrap_or_else(|| panic!("{input} should evaluate"));
+        let sum = simplify(&values(input), &Units::none()).unwrap_or_else(|| panic!("{input} should evaluate"));
         let (got_unit, got) = sum.single_term().expect("one term");
         assert_eq!(got_unit, unit, "{input}");
-        assert!((got - expected).abs() < 1e-6, "{input}: expected {expected}, got {got}");
+        let tolerance = f64::from(f32::EPSILON) * expected.abs().max(1.0) * 4.0;
+        assert!(
+            (got - expected).abs() <= tolerance,
+            "{input}: expected {expected}, got {got} (tolerance {tolerance})"
+        );
     }
 
     #[test]
@@ -1696,12 +1716,18 @@ mod tests {
     }
 
     #[test]
-    fn deep_nesting_does_not_blow_the_stack() {
-        // The parser has its own recursion limit for the `calc(` it must open; this one only has
-        // to survive whatever body it is handed.
-        let depth = 200;
-        let body = format!("{}1px{}", "calc(".repeat(depth), ")".repeat(depth));
+    fn nesting_is_capped_by_the_parser_that_produces_the_body() {
+        // The evaluator used to be handed a body as text, so it had to survive any depth on its
+        // own. Now the body comes from the parser, and the parser's own recursion cap is what
+        // keeps a `calc(calc(calc(...` from ever reaching here - the depth that once needed
+        // defending against is refused before evaluation begins.
+        let within = 32;
+        let body = format!("{}1px{}", "calc(".repeat(within), ")".repeat(within));
         assert_eq!(parsed(&body).as_deref(), Some("1px"));
+
+        let beyond = 200;
+        let body = format!("{}1px{}", "calc(".repeat(beyond), ")".repeat(beyond));
+        assert_eq!(crate::parse_calc_body(&body), None);
     }
 
     #[test]
@@ -1828,28 +1854,32 @@ mod tests {
         // infinity is clamped to something a layout can add to without coming back to infinity.
         let units = Units::computed(16.0, 16.0);
         assert_eq!(
-            evaluate("1px * NaN", &units, true),
+            evaluate(&values("1px * NaN"), &units, true),
             Some(CssValue::Unit(0.0, "px".to_string()))
         );
         // Whatever unit the NaN carried: there is nothing left to take a percentage of.
         assert_eq!(
-            evaluate("1% * NaN", &units, true),
+            evaluate(&values("1% * NaN"), &units, true),
             Some(CssValue::Unit(0.0, "px".to_string()))
         );
         assert_eq!(
-            evaluate("1px * infinity", &units, true),
+            evaluate(&values("1px * infinity"), &units, true),
             Some(CssValue::Unit(MAX_FINITE, "px".to_string()))
         );
         assert_eq!(
-            evaluate("1px * -infinity", &units, true),
+            evaluate(&values("1px * -infinity"), &units, true),
             Some(CssValue::Unit(-MAX_FINITE, "px".to_string()))
         );
         // Unwrapped only when it came down to one term, so the specified path is untouched.
         assert_eq!(
-            evaluate("1px * NaN", &units, false),
+            evaluate(&values("1px * NaN"), &units, false),
             Some(CssValue::Function(
                 "calc".to_string(),
-                vec![CssValue::String("NaN * 1px".to_string())]
+                vec![
+                    CssValue::String("NaN".to_string()),
+                    CssValue::String("*".to_string()),
+                    CssValue::Unit(1.0, "px".to_string()),
+                ]
             ))
         );
     }
@@ -1876,22 +1906,26 @@ mod tests {
     fn evaluate_unwraps_only_when_asked() {
         let units = Units::computed(16.0, 16.0);
         assert_eq!(
-            evaluate("10px + 20px", &units, true),
+            evaluate(&values("10px + 20px"), &units, true),
             Some(CssValue::Unit(30.0, "px".to_string()))
         );
         assert_eq!(
-            evaluate("10px + 20px", &units, false),
+            evaluate(&values("10px + 20px"), &units, false),
             Some(CssValue::Function(
                 "calc".to_string(),
-                vec![CssValue::String("30px".to_string())]
+                vec![CssValue::Unit(30.0, "px".to_string())]
             ))
         );
         // Two terms left, so there is nothing to unwrap to either way.
         assert_eq!(
-            evaluate("10px + 20%", &units, true),
+            evaluate(&values("10px + 20%"), &units, true),
             Some(CssValue::Function(
                 "calc".to_string(),
-                vec![CssValue::String("20% + 10px".to_string())]
+                vec![
+                    CssValue::Percentage(20.0),
+                    CssValue::String("+".to_string()),
+                    CssValue::Unit(10.0, "px".to_string()),
+                ]
             ))
         );
     }

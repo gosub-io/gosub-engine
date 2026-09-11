@@ -692,10 +692,7 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
         // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
             let units = calc::Units::computed(em_basis, rem_basis);
-            match args.first() {
-                Some(CssValue::String(body)) => calc::evaluate(body, &units, true).unwrap_or_else(|| value.clone()),
-                _ => value.clone(),
-            }
+            calc::evaluate(args, &units, true).unwrap_or_else(|| value.clone())
         }
         CssValue::Function(name, args) => {
             let args: Vec<CssValue> = args.iter().map(recurse).collect();

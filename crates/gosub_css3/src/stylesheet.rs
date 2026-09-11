@@ -772,6 +772,10 @@ impl Display for CssValue {
                 [CssValue::String(url)] => write!(f, "url(\"{}\")", escape_url(url)),
                 _ => write!(f, "url()"),
             },
+            // A parenthesized group inside a math expression is held as a call with no name,
+            // so it writes back out as the `( ... )` the author wrote rather than as a
+            // `calc( ... )` that means the same thing but is not what the serialization rules
+            // ask for.
             CssValue::Function(name, args) => {
                 write!(f, "{name}(")?;
                 // The argument list carries its own separators: the parser keeps each `,` as a
@@ -927,24 +931,22 @@ impl CssValue {
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
-            crate::node::NodeType::Operator(value) => Ok(CssValue::String(value)),
-            crate::node::NodeType::Calc { expr } => {
-                // The body of a `calc()` is kept as text, and simplified as far as it can be
-                // without knowing the element: the arithmetic and the absolute lengths, which is
-                // why `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
-                // percentages all need something only the cascade or layout has, so they survive
-                // to be finished in `resolve_computed`. A body this cannot make sense of (an
-                // unsubstituted `var()`, say) is kept exactly as written.
-                let body = match expr.node_type {
-                    crate::node::NodeType::Raw { value } => value,
-                    _ => String::new(),
-                };
-                let simplified = crate::functions::calc::simplify(&body, &crate::functions::calc::Units::none())
-                    .map_or(body, |sum| sum.serialize());
-                Ok(CssValue::Function(
-                    "calc".to_string(),
-                    vec![CssValue::String(simplified)],
-                ))
+            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::String(value)),
+            // A `calc()` body is its arguments, and is simplified as far as it can be without
+            // knowing the element: the arithmetic and the absolute lengths, which is why
+            // `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
+            // percentages all need something only the cascade or layout has, so they survive to
+            // be finished in `resolve_computed`. A body this cannot make sense of (an
+            // unsubstituted `var()`, say) is kept as the values it was written with.
+            crate::node::NodeType::Calc { tokens } => {
+                let mut body = Vec::with_capacity(tokens.len());
+                for token in tokens {
+                    body.push(CssValue::parse_ast_node(token)?);
+                }
+                Ok(
+                    crate::functions::calc::evaluate_call("calc", &body, &crate::functions::calc::Units::none(), false)
+                        .unwrap_or(CssValue::Function("calc".to_string(), body)),
+                )
             }
             crate::node::NodeType::Url { url } => {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
@@ -1051,13 +1053,8 @@ fn reduce_color_component(value: &CssValue) -> CssValue {
     if !name.eq_ignore_ascii_case("calc") {
         return value.clone();
     }
-    match args.as_slice() {
-        [CssValue::String(body)] => {
-            crate::functions::calc::evaluate(body, &crate::functions::calc::Units::none(), true)
-                .unwrap_or_else(|| value.clone())
-        }
-        _ => value.clone(),
-    }
+    crate::functions::calc::evaluate(args, &crate::functions::calc::Units::none(), true)
+        .unwrap_or_else(|| value.clone())
 }
 
 fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
@@ -1377,7 +1374,11 @@ mod test {
         // not knowable at parse time, so the function has to survive instead.
         let unresolved = CssValue::Function(
             "calc".to_string(),
-            vec![CssValue::String("0.1 * sibling-index()".to_string())],
+            vec![
+                CssValue::Number(0.1),
+                CssValue::String("*".to_string()),
+                CssValue::Function("sibling-index".to_string(), vec![]),
+            ],
         );
         let args = vec![
             CssValue::Number(0.5),
@@ -1388,7 +1389,14 @@ mod test {
         assert_eq!(parse_css_color_function("oklch", &args), None);
 
         // A `calc()` that does come down to a number is just that number.
-        let resolvable = CssValue::Function("calc".to_string(), vec![CssValue::String("100 + 55".to_string())]);
+        let resolvable = CssValue::Function(
+            "calc".to_string(),
+            vec![
+                CssValue::Number(100.0),
+                CssValue::String("+".to_string()),
+                CssValue::Number(55.0),
+            ],
+        );
         let args = vec![resolvable, CssValue::Number(0.0), CssValue::Number(0.0)];
         assert_eq!(
             parse_css_color_function("rgb", &args),

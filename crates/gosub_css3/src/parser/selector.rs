@@ -41,7 +41,7 @@ impl Css3<'_> {
             value.push('=');
         }
 
-        Ok(Node::new(NodeType::Operator(value), loc))
+        Ok(Node::new(NodeType::operator(value), loc))
     }
 
     fn parse_class_selector(&mut self) -> CssResult<Node> {

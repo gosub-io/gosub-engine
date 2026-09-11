@@ -1052,34 +1052,7 @@ fn datatype_accepts(datatype: &str, kind: &str) -> bool {
 }
 
 fn is_math_function(name: &str) -> bool {
-    let name = strip_vendor_prefix(name).unwrap_or(name);
-    [
-        "calc",
-        "calc-size",
-        "min",
-        "max",
-        "clamp",
-        "progress",
-        "round",
-        "mod",
-        "rem",
-        "abs",
-        "sign",
-        "pow",
-        "sqrt",
-        "hypot",
-        "log",
-        "exp",
-        "sin",
-        "cos",
-        "tan",
-        "asin",
-        "acos",
-        "atan",
-        "atan2",
-    ]
-    .iter()
-    .any(|f| name.eq_ignore_ascii_case(f))
+    calc::is_math_function_name(strip_vendor_prefix(name).unwrap_or(name))
 }
 
 fn is_comma_literal(component: &SyntaxComponent) -> bool {
