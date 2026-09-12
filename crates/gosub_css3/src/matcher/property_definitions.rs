@@ -1438,10 +1438,10 @@ mod tests {
         assert!(ok("margin-left", "calc(min(1em + 1px, 22px) - max(0.9em, 20px))"));
         // A length against a percentage is a legal `<length-percentage>`.
         assert!(ok("width", "min(1px, 20%)"));
-        // And what cannot be read is not called invalid. `pow()` stands in for whatever is not
-        // implemented yet - swap it when it is.
+        // And what cannot be read is not called invalid. `random()` stands in for whatever is
+        // not implemented yet - `pow()` used to, and was overtaken.
         assert!(ok("width", "min(var(--a), 10px)"));
-        assert!(ok("width", "calc(1px + pow(2, 3))"));
+        assert!(ok("width", "calc(1px + random(1, 2))"));
 
         // Once a function *is* implemented, its result is typed like any other: `sin()` gives a
         // number, so adding it to a length is the error it always was.

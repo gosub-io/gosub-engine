@@ -458,6 +458,9 @@ fn is_evaluable(name: &str) -> bool {
             | "atan2"
             | "abs"
             | "sign"
+            | "pow"
+            | "sqrt"
+            | "hypot"
     )
 }
 
@@ -918,6 +921,9 @@ impl Parser<'_> {
                 if matches!(name.cow_to_ascii_lowercase().as_ref(), "abs" | "sign") {
                     return fold_sign_abs(&name, &args, self.mode);
                 }
+                if matches!(name.cow_to_ascii_lowercase().as_ref(), "pow" | "sqrt" | "hypot") {
+                    return fold_exponential(&name, &args, self.mode);
+                }
                 fold_comparison(&name, &args, self.mode)
             }
             // A bare identifier is not a value. `no-clamp` is handled above, where it belongs.
@@ -997,6 +1003,10 @@ fn fold_trig(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
             kinds.sort_unstable();
             match &first_kinds {
                 None => first_kinds = Some(kinds),
+                // Whether a percentage is "the same type" as a length depends on the property
+                // this is being matched against, and that context does not reach here - see
+                // `kind_sets_combine`, which is the relaxed rule and costs exactly as much as
+                // this one.
                 Some(first) if is_atan2 && *first != kinds => return None,
                 Some(_) => {}
             }
@@ -1076,6 +1086,103 @@ fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     }
 
     Some(Sum::term(&unit, value.abs()))
+}
+
+/// `pow(A, B)`, `sqrt(A)` and `hypot(A, ...)` (css-values-4 §10.7).
+///
+/// `pow()` and `sqrt()` are number-only in and number-only out, because there is no unit for what
+/// they would otherwise produce: `sqrt(4px)` would need px^(1/2) to exist. `hypot()` is the
+/// exception and takes any type, so long as every argument is the *same* type, and answers that
+/// type - `hypot(3px, 4px)` is 5px, since the square root undoes the squaring and the unit
+/// survives the round trip.
+fn fold_exponential(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
+    let name = name.cow_to_ascii_lowercase();
+    let is_hypot = name == "hypot";
+
+    // Arity. `pow(1)`, `sqrt(1, 2)` and `hypot()` are all errors, and having them rejected is
+    // most of what implementing these buys: a function the evaluator does not know answers
+    // "cannot tell", and the matcher accepts what it cannot read.
+    match (name.as_ref(), args.len()) {
+        ("pow", 2) | ("sqrt", 1) => {}
+        ("hypot", n) if n >= 1 => {}
+        _ => return None,
+    }
+
+    if mode == Mode::TypeOnly {
+        if is_hypot {
+            // Same shape as a comparison: carry every unit seen and let the caller decide
+            // whether the datatypes it names are the ones the property wanted.
+            let mut carried = Sum { terms: BTreeMap::new() };
+            for arg in args {
+                for unit in arg.terms.keys() {
+                    unit_datatype(unit)?;
+                    carried.terms.insert(unit.clone(), 0.0);
+                }
+            }
+            return (!carried.terms.is_empty()).then_some(carried);
+        }
+        // Number-only: a unit of any kind makes it invalid rather than merely unresolvable.
+        for arg in args {
+            for unit in arg.terms.keys() {
+                if unit_datatype(unit)? != "number" {
+                    return None;
+                }
+            }
+        }
+        return Some(Sum::term("", 0.0));
+    }
+
+    if is_hypot {
+        let mut unit: Option<String> = None;
+        let mut squares = 0.0;
+        for arg in args {
+            let (term_unit, value) = arg.single_term()?;
+            if unit.get_or_insert_with(|| term_unit.clone()) != &term_unit {
+                return None;
+            }
+            squares += value * value;
+        }
+        let unit = unit?;
+        // A percentage has no magnitude until there is something to be a percentage of, and
+        // `hypot` is not linear, so the basis does not cancel the way it does in `progress()`.
+        if unit == "%" {
+            return None;
+        }
+        return Some(Sum::term(&unit, squares.sqrt()));
+    }
+
+    let (first_unit, first) = args[0].single_term()?;
+    if !first_unit.is_empty() {
+        return None;
+    }
+
+    if name == "sqrt" {
+        return Some(Sum::term("", first.sqrt()));
+    }
+
+    let (second_unit, second) = args[1].single_term()?;
+    if !second_unit.is_empty() {
+        return None;
+    }
+    Some(Sum::term("", first.powf(second)))
+}
+
+/// Whether two arguments' datatype sets are the same type as each other, counting a percentage as
+/// the dimension it is a percentage of.
+///
+/// NOT USED, and the reason is worth keeping. `atan2()` requires its two arguments to be the same
+/// type, and whether a percentage qualifies depends on the *property*: `flex-basis` resolves a
+/// percentage against a length, so `calc(1px * pow(tan(atan2(50%, 1px)), 1))` is valid there,
+/// while `transform: rotate(atan2(90px, 100%))` is invalid because `rotate()` wants an angle and
+/// a percentage has no length to take its type from. That is css-values' percent *hint*, and it
+/// needs the property context, which `math_function_type` is not given.
+///
+/// Measured both ways: exact comparison fails the `flex-basis` case, this one fails the `rotate`
+/// case, and it is one subtest either way. Exact is kept because a matcher that rejects is safer
+/// than one that accepts.
+#[expect(dead_code, reason = "documents the relaxed rule and why it is not used")]
+fn kind_sets_combine(a: &[&'static str], b: &[&'static str]) -> bool {
+    a.iter().all(|x| b.iter().any(|y| kinds_combine(x, y))) && b.iter().all(|y| a.iter().any(|x| kinds_combine(x, y)))
 }
 
 /// Whether two datatypes may appear in one expression.
@@ -1482,6 +1589,30 @@ mod tests {
     }
 
     #[test]
+    fn pow_and_sqrt_are_numbers_and_hypot_keeps_its_type() {
+        assert_eq!(parsed("pow(2, 3)").as_deref(), Some("8"));
+        assert_eq!(parsed("sqrt(9)").as_deref(), Some("3"));
+        assert_eq!(parsed("hypot(3, 4)").as_deref(), Some("5"));
+
+        // `hypot()` is the one of the three that takes a dimension: the square root undoes the
+        // squaring, so the unit comes back out. `pow()` and `sqrt()` cannot - `sqrt(4px)` would
+        // need px^(1/2) to exist - so they are number-only both ways.
+        assert_eq!(parsed("hypot(3px, 4px)").as_deref(), Some("5px"));
+        assert_eq!(parsed("hypot(3deg, 4deg)").as_deref(), Some("5deg"));
+        assert_eq!(parsed("sqrt(4px)"), None);
+        assert_eq!(parsed("pow(2px, 3)"), None);
+        // And hypot's arguments have to agree with each other.
+        assert_eq!(parsed("hypot(3px, 4deg)"), None);
+
+        // Arity. Having these rejected is most of what implementing the three buys.
+        assert_eq!(parsed("pow(2)"), None);
+        assert_eq!(parsed("pow(1, 2, 3)"), None);
+        assert_eq!(parsed("sqrt()"), None);
+        assert_eq!(parsed("sqrt(1, 2)"), None);
+        assert_eq!(parsed("hypot()"), None);
+    }
+
+    #[test]
     fn sign_is_not_positive_about_nan() {
         // NaN is neither greater nor less than zero, so a comparison chain would answer `+1`.
         assert_eq!(parsed("sign(NaN)").as_deref(), Some("NaN"));
@@ -1512,12 +1643,13 @@ mod tests {
             vec![CssValue::String("--x".to_string())],
         )];
         assert_eq!(math_function_type("min", &args, &Units::none()), MathType::Unknown);
-        // `pow()` stands in for whatever is not implemented yet; swap it when it is.
-        assert_eq!(math_function_type("pow", &[], &Units::none()), MathType::Unknown);
+        // A stand-in for whatever is not implemented yet. `pow()` used to sit here and was
+        // overtaken; `random()` needs a per-element seed, so it will outlast the arithmetic.
+        assert_eq!(math_function_type("random", &[], &Units::none()), MathType::Unknown);
         // Including one inside a `calc()` body, which is values like any other argument list -
         // it used to be text, and this was answered by scanning that text for a `name(`.
         assert_eq!(
-            math_function_type("calc", &values("1px + pow(2, 3)"), &Units::none()),
+            math_function_type("calc", &values("1px + random(1, 2)"), &Units::none()),
             MathType::Unknown
         );
     }
@@ -1682,7 +1814,14 @@ mod tests {
         assert_eq!(comparison("acos", &["1deg"]), MathType::Invalid);
         // Arity, and `atan2`'s two arguments agreeing with each other.
         assert_eq!(comparison("atan2", &["90px"]), MathType::Invalid);
+        // Whether a percentage counts as the same type as a length depends on the property, and
+        // that context does not reach the evaluator: `transform: rotate(atan2(90px, 100%))` is
+        // invalid (`rotate()` wants an angle, so the percentage has nothing to take its type
+        // from) while `flex-basis: calc(1px * pow(tan(atan2(50%, 1px)), 1))` is valid. See
+        // `kind_sets_combine` for the relaxed rule and the measurement.
         assert_eq!(comparison("atan2", &["90px", "100%"]), MathType::Invalid);
+        assert_eq!(comparison("atan2", &["90px", "1deg"]), MathType::Invalid);
+        assert_eq!(comparison("atan2", &["1", "1px"]), MathType::Invalid);
         assert_eq!(comparison("sin", &["1deg", "0"]), MathType::Invalid);
         assert_eq!(comparison("sin", &[]), MathType::Invalid);
         assert_eq!(comparison("cos", &["1deg 2deg"]), MathType::Invalid);
