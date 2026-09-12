@@ -1352,30 +1352,11 @@ dependencies = [
  "base64 0.22.1",
  "hkdf",
  "hmac",
- "percent-encoding",
  "rand 0.8.6",
  "sha2 0.10.9",
  "subtle",
  "time",
  "version_check",
-]
-
-[[package]]
-name = "cookie_store"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206"
-dependencies = [
- "cookie",
- "document-features",
- "idna",
- "log",
- "publicsuffix",
- "serde",
- "serde_derive",
- "serde_json",
- "time",
- "url",
 ]
 
 [[package]]
@@ -2731,11 +2712,12 @@ name = "generate_definitions"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub-sonar",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "sha1",
+ "url",
 ]
 
 [[package]]
@@ -3045,9 +3027,7 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49605ffd1e20a39b7b3b6901a5b57c82b1789b7345bbe61ae7368f1080bd0c55"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3132,7 +3112,6 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "rand 0.10.2",
- "reqwest",
  "serde_json",
  "simple_logger",
  "test-case",
@@ -3231,7 +3210,6 @@ dependencies = [
  "r2d2_sqlite",
  "rand 0.10.2",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "tempfile",
@@ -5796,16 +5774,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
-name = "publicsuffix"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f42ea446cab60335f76979ec15e12619a2165b5ae2c12166bef27d283a9fadf"
-dependencies = [
- "idna",
- "psl-types",
-]
-
-[[package]]
 name = "pxfm"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6233,8 +6201,6 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "cookie",
- "cookie_store",
  "encoding_rs",
  "futures-channel",
  "futures-core",
@@ -6255,8 +6221,6 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
- "serde",
- "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
