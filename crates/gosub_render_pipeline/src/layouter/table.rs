@@ -6,13 +6,13 @@ use crate::common::document::style::{Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
-use crate::layouter::taffy::MAX_CONTENT_WIDTH;
-use crate::layouter::text::get_text_layout;
+use crate::layouter::taffy::{measure_str_cached, MeasureKey, MAX_CONTENT_WIDTH};
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use gosub_interface::font_system::FontSystem;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use taffy::geometry::Size;
 
 /// Adapter that bridges `gosub_lattice`'s `TableTree` with the render pipeline's
 /// `LayoutTree`/`PipelineDocument`. Layout results are staged in `pending` and
@@ -35,9 +35,12 @@ pub struct PipelineTableTree<'a> {
     /// width is not recoverable from the laid-out boxes: a text box reports the width it *was*
     /// given, not the width it needs.
     font_system: Arc<Mutex<dyn FontSystem>>,
-    /// Memo for `cell_min_content_width`, which is asked once per cell per lattice run and would
-    /// otherwise re-shape every word of every table on the page each time.
+    /// Memo for `cell_min_content_width`. Per-cell, and so per lattice run: it folds in the
+    /// replaced elements' laid-out widths, which change once cell widths are pinned. The *text*
+    /// measurements underneath it are cached for the whole pass, in `measure_cache`.
     min_content_cache: HashMap<DomNodeId, f32>,
+    /// The layouter's measurement cache, shared with taffy's own text measurement.
+    measure_cache: &'a mut HashMap<MeasureKey, Size<f32>>,
     /// Cell widths the previous pass settled on and the layouter pinned on the taffy boxes.
     /// Empty on the first pass.
     pinned: &'a HashMap<DomNodeId, f32>,
@@ -50,6 +53,7 @@ impl<'a> PipelineTableTree<'a> {
         dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
         font_system: Arc<Mutex<dyn FontSystem>>,
         pinned: &'a HashMap<DomNodeId, f32>,
+        measure_cache: &'a mut HashMap<MeasureKey, Size<f32>>,
     ) -> Self {
         Self {
             doc,
@@ -59,6 +63,7 @@ impl<'a> PipelineTableTree<'a> {
             cell_widths: HashMap::new(),
             font_system,
             min_content_cache: HashMap::new(),
+            measure_cache,
             pinned,
         }
     }
@@ -78,10 +83,17 @@ impl<'a> PipelineTableTree<'a> {
         match &el.context {
             ElementContext::Text(text_ctx) => {
                 let (text, font_info) = (text_ctx.text.clone(), text_ctx.font_info.clone());
-                let mut fs = self.font_system.lock();
                 text.split_ascii_whitespace()
-                    .filter_map(|word| get_text_layout(word, &font_info, MAX_CONTENT_WIDTH, &mut *fs).ok())
-                    .map(|d| d.width as f32)
+                    .map(|word| {
+                        measure_str_cached(
+                            word,
+                            &font_info,
+                            MAX_CONTENT_WIDTH,
+                            &self.font_system,
+                            self.measure_cache,
+                        )
+                        .width
+                    })
                     .fold(0.0_f32, f32::max)
             }
             ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
@@ -428,11 +440,16 @@ struct TablePassOutput {
 }
 
 /// What a table pass needs beyond the trees themselves: the shaper to ask for min-content widths,
-/// and the cell widths the previous pass settled on (empty on the first pass).
-#[derive(Clone, Copy)]
+/// the cell widths the previous pass settled on (empty on the first pass), and the layouter's own
+/// measurement cache.
+///
+/// The cache is the layouter's, not the table pass's: lattice runs twice per taffy pass and shapes
+/// every word of every cell each time, on top of the shaping taffy already did for the same words
+/// at the same width. Sharing one cache makes all of that a single shaping per distinct word.
 pub struct TablePassInputs<'a> {
     pub font_system: &'a Arc<Mutex<dyn FontSystem>>,
     pub pinned: &'a HashMap<DomNodeId, f32>,
+    pub measure_cache: &'a mut HashMap<MeasureKey, Size<f32>>,
 }
 
 /// Post-process all `display: table` nodes in the layout tree after the
@@ -440,7 +457,7 @@ pub struct TablePassInputs<'a> {
 pub fn post_process_tables(
     layout_tree: &mut LayoutTree,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
-    inputs: TablePassInputs<'_>,
+    inputs: &mut TablePassInputs<'_>,
 ) -> HashMap<DomNodeId, f32> {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
@@ -514,7 +531,7 @@ fn lay_out_one_table(
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
     out: &mut TablePassOutput,
-    inputs: TablePassInputs<'_>,
+    inputs: &mut TablePassInputs<'_>,
 ) -> Option<f32> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -539,6 +556,7 @@ fn lay_out_one_table(
         dom_to_layout,
         Arc::clone(inputs.font_system),
         inputs.pinned,
+        inputs.measure_cache,
     );
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {

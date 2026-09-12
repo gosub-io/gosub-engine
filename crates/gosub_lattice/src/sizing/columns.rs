@@ -60,9 +60,16 @@ pub fn compute_column_widths<T: TableTree>(
                     // A specified width cannot shrink a cell below its content's min-width
                     // (CSS: used width = max(specified, min-content)). Without this, e.g. a
                     // `width:18px` cell holding a 20px image clips it and eats the padding.
+                    //
+                    // Both measurements are needed for that floor. `cell_content_width` reports
+                    // the width the cell *has* - in the pipeline, the width pinned by the previous
+                    // pass - which can be less than the widest word it holds, so clamping to it
+                    // alone let an explicit-width column keep the overflow the auto path below now
+                    // prevents.
+                    let floor = cw.max(mcw);
                     match tree.css_length(cell.node, CssProp::Width) {
-                        CssLength::Px(px) => explicit[cell.col] = Some(px.max(cw)),
-                        CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(cw)),
+                        CssLength::Px(px) => explicit[cell.col] = Some(px.max(floor)),
+                        CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(floor)),
                         _ => {}
                     }
                 }

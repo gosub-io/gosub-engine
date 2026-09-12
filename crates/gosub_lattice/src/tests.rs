@@ -450,6 +450,75 @@ mod layout_tests {
         assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
     }
 
+    // A caption is laid out across the finished table and outside the row stack (CSS 2.1 §17.4),
+    // so it moves every row and changes the table's height - in opposite ways for the two
+    // `caption-side` values. Both branches are worth pinning down.
+    #[test]
+    fn a_caption_shifts_the_rows_or_extends_the_table() {
+        use crate::mock::MockTree;
+
+        // `side` picks `caption-side`; the table is otherwise identical.
+        let build = |at_bottom: bool| {
+            let mut tree = MockTree::new(0.0, 0.0);
+            let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+
+            let mut spec = cell("caption").height(25.0).padding(0.0);
+            if at_bottom {
+                spec = spec.caption_at_bottom();
+            }
+            let caption = tree.alloc_caption(spec);
+            tree.add_child(root, caption);
+
+            let group = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, group);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(group, row);
+            let c = tree.alloc_cell(cell("body").content_width(100.0).height(40.0).padding(0.0));
+            tree.add_child(row, c);
+
+            let (_, height) = compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+            let caption_layout = tree.layout(caption).expect("caption laid out");
+            let group_y = tree.layout(group).expect("group laid out").position.y;
+            (height, caption_layout.position.y, caption_layout.size.width, group_y)
+        };
+
+        let (height, caption_y, caption_w, group_y) = build(false);
+        assert_approx!(caption_y, 0.0, "a top caption starts at the table's top");
+        assert_approx!(group_y, 25.0, "and pushes the rows down by its height");
+        assert_approx!(caption_w, 200.0, "a caption spans the finished table");
+        assert_approx!(height, 65.0, "25 caption + 40 row");
+
+        let (height, caption_y, _, group_y) = build(true);
+        assert_approx!(group_y, 0.0, "a bottom caption leaves the rows where they are");
+        assert_approx!(caption_y, 40.0, "and sits below them");
+        assert_approx!(height, 65.0, "the table is as tall either way");
+    }
+
+    // An explicit `width` is a floor of its own, but it cannot pull a column below the widest word
+    // in it - `used width = max(specified, min-content)`. Clamping only to the width the cell
+    // already has misses that, since in the pipeline that is the width pinned by the last pass.
+    #[test]
+    fn an_explicit_width_still_respects_min_content() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("narrow")
+                    .width(30.0)
+                    .content_width(30.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("rest").content_width(200.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let narrow = tree.layout(cells[0]).expect("narrow laid out").size.width;
+        assert_approx!(narrow, 90.0, "the explicit 30px cannot cut off a 90px word");
+    }
+
     // A shrink-to-fit table is sized *from* its max-content width, so a spanning cell has to be
     // counted there. Skipping them - harmless when distributing a width that is already known -
     // measured a table whose content is all in spanning cells as nothing but its gutters.

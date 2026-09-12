@@ -276,7 +276,18 @@ impl PangoFontSystem {
 
     /// Walk `families` (comma-separated CSS `font-family` value) and return the
     /// first family name that Pango knows about, falling back to `"sans"`.
+    ///
+    /// Listing the context's families reads the fontconfig-backed font map, which
+    /// `register_font_via_fontconfig` mutates under `fontconfig_lock`, so the read is taken under
+    /// the same lock. The lock is a plain mutex and does not re-enter: a caller that already holds
+    /// it - `build_layout` does - must use [`Self::find_available_font_locked`] instead.
     pub fn find_available_font(&self, families: &str, ctx: &pango::Context) -> String {
+        let _guard = crate::fontconfig_lock::hold();
+        self.find_available_font_locked(families, ctx)
+    }
+
+    /// [`Self::find_available_font`] for a caller that is already holding `fontconfig_lock`.
+    fn find_available_font_locked(&self, families: &str, ctx: &pango::Context) -> String {
         let available_fonts: Vec<String> = ctx
             .list_families()
             .iter()
@@ -370,7 +381,8 @@ impl PangoFontSystem {
         // 96 DPI matches the browser/CSS convention, same as the rasterizer.
         context_set_resolution(&layout.context(), 96.0);
 
-        let family = self.find_available_font(&style.family, &layout.context());
+        // The lock is held above and does not re-enter, so this takes the unlocked helper.
+        let family = self.find_available_font_locked(&style.family, &layout.context());
         let mut font_desc = pango::FontDescription::new();
         font_desc.set_family(&family);
         // CSS px → pt (× 72/96), then to Pango units (× SCALE).
@@ -664,6 +676,44 @@ mod tests {
     fn registers_font_via_fontconfig() {
         let res = register_font_via_fontconfig(gosub_shared::ROBOTO_FONT, Some("Gosub Roboto Test"));
         assert!(res.is_ok(), "fontconfig registration failed: {res:?}");
+    }
+
+    /// `find_available_font` takes `fontconfig_lock`, and `build_layout` holds it for the whole
+    /// of its work - including its own family lookup. A plain mutex does not re-enter, so if
+    /// `build_layout` ever went through the public entry point instead of the unlocked helper,
+    /// this deadlocks rather than failing an assertion. Running both concurrently is what makes
+    /// that visible.
+    #[test]
+    fn measuring_and_resolving_a_family_do_not_deadlock() {
+        use std::sync::Arc;
+
+        let fs = Arc::new(PangoFontSystem::new());
+        let style = TextStyle::new("sans-serif", 16.0);
+
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let fs = Arc::clone(&fs);
+                let style = style.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..20 {
+                        if i % 2 == 0 {
+                            let layout = fs.build_layout("hello", &style).expect("layout");
+                            assert!(layout.pixel_size().0 > 0);
+                        } else {
+                            let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).expect("surface");
+                            let cr = cairo::Context::new(&surface).expect("cairo");
+                            let layout = pangocairo::functions::create_layout(&cr);
+                            let family = fs.find_available_font("sans-serif", &layout.context());
+                            assert!(!family.is_empty(), "a family must always be chosen");
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for t in threads {
+            t.join().expect("no thread may panic or hang");
+        }
     }
 
     /// `families()` reads the default Pango font map (fontconfig): non-empty on any machine

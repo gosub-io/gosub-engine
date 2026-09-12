@@ -204,7 +204,7 @@ fn parse_px_attr(v: &str) -> Option<f32> {
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
-type MeasureKey = (String, String, u32, u32, i32, u32, u32);
+pub(crate) type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 
 /// CSS `text-align` on a block, as `justify_content` for the anonymous flex containers holding its
 /// line boxes. A line box *is* that container, so this is what positions a run too short to fill it
@@ -706,9 +706,10 @@ impl TaffyLayouter {
         let table_widths = post_process_tables(
             layout_tree,
             &self.dom_to_layout_mapping,
-            crate::layouter::table::TablePassInputs {
+            &mut crate::layouter::table::TablePassInputs {
                 font_system: &self.font_system,
                 pinned: &pinned,
+                measure_cache: &mut self.measure_cache,
             },
         );
         self.table_widths = pinned;
@@ -1043,12 +1044,21 @@ impl TaffyLayouter {
     fn inline_item_width(&mut self, layout_tree: &LayoutTree, id: &LayoutElementId) -> Option<f64> {
         match &layout_tree.arena.get(id)?.context {
             ElementContext::Text(text) => {
+                // Through the shared cache, not the font system directly: `fill_band` asks for
+                // every inline item in a block, and taffy has already shaped most of them at this
+                // same width through `measure_text_cached`. Shaping them again is the whole cost
+                // of banding a block on a page with thousands of word boxes.
                 let font_info = text.font_info.clone();
                 let content = text.text.clone();
-                let mut font_system = self.font_system.lock();
-                get_text_layout(&content, &font_info, MAX_CONTENT_WIDTH, &mut *font_system)
-                    .ok()
-                    .map(|d| d.width)
+                let width = measure_str_cached(
+                    &content,
+                    &font_info,
+                    MAX_CONTENT_WIDTH,
+                    &self.font_system,
+                    &mut self.measure_cache,
+                )
+                .width;
+                Some(width as f64)
             }
             ElementContext::Image(image) => Some(image.dimension.width),
             ElementContext::Svg(svg) => Some(svg.dimension.width),
@@ -1988,7 +1998,7 @@ fn measure_text_cached(
 
 /// The same measurement for a bare string, so a single word can be measured with the
 /// surrounding node's font.
-fn measure_str_cached(
+pub(crate) fn measure_str_cached(
     text: &str,
     font_info: &crate::common::font::FontInfo,
     max_width: f64,
