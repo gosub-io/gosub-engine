@@ -461,6 +461,8 @@ fn is_evaluable(name: &str) -> bool {
             | "pow"
             | "sqrt"
             | "hypot"
+            | "exp"
+            | "log"
     )
 }
 
@@ -921,7 +923,10 @@ impl Parser<'_> {
                 if matches!(name.cow_to_ascii_lowercase().as_ref(), "abs" | "sign") {
                     return fold_sign_abs(&name, &args, self.mode);
                 }
-                if matches!(name.cow_to_ascii_lowercase().as_ref(), "pow" | "sqrt" | "hypot") {
+                if matches!(
+                    name.cow_to_ascii_lowercase().as_ref(),
+                    "pow" | "sqrt" | "hypot" | "exp" | "log"
+                ) {
                     return fold_exponential(&name, &args, self.mode);
                 }
                 fold_comparison(&name, &args, self.mode)
@@ -1088,13 +1093,14 @@ fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     Some(Sum::term(&unit, value.abs()))
 }
 
-/// `pow(A, B)`, `sqrt(A)` and `hypot(A, ...)` (css-values-4 §10.7).
+/// The exponential functions - css-values-4 §10.7 and §10.8.
 ///
-/// `pow()` and `sqrt()` are number-only in and number-only out, because there is no unit for what
-/// they would otherwise produce: `sqrt(4px)` would need px^(1/2) to exist. `hypot()` is the
-/// exception and takes any type, so long as every argument is the *same* type, and answers that
-/// type - `hypot(3px, 4px)` is 5px, since the square root undoes the squaring and the unit
-/// survives the round trip.
+/// `pow(A, B)`, `sqrt(A)`, `exp(A)` and `log(A[, B])` are number-only in *and* number-only out,
+/// because there is no unit for what they would otherwise produce: `sqrt(4px)` would need
+/// px^(1/2) to exist, and `exp(1px)` would be adding up powers of a length. `hypot(A, ...)` is
+/// the one exception, and takes any type so long as every argument is the *same* type, and
+/// answers that type - `hypot(3px, 4px)` is 5px, since the square root undoes the squaring and
+/// the unit survives the round trip.
 fn fold_exponential(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     let name = name.cow_to_ascii_lowercase();
     let is_hypot = name == "hypot";
@@ -1103,7 +1109,7 @@ fn fold_exponential(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
     // most of what implementing these buys: a function the evaluator does not know answers
     // "cannot tell", and the matcher accepts what it cannot read.
     match (name.as_ref(), args.len()) {
-        ("pow", 2) | ("sqrt", 1) => {}
+        ("pow", 2) | ("sqrt", 1) | ("exp", 1) | ("log", 1 | 2) => {}
         ("hypot", n) if n >= 1 => {}
         _ => return None,
     }
@@ -1156,14 +1162,33 @@ fn fold_exponential(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
         return None;
     }
 
-    if name == "sqrt" {
-        return Some(Sum::term("", first.sqrt()));
+    match name.as_ref() {
+        "sqrt" => return Some(Sum::term("", first.sqrt())),
+        "exp" => return Some(Sum::term("", first.exp())),
+        // `log(A)` with no base is the natural logarithm.
+        "log" if args.len() == 1 => return Some(Sum::term("", first.ln())),
+        _ => {}
     }
 
     let (second_unit, second) = args[1].single_term()?;
     if !second_unit.is_empty() {
         return None;
     }
+
+    if name == "log" {
+        // The general form is ln(A)/ln(B), but for the two bases anyone writes by hand that
+        // division is visibly lossy - it makes `log(1000, 10)` come out at 2.9999999999999996.
+        // The dedicated routines are exact there.
+        return Some(Sum::term(
+            "",
+            match second {
+                10.0 => first.log10(),
+                2.0 => first.log2(),
+                _ => first.log(second),
+            },
+        ));
+    }
+
     Some(Sum::term("", first.powf(second)))
 }
 
@@ -1610,6 +1635,30 @@ mod tests {
         assert_eq!(parsed("sqrt()"), None);
         assert_eq!(parsed("sqrt(1, 2)"), None);
         assert_eq!(parsed("hypot()"), None);
+    }
+
+    #[test]
+    fn exp_and_log_are_number_only_both_ways() {
+        assert_eq!(parsed("exp(0)").as_deref(), Some("1"));
+        assert_eq!(parsed("log(1)").as_deref(), Some("0"));
+        // One argument is the natural logarithm; a second names the base.
+        assert_eq!(parsed("log(e)").as_deref(), Some("1"));
+        assert_eq!(parsed("log(8, 2)").as_deref(), Some("3"));
+        // ln(1000)/ln(10) is 2.9999999999999996, so this one is answered by `log10` instead.
+        assert_eq!(parsed("log(1000, 10)").as_deref(), Some("3"));
+
+        // Neither takes a dimension, in either position - there is no unit for what adding up
+        // powers of a length would produce.
+        assert_eq!(parsed("exp(0px)"), None);
+        assert_eq!(parsed("log(0px)"), None);
+        assert_eq!(parsed("log(1, 0px)"), None);
+        assert_eq!(parsed("log(1, 1%)"), None);
+
+        // Arity.
+        assert_eq!(parsed("exp()"), None);
+        assert_eq!(parsed("exp(1, 2)"), None);
+        assert_eq!(parsed("log()"), None);
+        assert_eq!(parsed("log(1, 2, 3)"), None);
     }
 
     #[test]
