@@ -125,6 +125,10 @@ struct BandCursor {
     /// float rather than in the sliver left over, which is what CSS does with a line box that
     /// would otherwise intersect one.
     pending_offset: f32,
+    /// How much taller than the run the line that *closes* it is - a `<br>` with a bigger
+    /// line-height than the text before it. Charged with that last line rather than after it, so
+    /// a run that exactly fills a band cannot push the extra into the next one.
+    closing_extra: f32,
 }
 
 impl BandCursor {
@@ -134,6 +138,7 @@ impl BandCursor {
             index: 0,
             used: 0.0,
             pending_offset: 0.0,
+            closing_extra: 0.0,
         }
     }
 
@@ -164,25 +169,29 @@ impl BandCursor {
 
     /// Charge `lines` line boxes of `line_height` to the current band, moving on when it fills.
     fn take_lines(&mut self, lines: usize, line_height: f32) {
+        self.take_lines_tall_last(lines, line_height, 0.0);
+    }
+
+    /// Declare that the run about to be emitted is closed by a line `extra` taller than the run's
+    /// own lines - a `<br>` with a bigger line-height. Consumed by the last chunk the run is split
+    /// into.
+    fn set_closing_extra(&mut self, extra: f32) {
+        self.closing_extra = extra.max(0.0);
+    }
+
+    /// Charge `lines` line boxes of `line_height`, the last of them `tail_extra` taller.
+    ///
+    /// The tail has to be part of the same charge, not a second one: a run that exactly fills its
+    /// band advances the cursor the moment it is charged, and anything added afterwards lands in
+    /// the *next* band - or is dropped entirely when that band is open-ended, which left the
+    /// content after a tall `<br>` starting too high.
+    fn take_lines_tall_last(&mut self, lines: usize, line_height: f32, tail_extra: f32) {
         let Some(height) = self.current().height else {
             return;
         };
-        self.used += lines as f32 * line_height.max(0.0);
+        self.used += lines as f32 * line_height.max(0.0) + tail_extra.max(0.0);
         if self.used >= height {
             self.advance();
-        }
-    }
-
-    /// Raise the line just charged from `charged` to `line_height` when something taller ends it.
-    ///
-    /// A `<br>` after text closes the line the text is on; it does not add one. `emit_banded` has
-    /// already charged that line - `fill_band` counts the partly-filled last line too - so
-    /// charging a whole line again for the break pushed later content past a finite band early.
-    /// Only a `<br>` with a taller line-height than the run it follows adds anything at all.
-    fn raise_last_line(&mut self, charged: f32, line_height: f32) {
-        let extra = line_height - charged;
-        if extra > 0.0 {
-            self.take_lines(1, extra);
         }
     }
 
@@ -916,9 +925,13 @@ impl TaffyLayouter {
                         }
                         self.emit_line(&[], Some(*lh), element_node, leaf_id, line_style, placement);
                     } else {
-                        // The height `emit_banded` will charge each of the segment's lines at,
-                        // including the one the break is about to close.
+                        // The break ends the line the segment leaves open rather than adding one,
+                        // so it only makes that line taller - and that has to be charged *with*
+                        // the line, before the cursor decides the band is full.
                         let charged = self.inline_line_height(layout_tree, &segment);
+                        if let Some(c) = cursor.as_mut() {
+                            c.set_closing_extra(*lh as f32 - charged);
+                        }
                         self.emit_banded(
                             layout_tree,
                             &segment,
@@ -928,10 +941,6 @@ impl TaffyLayouter {
                             cursor.as_mut(),
                         );
                         segment.clear();
-                        // The break ends the line the segment left open rather than adding one.
-                        if let Some(c) = cursor.as_mut() {
-                            c.raise_last_line(charged, *lh as f32);
-                        }
                     }
                 }
             }
@@ -969,6 +978,8 @@ impl TaffyLayouter {
         };
 
         let line_height = self.inline_line_height(layout_tree, items);
+        // Taken up front so an early return cannot leak it into the next run.
+        let closing_extra = std::mem::take(&mut cursor.closing_extra);
         let mut rest = items;
         while !rest.is_empty() {
             let band = cursor.current();
@@ -1005,8 +1016,11 @@ impl TaffyLayouter {
                 line_style,
                 Some(placement),
             );
-            cursor.take_lines(lines, line_height);
-            rest = skip_leading_whitespace(layout_tree, &rest[taken..]);
+            // The line that closes the whole run is the last line of its last chunk.
+            let remaining = skip_leading_whitespace(layout_tree, &rest[taken..]);
+            let tail = if remaining.is_empty() { closing_extra } else { 0.0 };
+            cursor.take_lines_tall_last(lines, line_height, tail);
+            rest = remaining;
         }
     }
 
@@ -2223,14 +2237,46 @@ mod tests {
         assert_eq!(cursor.lines_left(20.0), 3);
 
         // One line of text, then a break of the same line-height: one line used, two left.
-        cursor.take_lines(1, 20.0);
-        cursor.raise_last_line(20.0, 20.0);
+        cursor.set_closing_extra(0.0);
+        cursor.take_lines_tall_last(1, 20.0, 0.0);
         assert_eq!(cursor.lines_left(20.0), 2, "the break must not take a line of its own");
 
         // A break taller than the run it ends does make that line taller.
-        cursor.take_lines(1, 20.0);
-        cursor.raise_last_line(20.0, 30.0);
-        assert_eq!(cursor.lines_left(20.0), 0, "20 + 30 of 60 leaves less than a line");
+        cursor.take_lines_tall_last(1, 20.0, 10.0);
+        assert_eq!(
+            cursor.lines_left(20.0),
+            0,
+            "20 + 30 of 60 leaves 10px, less than a line"
+        );
+    }
+
+    /// The tall closing line has to be charged *with* the run, not after it. A run that exactly
+    /// fills its band advances the cursor as it is charged, so an afterwards-correction landed in
+    /// the next band - stealing capacity from it, or vanishing when it was open-ended.
+    #[test]
+    fn a_tall_break_at_an_exact_band_fill_does_not_spill_into_the_next_band() {
+        use super::{BandCursor, FloatBand};
+
+        let narrow = FloatBand {
+            left_inset: 0.0,
+            line_width: 400.0,
+            height: Some(60.0),
+        };
+        let below = FloatBand {
+            height: Some(40.0),
+            ..narrow
+        };
+
+        let mut cursor = BandCursor::new(&[narrow, below]);
+        // Three 20px lines fill the 60px band exactly, and the run is closed by a 10px-taller
+        // break.
+        cursor.take_lines_tall_last(3, 20.0, 10.0);
+
+        assert_eq!(
+            cursor.lines_left(20.0),
+            2,
+            "the next band keeps its whole 40px: the closing line belongs to the band above it"
+        );
     }
 
     #[test]
