@@ -630,16 +630,8 @@ fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, bo
         return None;
     }
 
-    let px = if layout.center.0 {
-        (box_w - tw) / 2.0
-    } else {
-        layout.position.0
-    };
-    let py = if layout.center.1 {
-        (box_h - th) / 2.0
-    } else {
-        layout.position.1
-    };
+    let px = layout.position.0.resolve(box_w, tw);
+    let py = layout.position.1.resolve(box_h, th);
 
     Some(Tiling {
         tile_size: (tw, th),
