@@ -40,7 +40,7 @@ pub struct PipelineTableTree<'a> {
     min_content_cache: HashMap<DomNodeId, f32>,
     /// Cell widths the previous pass settled on and the layouter pinned on the taffy boxes.
     /// Empty on the first pass.
-    pinned: &'a HashMap<DomNodeId, f32>,
+    pinned: &'a HashMap<DomNodeId, SettledSize>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -49,7 +49,7 @@ impl<'a> PipelineTableTree<'a> {
         layout_tree: &'a mut LayoutTree,
         dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
         font_system: Arc<Mutex<dyn FontSystem>>,
-        pinned: &'a HashMap<DomNodeId, f32>,
+        pinned: &'a HashMap<DomNodeId, SettledSize>,
     ) -> Self {
         Self {
             doc,
@@ -405,8 +405,8 @@ impl TableTree for PipelineTableTree<'_> {
         // narrower column from its own previous answer. The contents were then laid out a few
         // pixels wider than the cell they ended up in, which is what still clipped the last of the
         // table headers.
-        if let Some(&pinned) = self.pinned.get(&id) {
-            return pinned;
+        if let Some(pinned) = self.pinned.get(&id) {
+            return pinned.width;
         }
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
@@ -420,12 +420,30 @@ impl TableTree for PipelineTableTree<'_> {
     }
 }
 
+/// A box size the column algorithm settled on, to be pinned on the taffy box next pass.
+///
+/// Cells carry a width only - their height is the row's, which taffy derives from the cells
+/// themselves. A table carries both: its height is the one thing taffy cannot arrive at on its own,
+/// because border-spacing and the row-height rules are lattice's, not taffy's.
+#[derive(Clone, Copy, Debug)]
+pub struct SettledSize {
+    pub width: f32,
+    pub height: Option<f32>,
+}
+
+/// What a table pass accumulates as it goes: the sizes to pin on the next pass, and how much
+/// taller lattice made each table than the box taffy sized everything around it against.
+struct TablePassOutput {
+    settled: HashMap<DomNodeId, SettledSize>,
+    growth: HashMap<LayoutElementId, f64>,
+}
+
 /// What a table pass needs beyond the trees themselves: the shaper to ask for min-content widths,
 /// and the cell widths the previous pass settled on (empty on the first pass).
 #[derive(Clone, Copy)]
 pub struct TablePassInputs<'a> {
     pub font_system: &'a Arc<Mutex<dyn FontSystem>>,
-    pub pinned: &'a HashMap<DomNodeId, f32>,
+    pub pinned: &'a HashMap<DomNodeId, SettledSize>,
 }
 
 /// Post-process all `display: table` nodes in the layout tree after the
@@ -434,7 +452,7 @@ pub fn post_process_tables(
     layout_tree: &mut LayoutTree,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     inputs: TablePassInputs<'_>,
-) -> HashMap<DomNodeId, f32> {
+) -> HashMap<DomNodeId, SettledSize> {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
@@ -455,7 +473,10 @@ pub fn post_process_tables(
     // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
     // cells, so an outer cell's height now reflects its nested table's true height - height
     // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
-    let mut widths: HashMap<DomNodeId, f32> = HashMap::new();
+    let mut out = TablePassOutput {
+        settled: HashMap::new(),
+        growth: HashMap::new(),
+    };
     for pass in 0..2 {
         let order: Vec<(DomNodeId, LayoutElementId)> = if pass == 0 {
             table_nodes.clone()
@@ -463,20 +484,36 @@ pub fn post_process_tables(
             table_nodes.iter().rev().copied().collect()
         };
         for (table_dom_id, table_layout_id) in order {
-            if let Some(width) = lay_out_one_table(
+            if let Some(size) = lay_out_one_table(
                 &*doc,
                 layout_tree,
                 dom_to_layout,
                 table_dom_id,
                 table_layout_id,
-                &mut widths,
+                &mut out,
                 inputs,
             ) {
-                widths.insert(table_dom_id, width);
+                out.settled.insert(table_dom_id, size);
             }
         }
     }
-    widths
+
+    // Every table has its settled height by now; the blocks around them have not heard about it.
+    // Innermost first, so an outer table absorbs a nested one's growth as part of its own.
+    for (table_dom_id, table_layout_id) in table_nodes.iter().rev() {
+        // A float or an absolutely positioned box is out of flow: what follows it in the source is
+        // laid out beside or behind it, not after it, so its height must not push anything down.
+        // Wikipedia's infobox and its thumbnails are floated tables, and absorbing their growth
+        // shoved the whole article body 400px down the page.
+        if float_side(&*doc, *table_dom_id).is_some() || is_out_of_flow(&*doc, *table_dom_id) {
+            continue;
+        }
+        if let Some(&delta) = out.growth.get(table_layout_id) {
+            absorb_table_growth(&*doc, layout_tree, *table_layout_id, delta);
+        }
+    }
+
+    out.settled
 }
 
 /// Run lattice for a single table node and write the computed cell positions and the table's
@@ -487,9 +524,9 @@ fn lay_out_one_table(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
-    widths: &mut HashMap<DomNodeId, f32>,
+    out: &mut TablePassOutput,
     inputs: TablePassInputs<'_>,
-) -> Option<f32> {
+) -> Option<SettledSize> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
     // by the outer table's apply_positions call, giving us the correct width.
@@ -523,12 +560,18 @@ fn lay_out_one_table(
             if table_width <= 0.0 && table_height <= 0.0 {
                 return None;
             }
-            widths.extend(tree.cell_widths.drain());
+            out.settled.extend(
+                tree.cell_widths
+                    .drain()
+                    .map(|(id, width)| (id, SettledSize { width, height: None })),
+            );
             tree.apply_positions(table_dom_id);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
             if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
                 let bb = el.box_model.border_box;
+                // What the box grows by here is what the surrounding blocks were never told about.
+                *out.growth.entry(table_layout_id).or_insert(0.0) += table_height as f64 - bb.height;
                 el.box_model = BoxModel::new(
                     Rect::new(bb.x, bb.y, table_width as f64, table_height as f64),
                     el.box_model.padding,
@@ -536,12 +579,144 @@ fn lay_out_one_table(
                     el.box_model.margin,
                 );
             }
-            Some(table_width)
+            Some(SettledSize {
+                width: table_width,
+                height: Some(table_height),
+            })
         }
         Err(e) => {
             log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
             None
         }
+    }
+}
+
+/// Whether a sibling has to travel with a box that just grew.
+///
+/// `child_bottom` is where the grown box now ends and `delta` how much of that is new, so
+/// `child_bottom - delta` is the edge everything around it was laid out against. Only what starts
+/// at or after that edge was placed *after* the box and has to move; a sibling laid out beside it
+/// (a flex row, a float, the hatnote above a table) starts earlier and stays where it is. The 1px
+/// slack absorbs the rounding between a box's bottom and the next box's top.
+fn sits_below(sibling_top: f64, child_bottom: f64, delta: f64) -> bool {
+    sibling_top >= child_bottom - delta - 1.0
+}
+
+/// Whether a box is taken out of the normal flow by `position: absolute` or `fixed`.
+fn is_out_of_flow(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    matches!(
+        doc.get_style(id, &StyleProperty::Position),
+        Value::Keyword(kw) if matches!(crate::common::document::style::lookup(kw).as_str(), "absolute" | "fixed")
+    )
+}
+
+/// Push a table's settled height out into the ordinary blocks around it.
+///
+/// A table's height is lattice's to decide - border-spacing and the row-height rules are not
+/// taffy's, and a nested table's height is only known after it has been laid out - so the box ends
+/// up `delta` taller than the one taffy sized everything around it against. Whatever was laid out
+/// below it stayed where it was: that is what printed Wikipedia's "This section is an excerpt
+/// from" line across the last row of the table above it.
+///
+/// The walk goes up from the table. At each level whatever sat below the box that grew moves down
+/// by `delta`, and the parent grows by however much its children now overrun it - which becomes
+/// the `delta` for the level above. It stops when a parent turns out to have had room to spare
+/// (nothing outside it moved, so nothing outside it needs to know), at a box lattice owns - a
+/// cell, row or table, whose height the table pass propagates itself - and at a box whose height
+/// the author fixed, where overflowing is what the page asked for.
+fn absorb_table_growth(
+    doc: &dyn PipelineDocument,
+    layout_tree: &mut LayoutTree,
+    table_layout_id: LayoutElementId,
+    delta: f64,
+) {
+    let mut child = table_layout_id;
+    let mut delta = delta;
+    loop {
+        if delta <= 0.5 {
+            return;
+        }
+        let Some(node) = layout_tree.arena.get(&child) else {
+            return;
+        };
+        let child_bottom = node.box_model.margin_box.y + node.box_model.margin_box.height;
+        let Some(parent_id) = node.parent else {
+            return;
+        };
+        let Some(parent) = layout_tree.arena.get(&parent_id) else {
+            return;
+        };
+
+        let parent_dom_id = parent.dom_node_id;
+        let siblings = parent.children.clone();
+
+        // Inside a table, heights belong to the table pass.
+        if !matches!(
+            doc.get_own_style(parent_dom_id, &StyleProperty::Display),
+            None | Some(Value::Display(
+                Display::Block
+                    | Display::InlineBlock
+                    | Display::Flex
+                    | Display::InlineFlex
+                    | Display::Grid
+                    | Display::InlineGrid
+            ))
+        ) {
+            return;
+        }
+
+        for sibling in siblings {
+            if sibling == child {
+                continue;
+            }
+            let below = layout_tree
+                .arena
+                .get(&sibling)
+                .is_some_and(|s| sits_below(s.box_model.margin_box.y, child_bottom, delta));
+            if below {
+                layout_tree.shift_subtree(sibling, 0.0, delta);
+            }
+        }
+
+        // An explicit height means the author chose to clip or overflow: the siblings inside have
+        // moved, but the box itself does not grow and nothing outside it shifts.
+        if matches!(
+            doc.get_style(parent_dom_id, &StyleProperty::Height),
+            Value::Unit(h, Unit::Px | Unit::Percent) if h > 0.0
+        ) {
+            return;
+        }
+
+        let Some(parent) = layout_tree.arena.get(&parent_id) else {
+            return;
+        };
+        let content = parent.box_model.content_box;
+        let children_bottom = parent
+            .children
+            .iter()
+            .filter_map(|cid| layout_tree.arena.get(cid))
+            .map(|c| c.box_model.margin_box.y + c.box_model.margin_box.height)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let grow = children_bottom - (content.y + content.height);
+        if !grow.is_finite() || grow <= 0.5 {
+            // The parent had room to spare, so its own box is unchanged and the walk ends here.
+            return;
+        }
+
+        if let Some(parent) = layout_tree.arena.get_mut(&parent_id) {
+            let bm = &mut parent.box_model;
+            for rect in [
+                &mut bm.content_box,
+                &mut bm.padding_box,
+                &mut bm.border_box,
+                &mut bm.margin_box,
+            ] {
+                rect.height += grow;
+            }
+        }
+
+        child = parent_id;
+        delta = grow;
     }
 }
 
@@ -562,5 +737,36 @@ fn collect_tables_preorder(
     }
     for child in doc.children(id) {
         collect_tables_preorder(doc, child, dom_to_layout, out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sits_below;
+
+    // The rule that decides what travels with a table that grew. Getting it wrong is what shoved
+    // the article body down the page when the floated infobox's height was absorbed.
+    #[test]
+    fn only_what_was_laid_out_after_the_box_moves() {
+        // A 100px-tall box that grew by 20: everything was laid out against a bottom of 80.
+        let (bottom, delta) = (100.0, 20.0);
+
+        assert!(sits_below(80.0, bottom, delta), "the block that followed it moves");
+        assert!(sits_below(400.0, bottom, delta), "and so does everything after that");
+        assert!(
+            !sits_below(0.0, bottom, delta),
+            "a sibling beside it - a flex row, a float - stays where it is"
+        );
+        assert!(!sits_below(40.0, bottom, delta), "so does one that overlaps it");
+    }
+
+    #[test]
+    fn a_pixel_of_slack_at_the_boundary() {
+        // Box bottoms and the next box's top do not land on exactly the same fraction.
+        assert!(
+            sits_below(79.4, 100.0, 20.0),
+            "just above the edge still counts as after"
+        );
+        assert!(!sits_below(78.5, 100.0, 20.0), "but not a whole pixel above it");
     }
 }
