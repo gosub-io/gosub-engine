@@ -78,13 +78,13 @@ fn is_legacy_pseudo_element(name: &str) -> bool {
 ///
 /// The rule exists because the sign is otherwise part of the number - `calc(1px -2px)` is two
 /// adjacent values, not a subtraction - and a UA that guessed would accept CSS no other UA does.
-/// `calc()` enforced it already, since its body survives as text with the author's spacing
-/// intact. Every other math function lost its whitespace in `parse_value_sequence` and had a
-/// single space put back when its arguments were serialized for evaluation, so
-/// `min(1px+ 2px, 9px)` was folded to `calc(3px)` while `calc(1px+ 2px)` was correctly rejected.
 ///
 /// `in_math` tracks whether we are inside a math function's arguments, because the rule applies
 /// only there: the `+` in `rgb(1 2 3 / +0.5)` is not arithmetic.
+///
+/// A `calc()` body is its own node type rather than a function with arguments, so it needs its
+/// own arm - without one, `calc(1px+ 2px)` was folded to `3px` while the same expression inside
+/// `min()` was rejected.
 fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
     match &node.node_type {
         NodeType::Operator {
@@ -98,6 +98,10 @@ fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
             let inside = in_math || crate::functions::calc::is_math_function_name(name);
             arguments.iter().all(|arg| math_spacing_is_valid(arg, inside))
         }
+        // `calc()` is parsed by a path of its own and keeps its body as a flat token list, so it
+        // is not a `Function` and has to be descended into separately. Everything in there is
+        // arithmetic by definition.
+        NodeType::Calc { tokens } => tokens.iter().all(|token| math_spacing_is_valid(token, true)),
         _ => true,
     }
 }
@@ -913,20 +917,29 @@ mod tests {
 
     #[test]
     fn math_functions_require_whitespace_around_plus_and_minus() {
-        // css-values-4 §10.1. `calc()` always got this right because its body survives as text
-        // with the author's spacing; every other math function lost its whitespace in
-        // `parse_value_sequence` and had a single space put back when its arguments were
-        // serialized for evaluation, so this folded to `calc(3px)`.
+        // css-values-4 §10.1: whitespace on *both* sides of `+` and `-`, or the declaration is
+        // invalid. One space short is enough.
         assert_eq!(declarations_of("a{width:min(1px+ 2px, 9px)}"), Vec::<String>::new());
         assert_eq!(declarations_of("a{width:max(1px, 2px+ 3px)}"), Vec::<String>::new());
         assert_eq!(
             declarations_of("a{width:clamp(1px, 2px+ 3px, 9px)}"),
             Vec::<String>::new()
         );
+        // `calc()` is parsed by a path of its own, so it needs checking in its own right - it
+        // used to be exempt by accident and folded this to `calc(3px)`.
+        assert_eq!(declarations_of("a{width:calc(1px+ 2px)}"), Vec::<String>::new());
+        // Including through a nested group, which is a call with no name.
+        assert_eq!(declarations_of("a{width:calc((1px+ 2px) * 2)}"), Vec::<String>::new());
 
         // Correctly spaced, so it still folds.
         assert_eq!(declarations_of("a{width:min(1px + 2px, 9px)}"), ["width: calc(3px)"]);
         assert_eq!(declarations_of("a{width:calc(1px + 2px)}"), ["width: calc(3px)"]);
+
+        // The other half of the rule is not this stage's to enforce. `calc(1px -2px)` has no
+        // operator in it at all - the tokenizer folded the sign into the number, which is
+        // exactly why the spec demands the space - so it parses as two juxtaposed values and
+        // survives to here. What rejects it is the matcher, which cannot read it as a sum.
+        assert_eq!(declarations_of("a{width:calc(1px -2px)}"), ["width: calc(1px -2px)"]);
     }
 
     #[test]

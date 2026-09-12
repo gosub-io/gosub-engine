@@ -688,8 +688,8 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
             }
         }
         CssValue::List(values) => CssValue::List(values.iter().map(recurse).collect()),
-        // `calc()` keeps its body as text rather than as arguments, so it is evaluated rather
-        // than recursed into. A body that comes down to a single value *is* that value here:
+        // A `calc()` body is arithmetic, not a list of arguments, so it is evaluated as a whole
+        // rather than recursed into. A body that comes down to a single value *is* that value:
         // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
             let units = calc::Units::computed(em_basis, rem_basis);
