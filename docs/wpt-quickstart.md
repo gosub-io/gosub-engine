@@ -40,12 +40,11 @@ The run ends like this:
 
 ```
   css/css-values                 █░░░░░░░░░  192/4516    4.3%
-  css/css-values/calc-size       ███████░░░     5/7     71.4%
+  css/css-values/calc-size       ███░░░░░░░    38/120   31.7%
   css/css-values/urls            ███░░░░░░░    39/126   31.0%
 
-  270 files: 15 fully passing, 247 with failures, 5 could not run
-  4903 subtests: 292 passed, 4611 failed
-  3 files crashed the engine (grep the run for CRASH)
+  270 files: 15 fully passing, 250 with failures, 5 could not run
+  5030 subtests: 328 passed, 4702 failed
 ```
 
 Low numbers are expected and are not the interesting part. What matters is which suites are
@@ -64,10 +63,6 @@ cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values --shortlist
 ```
 
 ```
-  Crashes - engine code panicking on input a real page could carry. Take these first.
-    css/css-values/calc-size/calc-size-parsing.html
-      Unknown syntax component: Property { property: "-", multipliers: [Once] } (at crates/gosub_css3/src/matcher/syntax_matcher.rs:541)
-
   Partly passing, nearest to working first:
      94.3%  css/css-values/progress-invalid.html            33/35, 2 left
      71.4%  css/css-values/random-item-invalid.html         10/14, 4 left
@@ -78,6 +73,10 @@ Take one off the top. A partly-passing suite means the engine already understand
 the thing and is wrong about a detail — that is an afternoon. Suites that fully fail are left
 out, because those are usually missing a whole feature and are a project rather than a first
 task.
+
+If the listing opens with a **Crashes** section, start there instead: those are suites that
+panicked the engine, which is a bug a real page could reach rather than a feature it lacks.
+There are none at the time of writing, but they come back.
 
 If nothing there appeals, the two big structural gaps are always open, and either is worth
 hundreds of subtests: **CSSOM serialization** (the engine hands back the author's text rather
