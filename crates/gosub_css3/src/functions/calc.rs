@@ -456,6 +456,8 @@ fn is_evaluable(name: &str) -> bool {
             | "acos"
             | "atan"
             | "atan2"
+            | "abs"
+            | "sign"
     )
 }
 
@@ -913,6 +915,9 @@ impl Parser<'_> {
                 if is_trig(&name) {
                     return fold_trig(&name, &args, self.mode);
                 }
+                if matches!(name.cow_to_ascii_lowercase().as_ref(), "abs" | "sign") {
+                    return fold_sign_abs(&name, &args, self.mode);
+                }
                 fold_comparison(&name, &args, self.mode)
             }
             // A bare identifier is not a value. `no-clamp` is handled above, where it belongs.
@@ -1028,6 +1033,49 @@ fn fold_trig(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
         _ => first.atan().to_degrees(),
     };
     Some(Sum::term(out_unit, result))
+}
+
+/// `abs(A)` and `sign(A)` (css-values-4 §10.7).
+///
+/// The two differ in what they give back, and that is the whole of their type rule: `abs()` keeps
+/// the type it was handed, so `abs(-1px)` is a length, while `sign()` always answers a
+/// `<number>` - which is why `rotate(sign(-1deg))` is invalid and `rotate(abs(-1deg))` is not.
+fn fold_sign_abs(name: &str, args: &[Sum], mode: Mode) -> Option<Sum> {
+    let is_sign = name.eq_ignore_ascii_case("sign");
+
+    // Exactly one argument. `abs()`, `abs(,)` and `abs(1px, 2px)` are all arity errors, and
+    // getting them rejected is most of what implementing these buys.
+    let [arg] = args else {
+        return None;
+    };
+
+    if mode == Mode::TypeOnly {
+        // Every term still has to name a datatype, so `abs(banana)` stays invalid.
+        for unit in arg.terms.keys() {
+            unit_datatype(unit)?;
+        }
+        return Some(if is_sign { Sum::term("", 0.0) } else { arg.clone() });
+    }
+
+    let (unit, value) = arg.single_term()?;
+
+    if is_sign {
+        // -1, +1, or the zero it was given *with the sign it had*: css-values-4 distinguishes
+        // 0⁺ from 0⁻ here, and `calc(1 / sign(-0))` is -infinity because of it. NaN stays NaN,
+        // where a naive comparison chain would answer +1.
+        let result = if value.is_nan() {
+            f64::NAN
+        } else if value > 0.0 {
+            1.0
+        } else if value < 0.0 {
+            -1.0
+        } else {
+            value
+        };
+        return Some(Sum::term("", result));
+    }
+
+    Some(Sum::term(&unit, value.abs()))
 }
 
 /// Whether two datatypes may appear in one expression.
@@ -1403,6 +1451,56 @@ mod tests {
         );
         // Not in the middle, which is the value being clamped.
         assert_eq!(comparison("clamp", &["1px", "none", "2px"]), MathType::Invalid);
+    }
+
+    #[test]
+    fn abs_keeps_its_type_and_sign_answers_a_number() {
+        assert_eq!(parsed("abs(-1px)").as_deref(), Some("1px"));
+        assert_eq!(parsed("abs(1px)").as_deref(), Some("1px"));
+        assert_eq!(parsed("abs(-1)").as_deref(), Some("1"));
+        assert_eq!(parsed("abs(-90deg)").as_deref(), Some("90deg"));
+
+        // `sign()` answers a `<number>` whatever it was given, which is the whole of its type
+        // rule: `rotate(sign(-1deg))` is invalid where `rotate(abs(-1deg))` is not.
+        assert_eq!(parsed("sign(-5px)").as_deref(), Some("-1"));
+        assert_eq!(parsed("sign(5px)").as_deref(), Some("1"));
+        assert_eq!(
+            math_function_type("sign", &[CssValue::Unit(-1.0, "deg".to_string())], &Units::none()),
+            MathType::Resolved(vec!["number"])
+        );
+        assert_eq!(
+            math_function_type("abs", &[CssValue::Unit(-1.0, "deg".to_string())], &Units::none()),
+            MathType::Resolved(vec!["angle"])
+        );
+
+        // Arity. Getting these rejected is most of what implementing the pair buys: an
+        // unimplemented function answers "cannot tell", and the matcher accepts what it cannot
+        // read rather than rejecting it.
+        assert_eq!(parsed("abs()"), None);
+        assert_eq!(parsed("abs(1px, 2px)"), None);
+        assert_eq!(parsed("sign()"), None);
+    }
+
+    #[test]
+    fn sign_is_not_positive_about_nan() {
+        // NaN is neither greater nor less than zero, so a comparison chain would answer `+1`.
+        assert_eq!(parsed("sign(NaN)").as_deref(), Some("NaN"));
+    }
+
+    /// KNOWN GAP: css-values-4 distinguishes 0⁺ from 0⁻ in `sign()`, and it is observable -
+    /// `calc(1 / sign(-0))` should be -infinity. A literal `-0` is folded into `CssValue::Zero`
+    /// (IEEE says `-0.0 == 0.0`, so testing the value alone cannot tell them apart) and the sign
+    /// is lost before the evaluator sees it.
+    ///
+    /// Preserving it is a piece of work in its own right rather than a one-line change: it was
+    /// measured at **-37 subtests** on its own, because a cluster of `round()`/`mod()` tests pass
+    /// today only by comparing one `+0` against another. Those turn into real failures the
+    /// moment `calc(-0)` starts reporting `-0`, and each needs its own signed-zero rule from the
+    /// spec. Doing half of it is worse than doing none.
+    #[test]
+    fn a_negative_zero_loses_its_sign() {
+        assert_eq!(parsed("1 / sign(0)").as_deref(), Some("infinity"));
+        assert_eq!(parsed("1 / sign(-0)").as_deref(), Some("infinity"));
     }
 
     #[test]

@@ -127,6 +127,10 @@ PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan2(0,1)) shoul
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan2(0,-1) / 4) should be used-value-equivalent to 45deg
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan2(1,-1)) should be used-value-equivalent to 135deg
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan2(-1,1)) should be used-value-equivalent to -45deg
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(asin(sin(180deg * sign(1em - 1px)))) should be used-value-equivalent to 0deg
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(acos(cos(180deg * sign(1em - 1px)))) should be used-value-equivalent to 180deg
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan(tan(180deg * sign(1em - 1px)))) should be used-value-equivalent to 0deg
+PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(atan2(1, sign(1em - 1px))) should be used-value-equivalent to 45deg
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px) should be computed-value-equivalent to calc(tan(atan2(round(up,1px,100%),round(up,1px,100%)))*1px)
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(1px * pow(tan(atan2(50%, 1px)), 1)) should be computed-value-equivalent to calc(1px * pow(tan(atan2(50%, 1px)), 1))
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: calc(cos(sin(acos(cos(pi))))) should be used-value-equivalent to 1
@@ -418,18 +422,28 @@ PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left valu
 PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(max(10000px, 0px) + min(-infinity * 1px, infinity * 1px))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(-infinity * 1px - infinity * 1px)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(min(-infinity * 1px, 10px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(1em / sign(1em - 16px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property margin-left value 'calc(1em / (-1 * sign(1em - 16px)))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property animation-duration value 'calc(infinity * 1s)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property animation-duration value 'calc(1 / 0 * 1s)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(-infinity* 1s)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(max(10000s, 0s) + min(-infinity * 1s, infinity * 1s))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(min(-infinity * 1s, 10s))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(1s / sign(1em - 16px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property transition-delay value 'calc(1s / (-1 * sign(1em - 16px)))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(max(infinity, 10))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(infinity)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(-infinity * 10)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(1 / sign(1em - 16px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(1 / (-1 * sign(1em - 16px)))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(infinity * 100%)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(-infinity * 1000%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(100% / sign(1em - 16px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property scale value 'calc(100% / (-1 * sign(1em - 16px)))'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(infinity * 100%)'
 PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(-infinity * 1000%)'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(100% / sign(1em - 16px))'
+PASS css/css-values/calc-infinity-nan-computed.html :: Property translate value 'calc(100% / (-1 * sign(1em - 16px)))'
 FILE css/css-values/calc-infinity-nan-serialize-angle.html
 PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1deg * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
 PASS css/css-values/calc-infinity-nan-serialize-angle.html :: 'rotate(calc(1rad * NaN))' as a specified value should serialize as 'rotate(calc(NaN * 1deg))'.
@@ -895,6 +909,8 @@ PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(any, 30px), size)" should set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(10px, sign(size) * size)" should set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "size" should not set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "sign(size)" should not set the property value
+PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc(50px * sign(size))" should not set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(30px, 25em)" should set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(any, 30px), 25em)" should set the property value
 PASS css/css-values/calc-size/calc-size-parsing.html :: e.style['width'] = "calc-size(calc-size(min-content, 30px), 25em)" should set the property value
@@ -963,6 +979,11 @@ PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(no
 PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(none / 10, 15, 20) 0 0)" should not set the property value
 PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(-none, 15, 20) 0 0)" should not set the property value
 PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(-none, -none, -none) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, abs(none), 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, 15, abs(none)) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, abs(none + 15), 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, sign(none), 20) 0 0)" should not set the property value
+PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, sign(none + 1), 20) 0 0)" should not set the property value
 PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, progress(none, none, none), 20) 0 0)" should not set the property value
 PASS css/css-values/clamp-color-invalid.html :: e.style['color'] = "rgb(clamp(10, progress(none + 1, none + 1, none + 1), 20) 0 0)" should not set the property value
 FILE css/css-values/clamp-integer-computed.html
@@ -980,6 +1001,11 @@ PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(no
 PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(none / 10, 15, 20)" should not set the property value
 PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(-none, 15, 20)" should not set the property value
 PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(-none, -none, -none)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, abs(none), 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, 15, abs(none))" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, abs(none + 15), 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, sign(none), 20)" should not set the property value
+PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, sign(none + 1), 20)" should not set the property value
 PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, progress(none, none, none), 20)" should not set the property value
 PASS css/css-values/clamp-integer-invalid.html :: e.style['z-index'] = "clamp(10, progress(none + 1, none + 1, none + 1), 20)" should not set the property value
 FILE css/css-values/clamp-length-computed.html
@@ -1027,6 +1053,8 @@ PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "cl
 PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, 2px + none, 20px)" should not set the property value
 PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px + none, 10px / 2px + none, 20px / none)" should not set the property value
 PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, -none, 20px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, 15px, abs(none) * 1px)" should not set the property value
+PASS css/css-values/clamp-length-invalid.html :: e.style['letter-spacing'] = "clamp(10px, 15px, abs(none * 1px))" should not set the property value
 FILE css/css-values/clamp-length-serialize.html
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "clamp(1px, 2px, 3px)" should set the property value
 PASS css/css-values/clamp-length-serialize.html :: e.style['margin-top'] = "calc(clamp(1px, 2px, 3px))" should set the property value
@@ -1805,6 +1833,7 @@ FILE css/css-values/progress-computed.html
 PASS css/css-values/progress-computed.html :: progress(1, 0, 1) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: progress(progress(1, 0, 1), progress(0px, 0px, 1px), progress(1deg, 0deg, 1deg)) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: calc(progress(100px, 0px, 50px) * 10px + 100px) should be used-value-equivalent to 110px
+PASS css/css-values/progress-computed.html :: calc(progress(100, 0, sign(50px))) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: progress(50em, 10em, 110em) should be used-value-equivalent to 0.4
 PASS css/css-values/progress-computed.html :: progress(1000em, 10em, 110em) should be used-value-equivalent to 1
 PASS css/css-values/progress-computed.html :: scale(progress(50em, 10rem, 110em)) should be used-value-equivalent to scale(1)
@@ -1814,6 +1843,7 @@ PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 10px) sho
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1s) should be used-value-equivalent to 1s
 PASS css/css-values/progress-computed.html :: calc(progress(1, 0, 1) * 1deg) should be used-value-equivalent to 1deg
 PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100px, 0px, 50px) * 10px + 100px) should be used-value-equivalent to 120px
+PASS css/css-values/progress-computed.html :: calc(progress(no-clamp 100, 0, sign(1rem - 5px))) should be used-value-equivalent to 100
 PASS css/css-values/progress-computed.html :: progress(no-clamp 50em, 10em, 110em) should be used-value-equivalent to 0.4
 PASS css/css-values/progress-computed.html :: progress(no-clamp 1000em, 10em, 110em) should be used-value-equivalent to 9.9
 PASS css/css-values/progress-computed.html :: progress(no-clamp 10em, 50em, 100em) should be used-value-equivalent to -0.8
@@ -1883,6 +1913,7 @@ PASS css/css-values/progress-serialize.html :: 'progress(2rad, 1rad, 1rad)' as a
 PASS css/css-values/progress-serialize.html :: 'progress(1rad, 1rad, 1rad)' as a specified value should serialize as 'calc(0)'.
 PASS css/css-values/progress-serialize.html :: 'progress(0rad, 1rad, 1rad)' as a specified value should serialize as 'calc(0)'.
 PASS css/css-values/progress-serialize.html :: 'calc(50px * progress(100px, 0px, 100px))' as a specified value should serialize as 'calc(50px)'.
+PASS css/css-values/progress-serialize.html :: 'calc(1px * progress(abs(10%), (10% - 10%), 100% / 10))' as a computed value should serialize as '1px'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 100px, 0px, 100px)' as a specified value should serialize as 'calc(1)'.
 PASS css/css-values/progress-serialize.html :: 'scale(progress(no-clamp 100px, 0px, 100px))' as a specified value should serialize as 'scale(calc(1))'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 100px, 0px, 100px)' as a computed value should serialize as '1'.
@@ -1902,6 +1933,7 @@ PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 2rad, 1rad, 1r
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 1rad, 1rad, 1rad)' as a specified value should serialize as 'calc(0)'.
 PASS css/css-values/progress-serialize.html :: 'progress(no-clamp 0rad, 1rad, 1rad)' as a specified value should serialize as 'calc(-infinity)'.
 PASS css/css-values/progress-serialize.html :: 'calc(50px * progress(no-clamp 100px, 0px, 100px))' as a specified value should serialize as 'calc(50px)'.
+PASS css/css-values/progress-serialize.html :: 'calc(1px * progress(no-clamp abs(10%), (10% - 10%), 100% / 10))' as a computed value should serialize as '1px'.
 FILE css/css-values/random-alias-property.tentative.html
 FILE css/css-values/random-computed.tentative.html
 PASS css/css-values/random-computed.tentative.html :: Shared by property and index in list value: random(a, b)
@@ -2588,13 +2620,414 @@ PASS css/css-values/round-mod-rem-serialize.html :: 'scale(calc(rem(1,0)))' as a
 PASS css/css-values/round-mod-rem-serialize.html :: 'calc(rem(1,0))' as a computed value should serialize as '0'.
 FILE css/css-values/sign-in-keyframes-with-relative-units.html
 FILE css/css-values/signed-zero.html
+PASS css/css-values/signed-zero.html :: sign(calc(-0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(calc( 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-0 * -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(calc(-0 *  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(calc( 0 * -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 * -1)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(calc( 0 *  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 *  1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-1 / -infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc(-1 / -infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-1 /  infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc(-1 /  infinity)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(calc( 1 / -infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 1 / -infinity)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(calc( 1 /  infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 1 /  infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-0 + -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(calc(-0 +  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc(-0 +  0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc( 0 + -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 + -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc( 0 +  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 +  0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-0 - -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc(-0 - -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc(-0 -  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(calc( 0 - -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 - -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(calc( 0 -  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(calc( 0 -  0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(min(-0,  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(min( 0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(max(-0,  0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(max(-0,  0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(max( 0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(max( 0, -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(-0, -1, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0, -0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0,  0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0,  1, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0, -1, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0, -0, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(clamp(-0,  0, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(-0,  0, 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(-0,  1, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(-0,  1, 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(0, -1, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(0, -1, -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(0, -0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(0, -0, -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(0,  0, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(0,  0, -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(clamp(0,  1, -0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(clamp(0,  1, -0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(round(nearest, -1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(nearest, -1, infinity)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(round(nearest, -0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(round(nearest,  0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(nearest,  0, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(round(nearest,  1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(nearest,  1, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(round(up, -1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(up, -1, infinity)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(round(up, -0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(round(up,  0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(up,  0, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(round(down, -0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(round(down,  0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(down,  0, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(round(down,  1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(round(down,  1, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(mod(-1, -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(mod(-1,  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(mod(-1,  1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(mod( 1, -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(mod( 1,  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(mod( 1,  1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(rem(-1, -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(rem(-1, -1)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(rem(-1,  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(rem(-1,  1)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(rem( 1, -1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(rem( 1, -1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(rem( 1,  1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(rem( 1,  1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(asin(-0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(asin( 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(asin( 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(atan(-0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(atan( 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan( 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(atan2(-0, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(atan2(-0, 1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(atan2(-0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(atan2(0, 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan2(0, 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(atan2(0, 1)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan2(0, 1)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(atan2(0, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan2(0, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(atan2(-1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan2(-1, infinity)), 1) should be used-value-equivalent to -1
+PASS css/css-values/signed-zero.html :: sign(atan2( 1, infinity)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(atan2( 1, infinity)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(abs(-0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(abs(-0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(abs( 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(abs( 0)), 1) should be used-value-equivalent to 1
+PASS css/css-values/signed-zero.html :: sign(sign(-0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: sign(sign( 0)) should be used-value-equivalent to 0
+PASS css/css-values/signed-zero.html :: clamp(-1, 1 / sign(sign( 0)), 1) should be used-value-equivalent to 1
 FILE css/css-values/signs-abs-computed.html
+PASS css/css-values/signs-abs-computed.html :: abs(1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: abs(-1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(-1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: abs(sign(1)) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: abs(sign(sign(1))) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(sign(sign(1) + sign(1))) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(abs(0.1 + 0.2) + 0.05) should be used-value-equivalent to 0.35
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0.1 + 0.2) - 0.05) should be used-value-equivalent to 0.95
+PASS css/css-values/signs-abs-computed.html :: calc(abs(0.1 + 0.2) * 2) should be used-value-equivalent to 0.6
+PASS css/css-values/signs-abs-computed.html :: calc(abs(sign(0.1) + 0.2) / 2) should be used-value-equivalent to 0.6
+PASS css/css-values/signs-abs-computed.html :: calc(abs(0.1 + 0.2) * -2) should be used-value-equivalent to -0.6
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0.1 - 0.2) - 0.05) should be used-value-equivalent to -1.05
+PASS css/css-values/signs-abs-computed.html :: calc(sign(1) + sign(1) - 0.05) should be used-value-equivalent to 1.95
+PASS css/css-values/signs-abs-computed.html :: abs(10px) should be used-value-equivalent to 10px
+PASS css/css-values/signs-abs-computed.html :: abs(-10px) should be used-value-equivalent to 10px
+PASS css/css-values/signs-abs-computed.html :: calc(calc(sign(-0))) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: calc(calc(sign(0))) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(calc(sign(0)))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: abs(infinity) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/signs-abs-computed.html :: abs(-infinity) should be used-value-equivalent to calc(infinity)
+PASS css/css-values/signs-abs-computed.html :: abs(NaN) should be used-value-equivalent to calc(NaN)
+PASS css/css-values/signs-abs-computed.html :: calc(20 - abs(-10)) should be used-value-equivalent to 10
+PASS css/css-values/signs-abs-computed.html :: calc(20 - abs(10)) should be used-value-equivalent to 10
+PASS css/css-values/signs-abs-computed.html :: calc(2 - sign(1)) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(2 - sign(-1)) should be used-value-equivalent to 3
+PASS css/css-values/signs-abs-computed.html :: calc(2 - sign(1 - sign(-1))) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(10 - abs(20 - sign(2 - abs(-20)))) should be used-value-equivalent to -11
+PASS css/css-values/signs-abs-computed.html :: sign(1px) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1cm) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1mm) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1Q) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1in) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1pc) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1pt) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1em) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1ex) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1ch) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1rem) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1vh) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1vw) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1vmin) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1vmax) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(-1px) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1cm) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1mm) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1Q) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1in) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1pc) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1pt) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1em) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1ex) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1ch) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1rem) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1vh) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1vw) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1vmin) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1vmax) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(1s) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1ms) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(-1s) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1ms) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(1deg) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1grad) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1rad) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(1turn) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: sign(-1deg) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1grad) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1rad) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: sign(-1turn) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0px)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0px))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0cm)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0cm))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0mm)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0mm))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0Q)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0Q))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0in)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0in))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0pc)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0pc))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0pt)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0pt))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0em)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0em))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0ex)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0ex))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0ch)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0ch))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0rem)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0rem))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0vh)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0vh))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0vw)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0vw))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0vmin)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0vmin))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0vmax)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0vmax))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0px)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0px))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0cm)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0cm))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0mm)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0mm))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0Q)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0Q))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0in)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0in))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0pc)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0pc))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0pt)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0pt))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0em)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0em))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0ex)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0ex))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0ch)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0ch))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0rem)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0rem))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0vh)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0vh))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0vw)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0vw))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0vmin)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0vmin))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0vmax)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0vmax))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0s)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0s))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0ms)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0ms))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0s)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0s))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0ms)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0ms))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0deg)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0deg))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0grad)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0grad))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0rad)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0rad))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(0turn)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(0turn))), 1) should be used-value-equivalent to 1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0deg)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0deg))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0grad)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0grad))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0rad)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0rad))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: calc(sign(-0turn)) should be used-value-equivalent to 0
+PASS css/css-values/signs-abs-computed.html :: clamp(-1, calc( 1 / sign(sign(-0turn))), 1) should be used-value-equivalent to -1
+PASS css/css-values/signs-abs-computed.html :: abs(1px) should be used-value-equivalent to 1px
+PASS css/css-values/signs-abs-computed.html :: abs(1cm) should be used-value-equivalent to 1cm
+PASS css/css-values/signs-abs-computed.html :: abs(1mm) should be used-value-equivalent to 1mm
+PASS css/css-values/signs-abs-computed.html :: abs(1Q) should be used-value-equivalent to 1Q
+PASS css/css-values/signs-abs-computed.html :: abs(1in) should be used-value-equivalent to 1in
+PASS css/css-values/signs-abs-computed.html :: abs(1pc) should be used-value-equivalent to 1pc
+PASS css/css-values/signs-abs-computed.html :: abs(1pt) should be used-value-equivalent to 1pt
+PASS css/css-values/signs-abs-computed.html :: abs(1em) should be used-value-equivalent to 1em
+PASS css/css-values/signs-abs-computed.html :: abs(1ex) should be used-value-equivalent to 1ex
+PASS css/css-values/signs-abs-computed.html :: abs(1ch) should be used-value-equivalent to 1ch
+PASS css/css-values/signs-abs-computed.html :: abs(1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/signs-abs-computed.html :: abs(1vh) should be used-value-equivalent to 1vh
+PASS css/css-values/signs-abs-computed.html :: abs(1vw) should be used-value-equivalent to 1vw
+PASS css/css-values/signs-abs-computed.html :: abs(1vmin) should be used-value-equivalent to 1vmin
+PASS css/css-values/signs-abs-computed.html :: abs(1vmax) should be used-value-equivalent to 1vmax
+PASS css/css-values/signs-abs-computed.html :: abs(-1px) should be used-value-equivalent to 1px
+PASS css/css-values/signs-abs-computed.html :: abs(-1cm) should be used-value-equivalent to 1cm
+PASS css/css-values/signs-abs-computed.html :: abs(-1mm) should be used-value-equivalent to 1mm
+PASS css/css-values/signs-abs-computed.html :: abs(-1Q) should be used-value-equivalent to 1Q
+PASS css/css-values/signs-abs-computed.html :: abs(-1in) should be used-value-equivalent to 1in
+PASS css/css-values/signs-abs-computed.html :: abs(-1pc) should be used-value-equivalent to 1pc
+PASS css/css-values/signs-abs-computed.html :: abs(-1pt) should be used-value-equivalent to 1pt
+PASS css/css-values/signs-abs-computed.html :: abs(-1em) should be used-value-equivalent to 1em
+PASS css/css-values/signs-abs-computed.html :: abs(-1ex) should be used-value-equivalent to 1ex
+PASS css/css-values/signs-abs-computed.html :: abs(-1ch) should be used-value-equivalent to 1ch
+PASS css/css-values/signs-abs-computed.html :: abs(-1rem) should be used-value-equivalent to 1rem
+PASS css/css-values/signs-abs-computed.html :: abs(-1vh) should be used-value-equivalent to 1vh
+PASS css/css-values/signs-abs-computed.html :: abs(-1vw) should be used-value-equivalent to 1vw
+PASS css/css-values/signs-abs-computed.html :: abs(-1vmin) should be used-value-equivalent to 1vmin
+PASS css/css-values/signs-abs-computed.html :: abs(-1vmax) should be used-value-equivalent to 1vmax
+PASS css/css-values/signs-abs-computed.html :: abs(1s) should be used-value-equivalent to 1s
+PASS css/css-values/signs-abs-computed.html :: abs(1ms) should be used-value-equivalent to 1ms
+PASS css/css-values/signs-abs-computed.html :: abs(-1s) should be used-value-equivalent to 1s
+PASS css/css-values/signs-abs-computed.html :: abs(-1ms) should be used-value-equivalent to 1ms
+PASS css/css-values/signs-abs-computed.html :: abs(1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/signs-abs-computed.html :: abs(1grad) should be used-value-equivalent to 1grad
+PASS css/css-values/signs-abs-computed.html :: abs(1rad) should be used-value-equivalent to 1rad
+PASS css/css-values/signs-abs-computed.html :: abs(1turn) should be used-value-equivalent to 1turn
+PASS css/css-values/signs-abs-computed.html :: abs(-1deg) should be used-value-equivalent to 1deg
+PASS css/css-values/signs-abs-computed.html :: abs(-1grad) should be used-value-equivalent to 1grad
+PASS css/css-values/signs-abs-computed.html :: abs(-1rad) should be used-value-equivalent to 1rad
+PASS css/css-values/signs-abs-computed.html :: abs(-1turn) should be used-value-equivalent to 1turn
+PASS css/css-values/signs-abs-computed.html :: sign(10px - 1em) should be used-value-equivalent to 0; fontSize=10px
+PASS css/css-values/signs-abs-computed.html :: sign(10px - 2em) should be used-value-equivalent to -1; fontSize=10px
+PASS css/css-values/signs-abs-computed.html :: calc(sign(10%) * 100px) should be used-value-equivalent to 100px
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(41px - 2em) / 2) should be used-value-equivalent to 2
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(40px - 2em) / 2) should be used-value-equivalent to 2.5
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(39px - 2em) / 2) should be used-value-equivalent to 3
+PASS css/css-values/signs-abs-computed.html :: calc(3 + sign(42px - 2em)) should be used-value-equivalent to 4
+PASS css/css-values/signs-abs-computed.html :: calc(3 + sign(40px - 2em)) should be used-value-equivalent to 3
+PASS css/css-values/signs-abs-computed.html :: calc(3 + sign(38px - 2em)) should be used-value-equivalent to 2
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(42px - 2em)) should be used-value-equivalent to 150px
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(40px - 2em)) should be used-value-equivalent to 50px
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(38px - 2em)) should be used-value-equivalent to -50px
+PASS css/css-values/signs-abs-computed.html :: calc(90deg + 30deg * sign(42px - 2em)) should be used-value-equivalent to 120deg
+PASS css/css-values/signs-abs-computed.html :: calc(90deg + 30deg * sign(40px - 2em)) should be used-value-equivalent to 90deg
+PASS css/css-values/signs-abs-computed.html :: calc(90deg + 30deg * sign(38px - 2em)) should be used-value-equivalent to 60deg
+PASS css/css-values/signs-abs-computed.html :: calc(5s + 15s * sign(42px - 2em)) should be used-value-equivalent to 20s
+PASS css/css-values/signs-abs-computed.html :: calc(5s + 15s * sign(40px - 2em)) should be used-value-equivalent to 5s
+PASS css/css-values/signs-abs-computed.html :: calc(5s + 15s * sign(38px - 2em)) should be used-value-equivalent to -10s
+PASS css/css-values/signs-abs-computed.html :: calc(100dpi + 20dpi * sign(42px - 2em)) should be used-value-equivalent to 120dpi
+PASS css/css-values/signs-abs-computed.html :: calc(100dpi + 20dpi * sign(40px - 2em)) should be used-value-equivalent to 100dpi
+PASS css/css-values/signs-abs-computed.html :: calc(100dpi + 20dpi * sign(38px - 2em)) should be used-value-equivalent to 80dpi
+PASS css/css-values/signs-abs-computed.html :: calc(3fr + 1fr * sign(42px - 2em)) should be used-value-equivalent to 4fr
+PASS css/css-values/signs-abs-computed.html :: calc(3fr + 1fr * sign(40px - 2em)) should be used-value-equivalent to 3fr
+PASS css/css-values/signs-abs-computed.html :: calc(3fr + 1fr * sign(38px - 2em)) should be used-value-equivalent to 2fr
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(33px - 2rem) / 2) should be used-value-equivalent to 2
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(32px - 2rem) / 2) should be used-value-equivalent to 2.5
+PASS css/css-values/signs-abs-computed.html :: calc(2.5 - sign(31px - 2rem) / 2) should be used-value-equivalent to 3
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(34px - 2rem)) should be used-value-equivalent to 150px
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(32px - 2rem)) should be used-value-equivalent to 50px
+PASS css/css-values/signs-abs-computed.html :: calc(50px + 100px * sign(30px - 2rem)) should be used-value-equivalent to -50px
 FILE css/css-values/signs-abs-invalid.html
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs()" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs( )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(,)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(, 1)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1 + )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1 - )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1 * )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1 / )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, , 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 1%)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0px)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0s)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0deg)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0Hz)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0dpi)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1, 0fr)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign()" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign( )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(,)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(, 1)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1 + )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1 - )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1 * )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1 / )" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, , 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 2)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 1%)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0px)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0s)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0deg)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0Hz)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0dpi)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "sign(1, 0fr)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0px)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0s)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0deg)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0Hz)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0dpi)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(0fr)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['font-weight'] = "abs(1%)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "abs(10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "1px * sign(10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "1px * sign(1em + 10%)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['margin-left'] = "1px * sign(10px + 5rad)" should not set the property value
 PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "1px * sign(10px + 5rad)" should not set the property value
+PASS css/css-values/signs-abs-invalid.html :: e.style['tab-size'] = "calc(100% + abs(1vmin * 10%))" should not set the property value
 FILE css/css-values/signs-abs-serialize.html
+PASS css/css-values/signs-abs-serialize.html :: 'scale(abs(1))' as a specified value should serialize as 'scale(calc(1))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(sign(.1))' as a specified value should serialize as 'scale(calc(1))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(abs(1 + 2 + 3))' as a specified value should serialize as 'scale(calc(6))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(sign(1 + 2 + 3))' as a specified value should serialize as 'scale(calc(1))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(abs(1) + abs(2)))' as a specified value should serialize as 'scale(calc(3))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(.1) + sign(.2)))' as a specified value should serialize as 'scale(calc(2))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(1 + abs(1)))' as a specified value should serialize as 'scale(calc(2))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(.1) + 1))' as a specified value should serialize as 'scale(calc(2))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(abs(inFinity)))' as a specified value should serialize as 'scale(calc(infinity))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(abs(infinity)))' as a specified value should serialize as 'scale(calc(infinity))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(infinity)))' as a specified value should serialize as 'scale(calc(1))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(abs(infinity))' as a specified value should serialize as 'scale(calc(infinity))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(abs(-infinity)))' as a specified value should serialize as 'scale(calc(infinity))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(-1 * infinity)))' as a specified value should serialize as 'scale(calc(-1))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(-1 * NaN)))' as a specified value should serialize as 'scale(calc(NaN))'.
+PASS css/css-values/signs-abs-serialize.html :: 'scale(calc(sign(1 * NaN)))' as a specified value should serialize as 'scale(calc(NaN))'.
 FILE css/css-values/sin-cos-tan-computed.html
 PASS css/css-values/sin-cos-tan-computed.html :: cos(0) should be used-value-equivalent to 1
 PASS css/css-values/sin-cos-tan-computed.html :: sin(0) should be used-value-equivalent to 0
