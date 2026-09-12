@@ -479,7 +479,7 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
             font_size.root_font_size_basis = parent_root_px;
             font_size.mark_dirty();
             match font_size.compute_value() {
-                CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px,
+                CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
                 // A keyword (`larger`), a percentage, or anything else this does not resolve:
                 // inheriting the parent's size is closer than falling back to the initial one.
                 _ => parent_px,

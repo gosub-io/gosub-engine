@@ -1055,10 +1055,10 @@ mod tests {
         let prop = definitions.find_property("border-radius").unwrap();
 
         // Resolve the shorthand and return (top-left, top-right, bottom-right, bottom-left).
-        let corners = |vals: &[CssValue]| -> (f32, f32, f32, f32) {
+        let corners = |vals: &[CssValue]| -> (f64, f64, f64, f64) {
             let mut fl = FixList::new();
             assert!(prop.clone().matches_and_shorthands(vals, &mut fl), "should match");
-            let get = |name: &str| -> f32 {
+            let get = |name: &str| -> f64 {
                 let (_, v) = fl.list.iter().find(|(k, _)| k == name).expect("longhand present");
                 match &v.last().unwrap().value {
                     CssValue::Unit(n, _) => *n,

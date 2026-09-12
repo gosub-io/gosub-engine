@@ -892,7 +892,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_percentage(&self) -> Option<f32> {
         if let CssValue::Percentage(percent) = &self.actual {
-            Some(*percent)
+            Some(*percent as f32)
         } else {
             None
         }
@@ -900,7 +900,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_unit(&self) -> Option<(f32, &str)> {
         if let CssValue::Unit(value, unit) = &self.actual {
-            Some((*value, unit))
+            Some((*value as f32, unit))
         } else {
             None
         }
@@ -920,7 +920,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_number(&self) -> Option<f32> {
         match &self.actual {
-            CssValue::Number(num, _) => Some(*num),
+            CssValue::Number(num, _) => Some(*num as f32),
             // A bare `0` parses to the dedicated `Zero` variant; surface it as the number 0 so
             // consumers (e.g. unitless `top: 0`, `margin: 0`) see it instead of dropping the value.
             CssValue::Zero => Some(0.0),

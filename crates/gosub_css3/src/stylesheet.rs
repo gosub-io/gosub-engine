@@ -708,10 +708,10 @@ pub enum CssValue {
     /// A number, with the type flag css-syntax gave it. `<integer>` reads the flag rather than
     /// asking whether the value happens to be whole, so `1e1` is a `<number>` and not an
     /// `<integer>` even though it is ten.
-    Number(f32, NumberKind),
-    Percentage(f32),
+    Number(f64, NumberKind),
+    Percentage(f64),
     String(String),
-    Unit(f32, String),
+    Unit(f64, String),
     Function(String, Vec<CssValue>),
     Initial,
     Inherit,
@@ -781,10 +781,15 @@ impl Display for CssValue {
             // form is not a serialization any CSS consumer expects; it was a debug rendering.
             CssValue::Color(col) => write!(f, "{col}"),
             CssValue::Zero => write!(f, "0"),
-            CssValue::Number(num, _) => write!(f, "{num}"),
-            CssValue::Percentage(p) => write!(f, "{p}%"),
+            // Values are carried at f64 so a sum does not accumulate error on the way, but they
+            // are *printed* at f32 width, which is the precision the value actually has by the
+            // time anything reads it. Printing at f64 width reports digits that are an artifact
+            // of binary fractions rather than of the value: `calc(0.1 + 0.2)` would serialize as
+            // `0.30000000000000004`.
+            CssValue::Number(num, _) => write!(f, "{}", *num as f32),
+            CssValue::Percentage(p) => write!(f, "{}%", *p as f32),
             CssValue::String(s) => write!(f, "{s}"),
-            CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
+            CssValue::Unit(val, unit) => write!(f, "{}{unit}", *val as f32),
             // A `url()` always serializes with its argument quoted, whatever the author wrote.
             // The unquoted `url(x)` form is a token the CSS syntax defines, not a string, and
             // writing it back out unquoted loses the distinction for anything containing a
@@ -846,8 +851,15 @@ impl CssValue {
         }
     }
 
+    /// The length in px, narrowed to `f32` because that is the width the layout and paint
+    /// side works in - see `gosub_interface::css3::CssProperty`. Values are carried at `f64`
+    /// up to here, which is where css-values says the arithmetic happens.
     #[must_use]
     pub fn unit_to_px(&self) -> f32 {
+        self.unit_to_px_f64() as f32
+    }
+
+    pub(crate) fn unit_to_px_f64(&self) -> f64 {
         match self {
             CssValue::Unit(val, unit) => match unit.as_str() {
                 "px" => *val,
@@ -869,27 +881,27 @@ impl CssValue {
                 // says that a UA without them has all three equal to the initial containing block.
                 // The engine has no such chrome, so they are equal here by the spec rather than by
                 // omission. Give them their own sizes if an embedder ever grows retractable UI.
-                "vw" | "svw" | "lvw" | "dvw" => *val * layout_viewport().0 / 100.0,
-                "vh" | "svh" | "lvh" | "dvh" => *val * layout_viewport().1 / 100.0,
+                "vw" | "svw" | "lvw" | "dvw" => *val * f64::from(layout_viewport().0) / 100.0,
+                "vh" | "svh" | "lvh" | "dvh" => *val * f64::from(layout_viewport().1) / 100.0,
                 "vmin" => {
                     let (w, h) = layout_viewport();
-                    *val * w.min(h) / 100.0
+                    *val * f64::from(w.min(h)) / 100.0
                 }
                 "vmax" => {
                     let (w, h) = layout_viewport();
-                    *val * w.max(h) / 100.0
+                    *val * f64::from(w.max(h)) / 100.0
                 }
                 _ => *val,
             },
             CssValue::String(value) => {
                 if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap_or(0.0)
+                    value.trim_end_matches("px").parse::<f64>().unwrap_or(0.0)
                 } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("rem").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("em").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else if value.ends_with("__qem") {
-                    value.trim_end_matches("__qem").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("__qem").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else {
                     0.0
                 }
@@ -1021,7 +1033,7 @@ impl CssValue {
             _ => {}
         }
 
-        if let Ok(num) = value.parse::<f32>() {
+        if let Ok(num) = value.parse::<f64>() {
             // This reads text, so it can see the spelling css-syntax keys the type flag on.
             let kind = if value.contains(['.', 'e', 'E']) {
                 NumberKind::Number
@@ -1040,7 +1052,7 @@ impl CssValue {
 
         // Percentages
         if value.ends_with('%') {
-            if let Ok(num) = value[0..value.len() - 1].parse::<f32>() {
+            if let Ok(num) = value[0..value.len() - 1].parse::<f64>() {
                 return Ok(CssValue::Percentage(num));
             }
         }
@@ -1055,7 +1067,7 @@ impl CssValue {
         }
         if let Some(index) = split_index {
             let (number_part, unit_part) = value.split_at(index);
-            if let Ok(number) = number_part.parse::<f32>() {
+            if let Ok(number) = number_part.parse::<f64>() {
                 return Ok(CssValue::Unit(number, unit_part.to_string()));
             }
         }
@@ -1111,8 +1123,8 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
     let nums: Vec<f32> = args
         .iter()
         .filter_map(|v| match v {
-            CssValue::Number(n, _) => Some(*n),
-            CssValue::Percentage(p) => Some(*p),
+            CssValue::Number(n, _) => Some(*n as f32),
+            CssValue::Percentage(p) => Some(*p as f32),
             CssValue::Zero => Some(0.0),
             CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(0.0),
             _ => None,
@@ -1276,11 +1288,11 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn new_percentage(value: f32) -> Self {
-        CssValue::Percentage(value)
+        CssValue::Percentage(f64::from(value))
     }
 
     fn new_unit(value: f32, unit: String) -> Self {
-        CssValue::Unit(value, unit)
+        CssValue::Unit(f64::from(value), unit)
     }
 
     fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self {
@@ -1288,7 +1300,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn new_number(value: f32) -> Self {
-        CssValue::Number(value, NumberKind::Integer)
+        CssValue::Number(f64::from(value), NumberKind::Integer)
     }
 
     fn new_list(value: Vec<Self>) -> Self {
@@ -1309,7 +1321,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_percentage(&self) -> Option<f32> {
         if let CssValue::Percentage(percent) = &self {
-            Some(*percent)
+            Some(*percent as f32)
         } else {
             None
         }
@@ -1317,7 +1329,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_unit(&self) -> Option<(f32, &str)> {
         if let CssValue::Unit(value, unit) = &self {
-            Some((*value, unit))
+            Some((*value as f32, unit))
         } else {
             None
         }
@@ -1333,7 +1345,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_number(&self) -> Option<f32> {
         match self {
-            CssValue::Number(num, _) => Some(*num),
+            CssValue::Number(num, _) => Some(*num as f32),
             // Bare `0` (no unit) is a valid zero value for any numeric property.
             CssValue::Zero => Some(0.0),
             _ => None,

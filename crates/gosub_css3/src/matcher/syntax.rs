@@ -6,7 +6,6 @@ use nom::bytes::complete::{tag, tag_no_case, take_while};
 use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of, space0};
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many0, many1, separated_list0, separated_list1};
-use nom::number::complete::float;
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::Err;
 use nom::IResult;
@@ -115,16 +114,16 @@ impl RangeType {
 
     /// Returns true when `value` lies within the range. An unset or infinite bound is
     /// treated as unbounded on that side, so an empty range accepts every value.
-    pub(crate) fn contains(&self, value: f32) -> bool {
+    pub(crate) fn contains(&self, value: f64) -> bool {
         let above_min = match self.min {
             NumberOrInfinity::None | NumberOrInfinity::NegativeInfinity => true,
             NumberOrInfinity::Infinity => false,
-            NumberOrInfinity::FiniteI64(n) => value >= n as f32,
+            NumberOrInfinity::FiniteI64(n) => value >= n as f64,
         };
         let below_max = match self.max {
             NumberOrInfinity::None | NumberOrInfinity::Infinity => true,
             NumberOrInfinity::NegativeInfinity => false,
-            NumberOrInfinity::FiniteI64(n) => value <= n as f32,
+            NumberOrInfinity::FiniteI64(n) => value <= n as f64,
         };
         above_min && below_max
     }
@@ -293,7 +292,7 @@ impl CssSyntax {
 
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
-    let (input, value) = float(input)?;
+    let (input, value) = nom::number::complete::double(input)?;
 
     // nom's float parser accepts the textual forms "inf"/"infinity"/"nan", which makes it
     // eat the front of grammar KEYWORDS: `infinite` parsed as Unit(inf, "inite") and could

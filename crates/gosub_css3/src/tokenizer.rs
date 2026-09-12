@@ -8,7 +8,7 @@ use gosub_shared::byte_stream::{Location, Stream};
 
 use crate::unicode::{get_unicode_char, UnicodeChar};
 
-pub type Number = f32;
+pub type Number = f64;
 
 /// The type flag css-syntax-3 gives every `<number-token>`: "integer" when it is written as
 /// digits with an optional sign, "number" when it carries a decimal point or an exponent.

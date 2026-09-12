@@ -13,7 +13,7 @@ use crate::stylesheet::CssValue;
 /// function - so callers can fall back to the original token.
 pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
     // Drop the comma separators that the parser keeps between arguments.
-    let operands: Option<Vec<f32>> = values
+    let operands: Option<Vec<f64>> = values
         .iter()
         .filter(|v| !matches!(v, CssValue::Comma))
         .map(operand_px)
@@ -24,8 +24,8 @@ pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
     }
 
     let px = match func {
-        "min" => operands.iter().copied().fold(f32::INFINITY, f32::min),
-        "max" => operands.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        "min" => operands.iter().copied().fold(f64::INFINITY, f64::min),
+        "max" => operands.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         // clamp(MIN, VAL, MAX) == max(MIN, min(VAL, MAX)).
         "clamp" => {
             let [min, val, max] = operands[..] else {
@@ -40,9 +40,9 @@ pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
 }
 
 /// Reduce a single math operand to pixels, or `None` if it is not a comparable length.
-fn operand_px(value: &CssValue) -> Option<f32> {
+fn operand_px(value: &CssValue) -> Option<f64> {
     match value {
-        CssValue::Unit(..) => Some(value.unit_to_px()),
+        CssValue::Unit(..) => Some(value.unit_to_px_f64()),
         CssValue::Number(n, _) => Some(*n),
         CssValue::Zero => Some(0.0),
         _ => None,
@@ -53,7 +53,7 @@ fn operand_px(value: &CssValue) -> Option<f32> {
 mod tests {
     use super::*;
 
-    fn unit(v: f32, u: &str) -> CssValue {
+    fn unit(v: f64, u: &str) -> CssValue {
         CssValue::Unit(v, u.to_string())
     }
 

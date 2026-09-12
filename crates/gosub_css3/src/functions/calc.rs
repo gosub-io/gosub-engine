@@ -141,11 +141,7 @@ impl Sum {
             1 => self.terms.iter().next()?,
             _ => return None,
         };
-        // The arithmetic above runs in f64 and only narrows here. `CssValue` holds f32, and
-        // doing the sums in f32 made `2ms + 3ms` come out `0.0050000004s`: each operand picks up
-        // its own error converting to seconds, and there is no width left to absorb it.
-        #[expect(clippy::cast_possible_truncation, reason = "CssValue is f32; see above")]
-        let value = *value as f32;
+        let value = *value;
         Some(match unit.as_str() {
             "" => CssValue::Number(value, NumberKind::Integer),
             "%" => CssValue::Percentage(value),
@@ -228,11 +224,6 @@ fn term_values(value: f64, unit: &str) -> Vec<CssValue> {
             ],
         };
     }
-    // Narrowed before storing: the sum is carried in f64 so intermediate steps do not accumulate
-    // error, but the value it becomes is an f32, and keeping f64 width would report seventeen
-    // digits of a precision the stored value does not have.
-    #[expect(clippy::cast_possible_truncation, reason = "the value it becomes is an f32")]
-    let value = value as f32;
     match unit {
         "" => vec![CssValue::Number(value, NumberKind::Integer)],
         "%" => vec![CssValue::Percentage(value)],
@@ -336,7 +327,7 @@ pub fn evaluate_call(name: &str, args: &[CssValue], units: &Units, unwrap: bool)
 /// supports" without naming one, so this matches what Chrome uses. It has to be far enough below
 /// `f32::MAX` that arithmetic downstream - a layout adding two of them - cannot overflow back to
 /// infinity, and far enough above any real page that clamping is never visible.
-pub const MAX_FINITE: f32 = 33_554_428.0;
+pub const MAX_FINITE: f64 = 33_554_428.0;
 
 /// Replace a non-finite computed value with the finite one css-values-4 requires.
 ///
@@ -523,7 +514,7 @@ pub fn math_function_type(name: &str, args: &[CssValue], units: &Units) -> MathT
     MathType::Resolved(kinds)
 }
 
-fn finite(value: f32) -> f32 {
+fn finite(value: f64) -> f64 {
     if value.is_nan() {
         0.0
     } else if value > 0.0 {
@@ -544,10 +535,9 @@ fn finite(value: f32) -> f32 {
 /// one ULP apart - `12cm` came out `453.54333px` where `round(10cm, 6cm)` gave `453.5433px`,
 /// which is the very comparison this is here to make agree.
 #[must_use]
-pub fn to_canonical(value: f32, unit: &str, units: &Units) -> Option<(String, f32)> {
+pub fn to_canonical(value: f64, unit: &str, units: &Units) -> Option<(String, f64)> {
     let (name, factor) = canonical(unit, units)?;
-    #[expect(clippy::cast_possible_truncation, reason = "CssValue holds f32")]
-    Some((name, (f64::from(value) * factor) as f32))
+    Some((name, value * factor))
 }
 
 fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
@@ -686,9 +676,9 @@ fn lex_values(values: &[CssValue], out: &mut Vec<Lexed>) -> Option<()> {
     for value in values {
         let tok = match value {
             CssValue::Zero => Tok::Value(0.0, String::new()),
-            CssValue::Number(number, _) => Tok::Value(f64::from(*number), String::new()),
-            CssValue::Percentage(percentage) => Tok::Value(f64::from(*percentage), "%".to_string()),
-            CssValue::Unit(number, unit) => Tok::Value(f64::from(*number), unit.cow_to_ascii_lowercase().into_owned()),
+            CssValue::Number(number, _) => Tok::Value(*number, String::new()),
+            CssValue::Percentage(percentage) => Tok::Value(*percentage, "%".to_string()),
+            CssValue::Unit(number, unit) => Tok::Value(*number, unit.cow_to_ascii_lowercase().into_owned()),
             CssValue::Comma => Tok::Comma,
             // The parser lowers an operator to a plain string, so this is where `+` stops being
             // an identifier and becomes arithmetic. Anything else is a keyword: a numeric
@@ -1331,16 +1321,16 @@ mod tests {
         if let Some(number) = token.strip_suffix('%') {
             return number.parse().map_or_else(
                 |_| CssValue::String(token.to_string()),
-                |n: f32| CssValue::Percentage(n),
+                |n: f64| CssValue::Percentage(n),
             );
         }
-        if let Ok(number) = token.parse::<f32>() {
+        if let Ok(number) = token.parse::<f64>() {
             return CssValue::Number(number, NumberKind::Integer);
         }
         let split = token.find(|c: char| c.is_ascii_alphabetic());
         match split.filter(|i| *i > 0).and_then(|i| {
             token[..i]
-                .parse::<f32>()
+                .parse::<f64>()
                 .ok()
                 .map(|n| CssValue::Unit(n, token[i..].to_string()))
         }) {

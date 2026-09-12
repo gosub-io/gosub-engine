@@ -514,8 +514,8 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             _ => {}
         },
         SyntaxComponent::Unit { from, to, unit, .. } => {
-            let f32min = f32::MIN;
-            let f32max = f32::MAX;
+            let min_bound = f64::MIN;
+            let max_bound = f64::MAX;
 
             match value {
                 // A bare `0` is a valid value for any unit-typed component (e.g. `<length>`):
@@ -523,7 +523,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 CssValue::Zero => return first_match(input),
                 CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
                 CssValue::Unit(n, u)
-                    if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) =>
+                    if unit.contains(u)
+                        && *n >= from.map_or(min_bound, f64::from)
+                        && *n <= to.map_or(max_bound, f64::from) =>
                 {
                     return first_match(input);
                 }

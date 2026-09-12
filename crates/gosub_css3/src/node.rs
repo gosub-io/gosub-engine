@@ -2,7 +2,7 @@ use crate::tokenizer::NumberKind;
 use core::fmt::{Display, Formatter};
 use gosub_shared::byte_stream::Location;
 
-pub type Number = f32;
+pub type Number = f64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FeatureKind {
