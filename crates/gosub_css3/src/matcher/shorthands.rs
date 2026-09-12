@@ -449,6 +449,20 @@ impl FixList {
 
             had_shorthands = true;
 
+            // The longhands a *nested* shorthand expands to are still the author's declaration and
+            // must carry its cascade metadata. Without this they fell through to the synthesized
+            // default below - author origin, zero specificity, order 0, depth `u16::MAX` - so for
+            // `border-left-width: 4px; border: 1px solid` the `border-left-width` produced by the
+            // second declaration lost to the first, and the earlier longhand won.
+            fix_list.set_info(FixListInfo::new(
+                decl.origin,
+                decl.important,
+                decl.location.clone(),
+                decl.specificity,
+                decl.shadow_depth,
+                decl.order,
+            ));
+
             prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list);
         }
 

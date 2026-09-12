@@ -213,9 +213,9 @@ impl Painter {
     ///
     /// A lone non-tiled gradient becomes the base brush directly, so border/radius decorate the
     /// same rect. Multiple or tiled layers instead stack as separate rects over `background-color`.
-    fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
+    fn background_fill(&self, node_id: NodeId, box_size: (f32, f32)) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let layers = doc.background_layers(node_id);
+        let layers = doc.background_layers(node_id, box_size);
         let color = self.get_brush(
             node_id,
             &StyleProperty::BackgroundColor,
@@ -431,7 +431,8 @@ impl Painter {
 
                 // CSS paints background-color behind the (possibly transparent) replaced content,
                 // e.g. a transparent PNG on `<img style="background:#3a7">` shows green through.
-                let (bg_brush, _) = self.background_fill(dom_node_id);
+                let (bg_brush, _) =
+                    self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
                 if !matches!(&bg_brush, Brush::Solid(c) if c.a() == 0.0) {
                     let bg_r = Rectangle::new(border_box)
                         .with_background(bg_brush)
@@ -476,8 +477,9 @@ impl Painter {
                 }
             }
             ElementContext::None => {
-                let (brush, overlay_layers) = self.background_fill(dom_node_id);
                 let border_box = layout_element.box_model.border_box;
+                let (brush, overlay_layers) =
+                    self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));

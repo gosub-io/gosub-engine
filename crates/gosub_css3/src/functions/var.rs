@@ -53,6 +53,13 @@ fn resolve_var_inner(
         return resolve_fallback(seen);
     };
 
+    // `--x: initial` sets the property to its initial value, and css-variables-1 defines a custom
+    // property's initial value as the guaranteed-invalid value. Substituting it would splice the
+    // literal token `initial` into the declaration instead of taking the fallback.
+    if matches!(value, CssValue::Initial) {
+        return resolve_fallback(seen);
+    }
+
     // Custom properties are stored with their `var()` references intact (they are substituted
     // lazily, at use), so the substituted value has to be resolved in turn.
     seen.push(name);
@@ -87,6 +94,16 @@ fn substitute(values: &[CssValue], custom_props: &HashMap<String, CssValue>, see
                     return vec![];
                 }
                 out.extend(resolved);
+            }
+            // Any other function may hold a `var()` among its arguments -
+            // `linear-gradient(var(--from), white)` - so it is rebuilt around its substituted
+            // arguments rather than cloned whole.
+            CssValue::Function(name, args) => {
+                let resolved = substitute(args, custom_props, seen);
+                if resolved.is_empty() && !args.is_empty() {
+                    return vec![];
+                }
+                out.push(CssValue::Function(name.clone(), resolved));
             }
             other => out.push(other.clone()),
         }
@@ -220,6 +237,58 @@ mod tests {
         let props = HashMap::new();
         let args = vec![s("--missing")];
         assert_eq!(resolve_var(&args, &props), vec![]);
+    }
+
+    #[test]
+    fn initial_is_the_guaranteed_invalid_value() {
+        // css-variables-1: a custom property's initial value *is* the guaranteed-invalid value,
+        // so `--x: initial` is not a value the reference can use.
+        let props = props(&[("--x", CssValue::Initial)]);
+
+        assert_eq!(
+            resolve_var(&[s("--x"), CssValue::Comma, s("blue")], &props),
+            vec![s("blue")]
+        );
+        assert_eq!(resolve_var(&[s("--x")], &props), vec![]);
+    }
+
+    #[test]
+    fn var_inside_another_function_is_substituted() {
+        // A custom property holding `linear-gradient(var(--from), white)` used to come back with
+        // the inner `var()` untouched, because only a bare `var()` and a list were descended into.
+        let gradient = CssValue::Function(
+            "linear-gradient".to_string(),
+            vec![
+                CssValue::Function("var".to_string(), vec![s("--from")]),
+                CssValue::Comma,
+                s("white"),
+            ],
+        );
+        let props = props(&[("--from", s("red")), ("--g", gradient)]);
+
+        assert_eq!(
+            resolve_var(&[s("--g")], &props),
+            vec![CssValue::Function(
+                "linear-gradient".to_string(),
+                vec![s("red"), CssValue::Comma, s("white")]
+            )]
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_var_invalidates_the_function_around_it() {
+        let props = props(&[(
+            "--g",
+            CssValue::Function(
+                "linear-gradient".to_string(),
+                vec![CssValue::Function("var".to_string(), vec![s("--nope")])],
+            ),
+        )]);
+
+        assert_eq!(
+            resolve_var(&[s("--g"), CssValue::Comma, s("red")], &props),
+            vec![s("red")]
+        );
     }
 
     #[test]

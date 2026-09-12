@@ -635,17 +635,6 @@ pub enum BgAnchor {
 }
 
 impl BgAnchor {
-    /// The px offset this anchor carries on its own, for callers with no box to resolve against.
-    /// `Start` is exact; an edge or percentage anchor has no meaning without the box, and falls
-    /// back to the origin.
-    #[must_use]
-    pub fn as_length(self) -> f32 {
-        match self {
-            BgAnchor::Start(v) => v,
-            BgAnchor::End(_) | BgAnchor::Percent(_) => 0.0,
-        }
-    }
-
     /// Where the tile's start edge lands, given the box's and the tile's extent on this axis.
     #[must_use]
     pub fn resolve(self, box_extent: f32, tile_extent: f32) -> f32 {
@@ -676,6 +665,10 @@ fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
     // Whether the last keyword was an edge one, and which axis/edge it named, so a length after it
     // becomes an offset from that edge.
     let mut pending_edge: Option<(bool, bool)> = None;
+    // A leading `center` claims a component without naming an axis, and the two-value form then
+    // means it took the horizontal one: `center 4px` is x = center, y = 4px. Without this the
+    // length filled the still-empty horizontal slot and the tile moved along the wrong axis.
+    let mut center_took_x = false;
 
     for tok in group {
         match tok {
@@ -703,7 +696,11 @@ fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
                         pending_edge = Some((vertical, from_end));
                     }
                     (None, "center") => {
-                        // Which axis it means depends on the other keywords, so it waits.
+                        // Which axis it means depends on what follows, so it waits - but a length
+                        // after it is the *other* axis.
+                        if x.is_none() && y.is_none() {
+                            center_took_x = true;
+                        }
                         components += 1;
                         pending_edge = None;
                     }
@@ -728,7 +725,7 @@ fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
                     })
                 }
                 None => {
-                    if x.is_none() {
+                    if x.is_none() && !center_took_x {
                         x = Some(BgAnchor::Start(*v));
                     } else if y.is_none() {
                         y = Some(BgAnchor::Start(*v));
@@ -738,7 +735,7 @@ fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
             },
             BgTok::Pct(p) => {
                 pending_edge = None;
-                if x.is_none() {
+                if x.is_none() && !center_took_x {
                     x = Some(BgAnchor::Percent(*p));
                 } else if y.is_none() {
                     y = Some(BgAnchor::Percent(*p));
@@ -861,7 +858,10 @@ pub trait PipelineDocument: Send + Sync {
     /// `background-image` gradient layers in source order (first listed paints on top), each
     /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
     /// backgrounds.
-    fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
+    ///
+    /// `box_size` is the painting area the layers are positioned against; an edge or percentage
+    /// `background-position` cannot be resolved without it.
+    fn background_layers(&self, _id: NodeId, _box_size: (f32, f32)) -> Vec<Gradient> {
         Vec::new()
     }
 
@@ -1688,7 +1688,7 @@ where
         None
     }
 
-    fn background_layers(&self, id: NodeId) -> Vec<Gradient> {
+    fn background_layers(&self, id: NodeId, box_size: (f32, f32)) -> Vec<Gradient> {
         // Read the layers from the pseudo-element's own map, never the owner's.
         let arc = if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
@@ -1736,12 +1736,12 @@ where
             if tw <= 0.0 || th <= 0.0 {
                 continue;
             }
-            // A gradient's tile phase is resolved here, with no box to measure against, so only
-            // the length form can be honoured - as it always has been. An edge or percentage
-            // position on a gradient falls back to the origin.
+            // Resolved against the painting area, as `compute_bg_tiling` does for raster images:
+            // `right`, `center` and a percentage all mean a distance that depends on how much
+            // wider the box is than the tile.
             let position = pick(&pos_groups, i)
                 .map(|j| resolve_bg_position(&pos_groups[j]))
-                .map(|(x, y)| (x.as_length(), y.as_length()))
+                .map(|(x, y)| (x.resolve(box_size.0, tw), y.resolve(box_size.1, th)))
                 .unwrap_or((0.0, 0.0));
             let repeat = pick(&rep_groups, i)
                 .map(|j| resolve_bg_repeat(&rep_groups[j]))
@@ -2049,6 +2049,25 @@ mod bg_position_tests {
     }
 
     /// `right 10px` is an offset *from the right edge*, not a position 10px from the left.
+    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length is
+    /// the vertical one. Letting the length take the first empty slot moved the tile sideways.
+    #[test]
+    fn a_leading_center_takes_the_horizontal_axis() {
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Len(4.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Start(4.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Pct(25.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(25.0))
+        );
+        // A trailing `center` still means the vertical axis.
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(4.0), kw("center")]),
+            (BgAnchor::Start(4.0), BgAnchor::Percent(50.0))
+        );
+    }
+
     #[test]
     fn an_edge_keyword_swallows_the_length_after_it() {
         assert_eq!(

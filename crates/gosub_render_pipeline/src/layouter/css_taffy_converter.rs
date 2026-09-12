@@ -111,6 +111,11 @@ impl<'a> CssTaffyConverter<'a> {
         // `grid-area` is the shorthand for both axes. The CSS engine does not expand it into
         // longhands, so it is read here and applied after them - an element that sets both gets
         // the shorthand, which is the common case (`grid-area: content` with no `grid-row`).
+        //
+        // KNOWN LIMIT: that makes the shorthand win regardless of source order, so a later
+        // `grid-row: 2` after `grid-area: content` is ignored. Computed styles reach this point
+        // with no record of the order they were declared in; fixing it properly means expanding
+        // `grid-area` into its four longhands in the cascade, where the order still exists.
         if let Some((row, column)) = self.get_grid_area() {
             ts.grid_row = row;
             ts.grid_column = column;
@@ -693,9 +698,17 @@ fn parse_single_placement(s: &str) -> GridPlacement {
         if is_custom_ident(rest) {
             return GridPlacement::NamedSpan(rest.to_string(), 1);
         }
+        // `span 2 main` - span until the *second* line with that name.
+        if let Some((n, name)) = split_index_and_name(rest) {
+            return GridPlacement::NamedSpan(name.to_string(), n.unsigned_abs());
+        }
     }
     if let Ok(n) = s.parse::<i16>() {
         return GridPlacement::from_line_index(n);
+    }
+    // `<integer> && <custom-ident>` - the nth line with that name, written in either order.
+    if let Some((n, name)) = split_index_and_name(s) {
+        return GridPlacement::NamedLine(name.to_string(), n);
     }
     // A bare identifier is a named line. `grid-area: content` names an *area*, whose implicit
     // `content-start` / `content-end` lines taffy derives from `grid-template-areas`, so the
@@ -704,6 +717,26 @@ fn parse_single_placement(s: &str) -> GridPlacement {
         return GridPlacement::NamedLine(s.to_string(), 1);
     }
     GridPlacement::Auto
+}
+
+/// `<integer> && <custom-ident>`, in either order: `2 main-end` and `main-end 2` both name the
+/// second line called `main-end`. Without this the whole value fell through to `auto`, so an item
+/// placed on a repeated line was laid out wherever auto-placement happened to put it.
+///
+/// A zero index is not a line (css-grid-2 forbids it), and `1` is what taffy treats an unqualified
+/// name as, so both are left to the plain `<custom-ident>` path above.
+fn split_index_and_name(s: &str) -> Option<(i16, &str)> {
+    let (first, rest) = s.split_once(char::is_whitespace)?;
+    let second = rest.trim();
+    if second.is_empty() || second.contains(char::is_whitespace) {
+        return None;
+    }
+    let pair = match (first.parse::<i16>(), second.parse::<i16>()) {
+        (Ok(n), Err(_)) => (n, second),
+        (Err(_), Ok(n)) => (n, first),
+        _ => return None,
+    };
+    (pair.0 != 0 && is_custom_ident(pair.1)).then_some(pair)
 }
 
 /// A CSS `<custom-ident>`: letters, digits, `-` and `_`, not starting with a digit. Used to tell
@@ -927,5 +960,50 @@ mod grid_template_tests {
         assert!(parse_grid_template("repeat(auto-fill, 1fr)").is_none());
         // Garbage token -> None
         assert!(parse_grid_template("bogus").is_none());
+    }
+}
+
+#[cfg(test)]
+mod grid_placement_tests {
+    use super::{parse_single_placement, split_index_and_name};
+    use taffy::prelude::TaffyGridLine;
+    use taffy::GridPlacement;
+
+    #[test]
+    fn an_integer_qualified_name_picks_that_line() {
+        assert_eq!(
+            parse_single_placement("2 main-end"),
+            GridPlacement::NamedLine("main-end".to_string(), 2)
+        );
+        // css-grid-2 writes the integer and the name in either order.
+        assert_eq!(
+            parse_single_placement("main-end 2"),
+            GridPlacement::NamedLine("main-end".to_string(), 2)
+        );
+        assert_eq!(
+            parse_single_placement("span 2 main"),
+            GridPlacement::NamedSpan("main".to_string(), 2)
+        );
+    }
+
+    #[test]
+    fn the_plain_forms_are_unchanged() {
+        assert_eq!(parse_single_placement("auto"), GridPlacement::Auto);
+        assert_eq!(parse_single_placement("3"), GridPlacement::from_line_index(3));
+        assert_eq!(
+            parse_single_placement("content"),
+            GridPlacement::NamedLine("content".to_string(), 1)
+        );
+        assert_eq!(parse_single_placement("span 2"), GridPlacement::Span(2));
+    }
+
+    #[test]
+    fn a_value_that_is_neither_is_still_auto() {
+        assert_eq!(parse_single_placement("2 3"), GridPlacement::Auto);
+        assert_eq!(parse_single_placement("a b"), GridPlacement::Auto);
+        // A zero line index does not exist, so the value is not a named line either.
+        assert_eq!(parse_single_placement("0 main"), GridPlacement::Auto);
+        assert_eq!(parse_single_placement("2 main end"), GridPlacement::Auto);
+        assert_eq!(split_index_and_name("2"), None);
     }
 }

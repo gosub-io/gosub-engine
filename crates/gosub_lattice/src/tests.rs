@@ -450,6 +450,55 @@ mod layout_tests {
         assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
     }
 
+    // A shrink-to-fit table is sized *from* its max-content width, so a spanning cell has to be
+    // counted there. Skipping them - harmless when distributing a width that is already known -
+    // measured a table whose content is all in spanning cells as nothing but its gutters.
+    #[test]
+    fn max_content_counts_spanning_cells() {
+        use crate::grid::build_section_grid;
+        use crate::model::build_model;
+        use crate::sizing::columns::max_content_width;
+
+        let (tree, root) = MockTable::new(500.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![cell("title")
+                .colspan(2)
+                .content_width(300.0)
+                .height(10.0)
+                .padding(0.0)])
+            .body_row(vec![
+                cell("a").content_width(40.0).height(10.0).padding(0.0),
+                cell("b").content_width(40.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let model = build_model(&tree, root);
+        let grids: Vec<_> = model.row_groups.iter().map(|g| build_section_grid(&g.rows)).collect();
+        let refs: Vec<_> = grids.iter().collect();
+
+        // The single-column cells ask for 80 between them; the title needs 300, so the table is
+        // as wide as the title rather than as wide as the row below it.
+        assert_approx!(max_content_width(&tree, 2, 0.0, &refs), 300.0, "table max-content");
+
+        // A spanning cell that already fits adds nothing.
+        let (narrow, narrow_root) = MockTable::new(500.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![cell("title")
+                .colspan(2)
+                .content_width(50.0)
+                .height(10.0)
+                .padding(0.0)])
+            .body_row(vec![
+                cell("a").content_width(40.0).height(10.0).padding(0.0),
+                cell("b").content_width(40.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+        let model = build_model(&narrow, narrow_root);
+        let grids: Vec<_> = model.row_groups.iter().map(|g| build_section_grid(&g.rows)).collect();
+        let refs: Vec<_> = grids.iter().collect();
+        assert_approx!(max_content_width(&narrow, 2, 0.0, &refs), 80.0, "the row below decides");
+    }
+
     // A column may not be shrunk below the width of its widest unbreakable word: below that the
     // shaper has to break *inside* a word, which browsers do not do, so the content spills out of
     // the cell instead. Wikipedia's dialect table gave the "Windows" column 73px for an 87px word.

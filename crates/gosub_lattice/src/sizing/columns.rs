@@ -211,6 +211,11 @@ pub fn max_content_width<T: TableTree>(
     if n_cols == 0 {
         return 0.0;
     }
+    let width_of = |cell: &crate::grid::PlacedCell<T::NodeId>| match tree.css_length(cell.node, CssProp::Width) {
+        CssLength::Px(px) => px.max(tree.cell_content_width(cell.node)),
+        _ => tree.cell_content_width(cell.node),
+    };
+
     let mut natural = vec![0.0_f32; n_cols];
     for grid in grids {
         for row_idx in 0..grid.n_rows {
@@ -218,13 +223,40 @@ pub fn max_content_width<T: TableTree>(
                 if cell.colspan != 1 || cell.col >= n_cols {
                     continue;
                 }
-                let width = match tree.css_length(cell.node, CssProp::Width) {
-                    CssLength::Px(px) => px.max(tree.cell_content_width(cell.node)),
-                    _ => tree.cell_content_width(cell.node),
-                };
+                let width = width_of(cell);
                 natural[cell.col] = natural[cell.col].max(width);
             }
         }
     }
+
+    // A spanning cell has to fit too. Here the answer *is* the table's width - a floated table is
+    // sized from it - so leaving spanning cells out is not the harmless approximation it is when
+    // distributing a width that is already known: a table whose content lives entirely in spanning
+    // cells measured nothing but its gutters and every column was then sized from near zero.
+    //
+    // Only the shortfall is added, spread evenly over the columns the cell covers, so a spanning
+    // cell that already fits changes nothing.
+    for grid in grids {
+        for row_idx in 0..grid.n_rows {
+            for cell in grid.cells_in_row(row_idx) {
+                let last = cell.col + cell.colspan;
+                if cell.colspan <= 1 || last > n_cols {
+                    continue;
+                }
+                let covered = &mut natural[cell.col..last];
+                let spanned_gutters = (cell.colspan as f32 - 1.0) * border_spacing_x;
+                let width = width_of(cell);
+                let shortfall = width - spanned_gutters - covered.iter().sum::<f32>();
+                if shortfall <= 0.0 {
+                    continue;
+                }
+                let share = shortfall / cell.colspan as f32;
+                for col in covered {
+                    *col += share;
+                }
+            }
+        }
+    }
+
     natural.iter().sum::<f32>() + (n_cols as f32 + 1.0) * border_spacing_x
 }

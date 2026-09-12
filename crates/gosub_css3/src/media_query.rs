@@ -188,7 +188,12 @@ impl MediaQuery {
             negated,
             media_type,
             unknown_type,
-            condition: condition.as_deref().and_then(MediaCondition::from_ast),
+            // A condition that is present but unparseable is *unknown*, not absent: dropping it
+            // to `None` left the query matching on its media type alone, so `@media screen and
+            // (width > junk)` applied everywhere on screen.
+            condition: condition
+                .as_deref()
+                .map(|c| MediaCondition::from_ast(c).unwrap_or(MediaCondition::Unknown)),
         })
     }
 
@@ -889,6 +894,19 @@ mod tests {
 
     fn matches(query: &str, env: &MediaEnvironment) -> bool {
         query_list(query).matches(env)
+    }
+
+    /// A condition the engine cannot read must not simply vanish: dropping it left the query
+    /// matching on its media type alone, which turns "screen and something-we-do-not-understand"
+    /// into plain "screen" and applies the rules everywhere.
+    #[test]
+    fn an_unreadable_condition_does_not_match_on_media_type_alone() {
+        let screen = env(1200.0, 800.0);
+
+        assert!(!matches("screen and (width > junk)", &screen));
+        assert!(!matches("(width > junk)", &screen));
+        // The type on its own still matches, so the test is about the condition, not the type.
+        assert!(matches("screen", &screen));
     }
 
     #[test]

@@ -1014,9 +1014,22 @@ mod tests {
     }
 
     #[test]
-    fn a_float_that_misses_the_block_horizontally_gives_no_bands() {
-        // Nothing overlaps, so every band would be full width and there is nothing to say.
+    fn a_block_with_no_floats_gives_no_bands() {
+        // Every band would be full width, so there is nothing to say.
         assert!(bands_for_block(block(), &[]).is_none());
+    }
+
+    #[test]
+    fn a_float_that_misses_the_block_horizontally_gives_no_bands() {
+        // The 600px block runs 0..600; this float sits entirely to the right of it, so it narrows
+        // no line in the block and the block is left unbanded rather than banded at full width.
+        let away = vec![(rect(700.0, 0.0, 100.0, 50.0), FloatSide::Right)];
+        assert!(bands_for_block(block(), &away).is_none());
+
+        // The same float moved back over the block's right edge does produce bands, which is what
+        // makes the case above about the horizontal test and not about floats in general.
+        let overlapping = vec![(rect(500.0, 0.0, 100.0, 50.0), FloatSide::Right)];
+        assert!(bands_for_block(block(), &overlapping).is_some());
     }
 
     #[test]

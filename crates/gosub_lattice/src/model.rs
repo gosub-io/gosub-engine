@@ -105,6 +105,11 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             // An anonymous cell has no node of its own, and the layout tree is addressed by
             // node, so the run's first child stands in for it. That is exact for a run of one,
             // which is the shape that occurs in practice.
+            //
+            // KNOWN LIMIT: for a longer run only that first child is measured and positioned by
+            // the table - the rest keep whatever the layout engine gave them inside the table's
+            // box. Representing the whole run needs either a synthetic node id, which the
+            // `TableTree` contract has no way to mint, or a cell that carries several nodes.
             TableRole::Other => {
                 let group = anon_body_group(&mut model.row_groups);
                 let row = anon_row(&mut group.rows);

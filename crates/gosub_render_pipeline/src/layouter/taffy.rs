@@ -323,7 +323,7 @@ pub struct TaffyLayouter {
     /// taffy - so on the first pass taffy laid the contents out at the wrong width, and anything
     /// that wraps (most visibly a caption) wrapped to it. Replaying the width lets that content
     /// be measured at the width it will actually have.
-    table_widths: HashMap<DomNodeId, crate::layouter::table::SettledSize>,
+    table_widths: HashMap<DomNodeId, f32>,
     /// Taffy insets for absolutely positioned boxes that stretch between opposing insets,
     /// rebased from their CSS containing block onto the parent taffy measures from. Empty on the
     /// first pass - a box's containing block is only known once the page has been laid out - and
@@ -593,7 +593,7 @@ impl TaffyLayouter {
         LayoutTree,
         Vec<crate::layouter::float::PlacedFloat>,
         HashMap<DomNodeId, RebasedInsets>,
-        HashMap<DomNodeId, crate::layouter::table::SettledSize>,
+        HashMap<DomNodeId, f32>,
     ) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
@@ -632,7 +632,7 @@ impl TaffyLayouter {
     ) -> (
         Vec<crate::layouter::float::PlacedFloat>,
         HashMap<DomNodeId, RebasedInsets>,
-        HashMap<DomNodeId, crate::layouter::table::SettledSize>,
+        HashMap<DomNodeId, f32>,
     ) {
         // // Compute the layout based on the viewport
         let size = match viewport {
@@ -1577,8 +1577,8 @@ impl TaffyLayouter {
                 // the visible case - it is laid out across the finished table, so on the first
                 // pass (where taffy sizes the box from its own contents) it wraps to the wrong
                 // width and then drags the table out to match.
-                if let Some(&settled) = self.table_widths.get(&dom_node.node_id) {
-                    taffy_style.size.width = Dimension::from_length(settled.width);
+                if let Some(&width) = self.table_widths.get(&dom_node.node_id) {
+                    taffy_style.size.width = Dimension::from_length(width);
 
                     // The column algorithm works in border-box widths, so the pin has to be read
                     // as one whatever the element's own `box-sizing` says. Left at the CSS default

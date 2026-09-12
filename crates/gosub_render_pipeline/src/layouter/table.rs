@@ -40,7 +40,7 @@ pub struct PipelineTableTree<'a> {
     min_content_cache: HashMap<DomNodeId, f32>,
     /// Cell widths the previous pass settled on and the layouter pinned on the taffy boxes.
     /// Empty on the first pass.
-    pinned: &'a HashMap<DomNodeId, SettledSize>,
+    pinned: &'a HashMap<DomNodeId, f32>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -49,7 +49,7 @@ impl<'a> PipelineTableTree<'a> {
         layout_tree: &'a mut LayoutTree,
         dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
         font_system: Arc<Mutex<dyn FontSystem>>,
-        pinned: &'a HashMap<DomNodeId, SettledSize>,
+        pinned: &'a HashMap<DomNodeId, f32>,
     ) -> Self {
         Self {
             doc,
@@ -405,8 +405,8 @@ impl TableTree for PipelineTableTree<'_> {
         // narrower column from its own previous answer. The contents were then laid out a few
         // pixels wider than the cell they ended up in, which is what still clipped the last of the
         // table headers.
-        if let Some(pinned) = self.pinned.get(&id) {
-            return pinned.width;
+        if let Some(&pinned) = self.pinned.get(&id) {
+            return pinned;
         }
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
@@ -420,21 +420,10 @@ impl TableTree for PipelineTableTree<'_> {
     }
 }
 
-/// A box size the column algorithm settled on, to be pinned on the taffy box next pass.
-///
-/// Cells carry a width only - their height is the row's, which taffy derives from the cells
-/// themselves. A table carries both: its height is the one thing taffy cannot arrive at on its own,
-/// because border-spacing and the row-height rules are lattice's, not taffy's.
-#[derive(Clone, Copy, Debug)]
-pub struct SettledSize {
-    pub width: f32,
-    pub height: Option<f32>,
-}
-
-/// What a table pass accumulates as it goes: the sizes to pin on the next pass, and how much
-/// taller lattice made each table than the box taffy sized everything around it against.
+/// What a table pass accumulates as it goes: the border-box widths to pin on the next pass, and
+/// how much taller lattice made each table than the box taffy sized everything around it against.
 struct TablePassOutput {
-    settled: HashMap<DomNodeId, SettledSize>,
+    settled: HashMap<DomNodeId, f32>,
     growth: HashMap<LayoutElementId, f64>,
 }
 
@@ -443,7 +432,7 @@ struct TablePassOutput {
 #[derive(Clone, Copy)]
 pub struct TablePassInputs<'a> {
     pub font_system: &'a Arc<Mutex<dyn FontSystem>>,
-    pub pinned: &'a HashMap<DomNodeId, SettledSize>,
+    pub pinned: &'a HashMap<DomNodeId, f32>,
 }
 
 /// Post-process all `display: table` nodes in the layout tree after the
@@ -452,7 +441,7 @@ pub fn post_process_tables(
     layout_tree: &mut LayoutTree,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     inputs: TablePassInputs<'_>,
-) -> HashMap<DomNodeId, SettledSize> {
+) -> HashMap<DomNodeId, f32> {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
@@ -526,7 +515,7 @@ fn lay_out_one_table(
     table_layout_id: LayoutElementId,
     out: &mut TablePassOutput,
     inputs: TablePassInputs<'_>,
-) -> Option<SettledSize> {
+) -> Option<f32> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
     // by the outer table's apply_positions call, giving us the correct width.
@@ -560,29 +549,30 @@ fn lay_out_one_table(
             if table_width <= 0.0 && table_height <= 0.0 {
                 return None;
             }
-            out.settled.extend(
-                tree.cell_widths
-                    .drain()
-                    .map(|(id, width)| (id, SettledSize { width, height: None })),
-            );
+            out.settled.extend(tree.cell_widths.drain());
             tree.apply_positions(table_dom_id);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
             if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
                 let bb = el.box_model.border_box;
+                // A table whose rows all measure zero - every cell empty, no spacing, no borders,
+                // no padding - would collapse the box taffy had already sized. The width is still
+                // the column algorithm's to decide, so only the height falls back.
+                let height = if table_height > 0.0 {
+                    table_height as f64
+                } else {
+                    bb.height
+                };
                 // What the box grows by here is what the surrounding blocks were never told about.
-                *out.growth.entry(table_layout_id).or_insert(0.0) += table_height as f64 - bb.height;
+                *out.growth.entry(table_layout_id).or_insert(0.0) += height - bb.height;
                 el.box_model = BoxModel::new(
-                    Rect::new(bb.x, bb.y, table_width as f64, table_height as f64),
+                    Rect::new(bb.x, bb.y, table_width as f64, height),
                     el.box_model.padding,
                     el.box_model.border,
                     el.box_model.margin,
                 );
             }
-            Some(SettledSize {
-                width: table_width,
-                height: Some(table_height),
-            })
+            Some(table_width)
         }
         Err(e) => {
             log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
