@@ -1329,6 +1329,32 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_datatype_matches_only_a_zero() {
+        let defs = get_css_definitions();
+        let matches = |prop: &str, value: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, value))
+        };
+
+        // `<zero>` sits beside `<angle>` in the grammar of every transform function, so that
+        // `rotate(0)` works - a bare `0` carries no unit and is therefore not an `<angle>`.
+        // With no arm of its own it fell to the permissive catch-all and accepted anything,
+        // which is what made `transform: rotate(banana)` valid.
+        assert!(matches("transform", "rotate(0)"));
+        assert!(matches("transform", "rotate(45deg)"));
+
+        assert!(!matches("transform", "rotate(45px)"));
+        assert!(!matches("transform", "rotate(banana)"));
+        assert!(!matches("transform", "rotate(sin())"));
+        // `sin()` gives a number, and a number is not an angle.
+        assert!(!matches("transform", "rotate(sin(45deg))"));
+        // An unknown function was always rejected; the argument grammar is the part that was not.
+        assert!(!matches("transform", "banana(45deg)"));
+    }
+
+    #[test]
     fn test_calc_and_math_functions() {
         let defs = get_css_definitions();
         let ok = |prop: &str, v: &str| {

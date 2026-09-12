@@ -152,8 +152,68 @@ PASS css/css-values/acos-asin-atan-atan2-computed.html :: atan2(1rad, -1rad) sho
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: atan2(1s, -1s) should be used-value-equivalent to 135deg
 PASS css/css-values/acos-asin-atan-atan2-computed.html :: atan2(1ms, -1ms) should be used-value-equivalent to 135deg
 FILE css/css-values/acos-asin-atan-atan2-invalid.html
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin())" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin( ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(,))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1dag))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg, ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(, 1deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg + ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg - ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg * ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg / ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(1deg, , 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos())" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos( ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(,))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1dag))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg, ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(, 1deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg + ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg - ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg * ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg / ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos(1deg, , 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan())" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan( ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(,))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1dag))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg, ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(, 1deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg + ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg - ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg * ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg / ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(1deg, , 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(90px))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(asin(30deg + 1.0471967rad, 0))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos( 0 ,))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(acos( () 30deg - 0.523599rad ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(45deg ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan(30deg, + 0.261799rad))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2())" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(,))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1dag))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg, ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(, 1deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg + ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg - ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg * ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg / ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(1deg, , 2deg))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(90px))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(90px, 100%))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(30deg + 1.0471967rad, 0))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( 0 ,))" should not set the property value
 PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2( () 30deg - 0.523599rad ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(45deg ))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(2, 1px))" should not set the property value
+PASS css/css-values/acos-asin-atan-atan2-invalid.html :: e.style['transform'] = "rotate(atan2(2, 1%))" should not set the property value
 FILE css/css-values/acos-asin-atan-atan2-serialize.html
 PASS css/css-values/acos-asin-atan-atan2-serialize.html :: 'rotate(acos(1))' as a specified value should serialize as 'rotate(calc(0deg))'.
 PASS css/css-values/acos-asin-atan-atan2-serialize.html :: 'rotate(calc(acos(1)))' as a specified value should serialize as 'rotate(calc(0deg))'.
@@ -539,6 +599,7 @@ PASS css/css-values/calc-integer.html :: Basic division works
 PASS css/css-values/calc-integer.html :: Operation between <integer> and <number> works
 PASS css/css-values/calc-integer.html :: Only rounds at the end of the conversion
 FILE css/css-values/calc-invalid-parsing.html
+PASS css/css-values/calc-invalid-parsing.html :: e.style['transform'] = "rotate(calc((0.25turn error)))" should not set the property value
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "calc(7px * up)" should not set the property value
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "round(nearest, 1px, 1px, 1px)" should not set the property value
 PASS css/css-values/calc-invalid-parsing.html :: e.style['width'] = "round(nearest, 1px)" should not set the property value
@@ -1158,6 +1219,56 @@ PASS css/css-values/minmax-angle-computed.html :: calc(max(90deg, 1.56rad) - 0.1
 PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) + max(0.125turn, 49grad)) should be used-value-equivalent to 135deg
 PASS css/css-values/minmax-angle-computed.html :: calc(min(90deg, 1.58rad) - max(0.25turn, 99grad)) should be used-value-equivalent to 0deg
 FILE css/css-values/minmax-angle-invalid.html
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min())" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min( ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(,))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1dag))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(, 1deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg + ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg - ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg * ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg / ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg 2deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, , 2deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max())" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max( ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(,))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1dag))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(, 1deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg + ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg - ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg * ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg / ))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg 2deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, , 2deg))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0%))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0px))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0s))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0Hz))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0dpi))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(0fr))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0px))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0s))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0Hz))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0dpi))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(min(1deg, 0fr))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0%))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0px))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0s))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0Hz))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0dpi))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(0fr))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0px))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0s))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0Hz))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0dpi))" should not set the property value
+PASS css/css-values/minmax-angle-invalid.html :: e.style['transform'] = "rotate(max(1deg, 0fr))" should not set the property value
 FILE css/css-values/minmax-angle-serialize.html
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(min(90deg))' as a specified value should serialize as 'rotate(calc(90deg))'.
 PASS css/css-values/minmax-angle-serialize.html :: 'rotate(min(90deg))' as a computed value should serialize as 'rotate(90deg)'.
@@ -2506,7 +2617,48 @@ PASS css/css-values/sin-cos-tan-computed.html :: calc(sin(0.25turn) ) should be 
 PASS css/css-values/sin-cos-tan-computed.html :: calc(cos(sin(cos(pi) + 1))) should be used-value-equivalent to 1
 PASS css/css-values/sin-cos-tan-computed.html :: calc(sin(tan(pi/4)*pi/2) ) should be used-value-equivalent to 1
 FILE css/css-values/sin-cos-tan-invalid.html
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin())" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin( ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(,))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1dag))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg, ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(, 1deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg + ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg - ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg * ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg / ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(1deg, , 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos())" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos( ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(,))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1dag))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg, ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(, 1deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg + ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg - ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg * ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg / ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos(1deg, , 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan())" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan( ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(,))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1dag))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg, ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(, 1deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg + ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg - ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg * ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg / ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(1deg, , 2deg))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(90px))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(sin(30deg + 1.0471967rad, 0))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos( 0 ,))" should not set the property value
 PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(cos( () 30deg - 0.523599rad ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(45deg ))" should not set the property value
+PASS css/css-values/sin-cos-tan-invalid.html :: e.style['transform'] = "rotate(tan(30deg, + 0.261799rad))" should not set the property value
 FILE css/css-values/sin-cos-tan-serialize.html
 PASS css/css-values/sin-cos-tan-serialize.html :: cos(0) should be specified-value-equivalent to calc(1)
 PASS css/css-values/sin-cos-tan-serialize.html :: cos(0) should be computed-value-equivalent to 1

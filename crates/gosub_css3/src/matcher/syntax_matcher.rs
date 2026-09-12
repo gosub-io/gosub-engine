@@ -444,6 +444,18 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                     _ => {}
                 },
+                // `<zero>` is a literal zero and nothing else. css-values allows it alongside
+                // `<angle>` so that `rotate(0)` works - a bare `0` carries no unit, so it is not
+                // an angle - and alongside `<length>` for the same reason.
+                //
+                // Without an arm here it fell to the permissive catch-all at the bottom, which
+                // accepts any value at all. `<zero>` sits in the grammar of every transform
+                // function, so `transform: rotate(banana)` was accepted through this.
+                "zero" => match value {
+                    CssValue::Zero => return first_match(input),
+                    CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
+                    _ => {}
+                },
                 "system-color" => {
                     if let CssValue::String(v) = value {
                         if is_system_color(v) {
