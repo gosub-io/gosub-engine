@@ -58,7 +58,7 @@ const DEFAULT_FONT_SIZE: f64 = 16.0;
 
 /// Width an inline item is measured at to get its natural size. Large enough that nothing wraps;
 /// `f64::MAX` overflows inside the text stack, as the measure callback already notes.
-const MAX_CONTENT_WIDTH: f64 = 1_000_000_000.0;
+pub(crate) const MAX_CONTENT_WIDTH: f64 = 1_000_000_000.0;
 
 /// Whether an inline item is a run of whitespace, which is what the word splitter emits between
 /// words and what CSS drops at a line break.
@@ -660,66 +660,23 @@ impl TaffyLayouter {
                     Some(TaffyContext::Text(text_ctx)) => {
                         let max_width = if text_ctx.no_wrap {
                             // white-space: nowrap - measure at unlimited width so text never wraps
-                            1_000_000_000.0_f64
+                            MAX_CONTENT_WIDTH
                         } else {
                             match v_as.width {
                                 AvailableSpace::Definite(width) => width as f64,
-                                AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
-                                AvailableSpace::MinContent => 0.0,
-                            }
-                        };
-
-                        let cache_key: MeasureKey = (
-                            text_ctx.text.clone(),
-                            text_ctx.font_info.family.clone(),
-                            (text_ctx.font_info.size as f32).to_bits(),
-                            (text_ctx.font_info.line_height as f32).to_bits(),
-                            text_ctx.font_info.weight,
-                            (max_width as f32).to_bits(),
-                            (text_ctx.font_info.letter_spacing as f32).to_bits(),
-                        );
-                        if let Some(&cached) = measure_cache.get(&cache_key) {
-                            return cached;
-                        }
-
-                        // Measure through the shared font system. The lock is released
-                        // immediately after the call so other callers (e.g. the
-                        // rasterizer) can interleave without contention.
-                        let text_layout = {
-                            let mut fs = font_system.lock();
-                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, &mut *fs)
-                        };
-                        match text_layout {
-                            Ok(text_layout) => {
-                                // Ceil width to the nearest CSS pixel. Parley returns a fractional
-                                // f64 width; when taffy truncates to f32 and feeds that back as
-                                // available_width, parley re-measures with slightly less space than
-                                // the text requires and wraps. Ceiling ensures allocated width ≥
-                                // natural text width, preventing spurious wrapping at the boundary.
-                                let mut width = text_layout.width.ceil() as f32;
-
-                                // Parley strips trailing whitespace (including NBSP) from the line-box
-                                // advance width. When we appended U+00A0 as a trailing-space marker
-                                // for a text node that ended with whitespace, that NBSP is never
-                                // counted by parley, so taffy under-allocates and pango clips it.
-                                // Detect the marker and add the missing space width manually.
-                                // Whitespace-only nodes ("\u{00A0}") have their width fixed explicitly
-                                // in the taffy style, so the measure callback is not invoked for them.
-                                if text_ctx.text.ends_with('\u{00A0}') && text_ctx.text != "\u{00A0}" {
-                                    width += (text_ctx.font_info.size * 0.3) as f32;
+                                AvailableSpace::MaxContent => MAX_CONTENT_WIDTH,
+                                // Min-content is the widest *word*, not the widest character.
+                                // Laying the text out at zero width asks the shaper to break
+                                // inside words, so taffy believed a text box could be as narrow
+                                // as one grapheme - which is how a table header squeezed by the
+                                // column algorithm came out as "Windo/ws".
+                                AvailableSpace::MinContent => {
+                                    min_content_width(text_ctx, &font_system, &mut measure_cache)
                                 }
-
-                                let result = Size {
-                                    width,
-                                    // Ceil height so the layout height matches the integer-pixel surface
-                                    // that pango creates (prevents descenders from overflowing the box).
-                                    height: text_layout.height.ceil() as f32,
-                                };
-                                measure_cache.insert(cache_key, result);
-                                result
                             }
-                            Err(_) => Size::ZERO,
-                        }
+                        };
+
+                        measure_text_cached(text_ctx, max_width, &font_system, &mut measure_cache)
                     }
                     // Replaced elements: honour whichever dimension CSS has constrained and
                     // derive the other from the intrinsic aspect ratio, so e.g. an
@@ -745,7 +702,16 @@ impl TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(layout_tree, root_id, Coordinate::ZERO, root_width);
-        let table_widths = post_process_tables(layout_tree, &self.dom_to_layout_mapping);
+        let pinned = std::mem::take(&mut self.table_widths);
+        let table_widths = post_process_tables(
+            layout_tree,
+            &self.dom_to_layout_mapping,
+            crate::layouter::table::TablePassInputs {
+                font_system: &self.font_system,
+                pinned: &pinned,
+            },
+        );
+        self.table_widths = pinned;
         // After tables: a float inside a table cell must be placed against the cell's final
         // position, which lattice only fixes during the table pass.
         let placed = post_process_floats(layout_tree);
@@ -1613,6 +1579,12 @@ impl TaffyLayouter {
                 // width and then drags the table out to match.
                 if let Some(&width) = self.table_widths.get(&dom_node.node_id) {
                     taffy_style.size.width = Dimension::from_length(width);
+                    // The column algorithm works in border-box widths, so the pin has to be read
+                    // as one whatever the element's own `box-sizing` says. Left at the CSS default
+                    // of `content-box` the box came out padding-and-border wider than its column,
+                    // and a centred or right-aligned run was positioned against that wider line
+                    // box - which is how a navbox header ended up printed across its own edge.
+                    taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
                     // A cell is a flex item with `flex_grow: 1`, which would stretch it back to
                     // an equal share of its row and undo the pin. It only shows up in a row that
                     // does not span every column - the dialect table's second header row holds
@@ -1997,6 +1969,97 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
         // Base URL unusable (e.g. empty for an inline document) - fall back to the raw reference.
         Err(_) => uri.to_string(),
     }
+}
+
+/// Measure `text_ctx`'s text at `max_width`, going through `cache` so a repeated
+/// (text, font, width) triple is shaped once.
+///
+/// This is the body the measure callback used to hold inline; it became a function when
+/// min-content measurement needed to call it once per word as well.
+fn measure_text_cached(
+    text_ctx: &crate::layouter::ElementContextText,
+    max_width: f64,
+    font_system: &Arc<Mutex<dyn FontSystem>>,
+    cache: &mut HashMap<MeasureKey, Size<f32>>,
+) -> Size<f32> {
+    measure_str_cached(&text_ctx.text, &text_ctx.font_info, max_width, font_system, cache)
+}
+
+/// The same measurement for a bare string, so a single word can be measured with the
+/// surrounding node's font.
+fn measure_str_cached(
+    text: &str,
+    font_info: &crate::common::font::FontInfo,
+    max_width: f64,
+    font_system: &Arc<Mutex<dyn FontSystem>>,
+    cache: &mut HashMap<MeasureKey, Size<f32>>,
+) -> Size<f32> {
+    let cache_key: MeasureKey = (
+        text.to_string(),
+        font_info.family.clone(),
+        (font_info.size as f32).to_bits(),
+        (font_info.line_height as f32).to_bits(),
+        font_info.weight,
+        (max_width as f32).to_bits(),
+        (font_info.letter_spacing as f32).to_bits(),
+    );
+    if let Some(&cached) = cache.get(&cache_key) {
+        return cached;
+    }
+
+    // Measure through the shared font system. The lock is released immediately after the call
+    // so other callers (e.g. the rasterizer) can interleave without contention.
+    let text_layout = {
+        let mut fs = font_system.lock();
+        get_text_layout(text, font_info, max_width, &mut *fs)
+    };
+    let Ok(text_layout) = text_layout else {
+        return Size::ZERO;
+    };
+
+    // Ceil width to the nearest CSS pixel. Parley returns a fractional f64 width; when taffy
+    // truncates to f32 and feeds that back as available_width, parley re-measures with slightly
+    // less space than the text requires and wraps. Ceiling ensures allocated width >= natural
+    // text width, preventing spurious wrapping at the boundary.
+    let mut width = text_layout.width.ceil() as f32;
+
+    // Parley strips trailing whitespace (including NBSP) from the line-box advance width. When we
+    // appended U+00A0 as a trailing-space marker for a text node that ended with whitespace, that
+    // NBSP is never counted by parley, so taffy under-allocates and pango clips it. Detect the
+    // marker and add the missing space width manually. Whitespace-only nodes have their width
+    // fixed explicitly in the taffy style, so the measure callback is not invoked for them.
+    if text.ends_with('\u{00A0}') && text != "\u{00A0}" {
+        width += (font_info.size * 0.3) as f32;
+    }
+
+    let result = Size {
+        width,
+        // Ceil height so the layout height matches the integer-pixel surface that pango creates
+        // (prevents descenders from overflowing the box).
+        height: text_layout.height.ceil() as f32,
+    };
+    cache.insert(cache_key, result);
+    result
+}
+
+/// The CSS min-content width of a text node under `overflow-wrap: normal`: the width of its
+/// widest unbreakable run, i.e. its longest word.
+///
+/// Shapers break inside a word when the space on offer is narrower than the word itself, so
+/// measuring at width zero reports roughly one grapheme and tells taffy the box may be that
+/// narrow. Every word is measured unconstrained instead and the widest wins. NBSP is not a break
+/// opportunity, so splitting on ASCII whitespace is the right split - it keeps `A\u{00A0}B`
+/// together, as CSS requires.
+fn min_content_width(
+    text_ctx: &crate::layouter::ElementContextText,
+    font_system: &Arc<Mutex<dyn FontSystem>>,
+    cache: &mut HashMap<MeasureKey, Size<f32>>,
+) -> f64 {
+    text_ctx
+        .text
+        .split_ascii_whitespace()
+        .map(|word| measure_str_cached(word, &text_ctx.font_info, MAX_CONTENT_WIDTH, font_system, cache).width as f64)
+        .fold(0.0_f64, f64::max)
 }
 
 /// Measure a replaced element (image / SVG) honouring any dimension CSS has already

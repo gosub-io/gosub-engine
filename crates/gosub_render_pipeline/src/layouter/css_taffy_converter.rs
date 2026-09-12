@@ -134,16 +134,14 @@ impl<'a> CssTaffyConverter<'a> {
                 // put Wikipedia's infobox image caption in a narrow strip beside the picture
                 // instead of underneath it.
                 ts.flex_direction = FlexDirection::Column;
-                // The cell's own `text-align` positions its line boxes. They are shrink-to-fit
-                // items of a flex column, so the axis that moves them across the cell is the
-                // *cross* axis - `align_items`, not `justify_content`, which only arranges words
-                // inside a line box that already hugs them. Wikipedia's infobox section headers
-                // are `text-align: center` and came out flush left for want of this.
-                ts.align_items = match self.doc.get_style(self.node_id, &StyleProperty::TextAlign) {
-                    Value::TextAlign(CssTextAlign::Center) => Some(AlignItems::CENTER),
-                    Value::TextAlign(CssTextAlign::End | CssTextAlign::Right) => Some(AlignItems::FLEX_END),
-                    _ => Some(AlignItems::FLEX_START),
-                };
+                // `align_items` is deliberately left at taffy's default (stretch). A line box must
+                // be as wide as the cell for the text inside it to be measured against a definite
+                // width - that is the only thing that makes it wrap. Setting `align_items` here to
+                // carry the cell's `text-align` (an earlier attempt at centring header cells) made
+                // every line box shrink-to-fit instead, so text measured at unlimited width and ran
+                // past the cell rather than wrapping inside it. The cell's `text-align` reaches its
+                // line boxes as `justify_content` on the anonymous container - see
+                // `line_box_justify` - which positions the run *within* a full-width line box.
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {

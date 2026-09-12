@@ -6,7 +6,11 @@ use crate::common::document::style::{Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
+use crate::layouter::taffy::MAX_CONTENT_WIDTH;
+use crate::layouter::text::get_text_layout;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
+use gosub_interface::font_system::FontSystem;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -26,6 +30,17 @@ pub struct PipelineTableTree<'a> {
     /// then takes its max-content width and runs past the cell. Feeding the settled width back is
     /// the same trick already used for the table's own width.
     cell_widths: HashMap<DomNodeId, f32>,
+    /// The font system the layouter measured with, so a cell's min-content width can be asked of
+    /// the same shaper. A column may not be narrower than its widest unbreakable word, and that
+    /// width is not recoverable from the laid-out boxes: a text box reports the width it *was*
+    /// given, not the width it needs.
+    font_system: Arc<Mutex<dyn FontSystem>>,
+    /// Memo for `cell_min_content_width`, which is asked once per cell per lattice run and would
+    /// otherwise re-shape every word of every table on the page each time.
+    min_content_cache: HashMap<DomNodeId, f32>,
+    /// Cell widths the previous pass settled on and the layouter pinned on the taffy boxes.
+    /// Empty on the first pass.
+    pinned: &'a HashMap<DomNodeId, f32>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -33,6 +48,8 @@ impl<'a> PipelineTableTree<'a> {
         doc: &'a dyn PipelineDocument,
         layout_tree: &'a mut LayoutTree,
         dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
+        font_system: Arc<Mutex<dyn FontSystem>>,
+        pinned: &'a HashMap<DomNodeId, f32>,
     ) -> Self {
         Self {
             doc,
@@ -40,6 +57,41 @@ impl<'a> PipelineTableTree<'a> {
             dom_to_layout,
             pending: HashMap::new(),
             cell_widths: HashMap::new(),
+            font_system,
+            min_content_cache: HashMap::new(),
+            pinned,
+        }
+    }
+
+    /// Widest unbreakable run of content in a layout subtree - its min-content width.
+    ///
+    /// Text contributes its longest word, measured unconstrained: that is the narrowest a text box
+    /// can be without the shaper breaking inside a word. A replaced element contributes its whole
+    /// border-box width, since an image has no break opportunities at all. The laid-out boxes
+    /// cannot answer this - a text box carries the width it was allotted, which may be anything
+    /// from one word to the whole run - so the words are re-measured through the same font system
+    /// the layouter used.
+    fn subtree_min_content_width(&mut self, id: LayoutElementId) -> f32 {
+        let Some(el) = self.layout_tree.arena.get(&id) else {
+            return 0.0;
+        };
+        match &el.context {
+            ElementContext::Text(text_ctx) => {
+                let (text, font_info) = (text_ctx.text.clone(), text_ctx.font_info.clone());
+                let mut fs = self.font_system.lock();
+                text.split_ascii_whitespace()
+                    .filter_map(|word| get_text_layout(word, &font_info, MAX_CONTENT_WIDTH, &mut *fs).ok())
+                    .map(|d| d.width as f32)
+                    .fold(0.0_f32, f32::max)
+            }
+            ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
+            ElementContext::None => {
+                let children = el.children.clone();
+                children
+                    .into_iter()
+                    .map(|cid| self.subtree_min_content_width(cid))
+                    .fold(0.0_f32, f32::max)
+            }
         }
     }
 
@@ -326,7 +378,36 @@ impl TableTree for PipelineTableTree<'_> {
             .unwrap_or(0.0)
     }
 
+    fn cell_min_content_width(&mut self, id: DomNodeId) -> f32 {
+        if let Some(&cached) = self.min_content_cache.get(&id) {
+            return cached;
+        }
+        let width = match self.dom_to_layout.get(&id).copied() {
+            Some(layout_id) => {
+                let pad = self
+                    .layout_tree
+                    .arena
+                    .get(&layout_id)
+                    .map(|el| (el.box_model.padding.left + el.box_model.padding.right) as f32)
+                    .unwrap_or(0.0);
+                self.subtree_min_content_width(layout_id) + pad
+            }
+            None => 0.0,
+        };
+        self.min_content_cache.insert(id, width);
+        width
+    }
+
     fn cell_content_width(&self, id: DomNodeId) -> f32 {
+        // Once a width has been pinned, that *is* this cell's settled width - report it rather
+        // than re-measuring. The pin makes taffy lay the contents out at the column width, so a
+        // fresh measurement comes back as "whatever it was given" and the algorithm re-derives a
+        // narrower column from its own previous answer. The contents were then laid out a few
+        // pixels wider than the cell they ended up in, which is what still clipped the last of the
+        // table headers.
+        if let Some(&pinned) = self.pinned.get(&id) {
+            return pinned;
+        }
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
                 // Include the cell's own horizontal padding so the column is wide enough to hold
@@ -339,11 +420,20 @@ impl TableTree for PipelineTableTree<'_> {
     }
 }
 
+/// What a table pass needs beyond the trees themselves: the shaper to ask for min-content widths,
+/// and the cell widths the previous pass settled on (empty on the first pass).
+#[derive(Clone, Copy)]
+pub struct TablePassInputs<'a> {
+    pub font_system: &'a Arc<Mutex<dyn FontSystem>>,
+    pub pinned: &'a HashMap<DomNodeId, f32>,
+}
+
 /// Post-process all `display: table` nodes in the layout tree after the
 /// Taffy first pass. Correct positions are written back via `gosub_lattice`.
 pub fn post_process_tables(
     layout_tree: &mut LayoutTree,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
+    inputs: TablePassInputs<'_>,
 ) -> HashMap<DomNodeId, f32> {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
@@ -380,6 +470,7 @@ pub fn post_process_tables(
                 table_dom_id,
                 table_layout_id,
                 &mut widths,
+                inputs,
             ) {
                 widths.insert(table_dom_id, width);
             }
@@ -397,6 +488,7 @@ fn lay_out_one_table(
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
     widths: &mut HashMap<DomNodeId, f32>,
+    inputs: TablePassInputs<'_>,
 ) -> Option<f32> {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -415,7 +507,13 @@ fn lay_out_one_table(
                 .unwrap_or(0.0)
         });
 
-    let mut tree = PipelineTableTree::new(doc, layout_tree, dom_to_layout);
+    let mut tree = PipelineTableTree::new(
+        doc,
+        layout_tree,
+        dom_to_layout,
+        Arc::clone(inputs.font_system),
+        inputs.pinned,
+    );
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {

@@ -76,4 +76,15 @@ pub trait TableTree {
     fn cell_content_width(&self, _id: Self::NodeId) -> f32 {
         0.0
     }
+
+    /// Returns the min-content border-box width of cell `id`: the width of its widest unbreakable
+    /// content - its longest word, or a replaced element's full width.
+    ///
+    /// A column is never given less than this. Below it the shaper has to break inside a word,
+    /// which browsers do not do under `overflow-wrap: normal`; the content overflows the cell
+    /// instead, which is worse. Implementors that cannot measure it may return `0.0`, which
+    /// restores the unfloored proportional split.
+    fn cell_min_content_width(&mut self, _id: Self::NodeId) -> f32 {
+        0.0
+    }
 }

@@ -29,6 +29,8 @@ pub struct MockCell {
     pub padding: f32,
     /// Natural (pre-pass) border-box width reported via `cell_content_width`.
     pub content_width: f32,
+    /// Min-content border-box width reported via `cell_min_content_width`.
+    pub min_content_width: f32,
     /// Content height reported by `layout_cell` (as if children were laid out).
     pub content_height: f32,
 }
@@ -44,6 +46,7 @@ impl MockCell {
             border: 0.0,
             padding: 1.0,
             content_width: 0.0,
+            min_content_width: 0.0,
             content_height: 0.0,
         }
     }
@@ -74,6 +77,10 @@ impl MockCell {
     }
     pub fn content_width(mut self, w: f32) -> Self {
         self.content_width = w;
+        self
+    }
+    pub fn min_content_width(mut self, w: f32) -> Self {
+        self.min_content_width = w;
         self
     }
     pub fn content_height(mut self, h: f32) -> Self {
@@ -200,6 +207,7 @@ struct MockNode {
     border: f32,
     padding: f32,
     content_width: f32,
+    min_content_width: f32,
     content_height: f32,
 }
 
@@ -248,6 +256,7 @@ impl MockTree {
                 border,
                 padding,
                 content_width: 0.0,
+                min_content_width: 0.0,
                 content_height: 0.0,
             },
         );
@@ -268,6 +277,7 @@ impl MockTree {
         );
         if let Some(node) = self.nodes.get_mut(&id) {
             node.content_width = mc.content_width;
+            node.min_content_width = mc.min_content_width;
             node.content_height = mc.content_height;
         }
         id
@@ -356,6 +366,10 @@ impl TableTree for MockTree {
 
     fn cell_content_width(&self, id: u32) -> f32 {
         self.nodes.get(&id).map(|n| n.content_width).unwrap_or(0.0)
+    }
+
+    fn cell_min_content_width(&mut self, id: u32) -> f32 {
+        self.nodes.get(&id).map(|n| n.min_content_width).unwrap_or(0.0)
     }
 }
 

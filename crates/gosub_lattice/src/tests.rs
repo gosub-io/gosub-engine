@@ -450,6 +450,97 @@ mod layout_tests {
         assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
     }
 
+    // A column may not be shrunk below the width of its widest unbreakable word: below that the
+    // shaper has to break *inside* a word, which browsers do not do, so the content spills out of
+    // the cell instead. Wikipedia's dialect table gave the "Windows" column 73px for an 87px word.
+    #[test]
+    fn a_column_is_never_narrower_than_its_min_content() {
+        // Two content columns wanting 300px between them in a 200px table. The plain proportional
+        // split gives the narrow one 50px, which is less than the 80px word it holds.
+        let (mut tree, root) = MockTable::new(200.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("wide")
+                    .content_width(300.0)
+                    .min_content_width(60.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("word")
+                    .content_width(100.0)
+                    .min_content_width(80.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let wide = tree.layout(cells[0]).expect("wide laid out").size.width;
+        let word = tree.layout(cells[1]).expect("word laid out").size.width;
+        assert!(word >= 80.0, "the column keeps its longest word: {word}");
+        assert!(wide >= 60.0, "and so does the other one: {wide}");
+        assert_approx!(wide + word, 200.0, "the columns still fill the table");
+    }
+
+    // When the floors alone do not fit, every column takes its min-content and the table overflows
+    // - the same thing a browser does, and better than breaking words to fit.
+    #[test]
+    fn columns_take_their_floor_when_it_does_not_fit() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("a")
+                    .content_width(200.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("b")
+                    .content_width(200.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        for c in &cells {
+            let w = tree.layout(*c).expect("cell laid out").size.width;
+            assert_approx!(w, 90.0, "each column takes its min-content");
+        }
+    }
+
+    // A table with room to spare still shares the surplus proportionally, exactly as before the
+    // floor existed - the floor must not flatten a split that already fits.
+    #[test]
+    fn the_floor_does_not_disturb_a_table_with_room_to_spare() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("a")
+                    .content_width(100.0)
+                    .min_content_width(50.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("b")
+                    .content_width(300.0)
+                    .min_content_width(50.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let a = tree.layout(cells[0]).expect("a laid out").size.width;
+        let b = tree.layout(cells[1]).expect("b laid out").size.width;
+        assert_approx!(a, 100.0, "column a takes what it asked for");
+        assert_approx!(b, 300.0, "column b takes what it asked for");
+    }
+
     // A column is only described by the rows it appears in, so every row has to be scanned.
     // Wikipedia's dialect table heads seven columns in its first row and introduces the last two
     // in a *second* header row, under a `colspan=2` title; reading only the first row left those

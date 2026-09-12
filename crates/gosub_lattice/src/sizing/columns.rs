@@ -1,6 +1,7 @@
 use crate::grid::SectionGrid;
 use crate::types::{CssLength, CssProp};
 use crate::TableTree;
+use std::collections::HashMap;
 
 /// Compute column widths for a table with `n_cols` columns.
 ///
@@ -17,7 +18,7 @@ use crate::TableTree;
 ///    natural content width. Falls back to equal distribution if no content
 ///    width information is available.
 pub fn compute_column_widths<T: TableTree>(
-    tree: &T,
+    tree: &mut T,
     n_cols: usize,
     table_width: f32,
     border_spacing_x: f32,
@@ -33,6 +34,7 @@ pub fn compute_column_widths<T: TableTree>(
 
     let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
     let mut natural: Vec<f32> = vec![0.0; n_cols];
+    let mut min_content: Vec<f32> = vec![0.0; n_cols];
 
     // Scan every row for explicit widths and natural content widths.
     //
@@ -50,6 +52,10 @@ pub fn compute_column_widths<T: TableTree>(
                     continue;
                 }
                 let cw = tree.cell_content_width(cell.node);
+                let mcw = tree.cell_min_content_width(cell.node);
+                if mcw > min_content[cell.col] {
+                    min_content[cell.col] = mcw;
+                }
                 if explicit[cell.col].is_none() {
                     // A specified width cannot shrink a cell below its content's min-width
                     // (CSS: used width = max(specified, min-content)). Without this, e.g. a
@@ -99,17 +105,29 @@ pub fn compute_column_widths<T: TableTree>(
 
             if content_natural_total > 0.0 {
                 let content_remaining = (remaining - narrow_total).max(0.0);
+                let content_cols: Vec<usize> = auto_cols
+                    .iter()
+                    .copied()
+                    .filter(|&c| natural[c] >= NARROW_THRESHOLD)
+                    .collect();
+                let shares = distribute_with_floor(
+                    content_remaining,
+                    &content_cols,
+                    &natural,
+                    &min_content,
+                    content_natural_total,
+                );
                 for &col in &auto_cols {
                     if natural[col] < NARROW_THRESHOLD {
-                        explicit[col] = Some(natural[col].max(NARROW_FLOOR));
+                        explicit[col] = Some(natural[col].max(NARROW_FLOOR).max(min_content[col]));
                     } else {
-                        explicit[col] = Some(content_remaining * natural[col] / content_natural_total);
+                        explicit[col] = Some(shares[&col]);
                     }
                 }
             } else {
                 // All auto columns are narrow - distribute remaining proportionally.
                 for &col in &auto_cols {
-                    explicit[col] = Some(remaining * natural[col] / total_natural);
+                    explicit[col] = Some((remaining * natural[col] / total_natural).max(min_content[col]));
                 }
             }
         } else {
@@ -122,6 +140,57 @@ pub fn compute_column_widths<T: TableTree>(
     }
 
     explicit.iter().map(|w| w.unwrap_or(0.0)).collect()
+}
+
+/// Share `space` among `cols` proportionally to their natural width, but never below a column's
+/// min-content width.
+///
+/// A plain proportional split can hand a column less than its content can ever occupy, and the
+/// content then spills out of the cell - Wikipedia's dialect table gave the "Windows" column 73px
+/// for a word that is 87px wide including its padding. This follows the shape of CSS 2.1
+/// §17.5.2.2: every column takes its min-content first, and what is left over is shared out in
+/// proportion to how much *more* than that each column wants. When even the min-contents do not
+/// fit, each column takes its min-content and the table overflows, which is what browsers do.
+fn distribute_with_floor(
+    space: f32,
+    cols: &[usize],
+    natural: &[f32],
+    min_content: &[f32],
+    natural_total: f32,
+) -> HashMap<usize, f32> {
+    // A column can want less than its min-content (a long word inside a cell whose other content
+    // is narrower), so the ceiling is the larger of the two.
+    let want = |c: usize| natural[c].max(min_content[c]);
+    let floor_total: f32 = cols.iter().map(|&c| min_content[c]).sum();
+
+    if floor_total <= 0.0 {
+        // Nothing to floor against - the plain proportional split, unchanged.
+        return cols.iter().map(|&c| (c, space * natural[c] / natural_total)).collect();
+    }
+    if space <= floor_total {
+        return cols.iter().map(|&c| (c, min_content[c])).collect();
+    }
+
+    let want_total: f32 = cols.iter().map(|&c| want(c)).sum();
+    let slack_total = want_total - floor_total;
+    let surplus = space - floor_total;
+    if slack_total <= 0.0 {
+        // Every column is at its floor; share what is left equally rather than by a zero ratio.
+        let each = surplus / cols.len() as f32;
+        return cols.iter().map(|&c| (c, min_content[c] + each)).collect();
+    }
+    // Every column reaches its floor first, then takes a share of what is left in proportion to
+    // how much *more* than that it asked for.
+    let ratio = (surplus / slack_total).min(1.0);
+    // Space beyond what the columns asked for altogether. It is shared in proportion to `want`,
+    // which is what the unfloored split did with all of it.
+    let extra = (surplus - slack_total).max(0.0);
+    cols.iter()
+        .map(|&c| {
+            let share = min_content[c] + (want(c) - min_content[c]) * ratio + extra * want(c) / want_total;
+            (c, share)
+        })
+        .collect()
 }
 
 /// The table's max-content width.
