@@ -516,14 +516,13 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    /// `grid-area`, as `(grid-row, grid-column)`. `None` when the property is not set, so the
+    /// `grid-area`, as `(grid-row, grid-column)`. `None` only when the property is not set, so the
     /// longhands the caller already resolved are kept.
     fn get_grid_area(&self) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
         let Some(Value::Keyword(id)) = self.get_own(&StyleProperty::GridArea) else {
             return None;
         };
-        let s = lookup(id);
-        parse_grid_area(s.as_str())
+        Some(declared_grid_area(lookup(id).as_str()))
     }
 
     fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
@@ -751,6 +750,20 @@ fn is_custom_ident(s: &str) -> bool {
         && s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
+/// The placement a *declared* `grid-area` means.
+///
+/// `parse_grid_area` returns `None` for `auto` and `none`, which is right for "this names no
+/// area" - but a declaration that says `auto` is the author resetting both axes, not saying
+/// nothing. Treating the two the same left an earlier `grid-row` standing through a later
+/// `grid-area: auto`.
+fn declared_grid_area(s: &str) -> (Line<GridPlacement>, Line<GridPlacement>) {
+    let auto = || Line {
+        start: GridPlacement::Auto,
+        end: GridPlacement::Auto,
+    };
+    parse_grid_area(s).unwrap_or_else(|| (auto(), auto()))
+}
+
 /// Parse `grid-area` into `(grid-row, grid-column)`.
 ///
 /// The shorthand is `<row-start> / <column-start> / <row-end> / <column-end>`, and any part
@@ -969,7 +982,7 @@ mod grid_template_tests {
 
 #[cfg(test)]
 mod grid_placement_tests {
-    use super::{parse_single_placement, split_index_and_name};
+    use super::{declared_grid_area, parse_single_placement, split_index_and_name};
     use taffy::prelude::TaffyGridLine;
     use taffy::GridPlacement;
 
@@ -999,6 +1012,24 @@ mod grid_placement_tests {
             GridPlacement::NamedLine("content".to_string(), 1)
         );
         assert_eq!(parse_single_placement("span 2"), GridPlacement::Span(2));
+    }
+
+    /// A declared `grid-area: auto` resets both axes. Reading it as "says nothing" let an earlier
+    /// `grid-row` survive a later reset.
+    #[test]
+    fn a_declared_grid_area_of_auto_resets_both_axes() {
+        for reset in ["auto", "none", ""] {
+            let (row, column) = declared_grid_area(reset);
+            assert_eq!(row.start, GridPlacement::Auto, "{reset:?} row start");
+            assert_eq!(row.end, GridPlacement::Auto, "{reset:?} row end");
+            assert_eq!(column.start, GridPlacement::Auto, "{reset:?} column start");
+            assert_eq!(column.end, GridPlacement::Auto, "{reset:?} column end");
+        }
+
+        // A real area still places the item across it.
+        let (row, column) = declared_grid_area("content");
+        assert_eq!(row.start, GridPlacement::NamedLine("content".to_string(), 1));
+        assert_eq!(column.end, GridPlacement::NamedLine("content".to_string(), 1));
     }
 
     #[test]
