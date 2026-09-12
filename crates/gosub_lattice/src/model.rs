@@ -62,6 +62,10 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
         border_spacing: parse_border_spacing(tree, table_node),
     };
 
+    // Consecutive non-table children share one anonymous cell, so only the first of a run
+    // opens one; the rest are already inside it.
+    let mut in_anonymous_run = false;
+
     for child in tree.children(table_node) {
         match tree.table_role(child) {
             TableRole::Caption => {
@@ -92,9 +96,37 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
                 let row = anon_row(&mut group.rows);
                 row.cells.push(build_source_cell(tree, child));
             }
-            // Column, Other - not direct children of the table box
-            TableRole::Table | TableRole::Column | TableRole::Other => {}
+            // Content that is not part of the table structure: CSS 2.1 §17.2.1 wraps each
+            // consecutive run of it in one anonymous cell, inside an anonymous row and body
+            // group. That is what makes `display: table` usable as a plain shrink-to-fit box -
+            // Wikipedia thumbnails are `figure { display: table }` around a link and a caption,
+            // and without the fixup such a table has no columns at all and computes to 0x0.
+            //
+            // An anonymous cell has no node of its own, and the layout tree is addressed by
+            // node, so the run's first child stands in for it. That is exact for a run of one,
+            // which is the shape that occurs in practice.
+            //
+            // KNOWN LIMIT: for a longer run only that first child is measured and positioned by
+            // the table - the rest keep whatever the layout engine gave them inside the table's
+            // box. Representing the whole run needs either a synthetic node id, which the
+            // `TableTree` contract has no way to mint, or a cell that carries several nodes.
+            TableRole::Other => {
+                let group = anon_body_group(&mut model.row_groups);
+                let row = anon_row(&mut group.rows);
+                if in_anonymous_run {
+                    continue;
+                }
+                row.cells.push(SourceCell {
+                    node: child,
+                    colspan: 1,
+                    rowspan: 1,
+                });
+                in_anonymous_run = true;
+                continue;
+            }
+            TableRole::Table | TableRole::Column => {}
         }
+        in_anonymous_run = false;
     }
 
     model

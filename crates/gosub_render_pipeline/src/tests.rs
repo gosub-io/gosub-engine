@@ -319,6 +319,121 @@ mod rendertree_from_engine {
         None
     }
 
+    // A longhand declared after a shorthand must win, even though every longhand produced by
+    // expanding a shorthand is applied after all the directly declared ones. Before the cascade
+    // gained a document-order tiebreak, the expansion won every tie: `margin: 4px` beat a later
+    // `margin-left`, and Wikipedia's `grid-template` shorthand erased the `grid-template-areas`
+    // that a later rule set, collapsing the whole page shell into one grid cell.
+    #[test]
+    fn a_longhand_declared_after_a_shorthand_wins() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .same-rule { margin: 4px; margin-left: 80px; }
+                    .later-rule { margin: 4px; }
+                    .later-rule { margin-left: 80px; }
+                    .grid { display: grid; grid-template: min-content / 12rem 1fr; }
+                    .grid { grid-template-areas: 'head head' 'side body'; }
+                </style>
+            </head>
+            <body>
+                <div class="same-rule">a</div>
+                <div class="later-rule">b</div>
+                <div class="grid">c</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for class in ["same-rule", "later-rule"] {
+            let id = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the element");
+            assert_eq!(
+                adapter.get_style(id, &StyleProperty::MarginLeft),
+                Value::Unit(80.0, Unit::Px),
+                "the later `margin-left` should beat the `margin` shorthand on .{class}"
+            );
+        }
+
+        let grid = find_node_by_class_dfs(&adapter.doc, root, "grid").expect("find .grid");
+        let areas = match adapter.get_style(grid, &StyleProperty::GridTemplateAreas) {
+            Value::Keyword(k) => lookup(k),
+            other => panic!("expected the area rows, got {other:?}"),
+        };
+        assert_eq!(
+            areas, "head head\nside body",
+            "the later `grid-template-areas` should survive the `grid-template` shorthand"
+        );
+    }
+
+    // `font-size` written as a percentage or a keyword could not be turned into pixels, so
+    // `font_size_px` fell back to its 16px default and the element rendered at full body size.
+    // Every `<sup>` on Wikipedia is `font-size: 80%`, which is why every reference marker came out
+    // as large as the text around it.
+    #[test]
+    fn font_size_resolves_percentages_and_keywords() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = r#"
+            <html><head><style>
+                body { font-size: 20px; }
+                #pct { font-size: 80%; }
+                #smaller { font-size: smaller; }
+                #larger { font-size: larger; }
+                #abs { font-size: small; }
+                #outer { font-size: 50%; }
+                #nested { font-size: 50%; }
+            </style></head>
+            <body>
+                <p id="pct">a</p>
+                <p id="smaller">b</p>
+                <p id="larger">c</p>
+                <p id="abs">d</p>
+                <p id="outer"><span id="nested">e</span></p>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let size_of = |id: &str| match adapter.get_style(
+            find_node_by_id_attr(&adapter.doc, root, id).expect("find the element"),
+            &StyleProperty::FontSize,
+        ) {
+            Value::Unit(px, Unit::Px) => px,
+            other => panic!("font-size for #{id} should resolve to px, got {other:?}"),
+        };
+
+        // Against the parent's 20px.
+        assert!((size_of("pct") - 16.0).abs() < 0.01, "80% of 20px");
+        assert!(
+            (size_of("smaller") - 20.0 / 1.2).abs() < 0.01,
+            "one step down from 20px"
+        );
+        assert!((size_of("larger") - 20.0 * 1.2).abs() < 0.01, "one step up from 20px");
+        // An absolute keyword ignores the parent and takes its place on the CSS scale.
+        assert!((size_of("abs") - 13.0).abs() < 0.01, "`small` is 13px");
+        // Percentages compound down the tree: 50% of 50% of 20px.
+        assert!(
+            (size_of("nested") - 5.0).abs() < 0.01,
+            "nested percentages compound: got {} for #nested, {} for #outer",
+            size_of("nested"),
+            size_of("outer")
+        );
+    }
+
     // Covers the shorthand (the HN `.votearrow` case), the longhand, and an inline style.
     #[test]
     fn background_image_is_read_from_css() {

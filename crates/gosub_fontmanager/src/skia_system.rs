@@ -18,6 +18,38 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
+/// The system font manager for this thread, built once and reused.
+///
+/// Two reasons it is not simply `FontMgr::new()` at each use site.
+///
+/// **It must not be built concurrently.** On Linux `FontMgr::new()` reaches
+/// `SkFontMgr_New_FontConfig` → `FcInitLoadConfigAndFonts()`, which builds a fontconfig
+/// configuration and mmaps its caches. Two threads doing that at once - or one doing it while
+/// Pango walks the same global config on another thread - had one unmapping cache files under
+/// the other, segfaulting inside libfontconfig. It showed up as an occasional SIGSEGV in this
+/// crate's tests, but only under `cargo test --workspace`: the `pango` and `skia` features are
+/// off by default, so a standalone run never compiled the two systems into the same binary.
+///
+/// **It is expensive.** Each call scanned the system's fonts from scratch, and eight call sites
+/// did so on every query.
+///
+/// The handle itself stays per-thread because skia-safe puts no `Send`/`Sync` on `RCHandle`, so a
+/// `FontMgr` cannot be shared between threads; only its construction is serialised.
+fn system_font_mgr() -> FontMgr {
+    thread_local! {
+        static SYSTEM_FONT_MGR: RefCell<Option<FontMgr>> = const { RefCell::new(None) };
+    }
+
+    SYSTEM_FONT_MGR.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        cell.get_or_insert_with(|| {
+            let _guard = crate::fontconfig_lock::hold();
+            FontMgr::new()
+        })
+        .clone()
+    })
+}
+
 // ── Registered web fonts ──────────────────────────────────────────────────────
 //
 // `@font-face` fonts are registered as raw bytes in a process-global registry (bytes are
@@ -60,7 +92,7 @@ fn build_web_font_mgr() -> Option<FontMgr> {
     if reg.fonts.is_empty() {
         return None;
     }
-    let fm = FontMgr::new();
+    let fm = system_font_mgr();
     let mut provider = TypefaceFontProvider::new();
     let mut any = false;
     for (family, bytes) in reg.fonts.iter() {
@@ -137,7 +169,7 @@ thread_local! {
 
 fn base_font_collection() -> FontCollection {
     let mut fc = FontCollection::new();
-    fc.set_default_font_manager(FontMgr::new(), None);
+    fc.set_default_font_manager(system_font_mgr(), None);
     fc
 }
 
@@ -225,7 +257,7 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
             return v.clone();
         }
 
-        let fm = FontMgr::new();
+        let fm = system_font_mgr();
         let web = web_font_mgr();
         let normal = FontStyle::normal();
 
@@ -378,12 +410,12 @@ impl FontSystem for SkiaFontSystem {
         // Validate the bytes and derive the family name if none was supplied.
         let family = match family_override {
             Some(f) => f.to_string(),
-            None => match FontMgr::new().new_from_data(&data, None) {
+            None => match system_font_mgr().new_from_data(&data, None) {
                 Some(tf) => tf.family_name(),
                 None => return Err(FontError::InvalidFont("could not decode font data".into())),
             },
         };
-        if FontMgr::new().new_from_data(&data, None).is_none() {
+        if system_font_mgr().new_from_data(&data, None).is_none() {
             return Err(FontError::InvalidFont(format!("unsupported font data for '{family}'")));
         }
         let mut reg = registry().lock();
@@ -408,7 +440,7 @@ impl FontSystem for SkiaFontSystem {
         }
 
         let web = web_font_mgr();
-        let fm = FontMgr::new();
+        let fm = system_font_mgr();
         for name in &names {
             let typeface = web
                 .as_ref()
@@ -432,7 +464,7 @@ impl FontSystem for SkiaFontSystem {
     fn families(&mut self) -> Vec<String> {
         // System fonts plus the registered web fonts, which live in a separate provider
         // (`web_font_mgr`) rather than the platform font manager.
-        let mut out: Vec<String> = FontMgr::new().family_names().collect();
+        let mut out: Vec<String> = system_font_mgr().family_names().collect();
         if let Some(web) = web_font_mgr() {
             out.extend(web.family_names());
         }
@@ -627,7 +659,7 @@ mod tests {
             let name = &resolved[0];
             // If the system has any monospace font, the generic must have been replaced by
             // the same concrete family `matchFamilyStyle` (fc-match) picks.
-            if let Some(tf) = FontMgr::new().match_family_style("monospace", FontStyle::normal()) {
+            if let Some(tf) = system_font_mgr().match_family_style("monospace", FontStyle::normal()) {
                 assert_eq!(name, &tf.family_name(), "stack '{stack}'");
             } else {
                 assert_eq!(name, "monospace");

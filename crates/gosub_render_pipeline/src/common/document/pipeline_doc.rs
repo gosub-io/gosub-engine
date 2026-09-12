@@ -208,6 +208,40 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Keyword(intern(&s)))
         }
 
+        // ── `grid-template-areas`: one quoted string per row ───────────────
+        // `'siteNotice siteNotice' 'columnStart pageContent'` is a *list* of strings, and the
+        // row boundaries carry the meaning - joining on a space would merge every row into one.
+        // Rows are joined with '\n' (which cannot occur inside an area name) and re-split by
+        // the layouter's `parse_grid_areas`.
+        StyleProperty::GridTemplateAreas => {
+            let rows: Vec<&str> = match p.as_list() {
+                Some(list) => list.iter().filter_map(|v| v.as_string()).collect(),
+                None => vec![p.as_string()?],
+            };
+            let joined = rows
+                .iter()
+                .map(|row| row.trim_matches(['"', '\'']))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(Value::Keyword(intern(&joined)))
+        }
+
+        // ── Grid placements: a name, a line number, or `<start> / <end>` ──
+        // The slash form arrives as a list (`[1, "/", 3]`) which `as_string()` does not return,
+        // so without this `grid-column: 1 / 3` was dropped and the item never spanned.
+        StyleProperty::GridArea | StyleProperty::GridRow | StyleProperty::GridColumn => {
+            let s = match p.as_string() {
+                Some(str) => str.to_string(),
+                None => p
+                    .as_list()?
+                    .iter()
+                    .map(grid_value_to_string::<S>)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            };
+            Some(Value::Keyword(intern(&s)))
+        }
+
         // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
             if let Some((v, unit)) = p.as_unit() {
@@ -501,9 +535,8 @@ fn property_gradient_layers<S: CssSystem>(p: &S::Property) -> Vec<LinearGradient
 enum BgTok {
     /// A `<length>` in px (bare `0` included).
     Len(f32),
-    /// A `<percentage>` (0..100). The value is retained for future box-relative resolution;
-    /// today a percentage size/position falls back to "fill box" / zero offset.
-    #[allow(dead_code)]
+    /// A `<percentage>` (0..100). A percentage *size* still falls back to "fill the box"; a
+    /// percentage *position* is resolved against the box at paint time.
     Pct(f32),
     /// A keyword (`cover`, `center`, `no-repeat`, …), lowercased.
     Kw(String),
@@ -588,20 +621,155 @@ fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
     }
 }
 
-/// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need the
-/// box size, so they resolve to 0 for now; px offsets are exact.
-fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
-    let lens: Vec<f32> = group
-        .iter()
-        .filter_map(|t| match t {
-            BgTok::Len(v) => Some(*v),
-            _ => None,
-        })
-        .collect();
-    match lens.as_slice() {
-        [x] => (*x, 0.0),
-        [x, y, ..] => (*x, *y),
-        _ => (0.0, 0.0),
+/// One axis of `background-position`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BgAnchor {
+    /// A length in px from the box's start edge (left / top).
+    Start(f32),
+    /// A length in px from the box's end edge - `right`, `bottom`, and the three-value forms
+    /// `right 10px` / `bottom 1em`.
+    End(f32),
+    /// A percentage: that point of the image is aligned with the same point of the box, so `50%`
+    /// centres it and `100%` puts its far edge on the box's far edge.
+    Percent(f32),
+}
+
+impl BgAnchor {
+    /// Where the tile's start edge lands, given the box's and the tile's extent on this axis.
+    #[must_use]
+    pub fn resolve(self, box_extent: f32, tile_extent: f32) -> f32 {
+        match self {
+            BgAnchor::Start(v) => v,
+            BgAnchor::End(v) => box_extent - tile_extent - v,
+            BgAnchor::Percent(p) => (box_extent - tile_extent) * p / 100.0,
+        }
+    }
+}
+
+/// `background-position` group → one [`BgAnchor`] per axis.
+///
+/// The two-keyword form may be written in either order - `center right` means the same as
+/// `right center` - so the axis a keyword belongs to is decided by the keyword, not by where it
+/// sits in the list. Reading the first value as the horizontal one put Wikipedia's external-link
+/// icon, which is positioned `center right`, in the middle of every link instead of after it.
+///
+/// Also handles the three-value edge-offset form (`right 10px`) and the one-value form, whose
+/// missing axis is `center` rather than the start edge.
+fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
+    let mut x: Option<BgAnchor> = None;
+    let mut y: Option<BgAnchor> = None;
+    // How many position components were written, so the one-value form can default its other axis
+    // to `center`. A length that an edge keyword swallows (`right 10px`) is part of that keyword's
+    // component, not one of its own.
+    let mut components = 0usize;
+    // Whether the last keyword was an edge one, and which axis/edge it named, so a length after it
+    // becomes an offset from that edge.
+    let mut pending_edge: Option<(bool, bool)> = None;
+    // A leading `center` claims a component without naming an axis, and the two-value form then
+    // means it took the horizontal one: `center 4px` is x = center, y = 4px. Without this the
+    // length filled the still-empty horizontal slot and the tile moved along the wrong axis.
+    let mut center_took_x = false;
+
+    for tok in group {
+        match tok {
+            BgTok::Kw(k) => {
+                let edge = match k.as_str() {
+                    "left" => Some((false, false)),
+                    "right" => Some((false, true)),
+                    "top" => Some((true, false)),
+                    "bottom" => Some((true, true)),
+                    _ => None,
+                };
+                match (edge, k.as_str()) {
+                    (Some((vertical, from_end)), _) => {
+                        let anchor = if from_end {
+                            BgAnchor::End(0.0)
+                        } else {
+                            BgAnchor::Start(0.0)
+                        };
+                        if vertical {
+                            y = Some(anchor);
+                        } else {
+                            x = Some(anchor);
+                        }
+                        components += 1;
+                        pending_edge = Some((vertical, from_end));
+                    }
+                    (None, "center") => {
+                        // Which axis it means depends on what follows, so it waits - but a length
+                        // after it is the *other* axis.
+                        if x.is_none() && y.is_none() {
+                            center_took_x = true;
+                        }
+                        components += 1;
+                        pending_edge = None;
+                    }
+                    // Not a position keyword at all (a `background` shorthand carries
+                    // `no-repeat`, `cover`, … in the same list).
+                    (None, _) => pending_edge = None,
+                }
+            }
+            BgTok::Len(v) => match pending_edge.take() {
+                Some((true, from_end)) => {
+                    y = Some(if from_end {
+                        BgAnchor::End(*v)
+                    } else {
+                        BgAnchor::Start(*v)
+                    })
+                }
+                Some((false, from_end)) => {
+                    x = Some(if from_end {
+                        BgAnchor::End(*v)
+                    } else {
+                        BgAnchor::Start(*v)
+                    })
+                }
+                None => {
+                    if x.is_none() && !center_took_x {
+                        x = Some(BgAnchor::Start(*v));
+                    } else if y.is_none() {
+                        y = Some(BgAnchor::Start(*v));
+                    }
+                    components += 1;
+                }
+            },
+            BgTok::Pct(p) => {
+                pending_edge = None;
+                if x.is_none() && !center_took_x {
+                    x = Some(BgAnchor::Percent(*p));
+                } else if y.is_none() {
+                    y = Some(BgAnchor::Percent(*p));
+                }
+                components += 1;
+            }
+        }
+    }
+
+    // Whatever no component claimed is `center`: that is what a lone `center` means on the axis it
+    // did not name, and what the one-value form means for its missing axis.
+    let centered = BgAnchor::Percent(50.0);
+    match (x, y) {
+        (Some(x), Some(y)) => (x, y),
+        (Some(x), None) => (x, centered),
+        (None, Some(y)) => (centered, y),
+        // No component at all is the initial value, `0% 0%`.
+        (None, None) if components == 0 => (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
+        (None, None) => (centered, centered),
+    }
+}
+
+/// Whether a keyword names a place in `background-position`, as opposed to the repeat and size
+/// keywords that share the `background` shorthand's token list.
+fn is_position_keyword(k: &str) -> bool {
+    matches!(k, "left" | "right" | "top" | "bottom" | "center")
+}
+
+/// Whether a token could be part of a `<bg-position>`, used to tell a `background-position`
+/// declaration that says something from one that only carries junk.
+fn is_position_token(t: &BgTok) -> bool {
+    match t {
+        BgTok::Kw(k) => is_position_keyword(k),
+        BgTok::Len(_) | BgTok::Pct(_) => true,
     }
 }
 
@@ -650,10 +818,9 @@ pub enum BgSize {
 pub struct BgImageLayout {
     /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
     pub repeat: (bool, bool),
-    /// Tile origin offset from the box origin, in px (`background-position`, length form).
-    pub position: (f32, f32),
-    /// Per-axis `center` keyword (`background-position: center`) - resolved against the box at paint.
-    pub center: (bool, bool),
+    /// Where the tile is anchored on each axis (`background-position`), resolved against the box
+    /// at paint time since edges and percentages need to know how big it is.
+    pub position: (BgAnchor, BgAnchor),
     /// Resolved `background-size`.
     pub size: BgSize,
 }
@@ -662,8 +829,7 @@ impl Default for BgImageLayout {
     fn default() -> Self {
         BgImageLayout {
             repeat: (true, true),
-            position: (0.0, 0.0),
-            center: (false, false),
+            position: (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
             size: BgSize::Auto,
         }
     }
@@ -692,7 +858,10 @@ pub trait PipelineDocument: Send + Sync {
     /// `background-image` gradient layers in source order (first listed paints on top), each
     /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
     /// backgrounds.
-    fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
+    ///
+    /// `box_size` is the painting area the layers are positioned against; an edge or percentage
+    /// `background-position` cannot be resolved without it.
+    fn background_layers(&self, _id: NodeId, _box_size: (f32, f32)) -> Vec<Gradient> {
         Vec::new()
     }
 
@@ -740,6 +909,42 @@ pub trait PipelineDocument: Send + Sync {
         // element's font-size (16px default). `em` is relative to the *parent's* computed
         // font-size for `font-size` itself, and to the element's *own* computed font-size
         // for every other property (e.g. `max-width: 17ch` lands here as `em`).
+        // `font-size` written as a percentage or a keyword. Neither could be turned into pixels,
+        // so `font_size_px` fell back to its 16px default and the element rendered at full body
+        // size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and anything using
+        // the UA's `sup { font-size: smaller }` or `<small>`.
+        //
+        // A percentage is against the *parent's* computed size, as are `smaller`/`larger`, which
+        // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
+        // `medium` at 16px.
+        if matches!(prop, StyleProperty::FontSize) {
+            let parent_size = || match self.parent(id) {
+                Some(parent) => self.font_size_px(parent),
+                None => 16.0,
+            };
+            if let Value::Unit(pct, Unit::Percent) = &raw {
+                return Value::Unit(parent_size() * pct / 100.0, Unit::Px);
+            }
+            if let Value::Keyword(kw) = &raw {
+                let px = match crate::common::document::style::lookup(*kw).as_str() {
+                    "xx-small" => Some(9.0),
+                    "x-small" => Some(10.0),
+                    "small" => Some(13.0),
+                    "medium" => Some(16.0),
+                    "large" => Some(18.0),
+                    "x-large" => Some(24.0),
+                    "xx-large" => Some(32.0),
+                    "xxx-large" => Some(48.0),
+                    "smaller" => Some(parent_size() / 1.2),
+                    "larger" => Some(parent_size() * 1.2),
+                    _ => None,
+                };
+                if let Some(px) = px {
+                    return Value::Unit(px, Unit::Px);
+                }
+            }
+        }
+
         match &raw {
             Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
             Value::Unit(v, Unit::Em) => {
@@ -1483,7 +1688,7 @@ where
         None
     }
 
-    fn background_layers(&self, id: NodeId) -> Vec<Gradient> {
+    fn background_layers(&self, id: NodeId, box_size: (f32, f32)) -> Vec<Gradient> {
         // Read the layers from the pseudo-element's own map, never the owner's.
         let arc = if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
@@ -1531,8 +1736,12 @@ where
             if tw <= 0.0 || th <= 0.0 {
                 continue;
             }
+            // Resolved against the painting area, as `compute_bg_tiling` does for raster images:
+            // `right`, `center` and a percentage all mean a distance that depends on how much
+            // wider the box is than the tile.
             let position = pick(&pos_groups, i)
                 .map(|j| resolve_bg_position(&pos_groups[j]))
+                .map(|(x, y)| (x.resolve(box_size.0, tw), y.resolve(box_size.1, th)))
                 .unwrap_or((0.0, 0.0));
             let repeat = pick(&rep_groups, i)
                 .map(|j| resolve_bg_repeat(&rep_groups[j]))
@@ -1555,7 +1764,7 @@ where
         // / contain`) and then the longhands are usually empty, so scan both.
         let mut keywords: Vec<String> = Vec::new();
         let mut explicit_size: Option<(f32, f32)> = None;
-        let mut position: Option<(f32, f32)> = None;
+        let mut position: Option<(BgAnchor, BgAnchor)> = None;
 
         let mut scan = |key: &str, read_size: bool, read_pos: bool| {
             let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) else {
@@ -1568,11 +1777,8 @@ where
             if read_size && explicit_size.is_none() {
                 explicit_size = resolve_bg_size(group);
             }
-            if read_pos && position.is_none() {
-                let pos = resolve_bg_position(group);
-                if pos != (0.0, 0.0) {
-                    position = Some(pos);
-                }
+            if read_pos && position.is_none() && group.iter().any(is_position_token) {
+                position = Some(resolve_bg_position(group));
             }
             for t in group {
                 if let BgTok::Kw(k) = t {
@@ -1603,19 +1809,18 @@ where
             None if has("contain") => BgSize::Contain,
             None => BgSize::Auto,
         };
-        // A length `background-position` wins; otherwise a bare `center` centers both axes.
-        let (position, center) = match position {
-            Some(pos) => (pos, (false, false)),
-            None if has("center") => ((0.0, 0.0), (true, true)),
-            None => ((0.0, 0.0), (false, false)),
-        };
+        // `background-position` from the longhand wins; otherwise the shorthand's own keywords
+        // (`background: url(x) no-repeat center`) are read as a position.
+        let position = position.unwrap_or_else(|| {
+            let group: Vec<BgTok> = keywords
+                .iter()
+                .filter(|k| is_position_keyword(k))
+                .map(|k| BgTok::Kw(k.clone()))
+                .collect();
+            resolve_bg_position(&group)
+        });
 
-        BgImageLayout {
-            repeat,
-            position,
-            center,
-            size,
-        }
+        BgImageLayout { repeat, position, size }
     }
 
     fn clear_style_cache(&self) {
@@ -1802,5 +2007,107 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "window" | "appworkspace" | "scrollbar" | "background" | "menu" => Some((240, 240, 240, 255)),
         "windowtext" | "menutext" | "infotext" | "inactivecaptiontext" => Some((0, 0, 0, 255)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod bg_position_tests {
+    use super::{resolve_bg_position, BgAnchor, BgTok};
+
+    fn kw(k: &str) -> BgTok {
+        BgTok::Kw(k.to_string())
+    }
+
+    /// The two-keyword form may be written in either order, so `center right` has to mean the same
+    /// as `right center`. Taking the first value as the horizontal one put Wikipedia's
+    /// external-link icon in the middle of every link.
+    #[test]
+    fn keyword_pairs_are_read_in_either_order() {
+        let right_middle = (BgAnchor::End(0.0), BgAnchor::Percent(50.0));
+        assert_eq!(resolve_bg_position(&[kw("right"), kw("center")]), right_middle);
+        assert_eq!(resolve_bg_position(&[kw("center"), kw("right")]), right_middle);
+
+        let middle_top = (BgAnchor::Percent(50.0), BgAnchor::Start(0.0));
+        assert_eq!(resolve_bg_position(&[kw("center"), kw("top")]), middle_top);
+        assert_eq!(resolve_bg_position(&[kw("top"), kw("center")]), middle_top);
+    }
+
+    #[test]
+    fn one_value_centres_the_other_axis() {
+        assert_eq!(
+            resolve_bg_position(&[kw("right")]),
+            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("center")]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(20.0)]),
+            (BgAnchor::Start(20.0), BgAnchor::Percent(50.0))
+        );
+    }
+
+    /// `right 10px` is an offset *from the right edge*, not a position 10px from the left.
+    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length is
+    /// the vertical one. Letting the length take the first empty slot moved the tile sideways.
+    #[test]
+    fn a_leading_center_takes_the_horizontal_axis() {
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Len(4.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Start(4.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Pct(25.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(25.0))
+        );
+        // A trailing `center` still means the vertical axis.
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(4.0), kw("center")]),
+            (BgAnchor::Start(4.0), BgAnchor::Percent(50.0))
+        );
+    }
+
+    #[test]
+    fn an_edge_keyword_swallows_the_length_after_it() {
+        assert_eq!(
+            resolve_bg_position(&[kw("right"), BgTok::Len(10.0), kw("bottom"), BgTok::Len(4.0)]),
+            (BgAnchor::End(10.0), BgAnchor::End(4.0))
+        );
+    }
+
+    #[test]
+    fn lengths_and_percentages_fill_the_axes_in_order() {
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(5.0), BgTok::Len(9.0)]),
+            (BgAnchor::Start(5.0), BgAnchor::Start(9.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Pct(50.0), BgTok::Pct(100.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(100.0))
+        );
+    }
+
+    /// The keywords of a `background` shorthand arrive in the same list as the position ones.
+    #[test]
+    fn non_position_keywords_are_ignored() {
+        assert_eq!(
+            resolve_bg_position(&[kw("no-repeat"), kw("right"), kw("cover")]),
+            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("no-repeat")]),
+            (BgAnchor::Start(0.0), BgAnchor::Start(0.0))
+        );
+    }
+
+    /// An anchor only becomes a pixel offset once the box and the tile are known.
+    #[test]
+    fn anchors_resolve_against_the_box() {
+        assert_eq!(BgAnchor::Start(12.0).resolve(300.0, 20.0), 12.0);
+        assert_eq!(BgAnchor::End(0.0).resolve(300.0, 20.0), 280.0);
+        assert_eq!(BgAnchor::End(10.0).resolve(300.0, 20.0), 270.0);
+        assert_eq!(BgAnchor::Percent(50.0).resolve(300.0, 20.0), 140.0);
+        assert_eq!(BgAnchor::Percent(100.0).resolve(300.0, 20.0), 280.0);
     }
 }

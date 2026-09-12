@@ -120,6 +120,10 @@ pub struct FixListInfo {
     /// Shadow depth of the declaring sheet, carried through shorthand expansion so the
     /// longhands it produces keep the cross-tree half of the cascade.
     shadow_depth: u16,
+    /// Document-order position of the shorthand being expanded. The longhands inherit it, so a
+    /// longhand declared *after* the shorthand still wins the cascade even though every
+    /// expansion is applied after all the direct declarations.
+    order: u32,
 }
 
 impl FixListInfo {
@@ -130,6 +134,7 @@ impl FixListInfo {
         location: String,
         specificity: Specificity,
         shadow_depth: u16,
+        order: u32,
     ) -> Self {
         Self {
             origin,
@@ -137,6 +142,7 @@ impl FixListInfo {
             location,
             specificity,
             shadow_depth,
+            order,
         }
     }
 }
@@ -378,6 +384,7 @@ impl FixList {
                 specificity: info.specificity,
                 location: info.location.clone(),
                 shadow_depth: info.shadow_depth,
+                order: info.order,
             }
         } else {
             DeclarationProperty {
@@ -396,6 +403,7 @@ impl FixList {
                 // fall back to losing on specificity, exactly as they did before there was
                 // a cross-tree comparison at all.
                 shadow_depth: u16::MAX,
+                order: 0,
             }
         }
     }
@@ -438,6 +446,20 @@ impl FixList {
             let Some(decl) = decl.iter().max() else { continue };
 
             had_shorthands = true;
+
+            // The longhands a *nested* shorthand expands to are still the author's declaration and
+            // must carry its cascade metadata. Without this they fell through to the synthesized
+            // default below - author origin, zero specificity, order 0, depth `u16::MAX` - so for
+            // `border-left-width: 4px; border: 1px solid` the `border-left-width` produced by the
+            // second declaration lost to the first, and the earlier longhand won.
+            fix_list.set_info(FixListInfo::new(
+                decl.origin,
+                decl.important,
+                decl.location.clone(),
+                decl.specificity,
+                decl.shadow_depth,
+                decl.order,
+            ));
 
             prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list);
         }

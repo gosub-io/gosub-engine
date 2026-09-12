@@ -301,9 +301,15 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     let mut fix_list = FixList::new();
 
+    // Document-order position of each declaration, the cascade's last tiebreak. `matched` is in
+    // stylesheet order and `declarations()` in source order, so a simple running counter is
+    // exactly the order the author wrote.
+    let mut order: u32 = 0;
+
     for (sheet, rule, specificity, depth) in matched {
         // Selector matched, so we add all declared values to the map
         for declaration in rule.declarations() {
+            order += 1;
             // Custom property declarations were consumed above; keep them out of
             // the regular cascade.
             if declaration.property.starts_with("--") {
@@ -329,6 +335,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         important: declaration.important,
                     },
                     depth,
+                    order,
                 );
                 continue;
             }
@@ -353,6 +360,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         sheet.url.clone(),
                         specificity,
                         depth,
+                        order,
                     ));
 
                     // Each CSS declaration starts with a fresh TRBL multiplier
@@ -387,6 +395,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                         important: declaration.important,
                                     },
                                     depth,
+                                    order,
                                 );
                                 recovered = true;
                             }
@@ -401,6 +410,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                         important: declaration.important,
                                     },
                                     depth,
+                                    order,
                                 );
                                 recovered = true;
                             }
@@ -435,6 +445,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             important: declaration.important,
                         },
                         depth,
+                        order,
                     );
                 }
                 None => {
@@ -464,6 +475,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             important: declaration.important,
                         },
                         depth,
+                        order,
                     );
                 }
             }
@@ -545,6 +557,7 @@ pub fn add_property_to_map(
     specificity: Specificity,
     declaration: &CssDeclaration,
     shadow_depth: u16,
+    order: u32,
 ) {
     let property_name = declaration.property.clone();
 
@@ -556,6 +569,7 @@ pub fn add_property_to_map(
         location: sheet.url.clone(),
         specificity,
         shadow_depth,
+        order,
     };
 
     css_map_entry
@@ -655,7 +669,14 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
 
     match doc.node_type(id) {
         NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),
-        NodeType::TextNode => doc.text_value(id).is_some_and(|v| v.chars().all(char::is_whitespace)),
+        // Only *collapsible* whitespace makes a text node unrenderable. `char::is_whitespace` is
+        // the Unicode set, which includes U+00A0 NO-BREAK SPACE and the other fixed-width spaces -
+        // characters CSS renders like any other, and which exist precisely to be kept. Parsoid
+        // wraps every entity in its own element, so `Designed<span>&nbsp;</span>by` had the whole
+        // span dropped and Wikipedia's infoboxes read "Designedby", "Firstappeared", "May1, 1964".
+        NodeType::TextNode => doc
+            .text_value(id)
+            .is_some_and(|v| v.chars().all(|c: char| c.is_ascii_whitespace())),
         _ => false,
     }
 }

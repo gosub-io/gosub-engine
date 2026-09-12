@@ -289,6 +289,9 @@ pub enum StyleProperty {
     GridTemplateColumns,
     GridAutoRows,
     GridAutoColumns,
+    GridArea,
+    GridTemplateAreas,
+    CaptionSide,
     FontStyle,
     WhiteSpace,
     TextDecorationLine,
@@ -387,6 +390,9 @@ impl StyleProperty {
             StyleProperty::MixBlendMode => 77,
             StyleProperty::Float => 78,
             StyleProperty::Clear => 79,
+            StyleProperty::GridArea => 80,
+            StyleProperty::GridTemplateAreas => 81,
+            StyleProperty::CaptionSide => 82,
         }
     }
 
@@ -933,6 +939,25 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("none"),
     },
+    // 80 grid-area - the shorthand, kept whole: a single named area (`grid-area: content`) is
+    // the form that matters, and it is resolved against the container's `grid-template-areas`.
+    PropertyMeta {
+        name: "grid-area",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 81 grid-template-areas
+    PropertyMeta {
+        name: "grid-template-areas",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 82 caption-side - inherited, so a caption picks it up from the table it belongs to
+    PropertyMeta {
+        name: "caption-side",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("top"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1074,6 +1099,9 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         77 => Some(StyleProperty::MixBlendMode),
         78 => Some(StyleProperty::Float),
         79 => Some(StyleProperty::Clear),
+        80 => Some(StyleProperty::GridArea),
+        81 => Some(StyleProperty::GridTemplateAreas),
+        82 => Some(StyleProperty::CaptionSide),
         _ => None,
     }
 }

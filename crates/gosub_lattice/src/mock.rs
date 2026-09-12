@@ -29,6 +29,10 @@ pub struct MockCell {
     pub padding: f32,
     /// Natural (pre-pass) border-box width reported via `cell_content_width`.
     pub content_width: f32,
+    /// Min-content border-box width reported via `cell_min_content_width`.
+    pub min_content_width: f32,
+    /// For a `TableRole::Caption` node: whether it sits below the table (`caption-side: bottom`).
+    pub caption_at_bottom: bool,
     /// Content height reported by `layout_cell` (as if children were laid out).
     pub content_height: f32,
 }
@@ -44,6 +48,8 @@ impl MockCell {
             border: 0.0,
             padding: 1.0,
             content_width: 0.0,
+            min_content_width: 0.0,
+            caption_at_bottom: false,
             content_height: 0.0,
         }
     }
@@ -74,6 +80,15 @@ impl MockCell {
     }
     pub fn content_width(mut self, w: f32) -> Self {
         self.content_width = w;
+        self
+    }
+    pub fn min_content_width(mut self, w: f32) -> Self {
+        self.min_content_width = w;
+        self
+    }
+    /// Place a caption below the table rather than above it.
+    pub fn caption_at_bottom(mut self) -> Self {
+        self.caption_at_bottom = true;
         self
     }
     pub fn content_height(mut self, h: f32) -> Self {
@@ -200,6 +215,8 @@ struct MockNode {
     border: f32,
     padding: f32,
     content_width: f32,
+    min_content_width: f32,
+    caption_at_bottom: bool,
     content_height: f32,
 }
 
@@ -248,6 +265,8 @@ impl MockTree {
                 border,
                 padding,
                 content_width: 0.0,
+                min_content_width: 0.0,
+                caption_at_bottom: false,
                 content_height: 0.0,
             },
         );
@@ -268,7 +287,20 @@ impl MockTree {
         );
         if let Some(node) = self.nodes.get_mut(&id) {
             node.content_width = mc.content_width;
+            node.min_content_width = mc.min_content_width;
+            node.caption_at_bottom = mc.caption_at_bottom;
             node.content_height = mc.content_height;
+        }
+        id
+    }
+
+    /// Allocate a `TableRole::Caption` node from a [`MockCell`] spec. The spec's `height` is what
+    /// `caption_height` reports, standing in for a measured caption, and `caption_at_bottom`
+    /// chooses the side.
+    pub fn alloc_caption(&mut self, mc: MockCell) -> u32 {
+        let id = self.alloc_cell(mc);
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.role = TableRole::Caption;
         }
         id
     }
@@ -356,6 +388,20 @@ impl TableTree for MockTree {
 
     fn cell_content_width(&self, id: u32) -> f32 {
         self.nodes.get(&id).map(|n| n.content_width).unwrap_or(0.0)
+    }
+
+    fn cell_min_content_width(&mut self, id: u32) -> f32 {
+        self.nodes.get(&id).map(|n| n.min_content_width).unwrap_or(0.0)
+    }
+
+    fn caption_at_bottom(&self, id: u32) -> bool {
+        self.nodes.get(&id).is_some_and(|n| n.caption_at_bottom)
+    }
+
+    /// A mock caption carries no content, so its explicit CSS `height` stands in for the height
+    /// the layout engine would have measured.
+    fn caption_height(&mut self, id: u32, _width: f32) -> f32 {
+        self.nodes.get(&id).and_then(|n| n.height).unwrap_or(0.0)
     }
 }
 
