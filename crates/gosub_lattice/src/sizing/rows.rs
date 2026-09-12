@@ -23,21 +23,21 @@ use crate::TableTree;
 pub fn compute_row_heights<T: TableTree>(
     tree: &mut T,
     grid: &SectionGrid<T::NodeId>,
-    col_widths: &[f32],
-    spacing_x: f32,
-    spacing_y: f32,
-    content_heights: &mut HashMap<T::NodeId, f32>,
+    col_widths: &[f64],
+    spacing_x: f64,
+    spacing_y: f64,
+    content_heights: &mut HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
-    baseline_shifts: &mut HashMap<T::NodeId, f32>,
-) -> Vec<f32> {
-    let mut heights = vec![0.0_f32; grid.n_rows];
+    baseline_shifts: &mut HashMap<T::NodeId, f64>,
+) -> Vec<f64> {
+    let mut heights = vec![0.0_f64; grid.n_rows];
 
     // Baseline alignment (CSS 2 §17.5.3): cells with `vertical-align: baseline` share a
     // row baseline - the deepest first-line baseline among them; shallower cells shift
     // down by the difference, which can grow the row.
-    let mut measured: Vec<(&PlacedCell<T::NodeId>, f32)> = Vec::new();
-    let mut row_baseline = vec![0.0_f32; grid.n_rows];
-    let mut cell_baselines: HashMap<T::NodeId, f32> = HashMap::new();
+    let mut measured: Vec<(&PlacedCell<T::NodeId>, f64)> = Vec::new();
+    let mut row_baseline = vec![0.0_f64; grid.n_rows];
+    let mut cell_baselines: HashMap<T::NodeId, f64> = HashMap::new();
 
     for cell in grid.cells() {
         if cell.rowspan != 1 {
@@ -83,9 +83,9 @@ pub fn compute_row_heights<T: TableTree>(
         if n_rows == 0 {
             continue;
         }
-        let current: f32 = heights[span.clone()].iter().sum::<f32>() + spacing_y * n_rows.saturating_sub(1) as f32;
+        let current: f64 = heights[span.clone()].iter().sum::<f64>() + spacing_y * n_rows.saturating_sub(1) as f64;
         if cell_h > current {
-            let add = (cell_h - current) / n_rows as f32;
+            let add = (cell_h - current) / n_rows as f64;
             for h in &mut heights[span] {
                 *h += add;
             }
@@ -101,17 +101,17 @@ pub fn compute_row_heights<T: TableTree>(
 fn measure_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
-    col_widths: &[f32],
-    spacing_x: f32,
+    col_widths: &[f64],
+    spacing_x: f64,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
-) -> (f32, f32) {
+) -> (f64, f64) {
     let border = effective_border(tree, cell.node, collapsed_borders);
     let padding = read_padding(tree, cell.node);
 
     // Inner width available to the cell's children: the spanned columns plus
     // the gutters a colspan cell runs across, minus the cell's own edges.
     let spanned = col_widths.get(cell.col..cell.col + cell.colspan).unwrap_or(&[]);
-    let cell_col_w: f32 = spanned.iter().sum::<f32>() + spacing_x * spanned.len().saturating_sub(1) as f32;
+    let cell_col_w: f64 = spanned.iter().sum::<f64>() + spacing_x * spanned.len().saturating_sub(1) as f64;
     let inner_w = (cell_col_w - border.horizontal() - padding.horizontal()).max(0.0);
 
     // Ask the implementor to lay out the cell's children and report their height.

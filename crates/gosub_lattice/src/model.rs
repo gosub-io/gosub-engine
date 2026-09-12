@@ -15,7 +15,7 @@ pub struct TableModel<N> {
     pub sizing: TableSizing,
     pub border_collapse: BorderCollapse,
     /// `border-spacing` horizontal and vertical values in pixels.
-    pub border_spacing: (f32, f32),
+    pub border_spacing: (f64, f64),
 }
 
 pub struct ColGroup<N> {
@@ -119,16 +119,20 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             // box. Representing the whole run needs either a synthetic node id, which the
             // `TableTree` contract has no way to mint, or a cell that carries several nodes.
             TableRole::Other => {
-                let group = anon_body_group(&mut model.row_groups);
-                let row = anon_row(&mut group.rows);
-                if in_anonymous_run {
-                    continue;
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    ensure_anon_row(&mut group.rows);
+                    if in_anonymous_run {
+                        continue;
+                    }
+                    if let Some(row) = group.rows.last_mut() {
+                        row.cells.push(SourceCell {
+                            node: child,
+                            colspan: 1,
+                            rowspan: 1,
+                        });
+                    }
                 }
-                row.cells.push(SourceCell {
-                    node: child,
-                    colspan: 1,
-                    rowspan: 1,
-                });
                 in_anonymous_run = true;
                 continue;
             }
@@ -235,7 +239,7 @@ fn parse_border_collapse<T: TableTree>(tree: &T, node: T::NodeId) -> BorderColla
     }
 }
 
-fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f32, f32) {
+fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f64, f64) {
     let x = tree.css_length(node, CssProp::BorderSpacingX).px_or(2.0);
     let y = tree.css_length(node, CssProp::BorderSpacingY).px_or(2.0);
     (x, y)

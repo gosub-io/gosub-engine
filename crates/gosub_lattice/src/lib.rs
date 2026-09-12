@@ -45,7 +45,7 @@ pub trait TableTree {
     /// For mock/test trees that carry no real child content, returning `0.0`
     /// is correct - explicit CSS `height` on the cell will still be respected
     /// by the row-height algorithm.
-    fn layout_cell(&mut self, id: Self::NodeId, available_width: f32) -> f32;
+    fn layout_cell(&mut self, id: Self::NodeId, available_width: f64) -> f64;
 
     /// Returns the natural (pre-pass) border-box width of cell `id` as
     /// measured by the layout engine in a prior pass (e.g. Taffy).  Used to
@@ -57,7 +57,7 @@ pub trait TableTree {
     /// replaced box); max-content is its width with no wrapping at all. Takes
     /// `&mut self` because implementors typically have to run layout passes to
     /// measure. Return `(0.0, 0.0)` for mock/test trees with no real content.
-    fn cell_intrinsic_widths(&mut self, _id: Self::NodeId) -> (f32, f32) {
+    fn cell_intrinsic_widths(&mut self, _id: Self::NodeId) -> (f64, f64) {
         (0.0, 0.0)
     }
 
@@ -73,7 +73,7 @@ pub trait TableTree {
     /// Distance from the top of cell `id`'s BORDER box to the baseline of its first
     /// in-flow line box, measured after `layout_cell` has run for the cell. `None`
     /// when the cell has no line box (empty cells align top).
-    fn cell_baseline(&mut self, _id: Self::NodeId) -> Option<f32> {
+    fn cell_baseline(&mut self, _id: Self::NodeId) -> Option<f64> {
         None
     }
 

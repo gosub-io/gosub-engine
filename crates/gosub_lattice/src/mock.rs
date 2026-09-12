@@ -20,23 +20,23 @@ pub struct MockCell {
     pub colspan: usize,
     pub rowspan: usize,
     /// Explicit pixel width, if any.
-    pub width: Option<f32>,
+    pub width: Option<f64>,
     /// Explicit percentage width, if any (wins over `width`).
-    pub width_pct: Option<f32>,
+    pub width_pct: Option<f64>,
     /// Explicit pixel height, if any.
-    pub height: Option<f32>,
+    pub height: Option<f64>,
     /// Uniform border width on all sides.
-    pub border: f32,
+    pub border: f64,
     /// Uniform padding on all sides.
-    pub padding: f32,
+    pub padding: f64,
     /// Max-content border-box width reported via `cell_intrinsic_widths`.
-    pub content_width: f32,
+    pub content_width: f64,
     /// First-line baseline offset reported via `cell_baseline`.
-    pub baseline: Option<f32>,
+    pub baseline: Option<f64>,
     /// Min-content border-box width reported via `cell_intrinsic_widths`.
-    pub min_content_width: f32,
+    pub min_content_width: f64,
     /// Content height reported by `layout_cell` (as if children were laid out).
-    pub content_height: f32,
+    pub content_height: f64,
     /// `vertical-align` for the cell.
     pub valign: VerticalAlign,
 }
@@ -68,39 +68,39 @@ impl MockCell {
         self.rowspan = n;
         self
     }
-    pub fn width(mut self, w: f32) -> Self {
+    pub fn width(mut self, w: f64) -> Self {
         self.width = Some(w);
         self
     }
-    pub fn width_pct(mut self, p: f32) -> Self {
+    pub fn width_pct(mut self, p: f64) -> Self {
         self.width_pct = Some(p);
         self
     }
-    pub fn height(mut self, h: f32) -> Self {
+    pub fn height(mut self, h: f64) -> Self {
         self.height = Some(h);
         self
     }
-    pub fn border(mut self, b: f32) -> Self {
+    pub fn border(mut self, b: f64) -> Self {
         self.border = b;
         self
     }
-    pub fn padding(mut self, p: f32) -> Self {
+    pub fn padding(mut self, p: f64) -> Self {
         self.padding = p;
         self
     }
-    pub fn content_width(mut self, w: f32) -> Self {
+    pub fn content_width(mut self, w: f64) -> Self {
         self.content_width = w;
         self
     }
-    pub fn min_content_width(mut self, w: f32) -> Self {
+    pub fn min_content_width(mut self, w: f64) -> Self {
         self.min_content_width = w;
         self
     }
-    pub fn content_height(mut self, h: f32) -> Self {
+    pub fn content_height(mut self, h: f64) -> Self {
         self.content_height = h;
         self
     }
-    pub fn baseline(mut self, b: f32) -> Self {
+    pub fn baseline(mut self, b: f64) -> Self {
         self.baseline = Some(b);
         self
     }
@@ -120,24 +120,24 @@ pub fn cell(label: impl Into<String>) -> MockCell {
 
 #[derive(Default)]
 pub struct MockTable {
-    available_width: f32,
+    available_width: f64,
     /// Explicit CSS `width` on the table element; `None` = auto (shrink-to-fit).
-    table_width: Option<f32>,
-    border_spacing_x: f32,
-    border_spacing_y: f32,
+    table_width: Option<f64>,
+    border_spacing_x: f64,
+    border_spacing_y: f64,
     fixed_layout: bool,
     collapse: bool,
     /// Caption content height and whether it sits at the bottom.
-    caption: Option<(f32, bool)>,
+    caption: Option<(f64, bool)>,
     /// One entry per `<col>` element: its explicit width, or `None` for auto.
-    cols: Vec<Option<f32>>,
+    cols: Vec<Option<f64>>,
     header_rows: Vec<Vec<MockCell>>,
     body_rows: Vec<Vec<MockCell>>,
     footer_rows: Vec<Vec<MockCell>>,
 }
 
 impl MockTable {
-    pub fn new(available_width: f32) -> Self {
+    pub fn new(available_width: f64) -> Self {
         Self {
             available_width,
             border_spacing_x: 1.0,
@@ -146,14 +146,14 @@ impl MockTable {
         }
     }
 
-    pub fn spacing(mut self, x: f32, y: f32) -> Self {
+    pub fn spacing(mut self, x: f64, y: f64) -> Self {
         self.border_spacing_x = x;
         self.border_spacing_y = y;
         self
     }
 
     /// Explicit CSS `width` on the table element.
-    pub fn width(mut self, w: f32) -> Self {
+    pub fn width(mut self, w: f64) -> Self {
         self.table_width = Some(w);
         self
     }
@@ -171,13 +171,13 @@ impl MockTable {
     }
 
     /// Add a caption with the given content height; `bottom` = `caption-side: bottom`.
-    pub fn caption(mut self, content_height: f32, bottom: bool) -> Self {
+    pub fn caption(mut self, content_height: f64, bottom: bool) -> Self {
         self.caption = Some((content_height, bottom));
         self
     }
 
     /// Append a `<col>` element with an optional explicit width.
-    pub fn col(mut self, width: Option<f32>) -> Self {
+    pub fn col(mut self, width: Option<f64>) -> Self {
         self.cols.push(width);
         self
     }
@@ -282,23 +282,23 @@ struct MockNode {
     rowspan: usize,
     children: Vec<u32>,
     layout: Option<CellLayout>,
-    width: Option<f32>,
-    width_pct: Option<f32>,
-    height: Option<f32>,
-    border: f32,
-    padding: f32,
-    content_width: f32,
-    min_content_width: f32,
-    content_height: f32,
+    width: Option<f64>,
+    width_pct: Option<f64>,
+    height: Option<f64>,
+    border: f64,
+    padding: f64,
+    content_width: f64,
+    min_content_width: f64,
+    content_height: f64,
     valign: VerticalAlign,
-    baseline: Option<f32>,
+    baseline: Option<f64>,
 }
 
 pub struct MockTree {
     nodes: HashMap<u32, MockNode>,
     next_id: u32,
-    border_spacing_x: f32,
-    border_spacing_y: f32,
+    border_spacing_x: f64,
+    border_spacing_y: f64,
     /// `table-layout: fixed`, reported for the table node via the Px(1.0) sentinel.
     pub fixed_layout: bool,
     /// `border-collapse: collapse`, reported via the Px(1.0) sentinel.
@@ -308,7 +308,7 @@ pub struct MockTree {
 }
 
 impl MockTree {
-    pub fn new(border_spacing_x: f32, border_spacing_y: f32) -> Self {
+    pub fn new(border_spacing_x: f64, border_spacing_y: f64) -> Self {
         Self {
             nodes: HashMap::new(),
             next_id: 0,
@@ -327,10 +327,10 @@ impl MockTree {
         label: Option<String>,
         colspan: usize,
         rowspan: usize,
-        width: Option<f32>,
-        height: Option<f32>,
-        border: f32,
-        padding: f32,
+        width: Option<f64>,
+        height: Option<f64>,
+        border: f64,
+        padding: f64,
     ) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
@@ -461,7 +461,7 @@ impl TableTree for MockTree {
         }
     }
 
-    fn layout_cell(&mut self, id: u32, _available_width: f32) -> f32 {
+    fn layout_cell(&mut self, id: u32, _available_width: f64) -> f64 {
         // MockTree carries no real child content; a cell's `content_height`
         // spec field stands in for the height its children would occupy.
         // Cells without one (the default 0.0) are driven by explicit CSS
@@ -469,7 +469,7 @@ impl TableTree for MockTree {
         self.nodes.get(&id).map(|n| n.content_height).unwrap_or(0.0)
     }
 
-    fn cell_intrinsic_widths(&mut self, id: u32) -> (f32, f32) {
+    fn cell_intrinsic_widths(&mut self, id: u32) -> (f64, f64) {
         self.nodes
             .get(&id)
             .map(|n| (n.min_content_width, n.content_width.max(n.min_content_width)))
@@ -480,7 +480,7 @@ impl TableTree for MockTree {
         self.nodes.get(&id).map(|n| n.valign).unwrap_or_default()
     }
 
-    fn cell_baseline(&mut self, id: u32) -> Option<f32> {
+    fn cell_baseline(&mut self, id: u32) -> Option<f64> {
         self.nodes.get(&id).and_then(|n| n.baseline)
     }
 }

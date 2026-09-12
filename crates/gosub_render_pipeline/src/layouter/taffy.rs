@@ -799,10 +799,10 @@ impl TaffyLayouter {
             return;
         };
         let mut style = style.clone();
-        style.border.top = LengthPercentage::length(borders.top);
-        style.border.right = LengthPercentage::length(borders.right);
-        style.border.bottom = LengthPercentage::length(borders.bottom);
-        style.border.left = LengthPercentage::length(borders.left);
+        style.border.top = LengthPercentage::length(borders.top as f32);
+        style.border.right = LengthPercentage::length(borders.right as f32);
+        style.border.bottom = LengthPercentage::length(borders.bottom as f32);
+        style.border.left = LengthPercentage::length(borders.left as f32);
         if let Err(e) = self.tree.set_style(taffy_id, style) {
             log::warn!(
                 "lattice: failed to set collapsed borders for {:?}: {:?}",
