@@ -210,6 +210,66 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A descendant combinator has to try *every* ancestor, not commit to the nearest one that
+    /// matched the part beside it.
+    ///
+    /// `.a > .b .c` matches here: the OUTER `.b` is a child of `.a`, and `p.c` is its
+    /// descendant. Walking from `.c`, the nearest `.b` ancestor is the inner one, whose parent
+    /// is not `.a` - so a matcher that commits there answers "no match" and is wrong.
+    #[test]
+    fn a_descendant_combinator_tries_every_ancestor() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+        use gosub_interface::document::Document as _;
+
+        fn width_of_c(html: &str) -> Value {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target = find_node_by_class_attr(&adapter.doc, root, "c").expect("p.c exists");
+            adapter.get_style(target, &StyleProperty::Width)
+        }
+
+        fn find_node_by_class_attr(
+            doc: &DocumentImpl<Config>,
+            node: gosub_shared::node::NodeId,
+            target: &str,
+        ) -> Option<gosub_shared::node::NodeId> {
+            if let Some(attrs) = doc.attributes(node) {
+                if attrs.get("class").map(|s| s.as_str()) == Some(target) {
+                    return Some(node);
+                }
+            }
+            for &child in doc.children(node) {
+                if let Some(found) = find_node_by_class_attr(doc, child, target) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        const STYLE: &str = "<style>.a > .b .c { width: 200px; display: block }</style>";
+
+        // The control: one `.b`, so there is nothing to climb past.
+        let single = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><p class=\"c\">x</p></div></div></body></html>"
+        ));
+        assert!(
+            matches!(single, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "control case must match, got {single:?}"
+        );
+
+        // The regression: a second `.b` nested inside the first.
+        let nested = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><div class=\"b\"><p class=\"c\">x</p></div></div></div></body></html>"
+        ));
+        assert!(
+            matches!(nested, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "the outer .b satisfies `.a > .b`, so the selector matches, got {nested:?}"
+        );
+    }
+
     #[test]
     fn minimal_document_has_root() {
         let rt = parse_to_rendertree("<html><body><p>Hello</p></body></html>");

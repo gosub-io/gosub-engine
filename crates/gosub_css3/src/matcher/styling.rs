@@ -430,27 +430,34 @@ fn match_selector_part<C: HasDocument>(
         CssSelectorPart::PseudoElement(name) => pseudo.is_some_and(|target| pseudo_eq(name, target)),
         CssSelectorPart::Combinator(combinator) => match combinator {
             Combinator::Descendant => {
-                let Some(mut parent_id) = doc.parent(current_id) else {
+                // Every ancestor is a candidate, and the *whole* rest of the selector has to
+                // match from it - not merely the one part to the left of this combinator.
+                //
+                // Testing a single part and committing to the first ancestor that matched it
+                // made `.a > .b .c` miss
+                // `<div class=a><div class=b><div class=b><p class=c>`: from the `.c` it found
+                // the inner `.b`, committed, then required *that* one's parent to be `.a`.
+                // It is not, so matching gave up rather than climbing to the outer `.b` - which
+                // does satisfy the selector. Recursing on the remainder is what lets it climb.
+                let rest = *parts;
+                if rest.is_empty() {
+                    // A selector that begins with a combinator. Nothing to match to the left of
+                    // it, and an empty remainder trivially "matches", so refuse it explicitly.
                     return false;
-                };
+                }
+                // This arm consumes the remainder itself, so the caller's loop has nothing left
+                // to walk and stops on whatever we answer.
+                *parts = &[];
+                *next_id = None;
 
-                let Some(last) = consume(parts) else {
-                    return false;
-                };
-
-                loop {
-                    *next_id = Some(parent_id);
-
-                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo, scope) {
+                let mut ancestor = doc.parent(current_id);
+                while let Some(id) = ancestor {
+                    if match_selector_parts::<C>(doc, id, rest, pseudo, scope) {
                         return true;
                     }
-
-                    let Some(p) = doc.parent(parent_id) else {
-                        return false;
-                    };
-
-                    parent_id = p;
+                    ancestor = doc.parent(id);
                 }
+                false
             }
             Combinator::Child => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -494,22 +501,28 @@ fn match_selector_part<C: HasDocument>(
                 match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo, scope)
             }
             Combinator::SubsequentSibling => {
+                // Same as the descendant case, over preceding siblings rather than ancestors:
+                // several of them may match the part on the left, and only some of those may
+                // satisfy what lies further left still.
                 let Some(parent_id) = doc.parent(current_id) else {
                     return false;
                 };
 
                 let children: Vec<NodeId> = doc.children(parent_id).to_vec();
 
-                let Some(last) = consume(parts) else {
+                let rest = *parts;
+                if rest.is_empty() {
                     return false;
-                };
+                }
+                *parts = &[];
+                *next_id = None;
 
                 for child_id in children {
                     if child_id == current_id {
                         break;
                     }
 
-                    if match_selector_part::<C>(last, child_id, doc, next_id, parts, pseudo, scope) {
+                    if match_selector_parts::<C>(doc, child_id, rest, pseudo, scope) {
                         return true;
                     }
                 }
