@@ -112,6 +112,20 @@ impl RangeType {
         matches!(self.min, NumberOrInfinity::None) && matches!(self.max, NumberOrInfinity::None)
     }
 
+    /// The lower bound as a number, or `None` when the range does not set one.
+    ///
+    /// Used by the computed-value clamp, which needs the bound itself rather than a yes/no
+    /// answer: `contains()` can say `width: calc(-5px)` is out of range, but only the bound
+    /// says what to replace it with.
+    pub(crate) fn min_bound(&self) -> Option<f64> {
+        bound(self.min)
+    }
+
+    /// The upper bound as a number, or `None` when the range does not set one.
+    pub(crate) fn max_bound(&self) -> Option<f64> {
+        bound(self.max)
+    }
+
     /// Returns true when `value` lies within the range. An unset or infinite bound is
     /// treated as unbounded on that side, so an empty range accepts every value.
     pub(crate) fn contains(&self, value: f64) -> bool {
@@ -126,6 +140,16 @@ impl RangeType {
             NumberOrInfinity::FiniteI64(n) => value <= n as f64,
         };
         above_min && below_max
+    }
+}
+
+/// One end of a range as a number. `None` and an infinity both mean unbounded, and both answer
+/// `None` - clamping to infinity is the same as not clamping, and saying so once here keeps the
+/// callers from having to know the difference.
+fn bound(end: NumberOrInfinity) -> Option<f64> {
+    match end {
+        NumberOrInfinity::None | NumberOrInfinity::Infinity | NumberOrInfinity::NegativeInfinity => None,
+        NumberOrInfinity::FiniteI64(n) => Some(n as f64),
     }
 }
 

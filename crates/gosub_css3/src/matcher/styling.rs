@@ -16,6 +16,7 @@ use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
 use crate::system::Css3System;
+use crate::tokenizer::NumberKind;
 
 // Matches a complete selector (all parts) against the given node(id).
 //
@@ -790,7 +791,68 @@ impl CssProperty {
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
         // containing block, and the units nothing has a value for.
-        resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis)
+        let computed = resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis);
+
+        self.clamp_to_range(computed)
+    }
+
+    /// Bring a computed value inside the range its property allows (css-values-4 §10.12).
+    ///
+    /// This is what a property's `[0,∞]` does for a math function. The matcher cannot apply it
+    /// when the declaration is parsed - `width: calc(-5px)` is a valid declaration whose result
+    /// is not known yet - so the range waits here and clamps the answer instead of throwing the
+    /// declaration away. `width: -5px` is still rejected outright, because a literal *is* known
+    /// when it is parsed.
+    ///
+    /// Clamping is not conditional on the value having come from a math function. It does not
+    /// need to be: a literal that the range would have caught never reaches here, and for the
+    /// properties whose range comes from their computed-value line rather than their grammar
+    /// (`opacity` and its kin) the clamp is meant to apply to every value - `opacity: 1.5`
+    /// computes to `1`.
+    fn clamp_to_range(&self, computed: CssValue) -> CssValue {
+        // Only a single number has a magnitude to clamp. A list is several values, and the range
+        // belongs to whichever grammar arm each one matched - which is not recorded.
+        let magnitude = match &computed {
+            CssValue::Number(n, _) | CssValue::Percentage(n) | CssValue::Unit(n, _) => *n,
+            CssValue::Zero => 0.0,
+            _ => return computed,
+        };
+
+        let defs = get_css_definitions();
+        let Some(def) = defs.find_property(&self.name) else {
+            return computed;
+        };
+        // A shorthand's own value is never what gets computed - it is expanded into longhands
+        // first - and the range it reports is whatever range its longhands' grammars happened to
+        // mention, which belongs to those longhands rather than to the shorthand.
+        if def.is_shorthand() {
+            return computed;
+        }
+        let Some((min, max)) = def.computed_range() else {
+            return computed;
+        };
+
+        // NaN comes out as the bound rather than travelling on: `f64::max` answers the operand
+        // that is not NaN, which is what css-values-4 asks for - `animation-duration:
+        // calc(NaN * 1s)` computes to `0s`, not to NaN.
+        let mut clamped = magnitude;
+        if let Some(min) = min {
+            clamped = clamped.max(min);
+        }
+        if let Some(max) = max {
+            clamped = clamped.min(max);
+        }
+        if clamped == magnitude {
+            return computed;
+        }
+
+        match computed {
+            CssValue::Number(_, kind) => CssValue::Number(clamped, kind),
+            CssValue::Percentage(_) => CssValue::Percentage(clamped),
+            CssValue::Unit(_, unit) => CssValue::Unit(clamped, unit),
+            CssValue::Zero => CssValue::Number(clamped, NumberKind::Number),
+            other => other,
+        }
     }
 
     fn find_used_value(&self) -> CssValue {
@@ -1149,6 +1211,99 @@ mod tests {
 
             assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
         }
+    }
+
+    /// Compute one declared value for `name`, the way the cascade would.
+    fn computed_for(name: &str, value: CssValue) -> CssValue {
+        let mut prop = CssProperty::new(name);
+        prop.declared.push(DeclarationProperty {
+            value,
+            origin: CssOrigin::Author,
+            important: false,
+            location: String::new(),
+            specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
+        });
+        prop.compute_value().clone()
+    }
+
+    #[test]
+    fn a_computed_value_is_clamped_into_the_property_s_range() {
+        // css-values-4 §10.12. `width` is `<length-percentage [0,∞]>`, and a math function is
+        // not range-checked when it is parsed, so the range has to bite here instead.
+        assert_eq!(
+            computed_for("width", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(0.0, "px".into())
+        );
+        assert_eq!(
+            computed_for("width", CssValue::Percentage(-10.0)),
+            CssValue::Percentage(0.0)
+        );
+        // `tab-size` is `<number [0,∞]>`, so the same rule reaches a bare number.
+        assert_eq!(
+            computed_for("tab-size", CssValue::Number(-8.0, NumberKind::Number)),
+            CssValue::Number(0.0, NumberKind::Number)
+        );
+        // And `column-count` is `<integer [1,∞]>`, where the bound is not zero.
+        assert_eq!(
+            computed_for("column-count", CssValue::Number(0.0, NumberKind::Integer)),
+            CssValue::Number(1.0, NumberKind::Integer)
+        );
+
+        // NaN comes out as the bound rather than travelling on: css-values-4 asks for
+        // `animation-duration: calc(NaN * 1s)` to compute to `0s`.
+        assert_eq!(
+            computed_for("width", CssValue::Unit(f64::NAN, "px".into())),
+            CssValue::Unit(0.0, "px".into())
+        );
+
+        // The other half of the rule, and the reason clamping is not a way round the matcher: a
+        // *literal* out of range is still rejected outright, because its value is known when the
+        // declaration is parsed. Only a math function gets to be clamped instead.
+        let defs = get_css_definitions();
+        let width = defs.find_property("width").expect("width is defined");
+        assert!(!width.matches(&[CssValue::Unit(-5.0, "px".into())]));
+        assert!(width.matches(&[CssValue::Unit(5.0, "px".into())]));
+        assert!(width.matches(&[CssValue::Function(
+            "calc".to_string(),
+            vec![CssValue::Unit(-5.0, "px".into())]
+        )]));
+    }
+
+    #[test]
+    fn opacity_is_clamped_by_its_computed_value_line_rather_than_its_grammar() {
+        // `<opacity-value>` is `<number> | <percentage>` with no bounds written on it at all -
+        // the [0,1] lives in css-color-4's computed-value line, and unlike a grammar range it
+        // applies to every value, not only to math results. So `opacity: 1.5` computes to `1`.
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(1.5, NumberKind::Number)),
+            CssValue::Number(1.0, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(-1.0, NumberKind::Number)),
+            CssValue::Number(0.0, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(0.4, NumberKind::Number)),
+            CssValue::Number(0.4, NumberKind::Number)
+        );
+    }
+
+    #[test]
+    fn a_property_with_no_range_is_left_alone() {
+        // Negative values are meaningful for these, and nothing in their grammar says otherwise.
+        assert_eq!(
+            computed_for("letter-spacing", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(-5.0, "px".into())
+        );
+        assert_eq!(
+            computed_for("z-index", CssValue::Number(-5.0, NumberKind::Integer)),
+            CssValue::Number(-5.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("margin-left", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(-5.0, "px".into())
+        );
     }
 
     #[test]

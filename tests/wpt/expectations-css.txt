@@ -682,6 +682,7 @@ PASS css/css-values/calc-nesting.html :: e.style['left'] = "calc(50px + calc(40%
 PASS css/css-values/calc-nesting.html :: e.style['border'] = "calc(calc(10px)) solid pink" should set the property value
 FILE css/css-values/calc-numbers.html
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 * 3)
+PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 * -4)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4) * 1px
@@ -1195,6 +1196,7 @@ PASS css/css-values/exp-log-serialize.html :: 'scale(calc(log(1) + 0.5))' as a s
 PASS css/css-values/exp-log-serialize.html :: 'calc(log(1) + 0.5)' as a computed value should serialize as '0.5'.
 PASS css/css-values/exp-log-serialize.html :: 'calc(log(0))' as a specified value should serialize as 'calc(-infinity)'.
 PASS css/css-values/exp-log-serialize.html :: 'scale(calc(log(0)))' as a specified value should serialize as 'scale(calc(-infinity))'.
+PASS css/css-values/exp-log-serialize.html :: 'calc(log(0))' as a computed value should serialize as '0'.
 FILE css/css-values/getComputedStyle-border-radius-001.html
 PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-top-left-radius: calc(25% + 10px) calc(25% + 20px)
 PASS css/css-values/getComputedStyle-border-radius-001.html :: testing border-top-right-radius: calc(25% + 16px)

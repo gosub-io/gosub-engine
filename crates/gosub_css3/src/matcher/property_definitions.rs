@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
-use crate::matcher::syntax_matcher::CssSyntaxTree;
+use crate::matcher::syntax_matcher::{CssSyntaxTree, NUMERIC_DATATYPES};
 use crate::stylesheet::CssValue;
 
 /// Terminal data types that have no expandable grammar and are matched directly by
@@ -156,6 +156,83 @@ impl PropertyDefinition {
     pub fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
+
+    /// The range a computed value for this property has to lie in, if it has one.
+    ///
+    /// css-values-4 §10.12: a math function is *not* range-checked when it is parsed, because
+    /// its result is not known then - `width: calc(-5px)` is a perfectly valid declaration. What
+    /// the range does instead is clamp the result at computed-value time. So the same `[0,∞]`
+    /// that rejects the literal `width: -5px` turns `calc(-5px)` into `0px` rather than throwing
+    /// the declaration away.
+    ///
+    /// Two things can name the range, and they are not the same thing:
+    ///
+    /// * The **grammar**, for `<length-percentage [0,∞]>` and its kin. Read below.
+    /// * The property's **computed-value line**, for the handful of properties whose range lives
+    ///   in prose rather than in the syntax - `opacity` is `<number> | <percentage>` with no
+    ///   bounds written on it at all, and css-color-4 says the computed value is "the specified
+    ///   number, clamped to the range [0,1]". That one applies to every value, not only to math
+    ///   results, which is why `opacity: 1.5` computes to `1`.
+    #[must_use]
+    pub fn computed_range(&self) -> Option<(Option<f64>, Option<f64>)> {
+        // The prose rule is the property's own computed-value definition, so it wins over
+        // anything the grammar happens to say.
+        if self
+            .computed
+            .iter()
+            .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
+        {
+            return Some((Some(0.0), Some(1.0)));
+        }
+
+        let mut seen = false;
+        let mut min: Option<f64> = None;
+        let mut max: Option<f64> = None;
+
+        for range in top_level_numeric_ranges(&self.syntax.components) {
+            // The value matched *some* alternative and there is no record of which, so the
+            // clamp has to be the widest any of them would allow. An arm with no bound at all
+            // makes that side unbounded: `z-index: auto | <integer>` clamps nothing.
+            let (arm_min, arm_max) = (range.min_bound(), range.max_bound());
+            if seen {
+                min = match (min, arm_min) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    _ => None,
+                };
+                max = match (max, arm_max) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                };
+            } else {
+                seen = true;
+                min = arm_min;
+                max = arm_max;
+            }
+        }
+
+        (min.is_some() || max.is_some()).then_some((min, max))
+    }
+}
+
+/// The ranges written on the numeric alternatives a property's value can be.
+///
+/// Descends through groups, because `auto | <length-percentage [0,∞]> | min-content` is one
+/// group of alternatives, and stops at a function, because the range on `fit-content(<length
+/// [0,∞]>)`'s *argument* constrains the argument rather than the property.
+fn top_level_numeric_ranges(components: &[SyntaxComponent]) -> Vec<RangeType> {
+    let mut ranges = Vec::new();
+    for component in components {
+        match component {
+            SyntaxComponent::Group { components, .. } => ranges.extend(top_level_numeric_ranges(components)),
+            SyntaxComponent::Builtin { datatype, range, .. } | SyntaxComponent::Definition { datatype, range, .. }
+                if NUMERIC_DATATYPES.contains(&datatype.as_str()) =>
+            {
+                ranges.push(*range);
+            }
+            _ => {}
+        }
+    }
+    ranges
 }
 
 /// A syntax definition that can be used to resolve a property definition

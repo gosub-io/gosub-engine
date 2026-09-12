@@ -1149,7 +1149,7 @@ fn match_group_juxtaposition<'a>(
 
 /// Returns true when the component is the literal comma separator.
 /// Numeric datatypes a math function may substitute for (CSS Values & Units §10).
-const NUMERIC_DATATYPES: [&str; 9] = [
+pub(crate) const NUMERIC_DATATYPES: [&str; 9] = [
     "length",
     "percentage",
     "number",
