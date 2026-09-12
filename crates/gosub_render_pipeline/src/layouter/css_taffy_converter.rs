@@ -698,9 +698,13 @@ fn parse_single_placement(s: &str) -> GridPlacement {
         if is_custom_ident(rest) {
             return GridPlacement::NamedSpan(rest.to_string(), 1);
         }
-        // `span 2 main` - span until the *second* line with that name.
+        // `span 2 main` - span until the *second* line with that name. A span counts forward
+        // only, so a negative integer is not a span at all and the value is invalid; a negative
+        // *line* index is fine and stays so below.
         if let Some((n, name)) = split_index_and_name(rest) {
-            return GridPlacement::NamedSpan(name.to_string(), n.unsigned_abs());
+            if n > 0 {
+                return GridPlacement::NamedSpan(name.to_string(), n as u16);
+            }
         }
     }
     if let Ok(n) = s.parse::<i16>() {
@@ -1004,6 +1008,13 @@ mod grid_placement_tests {
         // A zero line index does not exist, so the value is not a named line either.
         assert_eq!(parse_single_placement("0 main"), GridPlacement::Auto);
         assert_eq!(parse_single_placement("2 main end"), GridPlacement::Auto);
+        // A span counts forward, so a negative one is not a span - but a negative *line* index
+        // counts from the end of the grid and is perfectly good.
+        assert_eq!(parse_single_placement("span -2 main"), GridPlacement::Auto);
+        assert_eq!(
+            parse_single_placement("-2 main"),
+            GridPlacement::NamedLine("main".to_string(), -2)
+        );
         assert_eq!(split_index_and_name("2"), None);
     }
 }

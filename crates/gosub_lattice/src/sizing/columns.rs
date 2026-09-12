@@ -98,10 +98,14 @@ pub fn compute_column_widths<T: TableTree>(
             const NARROW_THRESHOLD: f32 = 50.0;
             const NARROW_FLOOR: f32 = 14.0;
 
+            // The same floor the assignment below uses. Reserving only `max(natural, FLOOR)` here
+            // while handing out `max(natural, FLOOR, min_content)` there leaves the difference
+            // counted twice - once in a narrow column and once in the content columns' share - so
+            // the columns together came out wider than the table.
             let narrow_total: f32 = auto_cols
                 .iter()
                 .filter(|&&c| natural[c] < NARROW_THRESHOLD)
-                .map(|&c| natural[c].max(NARROW_FLOOR))
+                .map(|&c| narrow_width(natural[c], min_content[c], NARROW_FLOOR))
                 .sum();
 
             let content_natural_total: f32 = auto_cols
@@ -126,7 +130,7 @@ pub fn compute_column_widths<T: TableTree>(
                 );
                 for &col in &auto_cols {
                     if natural[col] < NARROW_THRESHOLD {
-                        explicit[col] = Some(natural[col].max(NARROW_FLOOR).max(min_content[col]));
+                        explicit[col] = Some(narrow_width(natural[col], min_content[col], NARROW_FLOOR));
                     } else {
                         explicit[col] = Some(shares[&col]);
                     }
@@ -147,6 +151,13 @@ pub fn compute_column_widths<T: TableTree>(
     }
 
     explicit.iter().map(|w| w.unwrap_or(0.0)).collect()
+}
+
+/// The width a narrow structural column takes: its content, never under the visibility floor and
+/// never under its longest unbreakable word. One place, so the budget and the assignment cannot
+/// drift apart.
+fn narrow_width(natural: f32, min_content: f32, floor: f32) -> f32 {
+    natural.max(floor).max(min_content)
 }
 
 /// Share `space` among `cols` proportionally to their natural width, but never below a column's

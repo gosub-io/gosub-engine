@@ -173,6 +173,19 @@ impl BandCursor {
         }
     }
 
+    /// Raise the line just charged from `charged` to `line_height` when something taller ends it.
+    ///
+    /// A `<br>` after text closes the line the text is on; it does not add one. `emit_banded` has
+    /// already charged that line - `fill_band` counts the partly-filled last line too - so
+    /// charging a whole line again for the break pushed later content past a finite band early.
+    /// Only a `<br>` with a taller line-height than the run it follows adds anything at all.
+    fn raise_last_line(&mut self, charged: f32, line_height: f32) {
+        let extra = line_height - charged;
+        if extra > 0.0 {
+            self.take_lines(1, extra);
+        }
+    }
+
     /// Move to the next band. Returns false when this was already the last one.
     fn advance(&mut self) -> bool {
         if self.index + 1 >= self.bands.len() {
@@ -903,6 +916,9 @@ impl TaffyLayouter {
                         }
                         self.emit_line(&[], Some(*lh), element_node, leaf_id, line_style, placement);
                     } else {
+                        // The height `emit_banded` will charge each of the segment's lines at,
+                        // including the one the break is about to close.
+                        let charged = self.inline_line_height(layout_tree, &segment);
                         self.emit_banded(
                             layout_tree,
                             &segment,
@@ -912,9 +928,9 @@ impl TaffyLayouter {
                             cursor.as_mut(),
                         );
                         segment.clear();
-                        // The break itself ends the line the segment left open.
+                        // The break ends the line the segment left open rather than adding one.
                         if let Some(c) = cursor.as_mut() {
-                            c.take_lines(1, *lh as f32);
+                            c.raise_last_line(charged, *lh as f32);
                         }
                     }
                 }
@@ -2188,6 +2204,33 @@ mod tests {
             apply_text_transform("Working".to_string(), Value::Number(1.0)),
             "Working"
         );
+    }
+
+    /// A `<br>` after text closes the line the text is on. Charging a whole line for it as well
+    /// pushed later content below a finite float band before the band was actually full.
+    #[test]
+    fn a_break_after_text_does_not_consume_a_second_line() {
+        use super::{BandCursor, FloatBand};
+
+        // A band exactly three 20px lines tall, beside a float.
+        let band = FloatBand {
+            left_inset: 0.0,
+            line_width: 400.0,
+            height: Some(60.0),
+        };
+
+        let mut cursor = BandCursor::new(&[band, FloatBand { height: None, ..band }]);
+        assert_eq!(cursor.lines_left(20.0), 3);
+
+        // One line of text, then a break of the same line-height: one line used, two left.
+        cursor.take_lines(1, 20.0);
+        cursor.raise_last_line(20.0, 20.0);
+        assert_eq!(cursor.lines_left(20.0), 2, "the break must not take a line of its own");
+
+        // A break taller than the run it ends does make that line taller.
+        cursor.take_lines(1, 20.0);
+        cursor.raise_last_line(20.0, 30.0);
+        assert_eq!(cursor.lines_left(20.0), 0, "20 + 30 of 60 leaves less than a line");
     }
 
     #[test]

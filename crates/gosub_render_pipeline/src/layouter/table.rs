@@ -83,10 +83,18 @@ impl<'a> PipelineTableTree<'a> {
         match &el.context {
             ElementContext::Text(text_ctx) => {
                 let (text, font_info) = (text_ctx.text.clone(), text_ctx.font_info.clone());
-                text.split_ascii_whitespace()
-                    .map(|word| {
+                // `white-space: nowrap` removes every break opportunity, so the whole run is the
+                // unbreakable width. Reporting its longest word let a column be sized under text
+                // that cannot wrap into it.
+                let unbreakable: Box<dyn Iterator<Item = &str>> = if text_ctx.no_wrap {
+                    Box::new(std::iter::once(text.as_str()))
+                } else {
+                    Box::new(text.split_ascii_whitespace())
+                };
+                unbreakable
+                    .map(|run| {
                         measure_str_cached(
-                            word,
+                            run,
                             &font_info,
                             MAX_CONTENT_WIDTH,
                             &self.font_system,

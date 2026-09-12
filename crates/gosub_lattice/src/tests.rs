@@ -601,6 +601,33 @@ mod layout_tests {
         assert_approx!(wide + word, 200.0, "the columns still fill the table");
     }
 
+    // A narrow structural column is handed its min-content floor like any other, so the budget the
+    // content columns share has to reserve that floor too. Reserving only the visibility floor
+    // counted the difference twice and the columns together came out wider than the table.
+    #[test]
+    fn a_narrow_columns_floor_comes_out_of_the_budget() {
+        let (mut tree, root) = MockTable::new(200.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                // Narrow by content, but holding a word far wider than the 14px floor.
+                cell("rank")
+                    .content_width(10.0)
+                    .min_content_width(100.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("body").content_width(200.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let rank = tree.layout(cells[0]).expect("rank laid out").size.width;
+        let body = tree.layout(cells[1]).expect("body laid out").size.width;
+        assert_approx!(rank, 100.0, "the narrow column keeps its longest word");
+        assert_approx!(rank + body, 200.0, "and the columns still add up to the table");
+    }
+
     // When the floors alone do not fit, every column takes its min-content and the table overflows
     // - the same thing a browser does, and better than breaking words to fit.
     #[test]

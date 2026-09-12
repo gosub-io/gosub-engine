@@ -690,10 +690,18 @@ mod tests {
         let fs = Arc::new(PangoFontSystem::new());
         let style = TextStyle::new("sans-serif", 16.0);
 
-        let threads: Vec<_> = (0..8)
+        // Each worker reports when it finishes. `join()` on its own cannot tell a deadlock from
+        // slow work - it waits forever, so the test would hang rather than report, and only the
+        // harness timeout would ever notice. Collecting the reports with a deadline turns a
+        // deadlock into a failure with a message.
+        const WORKERS: usize = 8;
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+        let threads: Vec<_> = (0..WORKERS)
             .map(|i| {
                 let fs = Arc::clone(&fs);
                 let style = style.clone();
+                let done_tx = done_tx.clone();
                 std::thread::spawn(move || {
                     for _ in 0..20 {
                         if i % 2 == 0 {
@@ -707,12 +715,23 @@ mod tests {
                             assert!(!family.is_empty(), "a family must always be chosen");
                         }
                     }
+                    let _ = done_tx.send(i);
                 })
             })
             .collect();
+        drop(done_tx);
+
+        // Generous against the work itself - 160 layouts take milliseconds - and decisive against
+        // a deadlock, which never finishes at all.
+        let deadline = std::time::Duration::from_secs(30);
+        for _ in 0..WORKERS {
+            done_rx
+                .recv_timeout(deadline)
+                .expect("a worker never finished: fontconfig_lock is being taken twice on one thread");
+        }
 
         for t in threads {
-            t.join().expect("no thread may panic or hang");
+            t.join().expect("no thread may panic");
         }
     }
 
