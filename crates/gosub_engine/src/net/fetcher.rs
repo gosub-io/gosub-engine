@@ -29,10 +29,10 @@ pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
         req_timeout: Duration::from_secs(cfg.get_uint("net.timeout.request_secs") as u64),
         read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
         total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
-        // Resolution has to go through a `DnsResolver` to be visible: reqwest's built-in
+        // Resolution has to go through a `DnsResolver` to be visible: the HTTP client's own
         // lookup happens below sonar's level and emits no event, so `net.dns` stays silent
         // without one. `SystemResolver` is `getaddrinfo` with no policy attached - the same
-        // resolution reqwest would do by itself - so this buys the timing and changes
+        // resolution the client would do by itself - so this buys the timing and changes
         // nothing else.
         //
         // It applies no SSRF or DNS-rebinding protection. Neither does the default it
@@ -180,8 +180,8 @@ mod dns_resolver_tests {
     use super::*;
     use crate::engine::settings_store::default_config;
 
-    /// `net.dns` timings only exist when resolution goes through a `DnsResolver`; reqwest's
-    /// built-in lookup is below sonar's level and emits nothing. Dropping the resolver from
+    /// `net.dns` timings only exist when resolution goes through a `DnsResolver`; the HTTP
+    /// client's built-in lookup is below sonar's level and emits nothing. Dropping it from
     /// the config would silence that namespace without breaking anything else, which is a
     /// hard failure to notice - hence this test.
     #[test]

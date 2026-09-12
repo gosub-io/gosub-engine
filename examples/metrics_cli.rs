@@ -81,8 +81,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn fetch(url: &str) -> anyhow::Result<String> {
-    let resp = reqwest::get(url).await?.text().await?;
-    Ok(resp)
+    let body = gosub_sonar::simple_get(&url::Url::parse(url)?).await?;
+    Ok(String::from_utf8(body.to_vec())?)
 }
 
 fn print_table(json: &str) {

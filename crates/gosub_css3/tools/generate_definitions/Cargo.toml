@@ -14,8 +14,9 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+gosub-sonar = "0.7.0"
 regex = { workspace = true }
-reqwest = { workspace = true, features = ["blocking", "rustls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha1 = "0.11"
+url = { workspace = true }

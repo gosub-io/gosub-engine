@@ -6,6 +6,7 @@ use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{Initiator, NetError, ResourceKind};
 use crate::tab::TabId;
+use gosub_sonar::{TransportError, TransportErrorKind};
 use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
@@ -175,11 +176,11 @@ impl NetObserver for EngineEventEmitter {
                     url: url.to_string(),
                     status,
                     content_length: headers
-                        .get(reqwest::header::CONTENT_LENGTH)
+                        .get(http::header::CONTENT_LENGTH)
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse::<u64>().ok()),
                     content_type: headers
-                        .get(reqwest::header::CONTENT_TYPE)
+                        .get(http::header::CONTENT_TYPE)
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string()),
                     headers: headers
@@ -300,36 +301,26 @@ fn classify(error: &anyhow::Error) -> FailureKind {
         NetError::Redirect(_) => FailureKind::Redirect,
         NetError::Cancelled(_) => FailureKind::Cancelled,
         NetError::Io(_) => FailureKind::Transfer,
-        // `Read` is the stack's catch-all: a `send()` that never got a connection is
-        // wrapped in it just as a body that died mid-stream is. The variant alone would
-        // report a dead host as a broken transfer, which sends you looking in the wrong
-        // place -- but the client's own error is one downcast further down.
-        NetError::Read(inner) => from_client(inner).unwrap_or(FailureKind::Transfer),
-        NetError::Other(inner) => from_client(inner).unwrap_or(FailureKind::Other),
-        NetError::Reqwest(e) => from_client_error(e),
+        // Sonar has already separated these. A `send()` that never got a connection and a
+        // body that stopped mid-stream are both transport failures, and reporting the first
+        // as a broken transfer sends you looking at the server when the problem is the
+        // address.
+        NetError::Transport(e) => from_transport(e),
+        NetError::Read(_) => FailureKind::Transfer,
+        NetError::Other(_) => FailureKind::Other,
     }
 }
 
-/// Find the HTTP client's own error somewhere in the chain and read it.
-fn from_client(error: &anyhow::Error) -> Option<FailureKind> {
-    let client = error.chain().find_map(|e| e.downcast_ref::<reqwest::Error>())?;
-    Some(from_client_error(client))
-}
-
-/// The client knows whether it never got a connection, ran out of time, or lost one part
-/// way -- which is the difference between "the host is unreachable", "nothing answered in
-/// time" and "the transfer died".
-fn from_client_error(error: &reqwest::Error) -> FailureKind {
-    if error.is_timeout() {
-        FailureKind::Timeout
-    } else if error.is_connect() {
-        FailureKind::Connect
-    } else if error.is_redirect() {
-        FailureKind::Redirect
-    } else if error.is_body() || error.is_decode() {
-        FailureKind::Transfer
-    } else {
-        FailureKind::Other
+/// Map a sonar transport failure onto the kind the shell reports.
+fn from_transport(error: &TransportError) -> FailureKind {
+    match error.kind {
+        TransportErrorKind::Connect => FailureKind::Connect,
+        TransportErrorKind::Timeout => FailureKind::Timeout,
+        TransportErrorKind::Redirect => FailureKind::Redirect,
+        TransportErrorKind::Body | TransportErrorKind::Decode => FailureKind::Transfer,
+        // `Request` and `Builder` mean nothing was sent, and whatever sonar learns to tell
+        // apart later lands here first. Neither says anything about the network.
+        _ => FailureKind::Other,
     }
 }
 
@@ -427,33 +418,35 @@ mod tests {
         assert_eq!(seen[0].0, FailureKind::Blocked);
     }
 
-    /// The case that made this worth doing: a host nothing is listening on comes back
-    /// wrapped in `Read`, the same variant a body that died mid-stream uses. Reported as
-    /// a broken transfer it sends you looking at the server; reported as a connection
-    /// failure it sends you at the address, which is where the problem is.
+    /// The case that made this worth doing: a host nothing is listening on and a body that
+    /// stopped mid-stream are both transport failures. Reported as a broken transfer the
+    /// first sends you looking at the server; reported as a connection failure it sends you
+    /// at the address, which is where the problem is. Sonar draws the line and tests it
+    /// against a real socket; this checks the engine keeps it.
     #[test]
     fn a_host_that_never_connects_is_not_reported_as_a_broken_transfer() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        // Port 1 on loopback: nothing listens there, and nothing leaves the machine.
-        let client_error = runtime.block_on(async {
-            reqwest::Client::new()
-                .get("http://127.0.0.1:1/")
-                .send()
-                .await
-                .unwrap_err()
-        });
-        assert!(
-            client_error.is_connect(),
-            "expected a connect error, got {client_error:?}"
-        );
+        let connect = anyhow::Error::from(NetError::Transport(TransportError {
+            kind: TransportErrorKind::Connect,
+            message: "net.get_with_redirects request failed: connection refused".into(),
+        }));
+        assert_eq!(classify(&connect), FailureKind::Connect);
 
-        let err = anyhow::Error::from(NetError::Read(Arc::new(
-            anyhow::Error::from(client_error).context("net.get_with_redirects request failed"),
-        )));
-        assert_eq!(classify(&err), FailureKind::Connect);
+        let mid_body = anyhow::Error::from(NetError::Transport(TransportError {
+            kind: TransportErrorKind::Body,
+            message: "error reading a body from connection".into(),
+        }));
+        assert_eq!(classify(&mid_body), FailureKind::Transfer);
+    }
+
+    /// `TransportErrorKind` is non-exhaustive, so the catch-all arm gets whatever sonar
+    /// learns to tell apart next. It must not be reported as a kind the engine does know.
+    #[test]
+    fn an_unmapped_transport_kind_claims_nothing() {
+        let err = anyhow::Error::from(NetError::Transport(TransportError {
+            kind: TransportErrorKind::Builder,
+            message: "invalid header value".into(),
+        }));
+        assert_eq!(classify(&err), FailureKind::Other);
     }
 
     /// An error from somewhere other than the network stack says nothing about the

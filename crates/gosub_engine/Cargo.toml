@@ -9,7 +9,7 @@ name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]
-gosub-sonar = "0.6.3"
+gosub-sonar = "0.7.0"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_config = { version = "0.1.1", path = "../gosub_config" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
@@ -18,7 +18,6 @@ gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 uuid = { workspace = true, features = ["v4", "serde"] }
-reqwest = { workspace = true, default-features = true, features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
 tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",

@@ -103,8 +103,8 @@ struct ParseData {
     selectors: BTreeMap<String, Selector>,
 }
 
-pub fn get_webref_data(client: &reqwest::blocking::Client) -> Result<WebRefData> {
-    let files = get_webref_files(client)?;
+pub fn get_webref_data() -> Result<WebRefData> {
+    let files = get_webref_files()?;
 
     let mut pd = ParseData::default();
 
@@ -122,7 +122,7 @@ pub fn get_webref_data(client: &reqwest::blocking::Client) -> Result<WebRefData>
             continue;
         }
 
-        let content = download_file_content(client, file).with_context(|| format!("downloading {}", file.path))?;
+        let content = download_file_content(file).with_context(|| format!("downloading {}", file.path))?;
         decode_file_content(&content, &mut pd).with_context(|| format!("parsing {}", file.name))?;
     }
 
@@ -134,16 +134,15 @@ pub fn get_webref_data(client: &reqwest::blocking::Client) -> Result<WebRefData>
     })
 }
 
-fn get_webref_files(client: &reqwest::blocking::Client) -> Result<Vec<DirectoryListItem>> {
+fn get_webref_files() -> Result<Vec<DirectoryListItem>> {
     let url = format!("https://api.github.com/repos/{REPO}/contents/{LOCATION}?ref={BRANCH}");
-    let resp = client.get(&url).send()?.error_for_status()?;
-    let body = resp.bytes()?;
+    let body = crate::fetch::get(&url)?;
     serde_json::from_slice(&body).context("parsing webref directory listing")
 }
 
 /// Returns the file's content, from the local cache when it still matches the
 /// upstream git blob SHA, downloading and re-caching it otherwise.
-fn download_file_content(client: &reqwest::blocking::Client, file: &DirectoryListItem) -> Result<Vec<u8>> {
+fn download_file_content(file: &DirectoryListItem) -> Result<Vec<u8>> {
     let cache_path = Path::new(CACHE_DIR).join("specs").join(&file.name);
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent)?;
@@ -160,8 +159,7 @@ fn download_file_content(client: &reqwest::blocking::Client, file: &DirectoryLis
         .download_url
         .as_deref()
         .context("listing entry has no download_url")?;
-    let resp = client.get(url).send()?.error_for_status()?;
-    let body = resp.bytes()?.to_vec();
+    let body = crate::fetch::get(url)?;
     fs::write(&cache_path, &body).with_context(|| format!("writing cache file {}", cache_path.display()))?;
 
     Ok(body)

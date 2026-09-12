@@ -36,7 +36,7 @@ gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosu
 [dev-dependencies]
 # For the examples only. The library itself fetches nothing: media reaches it through the
 # resource handoff, which is what keeps every request on the engine's one observed path.
-gosub-sonar = "0.6.3"
+gosub-sonar = "0.7.0"
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
