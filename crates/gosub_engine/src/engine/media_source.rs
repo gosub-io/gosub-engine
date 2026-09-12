@@ -63,6 +63,22 @@ impl EngineMediaSource {
             return;
         };
 
+        // A data: URL is already the bytes. There is nothing to request, so it is answered
+        // here rather than submitted: decoding is the whole of the work, and a consumer
+        // waiting on the hand-off gets its answer without a round trip through the fetcher.
+        if parsed.scheme() == "data" {
+            match crate::net::decode_data_url(&parsed) {
+                Some((content_type, bytes)) => {
+                    gosub_shared::subresource::complete(scope, url, Some(content_type), bytes);
+                }
+                None => {
+                    log::warn!("could not decode data: URL for media");
+                    gosub_shared::subresource::abandon(scope, url);
+                }
+            }
+            return;
+        }
+
         // The same refusal the document scan applies, and the reason this belongs on this
         // side of the boundary: a page from the network does not get to read the disk because
         // it named the file somewhere the scan could not see.

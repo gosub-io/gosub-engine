@@ -30,6 +30,7 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 anyhow = { workspace = true }
+base64 = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
 percent-encoding = { workspace = true }

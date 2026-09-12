@@ -50,9 +50,11 @@
 //! The submodules below are internal implementation details unless re-exported. Public
 //! items are documented via the re-exports that follow.
 //!
+mod data_url;
 mod decision;
 mod decision_hub;
 pub(crate) mod emitter;
+pub use data_url::decode as decode_data_url;
 pub mod events;
 mod fetcher;
 mod file_loader;
