@@ -456,6 +456,96 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
                     _ => {}
                 },
+                // A `<url>` is the `url()` function (or `src()`); the parser folds both the
+                // `url(x)` token form and `url("x")` into a function. `<uri>`, `<url-token>` and
+                // `<url-set>` are the older spellings of the same thing.
+                //
+                // These are in `BUILTIN_DATA_TYPES`, which makes `parse_syntax_file` skip the
+                // grammar the definitions file carries for them - so without an arm here they
+                // fell to the permissive catch-all, and `background-image: banana` was valid.
+                "url" | "uri" | "url-token" | "url-set" => match value {
+                    CssValue::Function(name, _)
+                        if name.eq_ignore_ascii_case("url")
+                            || name.eq_ignore_ascii_case("src")
+                            || name.eq_ignore_ascii_case("image-set")
+                            || name.eq_ignore_ascii_case("-webkit-image-set") =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "resolution" => match value {
+                    CssValue::Unit(n, u)
+                        if range.contains(*n)
+                            && (u.eq_ignore_ascii_case("dpi")
+                                || u.eq_ignore_ascii_case("dpcm")
+                                || u.eq_ignore_ascii_case("dppx")
+                                || u.eq_ignore_ascii_case("x")) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "frequency" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u)
+                        if range.contains(*n) && (u.eq_ignore_ascii_case("hz") || u.eq_ignore_ascii_case("khz")) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // The aural/speech types. Rare, but as cheap to answer as to leave open.
+                "decibel" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if range.contains(*n) && u.eq_ignore_ascii_case("db") => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "semitones" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if range.contains(*n) && u.eq_ignore_ascii_case("st") => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // A `<dimension>` is any number with a unit - the token, not a particular type.
+                "dimension" => match value {
+                    CssValue::Zero => return first_match(input),
+                    CssValue::Unit(n, _) if range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "number-token" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Number(n, _) if range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "hash-token" => match value {
+                    CssValue::Color(_) => return first_match(input),
+                    CssValue::String(v) if v.starts_with('#') => return first_match(input),
+                    _ => {}
+                },
+                "age" => match value {
+                    CssValue::String(v) if ["child", "young", "old"].iter().any(|kw| v.eq_ignore_ascii_case(kw)) => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "gender" => match value {
+                    CssValue::String(v)
+                        if ["male", "female", "neutral"]
+                            .iter()
+                            .any(|kw| v.eq_ignore_ascii_case(kw)) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // `<declaration-value>` really is "any sequence of tokens" (css-syntax §9), so
+                // the permissive answer is the correct one. Saying so explicitly separates it
+                // from the datatypes that reach the catch-all only because nobody wrote an arm.
+                "declaration-value" => return first_match(input),
                 "system-color" => {
                     if let CssValue::String(v) = value {
                         if is_system_color(v) {

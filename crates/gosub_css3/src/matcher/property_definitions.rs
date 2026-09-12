@@ -1329,6 +1329,34 @@ mod tests {
     }
 
     #[test]
+    fn a_builtin_without_an_arm_accepts_anything() {
+        let defs = get_css_definitions();
+        let matches = |prop: &str, value: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, value))
+        };
+
+        // `<image>` is `<url> | <gradient>`, and being listed in `BUILTIN_DATA_TYPES` makes
+        // `parse_syntax_file` skip the grammar the definitions carry for `<url>` - so with no arm
+        // of its own it reached the permissive catch-all and `<image>` accepted every value there
+        // is. That is what made `background: red` expand to `background-image: red` when the
+        // shorthand resolver was tried.
+        assert!(!matches("background-image", "red"));
+        assert!(!matches("background-image", "banana"));
+        assert!(!matches("background-image", "12px"));
+
+        assert!(matches("background-image", "none"));
+        assert!(matches("background-image", "url(x.png)"));
+        assert!(matches("background-image", "linear-gradient(red, blue)"));
+        // Upstream `<gradient>` stops at the css-images-3 set; the conic forms are patched back
+        // in by the definitions generator.
+        assert!(matches("background-image", "conic-gradient(red, blue)"));
+        assert!(matches("background-image", "repeating-conic-gradient(red, blue)"));
+    }
+
+    #[test]
     fn a_zero_datatype_matches_only_a_zero() {
         let defs = get_css_definitions();
         let matches = |prop: &str, value: &str| {
