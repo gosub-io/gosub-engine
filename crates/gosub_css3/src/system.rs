@@ -480,8 +480,14 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
             font_size.mark_dirty();
             match font_size.compute_value() {
                 CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
-                // A keyword (`larger`), a percentage, or anything else this does not resolve:
-                // inheriting the parent's size is closer than falling back to the initial one.
+                // A percentage font-size is a fraction of the *parent's* computed font-size
+                // (css-fonts-4 §3.5), which is a basis this already has - unlike every other
+                // percentage, which needs a containing block and so has to wait for layout.
+                // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px.
+                #[expect(clippy::cast_possible_truncation, reason = "a font-size fits an f32")]
+                CssValue::Percentage(pct) => parent_px * (*pct as f32) / 100.0,
+                // A keyword (`larger`), or anything else this does not resolve: inheriting the
+                // parent's size is closer than falling back to the initial one.
                 _ => parent_px,
             }
         }

@@ -368,6 +368,89 @@ mod rendertree_from_engine {
     }
 
     #[test]
+    fn a_rem_in_the_style_attribute_follows_the_root_font_size_too() {
+        // The `style` attribute is parsed by `inline_style`, which builds `Unit::Rem` itself
+        // rather than going through the CSS computed stage - so it is the one path where the
+        // pipeline has to resolve `rem` on its own.
+        let html = r#"
+            <html>
+            <head><style>html { font-size: 20px; }</style></head>
+            <body><div id="attr" style="width: 2rem"></div></body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        let width = adapter.get_style(node, &StyleProperty::Width);
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 40.0).abs() < 0.1),
+            "expected 2rem to be 40px against a 20px root, got {width:?}"
+        );
+    }
+
+    /// `style="width: <value>"` on a div, with `<root_css>` applied to `html`.
+    fn style_attr_width(root_css: &str, value: &str) -> crate::common::document::style::Value {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::StyleProperty;
+
+        let html = format!(
+            r#"<html><head><style>html {{ {root_css} }}</style></head>
+               <body><div id="attr" style="width: {value}"></div></body></html>"#
+        );
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        adapter.get_style(node, &StyleProperty::Width)
+    }
+
+    #[test]
+    fn a_rem_on_the_root_itself_uses_the_initial_font_size() {
+        // css-values-4 §5.1.1: the root's own `font-size` is what *defines* a `rem`, so a `rem`
+        // inside it means the initial 16px. Saying so is also what stops this recursing.
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>html { font-size: 2rem; }</style></head>
+                      <body><div id="attr" style="width: 1rem"></div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+
+        // The root resolves 2rem against the initial 16px = 32px, and the div's 1rem then
+        // follows that.
+        let width = adapter.get_style(node, &StyleProperty::Width);
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 32.0).abs() < 0.1),
+            "expected 32px, got {width:?}"
+        );
+    }
+
+    #[test]
+    fn a_percentage_root_font_size_still_sets_the_rem_basis() {
+        // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px, so the numbers
+        // in a stylesheet read as tenths.
+        use crate::common::document::style::{Unit, Value};
+
+        let width = style_attr_width("font-size: 62.5%;", "2rem");
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 20.0).abs() < 0.1),
+            "expected 2rem to be 20px against a 62.5% root, got {width:?}"
+        );
+    }
+
+    #[test]
     fn rem_follows_the_root_font_size_and_em_the_elements_own() {
         // `rem` used to be hard-coded to the initial 16px, so a document that resizes its root
         // laid out at the wrong scale everywhere. `min()` is here because its operands are

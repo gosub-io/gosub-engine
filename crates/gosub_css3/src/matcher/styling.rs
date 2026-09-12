@@ -776,9 +776,20 @@ impl CssProperty {
             specified => specified.clone(),
         };
 
-        // Font-relative lengths become px here, which is what the computed stage is for. Before
-        // this the specified value was passed through untouched and `width: 2em` stayed `2em`
-        // all the way out to anything reading a computed value.
+        // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
+        // percentage resolves here rather than travelling on. It is the one percentage that can:
+        // it is a fraction of the *parent's* font-size, which is exactly what `font_size_basis`
+        // holds for this property, where every other percentage needs a containing block and has
+        // to wait for layout.
+        if self.name == "font-size" {
+            if let CssValue::Percentage(pct) = specified {
+                return CssValue::Unit(f64::from(self.font_size_basis) * pct / 100.0, "px".to_string());
+            }
+        }
+
+        // Font-relative lengths become px here, which is what the computed stage is for. What
+        // survives is what genuinely cannot be decided yet: a percentage, which needs a
+        // containing block, and the units nothing has a value for.
         resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis)
     }
 
