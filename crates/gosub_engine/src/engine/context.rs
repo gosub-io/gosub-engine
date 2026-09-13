@@ -176,6 +176,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// Cheaper than a content rebuild: extending re-uses the cached layout.
     raster_dirty: bool,
 
+    /// Device-pixel ratio the cached tiles were rasterized at, or `None` before the first
+    /// render. The DPR lives in a process-wide atomic the host writes directly (page zoom
+    /// changes it), so it can move without any command reaching this context - see
+    /// `invalidate_raster_if_dpr_changed`.
+    cache_dpr: Option<u32>,
+
     /// Cached rasterized tiles for the full page. Valid until content damage is recorded.
     pipeline_cache: Option<PipelineCache>,
     /// GPU-scene cache (paint commands + layer list) for GPU backends. Mutually exclusive in
@@ -255,6 +261,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             scroll_y: 0.0,
             scroll_dirty: false,
             raster_dirty: false,
+            cache_dpr: None,
             pipeline_cache: None,
             scene_cache: None,
             hover_leaf: None,
@@ -337,6 +344,35 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
         self.focused_node = None;
+    }
+
+    /// Drop cached raster output when the device-pixel ratio has moved since it was produced.
+    ///
+    /// Tile pixel data is sized in *physical* pixels, so a DPR change makes every cached tile
+    /// the wrong size for the frame about to be composited. Unlike a viewport change there is
+    /// no command to hang this off: the host writes `DEVICE_PIXEL_RATIO` directly (page zoom
+    /// does exactly that), so the engine only learns about it when a backend reports the new
+    /// value. Without this the cached tiles are handed out stamped with the *new* DPR while
+    /// still holding pixels rasterized at the old one, and the host scales them by a
+    /// correction they do not match - leaving part of the viewport unpainted.
+    ///
+    /// Must run before the scroll fast path, which returns cached tiles without consulting the
+    /// viewport at all.
+    pub fn invalidate_raster_if_dpr_changed(&mut self, dpr: u32) {
+        if self.cache_dpr == Some(dpr) {
+            return;
+        }
+        let first_render = self.cache_dpr.is_none();
+        self.cache_dpr = Some(dpr);
+        if first_render {
+            // Nothing cached yet; recording the value is enough.
+            return;
+        }
+        self.pipeline_cache = None;
+        self.scene_cache = None;
+        self.tile_budget.reset();
+        self.invalidate_render();
+        self.raster_dirty = false;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.

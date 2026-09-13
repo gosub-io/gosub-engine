@@ -900,6 +900,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     && !self.zone_context.render_backend.gpu_tile_compositing()
                 {
                     let dpr = self.zone_context.render_backend.device_pixel_ratio();
+                    // Same DPR guard as the render path: cached tiles rasterized at a different
+                    // DPR are the wrong physical size for this frame.
+                    self.context.invalidate_raster_if_dpr_changed(dpr);
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
                         self.zone_context.compositor.submit_frame(self.tab_id, handle);
@@ -1739,6 +1742,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // pixels on a HiDPI host. Only the null backend stays at 1.
         if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
             let dpr = render_backend.device_pixel_ratio();
+
+            // The host can change the DPR behind our back (page zoom writes the global atomic),
+            // which invalidates every cached tile's pixel size. Do this before the scroll fast
+            // path, which would otherwise hand back old tiles stamped with the new DPR.
+            self.context.invalidate_raster_if_dpr_changed(dpr);
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
