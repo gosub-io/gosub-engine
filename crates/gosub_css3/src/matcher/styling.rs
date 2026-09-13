@@ -1220,6 +1220,7 @@ mod tests {
                 location: String::new(),
                 specificity: Specificity::new(1, 0, 0),
                 shadow_depth: 0,
+                order: 0,
             });
 
             assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
@@ -1236,6 +1237,7 @@ mod tests {
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
+            order: 0,
         });
         prop.compute_value().clone()
     }

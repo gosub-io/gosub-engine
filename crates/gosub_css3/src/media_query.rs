@@ -9,7 +9,9 @@
 
 use std::cell::Cell;
 
+use crate::functions::calc;
 use crate::node::{Node, NodeType};
+use crate::stylesheet::CssValue;
 use cow_utils::CowUtils;
 
 /// CSS px per CSS inch - fixed by the spec, independent of the physical display.
@@ -347,6 +349,11 @@ impl FeatureValue {
             NodeType::Number { value, .. } => Some(FeatureValue::Number(*value as f32)),
             NodeType::Ident { value } => Some(FeatureValue::Ident(value.cow_to_lowercase().into_owned())),
             NodeType::Dimension { value, unit } => Self::from_dimension(*value as f32, unit),
+            // `(max-width: calc(1120px - 1px))`. The media prelude parser reads a function token
+            // with `parse_function`, so `calc()` arrives as a `Function` node whose arguments are
+            // the expression's tokens; `Calc` covers the value-parser's shape for the same thing.
+            NodeType::Function { name, .. } if name.eq_ignore_ascii_case("calc") => eval_calc(node),
+            NodeType::Calc { .. } => eval_calc(node),
             // A ratio arrives as `<number> / <number>`.
             NodeType::Value { children } => match children.as_slice() {
                 [num, op, den] if matches!(&op.node_type, NodeType::Operator { value, .. } if value == "/") => {
@@ -409,6 +416,32 @@ fn length_to_px(value: f32, unit: &str) -> Option<f32> {
         "q" => value * PX_PER_CM / 40.0,
         _ => return None,
     })
+}
+
+/// Evaluate a `calc()` node in a media feature down to a length in px.
+///
+/// This goes through the crate's one calc evaluator rather than arithmetic of its own. A media
+/// query resolves `em` and `rem` against the *initial* font size - there is no element, so no
+/// computed size to ask - and the viewport units against the current environment, which is
+/// exactly what [`calc::Units::computed`] describes.
+///
+/// A body that does not come down to a single length (a bare number, a leftover percentage, an
+/// unsubstituted `var()`) yields `None`, and the feature then fails to match rather than
+/// matching on a value nobody meant.
+fn eval_calc(node: &Node) -> Option<FeatureValue> {
+    let value = CssValue::parse_ast_node(node.clone()).ok()?;
+    let units = calc::Units::computed(MEDIA_QUERY_FONT_SIZE, MEDIA_QUERY_FONT_SIZE);
+    // `parse_ast_node` already reduces what it can without an element; asking again with the
+    // media environment in hand is what turns `em` and `vw` into px.
+    let reduced = match &value {
+        CssValue::Function(name, body) => calc::evaluate_call(name, body, &units, true)?,
+        _ => value,
+    };
+    match reduced {
+        CssValue::Unit(v, unit) if unit.eq_ignore_ascii_case("px") => Some(FeatureValue::Length(v as f32)),
+        CssValue::Zero => Some(FeatureValue::Length(0.0)),
+        _ => None,
+    }
 }
 
 /// The `min-`/`max-` prefix on a feature name, which the spec defines as `>=` / `<=`.

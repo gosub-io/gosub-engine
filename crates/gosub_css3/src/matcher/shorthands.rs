@@ -854,7 +854,10 @@ mod tests {
             value_of(&expanded, "font-size"),
             Some(&CssValue::Unit(1.25, "em".into()))
         );
-        assert_eq!(value_of(&expanded, "line-height"), Some(&CssValue::Number(1.2)));
+        assert_eq!(
+            value_of(&expanded, "line-height"),
+            Some(&CssValue::Number(1.2, crate::tokenizer::NumberKind::Number))
+        );
         assert_eq!(
             value_of(&expanded, "font-family"),
             Some(&CssValue::String("serif".into()))
