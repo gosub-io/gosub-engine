@@ -2038,6 +2038,12 @@ mod tests {
         // `1px -2px` is two adjacent values, which is invalid - not a subtraction.
         assert_eq!(parsed("1px -2px"), None);
         assert_eq!(parsed("1px- 2px"), None);
+        // No whitespace at all is the same two adjacent values: the tokenizer folds the sign
+        // into the second one. Worth asserting separately - this is the form that reaches the
+        // parser from real stylesheets, and the one that used to be spliced into a single
+        // nonsense token back when the body was rebuilt as text.
+        assert_eq!(parsed("10px+20px"), None);
+        assert_eq!(parsed("2+3"), None);
         // Multiplication has no such rule.
         assert_eq!(parsed("2*3px").as_deref(), Some("6px"));
     }
