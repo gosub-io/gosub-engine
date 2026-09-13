@@ -265,7 +265,8 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                     hstr!(&t.text);
                     hstr!(&t.font_info.family);
                     hf64!(t.font_info.size);
-                    hf64!(t.font_info.line_height);
+                    // `normal` (None) hashes as -1.0, distinct from any real px line-height.
+                    hf64!(t.font_info.line_height.unwrap_or(-1.0));
                     hu64!(t.font_info.weight as u64);
                     hu64!(t.font_info.width as u64);
                     hu64!(t.font_info.slant as u64);

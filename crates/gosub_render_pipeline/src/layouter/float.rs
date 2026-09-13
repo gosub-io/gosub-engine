@@ -228,6 +228,11 @@ fn place_floats_in(
         .iter()
         .filter_map(|&child_id| {
             let child = layout_tree.arena.get(&child_id)?;
+            // A collapsed-border overlay is a synthetic child that carries its table's DOM id;
+            // reading the table's `float` through it would place the table a second time.
+            if matches!(child.context, ElementContext::TableBorderOverlay(_)) {
+                return Some((child_id, Role::OutOfFlow));
+            }
             let dom_id = child.dom_node_id;
             if position_is_out_of_flow(doc, dom_id) {
                 return Some((child_id, Role::OutOfFlow));
@@ -616,7 +621,9 @@ pub fn predict_banded_height(layout_tree: &LayoutTree, block: LayoutElementId, b
         match &child.context {
             ElementContext::Text(text) => {
                 if line_height <= 0.0 {
-                    line_height = text.font_info.line_height;
+                    // `normal` carries no exact height; the font's natural line is close to
+                    // 1.2em, which is what the band arithmetic needs here.
+                    line_height = text.font_info.line_height.unwrap_or(text.font_info.size * 1.2);
                 }
                 widths.push(child.box_model.border_box.width);
             }

@@ -553,56 +553,21 @@ fn match_group_exactly_one<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let input = raw_input;
-    let mut matched_values = vec![];
     let mut components_matched = vec![];
 
+    // Pass 1: find the winning alternative WITHOUT resolver side effects. `|` picks
+    // exactly one alternative, but a value can syntactically match several (e.g.
+    // `green` matches more than one arm of `<color>`); firing a shorthand-complete per
+    // match would over-advance the {1,4} value->side counter and scramble box
+    // shorthands like `border-color`.
     let mut c_idx = 0;
     while c_idx < components.len() {
         if input.is_empty() {
             break;
         }
-
-        if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
-            let step = resolver.step(c_idx);
-
-            let mut complete = None;
-            let mut resolver = None;
-
-            match step {
-                Ok(Some(r)) => resolver = Some(r),
-                Ok(None) => {}
-                Err(c) => complete = Some(c),
-            }
-
-            let component = &components[c_idx];
-
-            let res = match_component(input, component, resolver);
-            if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
-
-                // input = res.remainder.clone();
-
-                components_matched.push((c_idx, res.matched_values.clone(), res.remainder));
-
-                if let Some(complete) = complete {
-                    complete.complete(res.matched_values);
-                }
-            } else {
-                // No match. That's all right.
-            }
-        } else {
-            let component = &components[c_idx];
-
-            let res = match_component(input, component, None);
-            if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
-
-                // input = res.remainder.clone();
-
-                components_matched.push((c_idx, res.matched_values, res.remainder));
-            } else {
-                // No match. That's all right.
-            }
+        let res = match_component(input, &components[c_idx], None);
+        if res.matched {
+            components_matched.push((c_idx, res.matched_values, res.remainder));
         }
         c_idx += 1;
     }
@@ -611,28 +576,35 @@ fn match_group_exactly_one<'a>(
         return no_match(input);
     }
 
-    if components_matched.len() > 1 {
-        let mut shortest_remainder_idx = 0;
-        let mut shortest_remainder_len = usize::MAX;
-
-        for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
-            if remainder.len() < shortest_remainder_len {
-                shortest_remainder_len = remainder.len();
-                shortest_remainder_idx = idx;
-            }
+    let mut winner = 0;
+    let mut shortest_remainder_len = usize::MAX;
+    for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
+        if remainder.len() < shortest_remainder_len {
+            shortest_remainder_len = remainder.len();
+            winner = idx;
         }
+    }
+    let (winner_c_idx, winner_values, winner_remainder) = &components_matched[winner];
 
-        return MatchResult {
-            remainder: components_matched[shortest_remainder_idx].2,
-            matched: true,
-            matched_values: components_matched[shortest_remainder_idx].1.clone(),
-        };
+    // Pass 2: replay ONLY the winner against the resolver - completing it here, or
+    // descending with the stepped resolver when the shorthand path continues deeper.
+    if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
+        match resolver.step(*winner_c_idx) {
+            Ok(Some(sub)) => {
+                let res = match_component(input, &components[*winner_c_idx], Some(sub));
+                if res.matched {
+                    return res;
+                }
+            }
+            Ok(None) => {}
+            Err(complete) => complete.complete(winner_values.clone()),
+        }
     }
 
     MatchResult {
-        remainder: components_matched[0].2,
+        remainder: winner_remainder,
         matched: true,
-        matched_values: components_matched[0].1.clone(),
+        matched_values: winner_values.clone(),
     }
 }
 

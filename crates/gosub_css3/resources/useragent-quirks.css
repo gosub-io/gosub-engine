@@ -1,0 +1,13 @@
+/* Applied after useragent.css, only for documents the parser put in quirks mode
+   (no or a legacy doctype). HTML Living Standard, Rendering § Tables: in quirks mode a
+   table does not inherit these from its ancestors, so a `<center>` or a font-styled
+   wrapper around a table leaves the cell text alone. */
+table {
+    font-weight: initial;
+    font-style: initial;
+    font-variant: initial;
+    font-size: initial;
+    line-height: initial;
+    white-space: initial;
+    text-align: initial;
+}

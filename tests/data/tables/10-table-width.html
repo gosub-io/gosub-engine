@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>10 - table width resolution</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .px { width: 400px; }
+  .pct { width: 50%; }
+  .full { width: 100%; }
+</style>
+</head>
+<body>
+<h3>Table width - auto (shrink-to-fit), 400px, 50%, 100%</h3>
+<p>Expected: the auto table is only as wide as its content needs (it must
+NOT stretch to the viewport). Then: exactly 400px, half the body width,
+and full body width.</p>
+
+<p>auto:</p>
+<table>
+  <tr><td>short</td><td>content</td></tr>
+</table>
+
+<p>400px:</p>
+<table class="px">
+  <tr><td>short</td><td>content</td></tr>
+</table>
+
+<p>50%:</p>
+<table class="pct">
+  <tr><td>short</td><td>content</td></tr>
+</table>
+
+<p>100%:</p>
+<table class="full">
+  <tr><td>short</td><td>content</td></tr>
+</table>
+</body>
+</html>

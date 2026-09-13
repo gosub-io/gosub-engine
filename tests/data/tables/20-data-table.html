@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>20 - realistic data table</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+  th { background-color: #2c3e50; color: #ffffff; }
+  .num { text-align: right; }
+  .alt td { background-color: #f2f2f2; }
+  tfoot td { font-weight: bold; background-color: #eaf2f8; }
+</style>
+</head>
+<body>
+<h3>Real-world: full-width data table - header, zebra rows, numeric columns, footer</h3>
+<p>Expected: table fills the viewport width; the name column is widest
+(most content), numeric columns are right-aligned; alternating rows are
+grey; the footer row is bold on light blue. Collapsed 1px grid lines
+throughout.</p>
+<table>
+  <thead>
+    <tr><th>#</th><th>Crate</th><th>Description</th><th class="num">Lines</th><th class="num">Tests</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>gosub_lattice</td><td>CSS table layout engine</td><td class="num">1,842</td><td class="num">27</td></tr>
+    <tr class="alt"><td>2</td><td>gosub_css3</td><td>CSS parser and matcher with a longer description that stretches this column</td><td class="num">24,610</td><td class="num">312</td></tr>
+    <tr><td>3</td><td>gosub_html5</td><td>HTML5 tokenizer and tree builder</td><td class="num">31,077</td><td class="num">508</td></tr>
+    <tr class="alt"><td>4</td><td>gosub_render_pipeline</td><td>Layout and paint</td><td class="num">12,395</td><td class="num">96</td></tr>
+  </tbody>
+  <tfoot>
+    <tr><td colspan="3">Total</td><td class="num">69,924</td><td class="num">943</td></tr>
+  </tfoot>
+</table>
+</body>
+</html>

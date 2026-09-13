@@ -123,7 +123,7 @@ impl<'a> CssTaffyConverter<'a> {
 
         // Adjust display for table and inline elements.
         match self.get_own(&StyleProperty::Display) {
-            Some(Value::Display(CssDisplay::Table)) => {
+            Some(Value::Display(CssDisplay::Table | CssDisplay::InlineTable)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
@@ -132,21 +132,9 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.flex_direction = FlexDirection::Row;
             }
             Some(Value::Display(CssDisplay::TableCell)) => {
-                ts.display = Display::Flex;
-                // A cell is a block container: its block-level children stack, as do the anonymous
-                // containers the inline layout emits for line boxes. Taffy's default direction is
-                // `Row`, so a cell holding more than one block laid them out side by side - which
-                // put Wikipedia's infobox image caption in a narrow strip beside the picture
-                // instead of underneath it.
-                ts.flex_direction = FlexDirection::Column;
-                // `align_items` is deliberately left at taffy's default (stretch). A line box must
-                // be as wide as the cell for the text inside it to be measured against a definite
-                // width - that is the only thing that makes it wrap. Setting `align_items` here to
-                // carry the cell's `text-align` (an earlier attempt at centring header cells) made
-                // every line box shrink-to-fit instead, so text measured at unlimited width and ran
-                // past the cell rather than wrapping inside it. The cell's `text-align` reaches its
-                // line boxes as `justify_content` on the anonymous container - see
-                // `line_box_justify` - which positions the run *within* a full-width line box.
+                // Block inner layout so child blocks stack vertically; flex_grow
+                // still applies to the cell as an item of its flex-row row.
+                ts.display = Display::Block;
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {
@@ -160,6 +148,11 @@ impl<'a> CssTaffyConverter<'a> {
             Some(Value::Display(CssDisplay::TableRowGroup)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
+            }
+            // <col>/<colgroup> generate no boxes; lattice reads their widths
+            // straight from the DOM.
+            Some(Value::Display(CssDisplay::TableColumn | CssDisplay::TableColumnGroup)) => {
+                ts.display = Display::None;
             }
             Some(Value::Display(CssDisplay::InlineBlock)) => {
                 ts.display = Display::Flex;
@@ -223,6 +216,21 @@ impl<'a> CssTaffyConverter<'a> {
             if !keeps_its_formatting_context {
                 ts.display = Display::Block;
             }
+        }
+
+        // CSS 2 §10.3.7: an absolutely-positioned box with `width: auto` shrinks to fit but
+        // never beyond its containing block. Taffy sizes such children to raw fit-content
+        // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
+        // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
+        // and every size except the cap itself is auto in this branch.
+        if ts.position == Position::Absolute
+            && ts.size.width.is_auto()
+            && ts.size.height.is_auto()
+            && ts.max_size.width.is_auto()
+            && ts.min_size.width.is_auto()
+        {
+            ts.box_sizing = BoxSizing::BorderBox;
+            ts.max_size.width = Dimension::percent(1.0);
         }
 
         ts
@@ -627,7 +635,7 @@ fn split_grid_tokens(s: &str) -> Vec<String> {
 }
 
 /// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px",
-/// "repeat(3, 1fr)", …).
+/// "repeat(3, 1fr)", ...).
 fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     let mut tracks = Vec::new();
     for token in split_grid_tokens(s) {
@@ -660,7 +668,7 @@ fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     }
 }
 
-/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", …).
+/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", ...).
 fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
     let s = s.trim();
     if s == "auto" {

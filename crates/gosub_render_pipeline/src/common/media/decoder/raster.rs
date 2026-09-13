@@ -52,7 +52,7 @@ fn decode_png_lenient(bytes: &[u8]) -> anyhow::Result<image::RgbaImage> {
     let mut options = png::DecodeOptions::default();
     options.set_ignore_checksums(true);
     let mut decoder = png::Decoder::new_with_options(std::io::Cursor::new(bytes), options);
-    // EXPAND: palette → RGB, sub-8-bit → 8-bit, and tRNS → alpha channel. STRIP_16: 16-bit → 8-bit.
+    // EXPAND: palette -> RGB, sub-8-bit -> 8-bit, and tRNS -> alpha channel. STRIP_16: 16-bit -> 8-bit.
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
 
     let mut reader = decoder.read_info()?;

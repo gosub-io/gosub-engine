@@ -4,7 +4,7 @@ use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
-use crate::layouter::LayoutElementId;
+use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::PaintCommand;
 use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
@@ -14,18 +14,21 @@ use std::fmt::Debug;
 use std::ops::AddAssign;
 use std::sync::Arc;
 
-/// The smallest rect containing both inputs. A zero-area rect still contributes its origin, which
-/// is what keeps a collapsed margin box from pulling the union away from the border box.
-fn union_rect(a: Rect, b: Rect) -> Rect {
-    let x = a.x.min(b.x);
-    let y = a.y.min(b.y);
-    let right = (a.x + a.width).max(b.x + b.width);
-    let bottom = (a.y + a.height).max(b.y + b.height);
-    Rect::new(x, y, right - x, bottom - y)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(u64);
+
+/// Tile-coverage extent of an element's paint: the union of margin and border box. Negative
+/// margins shrink the margin box below the painted border box (even to zero area), so the
+/// margin box alone would drop tiles the element actually paints into.
+fn paint_extent(el: &LayoutElementNode) -> Rect {
+    let m = el.box_model.margin_box;
+    let b = el.box_model.border_box;
+    let x = m.x.min(b.x);
+    let y = m.y.min(b.y);
+    let x2 = (m.x + m.width).max(b.x + b.width);
+    let y2 = (m.y + m.height).max(b.y + b.height);
+    Rect::new(x, y, x2 - x, y2 - y)
+}
 
 impl TileId {
     pub const fn new(val: u64) -> Self {
@@ -272,13 +275,7 @@ impl TileList {
                 let mut max_y = f64::MIN;
                 for &eid in &layer.elements {
                     if let Some(el) = self.layer_list.layout_tree.get_node_by_id(eid) {
-                        // Same union the per-element assignment below uses. Bounding the grid by
-                        // the margin box alone is not enough: a negative margin can collapse the
-                        // margin box to zero area - `margin-left: -320px` on a float - so the
-                        // positive-area check skipped the element entirely and the layer could
-                        // end up with no tiles for the assignment to pick from, or with a grid
-                        // too small to hold the border pixels that actually get painted.
-                        let m = union_rect(el.box_model.margin_box, el.box_model.border_box);
+                        let m = paint_extent(el);
                         if m.width > 0.0 && m.height > 0.0 {
                             min_x = min_x.min(m.x);
                             min_y = min_y.min(m.y);
@@ -358,12 +355,7 @@ impl TileList {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
-                // Cull on the union of the margin and border boxes. Backgrounds and borders paint
-                // the *border* box, and a negative margin can make the margin box smaller than it
-                // - a `margin-left: -320px` float has a zero-width margin box off to one side.
-                // Culling on the margin box alone then assigns the element to too few tiles and
-                // its background is clipped away at the tile boundary.
-                let margin_box = union_rect(element.box_model.margin_box, element.box_model.border_box);
+                let margin_box = paint_extent(element);
 
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {

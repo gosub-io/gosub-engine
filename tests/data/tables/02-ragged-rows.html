@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>02 - ragged rows and empty cells</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .empty { background-color: #fce8e8; }
+</style>
+</head>
+<body>
+<h3>Ragged rows - rows with 4, 2, and 3 cells; one fully empty cell</h3>
+<p>Expected: table is 4 columns wide (widest row wins); short rows leave
+missing slots blank at the right; the empty cell still gets its column's
+width and the row's height.</p>
+<table>
+  <tr><td>r1c1</td><td>r1c2</td><td>r1c3</td><td>r1c4</td></tr>
+  <tr><td>r2c1</td><td>r2c2</td></tr>
+  <tr><td>r3c1</td><td class="empty"></td><td>r3c3</td></tr>
+</table>
+</body>
+</html>

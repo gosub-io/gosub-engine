@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>03 - thead/tfoot ordering and multiple tbodies</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td, th { border: 1px solid #999; padding: 6px; }
+  thead th { background-color: #d0e2ff; }
+  tfoot td { background-color: #ffe2d0; }
+  .b1 td { background-color: #e8f6e8; }
+  .b2 td { background-color: #f6f0e0; }
+</style>
+</head>
+<body>
+<h3>Sections - tfoot written before thead, two tbodies</h3>
+<p>Expected render order top-to-bottom: blue header, green body, tan body,
+orange footer - regardless of source order (tfoot appears first in the
+source here).</p>
+<table>
+  <tfoot>
+    <tr><td>footer 1</td><td>footer 2</td></tr>
+  </tfoot>
+  <thead>
+    <tr><th>Head A</th><th>Head B</th></tr>
+  </thead>
+  <tbody class="b1">
+    <tr><td>body1 r1a</td><td>body1 r1b</td></tr>
+    <tr><td>body1 r2a</td><td>body1 r2b</td></tr>
+  </tbody>
+  <tbody class="b2">
+    <tr><td>body2 r1a</td><td>body2 r1b</td></tr>
+  </tbody>
+</table>
+</body>
+</html>
