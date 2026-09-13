@@ -18,7 +18,16 @@ fn make_input(target: usize) -> String {
 /// Eager decode: how long `from_str` (buffer -> chars + offsets + line_starts) takes.
 fn decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("bytestream/decode");
-    for &size in &[16 * 1024usize, 1024 * 1024, 8 * 1024 * 1024] {
+    for &size in &[
+        16 * 1024usize,
+        64 * 1024,
+        256 * 1024,
+        512 * 1024,
+        1024 * 1024,
+        2 * 1024 * 1024,
+        4 * 1024 * 1024,
+        8 * 1024 * 1024,
+    ] {
         let input = make_input(size);
         group.throughput(Throughput::Bytes(input.len() as u64));
         group.bench_function(format!("{}KB", input.len() / 1024), |b| {

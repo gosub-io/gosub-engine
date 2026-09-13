@@ -27,6 +27,14 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderBottomColor
         | StyleProperty::BorderLeftColor => {
             if let Some(s) = p.as_string() {
+                // `transparent` tokenises as a plain identifier, so the colour parser does not
+                // recognise it and the property would be left unset - which the painter reads as
+                // "no colour given" and falls back to black. CSS defines it as rgba(0, 0, 0, 0),
+                // and the CSS-triangle idiom (`border-color: transparent transparent green`)
+                // depends on it, so an unresolved `transparent` paints a solid black box.
+                if s.eq_ignore_ascii_case("transparent") {
+                    return Some(Value::Color(0, 0, 0, 0));
+                }
                 if let Some((r, g, b, a)) = css_system_color(s) {
                     return Some(Value::Color(r, g, b, a));
                 }
@@ -240,6 +248,40 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 return Some(Value::Unit(p.unit_to_px(), Unit::Px));
             }
             p.as_number().map(|n| Value::Unit(n, Unit::Px))
+        }
+
+        // ── `grid-template-areas`: one quoted string per row ───────────────
+        // `'siteNotice siteNotice' 'columnStart pageContent'` is a *list* of strings, and the
+        // row boundaries carry the meaning - joining on a space would merge every row into one.
+        // Rows are joined with '\n' (which cannot occur inside an area name) and re-split by
+        // the layouter's `parse_grid_areas`.
+        StyleProperty::GridTemplateAreas => {
+            let rows: Vec<&str> = match p.as_list() {
+                Some(list) => list.iter().filter_map(|v| v.as_string()).collect(),
+                None => vec![p.as_string()?],
+            };
+            let joined = rows
+                .iter()
+                .map(|row| row.trim_matches(['"', '\'']))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(Value::Keyword(intern(&joined)))
+        }
+
+        // ── Grid placements: a name, a line number, or `<start> / <end>` ──
+        // The slash form arrives as a list (`[1, "/", 3]`) which `as_string()` does not return,
+        // so without this `grid-column: 1 / 3` was dropped and the item never spanned.
+        StyleProperty::GridArea | StyleProperty::GridRow | StyleProperty::GridColumn => {
+            let s = match p.as_string() {
+                Some(str) => str.to_string(),
+                None => p
+                    .as_list()?
+                    .iter()
+                    .map(grid_value_to_string::<S>)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            };
+            Some(Value::Keyword(intern(&s)))
         }
 
         // ── Default: unit-based or keyword ────────────────────────────────
@@ -535,9 +577,8 @@ fn property_gradient_layers<S: CssSystem>(p: &S::Property) -> Vec<LinearGradient
 enum BgTok {
     /// A `<length>` in px (bare `0` included).
     Len(f32),
-    /// A `<percentage>` (0..100). The value is retained for future box-relative resolution;
-    /// today a percentage size/position falls back to "fill box" / zero offset.
-    #[allow(dead_code)]
+    /// A `<percentage>` (0..100). A percentage *size* still falls back to "fill the box"; a
+    /// percentage *position* is resolved against the box at paint time.
     Pct(f32),
     /// A keyword (`cover`, `center`, `no-repeat`, ...), lowercased.
     Kw(String),
@@ -622,20 +663,155 @@ fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
     }
 }
 
-/// `background-position` group -> (x, y) px phase offset. Percentages and edge keywords need the
-/// box size, so they resolve to 0 for now; px offsets are exact.
-fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
-    let lens: Vec<f32> = group
-        .iter()
-        .filter_map(|t| match t {
-            BgTok::Len(v) => Some(*v),
-            _ => None,
-        })
-        .collect();
-    match lens.as_slice() {
-        [x] => (*x, 0.0),
-        [x, y, ..] => (*x, *y),
-        _ => (0.0, 0.0),
+/// One axis of `background-position`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BgAnchor {
+    /// A length in px from the box's start edge (left / top).
+    Start(f32),
+    /// A length in px from the box's end edge - `right`, `bottom`, and the three-value forms
+    /// `right 10px` / `bottom 1em`.
+    End(f32),
+    /// A percentage: that point of the image is aligned with the same point of the box, so `50%`
+    /// centres it and `100%` puts its far edge on the box's far edge.
+    Percent(f32),
+}
+
+impl BgAnchor {
+    /// Where the tile's start edge lands, given the box's and the tile's extent on this axis.
+    #[must_use]
+    pub fn resolve(self, box_extent: f32, tile_extent: f32) -> f32 {
+        match self {
+            BgAnchor::Start(v) => v,
+            BgAnchor::End(v) => box_extent - tile_extent - v,
+            BgAnchor::Percent(p) => (box_extent - tile_extent) * p / 100.0,
+        }
+    }
+}
+
+/// `background-position` group → one [`BgAnchor`] per axis.
+///
+/// The two-keyword form may be written in either order - `center right` means the same as
+/// `right center` - so the axis a keyword belongs to is decided by the keyword, not by where it
+/// sits in the list. Reading the first value as the horizontal one put Wikipedia's external-link
+/// icon, which is positioned `center right`, in the middle of every link instead of after it.
+///
+/// Also handles the three-value edge-offset form (`right 10px`) and the one-value form, whose
+/// missing axis is `center` rather than the start edge.
+fn resolve_bg_position(group: &[BgTok]) -> (BgAnchor, BgAnchor) {
+    let mut x: Option<BgAnchor> = None;
+    let mut y: Option<BgAnchor> = None;
+    // How many position components were written, so the one-value form can default its other axis
+    // to `center`. A length that an edge keyword swallows (`right 10px`) is part of that keyword's
+    // component, not one of its own.
+    let mut components = 0usize;
+    // Whether the last keyword was an edge one, and which axis/edge it named, so a length after it
+    // becomes an offset from that edge.
+    let mut pending_edge: Option<(bool, bool)> = None;
+    // A leading `center` claims a component without naming an axis, and the two-value form then
+    // means it took the horizontal one: `center 4px` is x = center, y = 4px. Without this the
+    // length filled the still-empty horizontal slot and the tile moved along the wrong axis.
+    let mut center_took_x = false;
+
+    for tok in group {
+        match tok {
+            BgTok::Kw(k) => {
+                let edge = match k.as_str() {
+                    "left" => Some((false, false)),
+                    "right" => Some((false, true)),
+                    "top" => Some((true, false)),
+                    "bottom" => Some((true, true)),
+                    _ => None,
+                };
+                match (edge, k.as_str()) {
+                    (Some((vertical, from_end)), _) => {
+                        let anchor = if from_end {
+                            BgAnchor::End(0.0)
+                        } else {
+                            BgAnchor::Start(0.0)
+                        };
+                        if vertical {
+                            y = Some(anchor);
+                        } else {
+                            x = Some(anchor);
+                        }
+                        components += 1;
+                        pending_edge = Some((vertical, from_end));
+                    }
+                    (None, "center") => {
+                        // Which axis it means depends on what follows, so it waits - but a length
+                        // after it is the *other* axis.
+                        if x.is_none() && y.is_none() {
+                            center_took_x = true;
+                        }
+                        components += 1;
+                        pending_edge = None;
+                    }
+                    // Not a position keyword at all (a `background` shorthand carries
+                    // `no-repeat`, `cover`, … in the same list).
+                    (None, _) => pending_edge = None,
+                }
+            }
+            BgTok::Len(v) => match pending_edge.take() {
+                Some((true, from_end)) => {
+                    y = Some(if from_end {
+                        BgAnchor::End(*v)
+                    } else {
+                        BgAnchor::Start(*v)
+                    })
+                }
+                Some((false, from_end)) => {
+                    x = Some(if from_end {
+                        BgAnchor::End(*v)
+                    } else {
+                        BgAnchor::Start(*v)
+                    })
+                }
+                None => {
+                    if x.is_none() && !center_took_x {
+                        x = Some(BgAnchor::Start(*v));
+                    } else if y.is_none() {
+                        y = Some(BgAnchor::Start(*v));
+                    }
+                    components += 1;
+                }
+            },
+            BgTok::Pct(p) => {
+                pending_edge = None;
+                if x.is_none() && !center_took_x {
+                    x = Some(BgAnchor::Percent(*p));
+                } else if y.is_none() {
+                    y = Some(BgAnchor::Percent(*p));
+                }
+                components += 1;
+            }
+        }
+    }
+
+    // Whatever no component claimed is `center`: that is what a lone `center` means on the axis it
+    // did not name, and what the one-value form means for its missing axis.
+    let centered = BgAnchor::Percent(50.0);
+    match (x, y) {
+        (Some(x), Some(y)) => (x, y),
+        (Some(x), None) => (x, centered),
+        (None, Some(y)) => (centered, y),
+        // No component at all is the initial value, `0% 0%`.
+        (None, None) if components == 0 => (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
+        (None, None) => (centered, centered),
+    }
+}
+
+/// Whether a keyword names a place in `background-position`, as opposed to the repeat and size
+/// keywords that share the `background` shorthand's token list.
+fn is_position_keyword(k: &str) -> bool {
+    matches!(k, "left" | "right" | "top" | "bottom" | "center")
+}
+
+/// Whether a token could be part of a `<bg-position>`, used to tell a `background-position`
+/// declaration that says something from one that only carries junk.
+fn is_position_token(t: &BgTok) -> bool {
+    match t {
+        BgTok::Kw(k) => is_position_keyword(k),
+        BgTok::Len(_) | BgTok::Pct(_) => true,
     }
 }
 
@@ -684,10 +860,9 @@ pub enum BgSize {
 pub struct BgImageLayout {
     /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
     pub repeat: (bool, bool),
-    /// Tile origin offset from the box origin, in px (`background-position`, length form).
-    pub position: (f32, f32),
-    /// Per-axis `center` keyword (`background-position: center`) - resolved against the box at paint.
-    pub center: (bool, bool),
+    /// Where the tile is anchored on each axis (`background-position`), resolved against the box
+    /// at paint time since edges and percentages need to know how big it is.
+    pub position: (BgAnchor, BgAnchor),
     /// Resolved `background-size`.
     pub size: BgSize,
 }
@@ -696,8 +871,7 @@ impl Default for BgImageLayout {
     fn default() -> Self {
         BgImageLayout {
             repeat: (true, true),
-            position: (0.0, 0.0),
-            center: (false, false),
+            position: (BgAnchor::Start(0.0), BgAnchor::Start(0.0)),
             size: BgSize::Auto,
         }
     }
@@ -726,7 +900,10 @@ pub trait PipelineDocument: Send + Sync {
     /// `background-image` gradient layers in source order (first listed paints on top), each
     /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
     /// backgrounds.
-    fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
+    ///
+    /// `box_size` is the painting area the layers are positioned against; an edge or percentage
+    /// `background-position` cannot be resolved without it.
+    fn background_layers(&self, _id: NodeId, _box_size: (f32, f32)) -> Vec<Gradient> {
         Vec::new()
     }
 
@@ -814,6 +991,42 @@ pub trait PipelineDocument: Send + Sync {
         // element's font-size (16px default). `em` is relative to the *parent's* computed
         // font-size for `font-size` itself, and to the element's *own* computed font-size
         // for every other property (e.g. `max-width: 17ch` lands here as `em`).
+        // `font-size` written as a percentage or a keyword. Neither could be turned into pixels,
+        // so `font_size_px` fell back to its 16px default and the element rendered at full body
+        // size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and anything using
+        // the UA's `sup { font-size: smaller }` or `<small>`.
+        //
+        // A percentage is against the *parent's* computed size, as are `smaller`/`larger`, which
+        // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
+        // `medium` at 16px.
+        if matches!(prop, StyleProperty::FontSize) {
+            let parent_size = || match self.parent(id) {
+                Some(parent) => self.font_size_px(parent),
+                None => 16.0,
+            };
+            if let Value::Unit(pct, Unit::Percent) = &raw {
+                return Value::Unit(parent_size() * pct / 100.0, Unit::Px);
+            }
+            if let Value::Keyword(kw) = &raw {
+                let px = match crate::common::document::style::lookup(*kw).as_str() {
+                    "xx-small" => Some(9.0),
+                    "x-small" => Some(10.0),
+                    "small" => Some(13.0),
+                    "medium" => Some(16.0),
+                    "large" => Some(18.0),
+                    "x-large" => Some(24.0),
+                    "xx-large" => Some(32.0),
+                    "xxx-large" => Some(48.0),
+                    "smaller" => Some(parent_size() / 1.2),
+                    "larger" => Some(parent_size() * 1.2),
+                    _ => None,
+                };
+                if let Some(px) = px {
+                    return Value::Unit(px, Unit::Px);
+                }
+            }
+        }
+
         match &raw {
             Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
             Value::Unit(v, Unit::Em) => {
@@ -1072,6 +1285,91 @@ fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
 type CachedStyles<C> = Arc<<<C as gosub_interface::config::HasCssSystem>::CssSystem as CssSystem>::PropertyMap>;
 
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
+/// Which slottables ended up in which `<slot>`, for every shadow tree in the document.
+///
+/// Computed once, when the adapter is built. Without scripting neither the light DOM nor the
+/// shadow trees change after parsing, so an assignment can never go stale - there is no
+/// invalidation to run and no `slotchange` to fire.
+#[derive(Default)]
+struct SlotAssignment {
+    /// The slottables projected into each slot, in tree order. A slot that is absent here, or
+    /// present with an empty list, renders its own children as fallback content instead.
+    assigned: HashMap<NodeId, Vec<NodeId>>,
+    /// The slot each projected node landed in: the inverse of `assigned`, and the flat-tree
+    /// parent that style inheritance follows.
+    slot_of: HashMap<NodeId, NodeId>,
+}
+
+/// Assigns each shadow host's light children to the slots of its shadow tree.
+fn compute_slot_assignment<C: HasDocument>(doc: &C::Document) -> SlotAssignment {
+    let mut out = SlotAssignment::default();
+
+    let mut stack = vec![doc.root()];
+    while let Some(id) = stack.pop() {
+        stack.extend(doc.children(id).iter().copied());
+
+        let Some(shadow_root) = doc.shadow_root(id) else {
+            continue;
+        };
+        // A shadow tree can contain hosts of its own, so it joins the walk. It is not reached
+        // through `children`, which is exactly what keeps shadow trees out of everything that
+        // has not opted in.
+        stack.push(shadow_root);
+        assign_to_slots::<C>(doc, id, shadow_root, &mut out);
+    }
+
+    out
+}
+
+/// The slot-assignment algorithm for one host: find the shadow tree's slots, then hand each of
+/// the host's light children to the slot that claims it.
+fn assign_to_slots<C: HasDocument>(doc: &C::Document, host: NodeId, shadow_root: NodeId, out: &mut SlotAssignment) {
+    // Collect slots in tree order, first of a given name winning. The walk deliberately runs
+    // over the whole shadow tree: a `<slot>` sitting in a *nested* host's light DOM is still a
+    // descendant of this tree, and so is still one of this tree's slots.
+    let mut default_slot: Option<NodeId> = None;
+    let mut named_slots: HashMap<&str, NodeId> = HashMap::new();
+
+    let mut stack: Vec<NodeId> = doc.children(shadow_root).iter().rev().copied().collect();
+    while let Some(node) = stack.pop() {
+        stack.extend(doc.children(node).iter().rev().copied());
+
+        if doc.tag_name(node) != Some("slot") {
+            continue;
+        }
+        match doc.attribute(node, "name").unwrap_or("") {
+            "" => {
+                default_slot.get_or_insert(node);
+            }
+            name => {
+                named_slots.entry(name).or_insert(node);
+            }
+        }
+    }
+
+    for &child in doc.children(host) {
+        let slot = match doc.node_type(child) {
+            // Only elements and text are slottables. An element goes to the slot named by its
+            // `slot` attribute; text has no such attribute and always goes to the default
+            // slot - whitespace-only runs included, which is why an unslotted-looking gap can
+            // still push content around.
+            GosubNodeType::ElementNode => match doc.attribute(child, "slot").unwrap_or("") {
+                "" => default_slot,
+                name => named_slots.get(name).copied(),
+            },
+            GosubNodeType::TextNode => default_slot,
+            _ => None,
+        };
+
+        // No slot claimed it: the node stays in the light DOM and renders nowhere.
+        let Some(slot) = slot else {
+            continue;
+        };
+        out.assigned.entry(slot).or_default().push(child);
+        out.slot_of.insert(child, slot);
+    }
+}
+
 pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
@@ -1090,6 +1388,8 @@ where
     /// list; `get_style` calls it per inherited property, which made style resolution
     /// quadratic in table size. Keyed on the (possibly synthetic) id.
     parent_cache: Mutex<HashMap<NodeId, Option<NodeId>>>,
+    /// Flat-tree slot assignment, computed up front and then never touched again.
+    slots: SlotAssignment,
 }
 
 impl<C> GosubDocumentAdapter<C>
@@ -1155,16 +1455,143 @@ where
                 owner
             });
         }
-        self.doc.parent(id)
+        self.flat_parent(id)
+    }
+
+    /// The flat-tree parent of a real node: the slot it was projected into, or the host
+    /// standing in for a shadow root, or plainly its DOM parent.
+    ///
+    /// This is what inherited properties resolve through (`get_style` walks `parent`, not
+    /// `children`), and `compute_styles` asks for it directly rather than via `parent`: the
+    /// anonymous-table lookup in `parent_uncached` needs the node's own `display`, which needs
+    /// its styles, which need its parent's - a cycle. An anonymous wrapper carries no styles of
+    /// its own, so inheriting straight from the real parent gives the same answer.
+    fn flat_parent(&self, id: NodeId) -> Option<NodeId> {
+        if let Some(&slot) = self.slots.slot_of.get(&id) {
+            // A projected node inherits from the slot it landed in - so it picks up the shadow
+            // tree's chain, not the light DOM's, even though the DOM parent is still the host.
+            return Some(slot);
+        }
+        let parent = self.doc.parent(id)?;
+        if self.doc.node_type(parent) == GosubNodeType::ShadowRootNode {
+            // The shadow root generates no box and has no styles of its own; the host stands
+            // in for it, which is also where inheritance into a shadow tree comes from.
+            return self.doc.shadow_host(parent);
+        }
+        Some(parent)
     }
 
     pub fn new(doc: Arc<C::Document>) -> Self {
+        let slots = compute_slot_assignment::<C>(&doc);
         Self {
             doc,
             style_cache: Mutex::new(HashMap::new()),
             inline_style_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
             parent_cache: Mutex::new(HashMap::new()),
+            slots,
+        }
+    }
+
+    /// Whether `id` is a `<slot>`. There is no `slot` element in any other namespace, so the
+    /// tag name settles it - as it does everywhere else in this adapter.
+    fn is_slot(&self, id: NodeId) -> bool {
+        self.doc.tag_name(id) == Some("slot")
+    }
+
+    /// The children of `id` in the flat tree - what actually generates boxes beneath it.
+    ///
+    /// Three rewrites, each of them purely local:
+    ///
+    ///  - a **shadow host** renders its shadow tree, so it yields the shadow root's children.
+    ///    The shadow root itself is spliced out: it generates no box and carries no styles.
+    ///  - a **`<slot>`** is replaced by the nodes projected into it, or by its own children as
+    ///    fallback when nothing was. Like `display: contents`, which this engine has no general
+    ///    support for, the slot generates no box - but it stays the *style* parent of what it
+    ///    projects, which [`parent`](Self::parent) is what makes true.
+    ///  - a **light child no slot claimed** is dropped, which is what makes unassigned content
+    ///    invisible rather than merely unstyled.
+    fn flat_children(&self, id: NodeId) -> Vec<NodeId> {
+        // A slot the author gave a box of its own is an ordinary parent: its children are the
+        // nodes projected into it.
+        if self.is_slot(id) && self.slot_generates_a_box(id) {
+            let mut out = Vec::new();
+            self.push_slot_content(id, &mut out);
+            return out;
+        }
+
+        let source = self.doc.shadow_root(id).unwrap_or(id);
+
+        let children = self.doc.children(source);
+        // The overwhelmingly common case: no slot among them, so nothing to rewrite.
+        if !children.iter().any(|&child| self.is_slot(child)) {
+            return children.to_vec();
+        }
+
+        let mut out = Vec::with_capacity(children.len());
+        for &child in children {
+            self.push_flattened(child, &mut out);
+        }
+        out
+    }
+
+    /// Whether a `<slot>` keeps a box of its own instead of being spliced away.
+    ///
+    /// The user-agent sheet gives every slot `display: contents`, which this engine has no
+    /// `Display` variant for - it falls through to `Block` - so the *computed* value cannot
+    /// tell the UA default apart from an authored `display: block`. The raw declared keyword
+    /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
+    fn slot_generates_a_box(&self, slot: NodeId) -> bool {
+        // Compute first, ask afterwards. `inline_style_cache` is only ever filled as a side
+        // effect of `cached_styles`, so reading it before this call misses on the first visit to
+        // a slot - the lookup falls through to the cascaded map, finds the UA `display: contents`
+        // and splices the slot away, while a later call with the cache warm keeps it. That made
+        // the flat tree depend on what had already been styled.
+        let arc = self.cached_styles(slot);
+
+        // An inline `style` attribute is already mapped onto the `Display` enum, so its raw
+        // keyword is gone; any inline `display` at all is taken to mean "give me a box".
+        if let Some(inline) = self.inline_style_cache.lock().get(&slot) {
+            if inline.get_own(&StyleProperty::Display).is_some() {
+                return true;
+            }
+        }
+
+        match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
+            Some("contents") | None => false,
+            Some(_) => true,
+        }
+    }
+
+    /// Appends `node` to `out`, or - when it is a slot that generates no box - whatever stands
+    /// in its place.
+    ///
+    /// The expansion recurses because what a slot projects can be another slot: a `<slot>` in
+    /// the light DOM of a nested host is a slottable of the inner tree *and* a slot of the
+    /// outer one, so content flows through both. It always terminates - projection steps move
+    /// strictly outwards through the host nesting, fallback steps strictly down the tree.
+    fn push_flattened(&self, node: NodeId, out: &mut Vec<NodeId>) {
+        if !self.is_slot(node) || self.slot_generates_a_box(node) {
+            out.push(node);
+            return;
+        }
+        self.push_slot_content(node, out);
+    }
+
+    /// Appends what a slot projects: the nodes assigned to it, or - when nothing was assigned -
+    /// its own children, which are the slot's fallback content.
+    fn push_slot_content(&self, slot: NodeId, out: &mut Vec<NodeId>) {
+        match self.slots.assigned.get(&slot) {
+            Some(assigned) if !assigned.is_empty() => {
+                for &n in assigned {
+                    self.push_flattened(n, out);
+                }
+            }
+            _ => {
+                for &n in self.doc.children(slot) {
+                    self.push_flattened(n, out);
+                }
+            }
         }
     }
 
@@ -1249,9 +1676,11 @@ where
         }
         let sheets = self.doc.stylesheets();
         // Styles resolve top-down: the parent's map carries the inherited custom properties.
+        // The *flat*-tree parent, so a slotted node picks them up from the slot it was
+        // projected into rather than from its light-DOM host. Not `parent`: that one also
+        // resolves anonymous table wrappers, which needs this node's styles first.
         let parent_styles = self
-            .doc
-            .parent(id)
+            .flat_parent(id)
             .filter(|&p| self.doc.node_type(p) == GosubNodeType::ElementNode)
             .map(|p| self.cached_styles(p));
         let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets, parent_styles.as_deref())
@@ -1877,7 +2306,7 @@ where
         if self.pseudo_box(id, false).is_some() {
             out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
         }
-        out.extend(self.doc.children(id).iter().copied());
+        out.extend(self.flat_children(id));
         if self.pseudo_box(id, true).is_some() {
             out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
         }
@@ -1904,6 +2333,9 @@ where
             GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => PipelineNodeKind::Comment,
             GosubNodeType::ElementNode => PipelineNodeKind::Element,
             GosubNodeType::DocumentNode => PipelineNodeKind::Element,
+            // A shadow root generates no box of its own; the flattened traversal yields its
+            // children in the host's place, so this is only a belt-and-braces answer.
+            GosubNodeType::ShadowRootNode => PipelineNodeKind::Comment,
         }
     }
 
@@ -1970,7 +2402,7 @@ where
         None
     }
 
-    fn background_layers(&self, id: NodeId) -> Vec<Gradient> {
+    fn background_layers(&self, id: NodeId, box_size: (f32, f32)) -> Vec<Gradient> {
         if is_anon_box_id(u64::from(id)) {
             return Vec::new();
         }
@@ -2021,8 +2453,12 @@ where
             if tw <= 0.0 || th <= 0.0 {
                 continue;
             }
+            // Resolved against the painting area, as `compute_bg_tiling` does for raster images:
+            // `right`, `center` and a percentage all mean a distance that depends on how much
+            // wider the box is than the tile.
             let position = pick(&pos_groups, i)
                 .map(|j| resolve_bg_position(&pos_groups[j]))
+                .map(|(x, y)| (x.resolve(box_size.0, tw), y.resolve(box_size.1, th)))
                 .unwrap_or((0.0, 0.0));
             let repeat = pick(&rep_groups, i)
                 .map(|j| resolve_bg_repeat(&rep_groups[j]))
@@ -2048,7 +2484,7 @@ where
         // / contain`) and then the longhands are usually empty, so scan both.
         let mut keywords: Vec<String> = Vec::new();
         let mut explicit_size: Option<(f32, f32)> = None;
-        let mut position: Option<(f32, f32)> = None;
+        let mut position: Option<(BgAnchor, BgAnchor)> = None;
 
         let mut scan = |key: &str, read_size: bool, read_pos: bool| {
             let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) else {
@@ -2061,11 +2497,8 @@ where
             if read_size && explicit_size.is_none() {
                 explicit_size = resolve_bg_size(group);
             }
-            if read_pos && position.is_none() {
-                let pos = resolve_bg_position(group);
-                if pos != (0.0, 0.0) {
-                    position = Some(pos);
-                }
+            if read_pos && position.is_none() && group.iter().any(is_position_token) {
+                position = Some(resolve_bg_position(group));
             }
             for t in group {
                 if let BgTok::Kw(k) = t {
@@ -2096,19 +2529,18 @@ where
             None if has("contain") => BgSize::Contain,
             None => BgSize::Auto,
         };
-        // A length `background-position` wins; otherwise a bare `center` centers both axes.
-        let (position, center) = match position {
-            Some(pos) => (pos, (false, false)),
-            None if has("center") => ((0.0, 0.0), (true, true)),
-            None => ((0.0, 0.0), (false, false)),
-        };
+        // `background-position` from the longhand wins; otherwise the shorthand's own keywords
+        // (`background: url(x) no-repeat center`) are read as a position.
+        let position = position.unwrap_or_else(|| {
+            let group: Vec<BgTok> = keywords
+                .iter()
+                .filter(|k| is_position_keyword(k))
+                .map(|k| BgTok::Kw(k.clone()))
+                .collect();
+            resolve_bg_position(&group)
+        });
 
-        BgImageLayout {
-            repeat,
-            position,
-            center,
-            size,
-        }
+        BgImageLayout { repeat, position, size }
     }
 
     fn clear_style_cache(&self) {
@@ -2227,8 +2659,12 @@ where
             });
         }
 
-        let parent_id = self.doc.parent(id);
-        let children = self.doc.children(id).to_vec();
+        // The flat tree, like the pseudo-element branch above and like `parent`/`children`
+        // themselves. It has to be: a shadow root has no `Node` of its own (the match below ends
+        // in `return None`), so reporting one as a parent makes the layouter drop the child - a
+        // text node directly inside a shadow tree never got laid out.
+        let parent_id = PipelineDocument::parent(self, id);
+        let children = self.children(id);
 
         let node_type = match self.doc.node_type(id) {
             GosubNodeType::TextNode => {
@@ -2334,5 +2770,107 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "window" | "appworkspace" | "scrollbar" | "background" | "menu" => Some((240, 240, 240, 255)),
         "windowtext" | "menutext" | "infotext" | "inactivecaptiontext" => Some((0, 0, 0, 255)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod bg_position_tests {
+    use super::{resolve_bg_position, BgAnchor, BgTok};
+
+    fn kw(k: &str) -> BgTok {
+        BgTok::Kw(k.to_string())
+    }
+
+    /// The two-keyword form may be written in either order, so `center right` has to mean the same
+    /// as `right center`. Taking the first value as the horizontal one put Wikipedia's
+    /// external-link icon in the middle of every link.
+    #[test]
+    fn keyword_pairs_are_read_in_either_order() {
+        let right_middle = (BgAnchor::End(0.0), BgAnchor::Percent(50.0));
+        assert_eq!(resolve_bg_position(&[kw("right"), kw("center")]), right_middle);
+        assert_eq!(resolve_bg_position(&[kw("center"), kw("right")]), right_middle);
+
+        let middle_top = (BgAnchor::Percent(50.0), BgAnchor::Start(0.0));
+        assert_eq!(resolve_bg_position(&[kw("center"), kw("top")]), middle_top);
+        assert_eq!(resolve_bg_position(&[kw("top"), kw("center")]), middle_top);
+    }
+
+    #[test]
+    fn one_value_centres_the_other_axis() {
+        assert_eq!(
+            resolve_bg_position(&[kw("right")]),
+            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("center")]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(20.0)]),
+            (BgAnchor::Start(20.0), BgAnchor::Percent(50.0))
+        );
+    }
+
+    /// `right 10px` is an offset *from the right edge*, not a position 10px from the left.
+    /// `center 4px` is the two-value form: the `center` is the horizontal value and the length is
+    /// the vertical one. Letting the length take the first empty slot moved the tile sideways.
+    #[test]
+    fn a_leading_center_takes_the_horizontal_axis() {
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Len(4.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Start(4.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("center"), BgTok::Pct(25.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(25.0))
+        );
+        // A trailing `center` still means the vertical axis.
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(4.0), kw("center")]),
+            (BgAnchor::Start(4.0), BgAnchor::Percent(50.0))
+        );
+    }
+
+    #[test]
+    fn an_edge_keyword_swallows_the_length_after_it() {
+        assert_eq!(
+            resolve_bg_position(&[kw("right"), BgTok::Len(10.0), kw("bottom"), BgTok::Len(4.0)]),
+            (BgAnchor::End(10.0), BgAnchor::End(4.0))
+        );
+    }
+
+    #[test]
+    fn lengths_and_percentages_fill_the_axes_in_order() {
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Len(5.0), BgTok::Len(9.0)]),
+            (BgAnchor::Start(5.0), BgAnchor::Start(9.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[BgTok::Pct(50.0), BgTok::Pct(100.0)]),
+            (BgAnchor::Percent(50.0), BgAnchor::Percent(100.0))
+        );
+    }
+
+    /// The keywords of a `background` shorthand arrive in the same list as the position ones.
+    #[test]
+    fn non_position_keywords_are_ignored() {
+        assert_eq!(
+            resolve_bg_position(&[kw("no-repeat"), kw("right"), kw("cover")]),
+            (BgAnchor::End(0.0), BgAnchor::Percent(50.0))
+        );
+        assert_eq!(
+            resolve_bg_position(&[kw("no-repeat")]),
+            (BgAnchor::Start(0.0), BgAnchor::Start(0.0))
+        );
+    }
+
+    /// An anchor only becomes a pixel offset once the box and the tile are known.
+    #[test]
+    fn anchors_resolve_against_the_box() {
+        assert_eq!(BgAnchor::Start(12.0).resolve(300.0, 20.0), 12.0);
+        assert_eq!(BgAnchor::End(0.0).resolve(300.0, 20.0), 280.0);
+        assert_eq!(BgAnchor::End(10.0).resolve(300.0, 20.0), 270.0);
+        assert_eq!(BgAnchor::Percent(50.0).resolve(300.0, 20.0), 140.0);
+        assert_eq!(BgAnchor::Percent(100.0).resolve(300.0, 20.0), 280.0);
     }
 }

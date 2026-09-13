@@ -301,6 +301,9 @@ pub enum StyleProperty {
     GridTemplateColumns,
     GridAutoRows,
     GridAutoColumns,
+    GridArea,
+    GridTemplateAreas,
+    CaptionSide,
     FontStyle,
     WhiteSpace,
     TextDecorationLine,
@@ -311,6 +314,8 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    Float,
+    Clear,
     /// Horizontal component of `border-spacing` (both variants read the same
     /// declaration; X takes the first length, Y the second, per CSS 2 §17.6.1).
     BorderSpacingX,
@@ -322,8 +327,6 @@ pub enum StyleProperty {
     VerticalAlign,
     /// `border-collapse`: `separate` | `collapse`.
     BorderCollapse,
-    /// `caption-side`: `top` | `bottom`.
-    CaptionSide,
 }
 
 impl StyleProperty {
@@ -408,12 +411,16 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
-            StyleProperty::BorderSpacingX => 78,
-            StyleProperty::BorderSpacingY => 79,
-            StyleProperty::TableLayout => 80,
-            StyleProperty::VerticalAlign => 81,
-            StyleProperty::BorderCollapse => 82,
-            StyleProperty::CaptionSide => 83,
+            StyleProperty::Float => 78,
+            StyleProperty::Clear => 79,
+            StyleProperty::GridArea => 80,
+            StyleProperty::GridTemplateAreas => 81,
+            StyleProperty::CaptionSide => 82,
+            StyleProperty::BorderSpacingX => 83,
+            StyleProperty::BorderSpacingY => 84,
+            StyleProperty::TableLayout => 85,
+            StyleProperty::VerticalAlign => 86,
+            StyleProperty::BorderCollapse => 87,
         }
     }
 
@@ -948,7 +955,38 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 78/79 border-spacing - inherited; initial = 0. Two internal longhands share the
+    // 78 float
+    PropertyMeta {
+        name: "float",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 79 clear
+    PropertyMeta {
+        name: "clear",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 80 grid-area - the shorthand, kept whole: a single named area (`grid-area: content`) is
+    // the form that matters, and it is resolved against the container's `grid-template-areas`.
+    PropertyMeta {
+        name: "grid-area",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 81 grid-template-areas
+    PropertyMeta {
+        name: "grid-template-areas",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 82 caption-side - inherited, so a caption picks it up from the table it belongs to
+    PropertyMeta {
+        name: "caption-side",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("top"),
+    },
+    // 83/84 border-spacing - inherited; initial = 0. Two internal longhands share the
     // one CSS declaration: the value bridge picks the first length for X, second for Y.
     PropertyMeta {
         name: "border-spacing",
@@ -960,30 +998,24 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 80 table-layout
+    // 85 table-layout
     PropertyMeta {
         name: "table-layout",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 81 vertical-align - not inherited per CSS; the HTML rendering spec puts
+    // 86 vertical-align - not inherited per CSS; the HTML rendering spec puts
     // `vertical-align: inherit` on cells, which consumers resolve by walking up.
     PropertyMeta {
         name: "vertical-align",
         inherited: false,
         initial_kind: InitialKind::Keyword("baseline"),
     },
-    // 82 border-collapse
+    // 87 border-collapse
     PropertyMeta {
         name: "border-collapse",
         inherited: true,
         initial_kind: InitialKind::Keyword("separate"),
-    },
-    // 83 caption-side
-    PropertyMeta {
-        name: "caption-side",
-        inherited: true,
-        initial_kind: InitialKind::Keyword("top"),
     },
 ];
 
@@ -1124,12 +1156,16 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
-        78 => Some(StyleProperty::BorderSpacingX),
-        79 => Some(StyleProperty::BorderSpacingY),
-        80 => Some(StyleProperty::TableLayout),
-        81 => Some(StyleProperty::VerticalAlign),
-        82 => Some(StyleProperty::BorderCollapse),
-        83 => Some(StyleProperty::CaptionSide),
+        78 => Some(StyleProperty::Float),
+        79 => Some(StyleProperty::Clear),
+        80 => Some(StyleProperty::GridArea),
+        81 => Some(StyleProperty::GridTemplateAreas),
+        82 => Some(StyleProperty::CaptionSide),
+        83 => Some(StyleProperty::BorderSpacingX),
+        84 => Some(StyleProperty::BorderSpacingY),
+        85 => Some(StyleProperty::TableLayout),
+        86 => Some(StyleProperty::VerticalAlign),
+        87 => Some(StyleProperty::BorderCollapse),
         _ => None,
     }
 }

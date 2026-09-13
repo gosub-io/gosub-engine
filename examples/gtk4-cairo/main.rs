@@ -1,6 +1,6 @@
 //! A minimal browser window that renders pages through the new gosub_render_pipeline render system.
 //!
-//! Usage:  cargo run --example pipeline-browser -- https://example.com
+//! Usage:  cargo run -p example-gtk4-cairo -- https://example.com
 //!
 //! The binary uses the full GosubEngine zone/tab/net API and routes rendering through the
 //! 7-stage pipeline (rendertree → layout → layering → tiling → painting → rasterize →

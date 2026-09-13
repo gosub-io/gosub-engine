@@ -53,6 +53,8 @@ Every GUI example follows this pattern --- see `examples/winit-cairo/main.rs`, `
 | `SkiaBackend`  | `gosub_renderer_skia`   | CPU or GPU; pairs with `SkiaFontSystem`             |
 | `VelloBackend` | `gosub_renderer_vello`  | GPU via wgpu; generic over a `WgpuContextProvider`  |
 
+> **Skia build times.** `skia-safe` downloads a prebuilt Skia only when the enabled feature set matches a published binary bundle exactly; any other union silently compiles Skia's C++ from source (~15 minutes). Depending on `gosub_renderer_skia` alone gives you the in-tree set (`svg`, `wayland`, `x11`, `textlayout`). If you add `skia-safe` to your own `Cargo.toml`, don't enable extra features (`gl`, `vulkan`, …) unless you've checked the bundle list.
+
 ## Going fully custom
 
 If you need a different CSS/DOM/parser stack (not just a different backend), implement `ModuleConfiguration` + `RenderConfiguration` on your own zero-sized marker type instead of using `DefaultRenderConfig`. See the trait definitions in `crates/gosub_engine/src/html.rs`.

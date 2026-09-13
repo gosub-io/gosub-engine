@@ -414,6 +414,231 @@ mod layout_tests {
         assert_approx!(l.size.width, 100.0, "single column takes full width");
     }
 
+    // A first row made only of spanning cells says nothing about individual columns, so the
+    // column scan must look past it. Wikipedia's infobox opens with a `colspan=2` title; stopping
+    // there learned no content widths at all and every column fell back to an equal share, which
+    // gave the narrow label column half the box and left the values overflowing it.
+    #[test]
+    fn a_spanning_first_row_does_not_hide_the_column_widths() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let group = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, group);
+
+        let title_row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(group, title_row);
+        let title = tree.alloc_cell(cell("title").colspan(2).height(10.0).padding(0.0));
+        tree.add_child(title_row, title);
+
+        let data_row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(group, data_row);
+        let label = tree.alloc_cell(cell("label").content_width(60.0).height(10.0).padding(0.0));
+        tree.add_child(data_row, label);
+        let value = tree.alloc_cell(cell("value").content_width(240.0).height(10.0).padding(0.0));
+        tree.add_child(data_row, value);
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let label_w = tree.layout(label).expect("label laid out").size.width;
+        let value_w = tree.layout(value).expect("value laid out").size.width;
+        assert!(
+            value_w > label_w * 2.0,
+            "the second row's content widths must decide the split, not an equal share: {label_w} vs {value_w}"
+        );
+        assert_approx!(label_w + value_w, 300.0, "the columns still fill the table");
+    }
+
+    // An explicit `width` is a floor of its own, but it cannot pull a column below the widest word
+    // in it - `used width = max(specified, min-content)`. Clamping only to the width the cell
+    // already has misses that, since in the pipeline that is the width pinned by the last pass.
+    #[test]
+    fn an_explicit_width_still_respects_min_content() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("narrow")
+                    .width(30.0)
+                    .content_width(30.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("rest").content_width(200.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let narrow = tree.layout(cells[0]).expect("narrow laid out").size.width;
+        assert_approx!(narrow, 90.0, "the explicit 30px cannot cut off a 90px word");
+    }
+
+    // A column may not be shrunk below the width of its widest unbreakable word: below that the
+    // shaper has to break *inside* a word, which browsers do not do, so the content spills out of
+    // the cell instead. Wikipedia's dialect table gave the "Windows" column 73px for an 87px word.
+    #[test]
+    fn a_column_is_never_narrower_than_its_min_content() {
+        // Two content columns wanting 300px between them in a 200px table. The plain proportional
+        // split gives the narrow one 50px, which is less than the 80px word it holds.
+        let (mut tree, root) = MockTable::new(200.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("wide")
+                    .content_width(300.0)
+                    .min_content_width(60.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("word")
+                    .content_width(100.0)
+                    .min_content_width(80.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let wide = tree.layout(cells[0]).expect("wide laid out").size.width;
+        let word = tree.layout(cells[1]).expect("word laid out").size.width;
+        assert!(word >= 80.0, "the column keeps its longest word: {word}");
+        assert!(wide >= 60.0, "and so does the other one: {wide}");
+        assert_approx!(wide + word, 200.0, "the columns still fill the table");
+    }
+
+    // A narrow structural column is handed its min-content floor like any other, so the budget the
+    // content columns share has to reserve that floor too. Reserving only the visibility floor
+    // counted the difference twice and the columns together came out wider than the table.
+    #[test]
+    fn a_narrow_columns_floor_comes_out_of_the_budget() {
+        let (mut tree, root) = MockTable::new(200.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                // Narrow by content, but holding a word far wider than the 14px floor.
+                cell("rank")
+                    .content_width(10.0)
+                    .min_content_width(100.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("body").content_width(200.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let rank = tree.layout(cells[0]).expect("rank laid out").size.width;
+        let body = tree.layout(cells[1]).expect("body laid out").size.width;
+        assert_approx!(rank, 100.0, "the narrow column keeps its longest word");
+        assert_approx!(rank + body, 200.0, "and the columns still add up to the table");
+    }
+
+    // When the floors alone do not fit, every column takes its min-content and the table overflows
+    // - the same thing a browser does, and better than breaking words to fit.
+    #[test]
+    fn columns_take_their_floor_when_it_does_not_fit() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("a")
+                    .content_width(200.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("b")
+                    .content_width(200.0)
+                    .min_content_width(90.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        for c in &cells {
+            let w = tree.layout(*c).expect("cell laid out").size.width;
+            assert_approx!(w, 90.0, "each column takes its min-content");
+        }
+    }
+
+    // A table with room to spare still shares the surplus proportionally, exactly as before the
+    // floor existed - the floor must not flatten a split that already fits.
+    #[test]
+    fn the_floor_does_not_disturb_a_table_with_room_to_spare() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("a")
+                    .content_width(100.0)
+                    .min_content_width(50.0)
+                    .height(10.0)
+                    .padding(0.0),
+                cell("b")
+                    .content_width(300.0)
+                    .min_content_width(50.0)
+                    .height(10.0)
+                    .padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let a = tree.layout(cells[0]).expect("a laid out").size.width;
+        let b = tree.layout(cells[1]).expect("b laid out").size.width;
+        assert_approx!(a, 100.0, "column a takes what it asked for");
+        assert_approx!(b, 300.0, "column b takes what it asked for");
+    }
+
+    // A column is only described by the rows it appears in, so every row has to be scanned.
+    // Wikipedia's dialect table heads seven columns in its first row and introduces the last two
+    // in a *second* header row, under a `colspan=2` title; reading only the first row left those
+    // two measuring nothing and they collapsed to the 14px narrow floor with their content
+    // hanging out to the right.
+    #[test]
+    fn columns_introduced_in_a_later_row_are_measured() {
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .header_row(vec![
+                cell("plain").rowspan(2).content_width(80.0).height(10.0).padding(0.0),
+                cell("group").colspan(2).height(10.0).padding(0.0),
+            ])
+            .header_row(vec![
+                cell("sub-a").content_width(110.0).height(10.0).padding(0.0),
+                cell("sub-b").content_width(90.0).height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("x").height(10.0).padding(0.0),
+                cell("y").height(10.0).padding(0.0),
+                cell("z").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (table_width, _) = compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let sub_a = tree.layout(cells[2]).expect("sub-a laid out").size.width;
+        let sub_b = tree.layout(cells[3]).expect("sub-b laid out").size.width;
+        assert!(
+            sub_a > 50.0 && sub_b > 50.0,
+            "the second header row's columns must take their content widths, not the narrow floor: {sub_a} and {sub_b}"
+        );
+        assert!(
+            sub_a > sub_b,
+            "and they share space proportionally to that content: {sub_a} vs {sub_b}"
+        );
+        // An auto-width table shrinks to its max-content width (CSS 2.1 §17.5.2.2), so the
+        // columns fill *that*, not the 300px on offer.
+        assert_approx!(
+            tree.layout(cells[0]).expect("plain laid out").size.width + sub_a + sub_b,
+            table_width,
+            "the columns still fill the table"
+        );
+    }
+
     // 16. Rowspan never escapes its section: a rowspan=3 in a 1-row header is
     //     clamped and does not reach into the body rows.
     #[test]

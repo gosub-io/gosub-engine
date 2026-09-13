@@ -80,6 +80,9 @@ fn main() {
 
 fn fetch_html(url: &str) -> anyhow::Result<String> {
     let parsed = url::Url::parse(url)?;
+    // A standalone tool with no engine behind it: there is no fetcher to route through, and
+    // nothing here loads a page. The ban exists for the engine's own paths.
+    #[allow(clippy::disallowed_methods)]
     let response = gosub_sonar::net::simple::sync_fetch(&parsed)?;
     Ok(String::from_utf8_lossy(&response.body).into_owned())
 }

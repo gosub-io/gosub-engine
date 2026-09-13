@@ -150,9 +150,23 @@ class WptHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class QuietServer(http.server.ThreadingHTTPServer):
+    """A ThreadingHTTPServer that does not report client disconnects.
+
+    A render only reads as much of a response as it needs and then closes, which reaches
+    the handler thread as BrokenPipe or ConnectionReset. There are hundreds per run - a
+    full CSS2 pass produced 280 - and socketserver prints a traceback for each, which
+    would bury a real failure in the log. Every other error still reports.
+    """
+
+    def handle_error(self, request, client_address):
+        if not isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            super().handle_error(request, client_address)
+
+
 def start_server(root):
     handler = functools.partial(WptHandler, directory=str(root))
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = QuietServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, server.server_address[1]
 
@@ -185,7 +199,8 @@ def images_match(a, b, fuzzy):
 
 
 class Renderer:
-    def __init__(self, shot_bin, root, port, out_dir, jobs):
+    def __init__(self, shot_bin, root, port, out_dir, jobs, settle=0):
+        self.settle = settle
         self.shot_bin, self.root, self.port = shot_bin, root, port
         self.out_dir = out_dir
         self.cache = {}
@@ -218,7 +233,8 @@ class Renderer:
                      # Min capture height = comparison canvas: abs-positioned reference
                      # content below the page's flow height must not be cut off.
                      "--min-height", str(VIEWPORT_H),
-                     "--nav-timeout", "20", "--render-timeout", "30"],
+                     "--nav-timeout", "20", "--render-timeout", "30",
+                     "--settle", str(self.settle)],
                     capture_output=True, timeout=90, env=env)
             if proc.returncode != 0 or not out.exists():
                 raise RuntimeError(
@@ -322,6 +338,9 @@ def main():
     ap.add_argument("--max-report", type=int, default=80)
     ap.add_argument("--chrome", action="store_true",
                     help="add a headless-Chromium render of each failing test to the report")
+    ap.add_argument("--settle", type=int, default=0,
+                    help="seconds gosub-screenshot waits after the first render, so async "
+                         "media decodes before the capture")
     ap.add_argument("--filter", default="",
                     help="only run tests whose filename contains this substring")
     args = ap.parse_args()
@@ -339,7 +358,7 @@ def main():
         sys.exit(f"no reftests found under {args.target}")
 
     server, port = start_server(root)
-    renderer = Renderer(args.shot_bin, root, port, out_dir / "shots", args.jobs)
+    renderer = Renderer(args.shot_bin, root, port, out_dir / "shots", args.jobs, args.settle)
 
     results, failures = {}, []
     done = 0

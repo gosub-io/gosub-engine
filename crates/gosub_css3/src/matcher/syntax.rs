@@ -138,11 +138,6 @@ pub enum SyntaxComponent {
         keyword: String,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
-    /// Quoted string that indicates css property
-    Property {
-        property: String,
-        multipliers: Vec<SyntaxComponentMultiplier>,
-    },
     /// Functions like `color()`, `length()` etc
     Function {
         name: String,
@@ -210,7 +205,6 @@ impl SyntaxComponent {
         match self {
             SyntaxComponent::Group { multipliers, .. } => multipliers.clone(),
             SyntaxComponent::Function { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Property { multipliers, .. } => multipliers.clone(),
             SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers.clone(),
             SyntaxComponent::Definition { multipliers, .. } => multipliers.clone(),
             SyntaxComponent::Unit { multipliers, .. } => multipliers.clone(),
@@ -229,9 +223,6 @@ impl SyntaxComponent {
                 *multipliers = new_multipliers;
             }
             SyntaxComponent::Function { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Property { multipliers, .. } => {
                 *multipliers = new_multipliers;
             }
             SyntaxComponent::GenericKeyword { multipliers, .. } => {
@@ -650,22 +641,6 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     }
 }
 
-fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing property: {}", input);
-
-    let (input, property) = delimited(
-        tag("'"),
-        map(parse_keyword, |s: &str| SyntaxComponent::Property {
-            property: s.to_string(),
-            multipliers: vec![SyntaxComponentMultiplier::Once],
-        }),
-        tag("'"),
-    )
-    .parse(input)?;
-
-    Ok((input, property))
-}
-
 fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing generic keyword: '{}'", input);
 
@@ -855,8 +830,11 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_unit_function,
         parse_at_keyword,
         parse_function,
-        parse_property,
         parse_specific_keyword,
+        // Before any rule that would claim a quoted token. In the value definition syntax a
+        // bare `'x'` is a literal - a property reference is the *angle-bracketed* `<'name'>`,
+        // which `parse_datatype` handles with `quoted: true`. Every bare quoted token in the
+        // compiled-in definitions is punctuation: `'+'`, `'-'`, `'('`, `','` and friends.
         parse_literal,
         parse_group,
         parse_paren_group,
@@ -898,6 +876,54 @@ mod tests {
     #[test]
     fn test_compile_empty() {
         assert!(CssSyntax::new("").compile().is_ok());
+    }
+
+    #[test]
+    fn a_bare_quoted_token_is_a_literal_not_a_property_reference() {
+        // `<calc-sum>` is written `<calc-product> [ [ '+' | '-' ] <calc-product> ]*`. Those
+        // quoted operators are literal tokens: a property reference is the angle-bracketed
+        // `<'name'>`. Parsing `'-'` as a property produced a component the matcher had no arm
+        // for, so `width: calc-size(auto, size)` panicked the engine - three WPT suites
+        // reported CRASH for it, and any page using the syntax would have taken the process
+        // down. `'+'` and `'*'` escaped only because a keyword cannot start with them.
+        let parts = CssSyntax::new("'-' | '+' | '*'").compile().expect("compiles");
+
+        // An alternation compiles to one root group, so the assertion has to descend into it:
+        // testing the root alone passes whatever the alternatives turn out to be, which is
+        // exactly the bug this guards against.
+        let [SyntaxComponent::Group { components, .. }] = parts.components.as_slice() else {
+            panic!(
+                "an alternation must compile to a single group, got {:?}",
+                parts.components
+            );
+        };
+
+        let literals: Vec<&str> = components
+            .iter()
+            .map(|component| match component {
+                SyntaxComponent::Literal { literal, .. } => literal.as_str(),
+                other => panic!("quoted operators must compile to literals, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(literals, ["-", "+", "*"], "each operator keeps its own token");
+    }
+
+    #[test]
+    fn calc_grammars_match_without_panicking() {
+        // The regression these guard: every sizing property resolves `calc-size()`, whose
+        // grammar reaches `<calc-sum>` and its quoted operators.
+        let defs = get_css_definitions();
+        for (property, value) in [
+            ("width", "calc-size(auto, size)"),
+            ("height", "calc-size(auto, size)"),
+            ("max-width", "calc(1px + 2px)"),
+            ("min-height", "calc(100% - 10px)"),
+        ] {
+            let def = defs.find_property(property).expect("property is defined");
+            let parsed = crate::stylesheet::CssValue::parse_str(value).expect("value parses");
+            // The assertion is that this returns at all: before the fix it panicked.
+            let _ = def.matches(parsed.to_slice());
+        }
     }
 
     #[test]

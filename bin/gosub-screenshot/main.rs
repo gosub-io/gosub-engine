@@ -70,17 +70,18 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
-    /// Print the aggregated pipeline timing table (per stage) after the capture
-    #[arg(long)]
-    timings: bool,
     /// Minimum capture height in CSS pixels. The image is normally cut at the page's flow
     /// height; absolutely-positioned content below it (common in WPT reftest references)
     /// would be lost, so reftest runners pass the comparison-canvas height here.
     #[arg(long, default_value = "0")]
     min_height: u32,
+    /// Print the aggregated pipeline timing table (per stage) after the capture
+    #[arg(long)]
+    timings: bool,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
+
 /// Initial viewport height used for layout, in CSS pixels. Tall enough to trigger
 /// below-the-fold / lazily-loaded content; the captured image uses the page's *true*
 /// height, not this value. CPU rasterization has no GPU texture limit, so there is no
@@ -312,7 +313,10 @@ fn main() {
         tiles.len()
     );
 
-    // Fill with opaque white, then alpha-blend each tile (premultiplied).
+    // Fill with opaque white, then alpha-blend each tile (premultiplied). The height can now
+    // come from the command line, so the size arithmetic is checked: `page_w * page_h * 4`
+    // silently wraps in release for a large enough --min-height, and the wrapped length would
+    // hand every tile copy below an out-of-bounds slice.
     let Some(buf_len) = (page_w as usize)
         .checked_mul(page_h as usize)
         .and_then(|n| n.checked_mul(4))

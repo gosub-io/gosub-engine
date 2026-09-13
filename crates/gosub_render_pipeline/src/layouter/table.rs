@@ -5,6 +5,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
+use crate::layouter::float::float_side;
 use crate::layouter::taffy::TaffyLayouter;
 use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use std::cell::RefCell;
@@ -511,7 +512,26 @@ impl TableTree for PipelineTableTree<'_> {
             }
             return (0.0, 0.0);
         };
-        let w = self.layouter.measure_intrinsic_widths(layout_id).unwrap_or((0.0, 0.0));
+        // Max-content is taffy's answer at unlimited width. Min-content is the widest
+        // unbreakable run under the cell, measured from the laid-out boxes: taffy's own
+        // min-content pass cannot break between the items of an inline-block (a non-wrapping
+        // flex row here) and reported Wikipedia's comma-separated infobox lists as one
+        // unbreakable 1100px run. Both are border-box widths, so the walk - which only sees
+        // content - gets the cell's own padding and border added back.
+        let max = self.layouter.measure_max_content_width(layout_id).unwrap_or(0.0);
+        let extras = self
+            .layout_tree
+            .arena
+            .get(&layout_id)
+            .map(|el| {
+                (el.box_model.border.left
+                    + el.box_model.border.right
+                    + el.box_model.padding.left
+                    + el.box_model.padding.right) as f32
+            })
+            .unwrap_or(0.0);
+        let min = subtree_min_content_width(self.doc, self.layout_tree, self.layouter, layout_id, true) + extras;
+        let w = (min, max.max(min));
         if std::env::var("LATTICE_DEBUG").is_ok() {
             eprintln!("lattice-dbg: cell {:?} intrinsics={:?}", id, w);
         }
@@ -522,6 +542,63 @@ impl TableTree for PipelineTableTree<'_> {
     // shrink to fit rather than triggering the mock-tree fill-available fallback.
     fn measures_intrinsics(&self) -> bool {
         true
+    }
+}
+
+/// Widest unbreakable run of content in a layout subtree - its min-content width.
+///
+/// Text contributes its longest word, measured unconstrained: that is the narrowest a text box
+/// can be without the shaper breaking inside a word. Under `white-space: nowrap` the whole run
+/// is unbreakable. A replaced element contributes its whole border-box width, since an image has
+/// no break opportunities at all, and so does a box the author gave an explicit px width. The
+/// laid-out boxes cannot answer this on their own - a text box carries the width it was
+/// allotted, which may be anything from one word to the whole run - so the words are re-measured
+/// through the same font system the layouter used. `root` is the cell itself, whose own box
+/// never counts (it is what is being sized).
+fn subtree_min_content_width(
+    doc: &dyn PipelineDocument,
+    layout_tree: &LayoutTree,
+    layouter: &mut TaffyLayouter,
+    id: LayoutElementId,
+    root: bool,
+) -> f32 {
+    let Some(el) = layout_tree.arena.get(&id) else {
+        return 0.0;
+    };
+    match &el.context {
+        ElementContext::Text(text_ctx) => {
+            if text_ctx.no_wrap {
+                return layouter.word_width(&text_ctx.text, &text_ctx.font_info);
+            }
+            text_ctx
+                .text
+                .split_ascii_whitespace()
+                .map(|run| layouter.word_width(run, &text_ctx.font_info))
+                .fold(0.0_f32, f32::max)
+        }
+        ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
+        ElementContext::TableBorderOverlay(_) => 0.0,
+        ElementContext::None => {
+            let from_children = el
+                .children
+                .iter()
+                .map(|&cid| subtree_min_content_width(doc, layout_tree, layouter, cid, false))
+                .fold(0.0_f32, f32::max);
+            if root {
+                return from_children;
+            }
+            // An explicit width is as unbreakable as an image: the box will be that wide
+            // whatever its words are.
+            let explicit = matches!(
+                doc.get_own_style(el.dom_node_id, &StyleProperty::Width),
+                Some(Value::Unit(w, Unit::Px)) if w > 0.0
+            );
+            if explicit {
+                from_children.max(el.box_model.border_box.width as f32)
+            } else {
+                from_children
+            }
+        }
     }
 }
 
@@ -736,7 +813,13 @@ fn lay_out_one_table(
             // following siblings and the page height stay correct. Nested
             // tables skip this - the outer table's own lattice pass owns the
             // geometry around them.
-            if !is_nested {
+            //
+            // A float or an absolutely positioned table is out of flow: what follows it in
+            // the source is laid out beside or behind it, not after it, so its height must
+            // not push anything down. Wikipedia's infobox and its thumbnails are floated
+            // tables, and absorbing their growth shoved the whole article body 400px down.
+            let table_is_out_of_flow = table_is_abs || float_side(doc, table_dom_id).is_some();
+            if !is_nested && !table_is_out_of_flow {
                 if let Some(old) = old_box {
                     let new_h = layout_tree
                         .arena

@@ -27,7 +27,6 @@ impl CssSyntaxTree {
 impl SyntaxComponent {
     pub fn has_property_syntax(&self, prop: &str, path: &mut Vec<usize>) -> bool {
         match self {
-            SyntaxComponent::Property { property, .. } => prop == property,
             SyntaxComponent::Definition { datatype, quoted, .. } if *quoted => prop == datatype,
             SyntaxComponent::Group { components, .. } => {
                 for (i, component) in components.iter().enumerate() {
@@ -47,7 +46,6 @@ impl SyntaxComponent {
     pub fn multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
             SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
-            SyntaxComponent::Property { multipliers, .. } => multipliers,
             SyntaxComponent::Function { multipliers, .. } => multipliers,
             SyntaxComponent::Definition { multipliers, .. } => multipliers,
             SyntaxComponent::Inherit { multipliers, .. } => multipliers,
@@ -119,16 +117,32 @@ pub struct FixListInfo {
     important: bool,
     location: String,
     specificity: Specificity,
+    /// Shadow depth of the declaring sheet, carried through shorthand expansion so the
+    /// longhands it produces keep the cross-tree half of the cascade.
+    shadow_depth: u16,
+    /// Document-order position of the shorthand being expanded. The longhands inherit it, so a
+    /// longhand declared *after* the shorthand still wins the cascade even though every
+    /// expansion is applied after all the direct declarations.
+    order: u32,
 }
 
 impl FixListInfo {
     #[must_use]
-    pub fn new(origin: CssOrigin, important: bool, location: String, specificity: Specificity) -> Self {
+    pub fn new(
+        origin: CssOrigin,
+        important: bool,
+        location: String,
+        specificity: Specificity,
+        shadow_depth: u16,
+        order: u32,
+    ) -> Self {
         Self {
             origin,
             important,
             location,
             specificity,
+            shadow_depth,
+            order,
         }
     }
 }
@@ -369,6 +383,8 @@ impl FixList {
                 important: info.important,
                 specificity: info.specificity,
                 location: info.location.clone(),
+                shadow_depth: info.shadow_depth,
+                order: info.order,
             }
         } else {
             DeclarationProperty {
@@ -377,6 +393,17 @@ impl FixList {
                 important: false,
                 specificity: Specificity::new(0, 0, 0),
                 location: String::new(),
+                // A declaration with no info is a synthesized default, not something an
+                // author wrote, and it carries no tree of its own. Depth 0 would read as
+                // "from the document" - the *winning* end of the cross-tree comparison for
+                // normal declarations - and would then outrank the real declarations of the
+                // shadow tree being expanded, which is how a shadow-tree `border-left` lost
+                // to its own `border` shorthand. These entries are never `important`, so
+                // parking them at the far end makes them lose that comparison instead and
+                // fall back to losing on specificity, exactly as they did before there was
+                // a cross-tree comparison at all.
+                shadow_depth: u16::MAX,
+                order: 0,
             }
         }
     }
@@ -419,6 +446,20 @@ impl FixList {
             let Some(decl) = decl.iter().max() else { continue };
 
             had_shorthands = true;
+
+            // The longhands a *nested* shorthand expands to are still the author's declaration and
+            // must carry its cascade metadata. Without this they fell through to the synthesized
+            // default below - author origin, zero specificity, order 0, depth `u16::MAX` - so for
+            // `border-left-width: 4px; border: 1px solid` the `border-left-width` produced by the
+            // second declaration lost to the first, and the earlier longhand won.
+            fix_list.set_info(FixListInfo::new(
+                decl.origin,
+                decl.important,
+                decl.location.clone(),
+                decl.specificity,
+                decl.shadow_depth,
+                decl.order,
+            ));
 
             prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list);
         }
@@ -722,38 +763,23 @@ impl CssDefinitions {
             }
         }
 
-        if let [component] = syntax.components.as_slice() {
-            match component {
-                SyntaxComponent::Definition { datatype, .. } => {
-                    if let Some(d) = self.syntax.get(datatype) {
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
+        // A property reference is written `<'name'>`, which compiles to a quoted `Definition` -
+        // so both a value type and a property reference arrive here as one.
+        if let [SyntaxComponent::Definition { datatype, .. }] = syntax.components.as_slice() {
+            if let Some(d) = self.syntax.get(datatype) {
+                if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
+                    shorthands.multiplier = Multiplier::None;
 
-                            return Some(shorthands);
-                        }
-                    }
-
-                    if let Some(p) = self.properties.get(datatype) {
-                        //currently properties get parsed as definitions
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &p.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
-
-                            return Some(shorthands);
-                        }
-                    }
+                    return Some(shorthands);
                 }
+            }
 
-                SyntaxComponent::Property { property, .. } => {
-                    if let Some(d) = self.properties.get(property) {
-                        if let Some(mut shorthands) = self.resolve_shorthands(computed, &d.syntax, name) {
-                            shorthands.multiplier = Multiplier::None;
+            if let Some(p) = self.properties.get(datatype) {
+                if let Some(mut shorthands) = self.resolve_shorthands(computed, &p.syntax, name) {
+                    shorthands.multiplier = Multiplier::None;
 
-                            return Some(shorthands);
-                        }
-                    }
+                    return Some(shorthands);
                 }
-
-                _ => {}
             }
         }
 

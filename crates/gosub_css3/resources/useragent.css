@@ -1313,7 +1313,12 @@ html::spelling-error {
 html::grammar-error {
     text-decoration: -internal-grammar-error-color grammar-error;
 }
-/* noscript is handled internally, as it depends on settings. */
+/* With scripting enabled the parser reads a noscript element's contents as raw text, so this rule
+   is what keeps that text off the page; the engine always parses with scripting enabled. Were it
+   ever disabled, the contents would be real markup and this rule would have to go with it. */
+noscript {
+    display: none;
+}
 
 
 [bgcolor] {

@@ -150,7 +150,7 @@ pub mod html;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
-pub use engine::{BrowsingContext, EngineError, GosubEngine};
+pub use engine::{BrowsingContext, Damage, DamageLevel, EngineError, GosubEngine};
 
 /// The engine's ready-made config: a marker that implements both
 /// [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) (parse/style stack) and
@@ -167,6 +167,13 @@ pub use engine::internal_pages;
 
 /// Bookmarks + visited history ("places"), per zone: the store type shells share.
 pub use engine::places;
+
+/// Switch response-body capture on or off for the developer panel.
+///
+/// Re-exported rather than making the whole `net::emitter` module public: a shell needs this
+/// one switch, not the observer plumbing behind it.
+pub use net::emitter::{body_capture_limit, capture_body_previews, set_body_capture_limit, set_capture_body_previews};
+pub use net::emitter::{send_sensitive_headers, set_send_sensitive_headers, REDACTED};
 
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
@@ -207,7 +214,7 @@ pub mod events {
         CursorShape, DownloadId, EngineCommand, EngineEvent, HitTestResponse, HitTestToken, IoCommand, Modifiers,
         MouseButton, TabCommand,
     };
-    pub use crate::engine::events::{NavigationEvent, ResourceEvent};
+    pub use crate::engine::events::{FailureKind, NavigationEvent, ResourceEvent};
 }
 
 /// Configuration options for the Gosub engine.

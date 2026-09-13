@@ -1,6 +1,6 @@
 use crate::config::HasCssSystem;
 use crate::css3::CssSystem;
-use crate::node::{NodeType, QuirksMode};
+use crate::node::{NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
@@ -85,6 +85,29 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn template_contents(&self, id: NodeId) -> Option<NodeId>;
     fn set_template_contents(&mut self, id: NodeId, fragment: NodeId);
 
+    // Shadow trees
+    //
+    // A shadow root is a node in the same arena as everything else, but it is not among its
+    // host's `children` - the host points at it sideways, exactly like `template_contents`.
+    // Nothing that walks `children` can therefore wander into a shadow tree by accident; only
+    // code that asks for it explicitly sees one.
+
+    /// Create a shadow root for `host` and link the two.
+    ///
+    /// Returns `None` - the spec's `NotSupportedError` - when `host` is not an HTML-namespace
+    /// element, is not a [`valid shadow host name`](crate::node::is_valid_shadow_host_name),
+    /// or already has a shadow root.
+    fn attach_shadow_root(&mut self, host: NodeId, init: ShadowRootInit, location: Location) -> Option<NodeId>;
+
+    /// The shadow root attached to element `id`, if it has one.
+    fn shadow_root(&self, id: NodeId) -> Option<NodeId>;
+
+    /// The host element of shadow root `id`. `None` when `id` is not a shadow root.
+    fn shadow_host(&self, id: NodeId) -> Option<NodeId>;
+
+    /// The flags shadow root `id` was created with. `None` when `id` is not a shadow root.
+    fn shadow_root_init(&self, id: NodeId) -> Option<ShadowRootInit>;
+
     // Text / comment / doctype data
 
     fn text_value(&self, id: NodeId) -> Option<&str>;
@@ -132,6 +155,30 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
 
     fn stylesheets(&self) -> &[<C::CssSystem as CssSystem>::Stylesheet];
     fn add_stylesheet(&mut self, sheet: <C::CssSystem as CssSystem>::Stylesheet);
+
+    /// Note that the document links a stylesheet it does not have the bytes for.
+    ///
+    /// The parser records the link and moves on; whoever drives the parse fetches the sheet
+    /// and puts it in place afterwards. The position it would have taken is remembered with
+    /// it, because the cascade is document order and a sheet that arrives late still belongs
+    /// where it was written.
+    fn add_pending_stylesheet(&mut self, url: &str);
+
+    /// Take the list of links still waiting for their bytes, as `(position, url)`.
+    ///
+    /// Draining, because there is exactly one consumer: the pipeline that fetches them.
+    ///
+    /// The position is what makes this answerable mid-parse, which is what a script will
+    /// need: a classic `<script>` may not run until the sheets *before it* have applied,
+    /// and those are the entries positioned at or below the current end of
+    /// [`Document::stylesheets`].
+    fn take_pending_stylesheets(&mut self) -> Vec<(usize, String)>;
+
+    /// Put a fetched stylesheet at `position` in the cascade.
+    ///
+    /// `position` is what [`Document::take_pending_stylesheets`] reported, adjusted by the
+    /// caller for sheets it has already inserted ahead of this one.
+    fn insert_stylesheet(&mut self, position: usize, sheet: <C::CssSystem as CssSystem>::Stylesheet);
 
     // Serialisation
 

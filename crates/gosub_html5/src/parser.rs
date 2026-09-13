@@ -1,10 +1,11 @@
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::option::Option::Some;
 use std::borrow::Cow;
 use std::collections::HashMap;
 #[cfg(all(feature = "debug_parser", test))]
 use std::io::Write;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::parser::attr_replacements::{
@@ -21,15 +22,15 @@ use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
 use gosub_interface::document::{Document, DocumentType};
-use gosub_interface::node::NodeType;
+use gosub_interface::node::{NodeType, ShadowRootInit, ShadowRootMode, SlotAssignmentMode};
 
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::config::{Context, ParserConfig};
 use gosub_shared::node::NodeId;
+use gosub_shared::timing::{self, Timer};
 use gosub_shared::types::{ParseError, Result};
-use gosub_shared::{timing_start, timing_stop};
 use log::warn;
 use url::Url;
 
@@ -40,6 +41,19 @@ mod quirks;
 pub mod tree_builder;
 
 // ------------------------------------------------------------
+
+/// Whether a stylesheet loaded from `base` may import `resolved`.
+///
+/// `Url::join` returns the request unchanged when it carries its own scheme, so an `@import` can
+/// name any URL it likes - including `file:`, which the fetch path would read straight off disk.
+/// A document fetched over the network must never be able to reach the local filesystem that way,
+/// so a remote sheet may only import over the network. A local sheet is left unrestricted: it can
+/// already read the filesystem it came from.
+#[cfg(not(target_arch = "wasm32"))]
+fn import_scheme_allowed(base: Option<&Url>, resolved: &Url) -> bool {
+    let base_is_remote = base.is_some_and(|u| matches!(u.scheme(), "http" | "https"));
+    !base_is_remote || matches!(resolved.scheme(), "http" | "https")
+}
 
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -111,12 +125,33 @@ impl ActiveElement {
 
 pub struct Html5ParserOptions {
     pub scripting_enabled: bool,
+    /// Where the bytes of a linked stylesheet come from when a script has to wait for one.
+    ///
+    /// `None` means nothing waits: the sheets are resolved after the parse instead, which
+    /// is right for a document with no scripts in it and for every test in this crate.
+    pub stylesheets: Option<Arc<dyn StylesheetSource>>,
+}
+
+/// Somewhere the parser can get a linked stylesheet from, when it has to have one *now*.
+///
+/// The parser does not fetch -- that is the whole point of the pending-stylesheet handoff --
+/// but a classic script may not run until the sheets before it have applied, and that is a
+/// wait the parse cannot get out of. So it asks, and blocks. Blocking is only acceptable
+/// because the parse runs on the blocking pool; on a runtime worker this would starve the
+/// fetches it is waiting for.
+pub trait StylesheetSource: Send + Sync + std::fmt::Debug {
+    /// Block until each URL has been fetched, and answer in the same order.
+    ///
+    /// `None` for a sheet that could not be had. A failure must come back as `None` rather
+    /// than never returning: a page whose stylesheet 404s still has to finish parsing.
+    fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>>;
 }
 
 impl ParserOptions for Html5ParserOptions {
     fn new(scripting: bool) -> Self {
         Self {
             scripting_enabled: scripting,
+            stylesheets: None,
         }
     }
 }
@@ -125,6 +160,7 @@ impl Default for Html5ParserOptions {
     fn default() -> Self {
         Self {
             scripting_enabled: true,
+            stylesheets: None,
         }
     }
 }
@@ -157,12 +193,24 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     form_element: Option<NodeId>,
     /// If true, scripting is enabled
     scripting_enabled: bool,
+    /// Where a blocking script's stylesheets come from; see [`StylesheetSource`].
+    stylesheet_source: Option<Arc<dyn StylesheetSource>>,
     /// if true, we can insert a frameset
     frameset_ok: bool,
     /// Foster parenting flag
     foster_parenting: bool,
     /// If true, the script engine has already started
     script_already_started: bool,
+    /// Microseconds this parse spent stopped waiting for stylesheets -- at a script that
+    /// blocks, or at an `@import` inside a sheet being parsed. Subtracted from `decode.html`,
+    /// which measures bytes to DOM: a wait on a CDN is not parsing, and counting it there is
+    /// how that number stopped meaning anything before. A `Cell` because an import is
+    /// resolved from `&self`.
+    blocked_on_css_us: Cell<u64>,
+    /// Whether the `<script>` currently being read blocks: an inline one always does, and
+    /// one with a `src` does unless it is marked `async` or `defer`. Read at the start tag,
+    /// where the attributes are, and acted on at the end tag, where the script would run.
+    current_script_blocks: bool,
     /// Pending table character tokens
     pending_table_character_tokens: String,
     /// Acknowledge self-closing tags
@@ -187,6 +235,11 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     parser_finished: bool,
     /// Context node id for fragment parsing
     context_node_id: Option<NodeId>,
+    /// The document's "allow declarative shadow roots" flag. True when parsing a document, so
+    /// `<template shadowrootmode>` attaches a shadow root; false for fragment parsing, which is
+    /// what `innerHTML` uses - there, the same markup must stay an inert template.
+    /// (`setHTMLUnsafe()`/`parseHTMLUnsafe()` would set it true, but neither exists yet.)
+    allow_declarative_shadow_roots: bool,
 }
 
 impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
@@ -292,10 +345,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             open_elements: Vec::new(),
             head_element: None,
             form_element: None,
-            scripting_enabled: options.unwrap_or_default().scripting_enabled,
+            scripting_enabled: options.as_ref().is_none_or(|o| o.scripting_enabled),
+            stylesheet_source: options.and_then(|o| o.stylesheets),
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
+            current_script_blocks: false,
+            blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
@@ -308,6 +364,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             ignore_lf: false,
             parser_finished: false,
             context_node_id: None,
+            allow_declarative_shadow_roots: true,
         }
     }
 
@@ -332,9 +389,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             head_element: None,
             form_element: None,
             scripting_enabled: true,
+            stylesheet_source: None,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
+            current_script_blocks: false,
+            blocked_on_css_us: Cell::new(0),
             pending_table_character_tokens: String::new(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
@@ -347,6 +407,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             ignore_lf: false,
             parser_finished: false,
             context_node_id: None,
+            allow_declarative_shadow_roots: true,
         }
     }
 
@@ -372,6 +433,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
+
+        // Fragment parsing is what `innerHTML` runs on, and that must not build shadow roots.
+        parser.allow_declarative_shadow_roots = false;
 
         // 4. / 12.
         parser.initialize_fragment_case(context_node_id);
@@ -438,15 +502,22 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
-        let t_id = match document.url() {
-            Some(url) => timing_start!("html5.parse", url.as_str()),
-            None => timing_start!("html5.parse", "unknown"),
-        };
+        let context = document.url().map_or_else(|| "unknown".to_string(), |u| u.to_string());
+
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), Location::default());
         let mut parser = Html5Parser::<C>::init(tokenizer, document, error_logger, options);
 
+        // Bytes to DOM, and nothing else. The parse fetches nothing itself, but it does
+        // stop at a blocking script until the stylesheets before it are in, and that wait
+        // belongs to the network -- it is recorded under `script.blocked_on_css` and taken
+        // back out here. Without that, a page whose script sits behind a slow CDN reports
+        // the CDN as parse time, which is how this counter stopped meaning anything before.
+        let mut wall = Timer::new(Some(context.clone()));
         let ret = parser.do_parse();
-        timing_stop!(t_id);
+        wall.end();
+
+        let parse_us = wall.duration().saturating_sub(parser.blocked_on_css_us.get());
+        timing::record(gosub_shared::timing::Timing::DecodeHtml, parse_us, Some(context));
 
         ret
     }
@@ -1060,7 +1131,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                         // Load stylesheet from text node
                         if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
-                            self.document.add_stylesheet(stylesheet);
+                            self.add_stylesheet_for(style_node_id, stylesheet);
                         }
 
                         self.open_elements.pop();
@@ -1076,9 +1147,33 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         let old_insertion_point = self.insertion_point;
                         self.insertion_point = Some(self.tokenizer.get_location().offset);
 
+                        // Nothing runs the script yet, but the wait in front of it is real
+                        // and is the part that shapes the load: a page whose script sits
+                        // behind a slow stylesheet is a page that stops here.
+                        if self.current_script_blocks {
+                            self.settle_stylesheets();
+                        }
+
                         self.script_nesting_level += 1;
 
                         // do script stuff
+                        //
+                        // WHEN THIS RUNS SCRIPTS: a classic script (no `async`, no `defer`)
+                        // may not execute until every stylesheet *before it in tree order*
+                        // has loaded and applied, because it can read and change both the
+                        // CSSOM and the DOM. The parser no longer fetches those sheets, so
+                        // this needs a way to say "hand me the sheets up to here, I will
+                        // wait" -- a hook on `HtmlParseConfig` that the resource pipeline
+                        // implements, never a fetch from in here.
+                        //
+                        // `Document::take_pending_stylesheets` already answers the question
+                        // in the shape the spec asks it: each entry carries the position it
+                        // holds in the cascade, so "before this script" is the entries whose
+                        // position is at or below `stylesheets().len()` right now.
+                        //
+                        // The wait is only safe because the parse runs on the blocking pool
+                        // (see `parse_main_document_stream`). On a runtime worker it would
+                        // starve the very fetches it is waiting for.
 
                         self.script_nesting_level -= 1;
                         if self.script_nesting_level == 0 {
@@ -3056,7 +3151,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insert_html_element(token);
                 self.insertion_mode = InsertionMode::InHeadNoscript;
             }
-            Token::StartTag { name, .. } if name == "script" => {
+            Token::StartTag { name, attributes, .. } if name == "script" => {
+                // An inline script blocks whatever it is marked with -- `async` and `defer`
+                // say nothing about a script with no `src` to fetch. One with a `src` blocks
+                // only when it carries neither.
+                self.current_script_blocks = match attributes.get("src") {
+                    None => true,
+                    Some(_) => !attributes.contains_key("async") && !attributes.contains_key("defer"),
+                };
+
                 let insert_position = self.appropriate_place_insert(None);
                 let node_id = self.create_node(token, HTML_NAMESPACE);
                 self.insert_element_helper(node_id, insert_position);
@@ -3083,26 +3186,32 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::EndTag { name, .. } if name == "body" || name == "html" || name == "br" => {
                 anything_else = true;
             }
-            Token::StartTag { name, .. } if name == "template" => {
-                let node_id = self.insert_html_element(token);
-
+            Token::StartTag {
+                name,
+                attributes,
+                location,
+                ..
+            } if name == "template" => {
                 self.active_formatting_elements_push_marker();
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::InTemplate;
                 self.template_insertion_mode.push(InsertionMode::InTemplate);
 
-                // Let adjusted insert location
-                // intended parent
-                // document = indented parent's node document
+                if let Some(shadow_root_id) = self.attach_declarative_shadow_root(attributes, *location) {
+                    // The template declared a shadow root, so it never enters the tree itself -
+                    // only the shadow root it created does. The element is still created and
+                    // pushed onto the stack of open elements, because everything downstream keys
+                    // off it: the `</template>` end tag, "in template" insertion mode, and the
+                    // template-contents redirection in `appropriate_place_insert`. Pointing its
+                    // template contents at the shadow root is what routes the children in.
+                    let node_id = self.create_node(token, HTML_NAMESPACE);
+                    self.open_elements.push(node_id);
+                    self.document.set_template_contents(node_id, shadow_root_id);
+                } else {
+                    let node_id = self.insert_html_element(token);
 
-                // check shadow root != none
-                // or allow declarative shadow roots == true
-                // or adjusted current node is not topmost element in stack open elements
-                // then insert html element for token
-                // else:
-                //
-
-                {
+                    // An ordinary template holds its own contents: the redirection above then
+                    // lands back on the template element itself.
                     let cn_id = current_node_id!(self);
                     if self.document.node_type(node_id) == NodeType::ElementNode {
                         self.document.set_template_contents(node_id, cn_id);
@@ -3854,6 +3963,61 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Returns the NodeId of the adjusted current node.
+    /// The declarative-shadow-root branch of the "in head" `<template>` rules (HTML 13.2.6.4.4).
+    ///
+    /// Returns the shadow root when the token declares one and its intended parent can host it -
+    /// in which case the caller must *not* insert the template element into the tree. Every
+    /// failed check falls through to `None`, i.e. to ordinary inert-template behavior; that
+    /// includes the spec's "catch the `NotSupportedError`" recovery for a parent that is not a
+    /// valid shadow host or already has a shadow root.
+    fn attach_declarative_shadow_root(
+        &mut self,
+        attributes: &HashMap<String, String>,
+        location: Location,
+    ) -> Option<NodeId> {
+        if !self.allow_declarative_shadow_roots {
+            return None;
+        }
+        let mode = ShadowRootMode::from_attribute(attributes.get("shadowrootmode")?)?;
+
+        // The host is the adjusted current node, but never the topmost element on the stack of
+        // open elements - that would hang a shadow root off <html>.
+        let host = self.get_adjusted_current_node_id();
+        if self.open_elements.first() == Some(&host) {
+            return None;
+        }
+
+        let init = ShadowRootInit {
+            mode,
+            // The rest are boolean attributes: present at all means set.
+            delegates_focus: attributes.contains_key("shadowrootdelegatesfocus"),
+            clonable: attributes.contains_key("shadowrootclonable"),
+            serializable: attributes.contains_key("shadowrootserializable"),
+            // A declarative shadow root is always named; only `attachShadow()` can ask for
+            // manual assignment, and that does not exist yet.
+            slot_assignment: SlotAssignmentMode::Named,
+        };
+
+        self.document.attach_shadow_root(host, init, location)
+    }
+
+    /// Records the tree scope a freshly parsed stylesheet belongs to, then hands it to the
+    /// document.
+    ///
+    /// `owner` is the `<style>` or `<link>` element the sheet came from. Its scope is the shadow
+    /// root at the top of its ancestor chain, or `None` when that chain reaches the document -
+    /// a shadow root has no parent, so the walk stops there by itself.
+    fn add_stylesheet_for(&mut self, owner: NodeId, mut stylesheet: <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut root = owner;
+        while let Some(parent) = self.document.parent(root) {
+            root = parent;
+        }
+        let scope = (self.document.node_type(root) == NodeType::ShadowRootNode).then_some(root);
+
+        C::CssSystem::set_stylesheet_scope(&mut stylesheet, scope);
+        self.document.add_stylesheet(stylesheet);
+    }
+
     fn get_adjusted_current_node_id(&self) -> NodeId {
         if self.is_fragment_case && self.open_elements.len() == 1 {
             // fragment case: return context node
@@ -4043,6 +4207,72 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Load an inline stylesheet from the <style>-node (identified by NodeId)
+    /// Wait for every stylesheet linked so far, and put it in the cascade.
+    ///
+    /// Called before a script that blocks. Everything still pending at this moment is by
+    /// construction a `<link>` that appeared *earlier* in the document than this script --
+    /// a later one has not been tokenised yet -- so "the sheets that block this script" is
+    /// simply all of them, and no position arithmetic is needed to select them.
+    ///
+    /// Does nothing without a [`StylesheetSource`]: the sheets stay pending and whoever
+    /// drives the parse resolves them afterwards, which is what happens for a document with
+    /// no blocking scripts in it.
+    fn settle_stylesheets(&mut self) {
+        let Some(source) = self.stylesheet_source.clone() else {
+            return;
+        };
+        let pending = self.document.take_pending_stylesheets();
+        if pending.is_empty() {
+            return;
+        }
+
+        let urls: Vec<String> = pending.iter().map(|(_, url)| url.clone()).collect();
+        let mut waited = Timer::new(Some(format!("{} stylesheet(s)", urls.len())));
+        let bodies = source.fetch_blocking(&urls);
+        waited.end();
+
+        // What a script waiting on CSS actually cost, which is the number worth having when
+        // a page loads slowly and nobody can say why.
+        timing::record(
+            gosub_shared::timing::Timing::ScriptBlockedOnCss,
+            waited.duration(),
+            Some(urls.join(" ")),
+        );
+        self.blocked_on_css_us
+            .set(self.blocked_on_css_us.get() + waited.duration());
+        log::debug!(
+            "script blocked on {} stylesheet(s) for {:.1}ms",
+            urls.len(),
+            waited.duration() as f64 / 1000.0
+        );
+
+        let mut inserted = 0usize;
+        for ((position, url), body) in pending.into_iter().zip(bodies) {
+            let Some(bytes) = body else {
+                warn!("Could not load external stylesheet from {url}");
+                continue;
+            };
+            let Ok(css) = String::from_utf8(bytes) else {
+                warn!("External stylesheet from {url} is not valid UTF-8");
+                continue;
+            };
+            let config = ParserConfig {
+                source: Some(url.clone()),
+                ignore_errors: true,
+                ..Default::default()
+            };
+            match C::CssSystem::parse_str(&css, config, CssOrigin::Author, &url) {
+                // Each sheet already placed shifts this one along by one; see
+                // `Document::add_pending_stylesheet` for what the position means.
+                Ok(sheet) => {
+                    self.document.insert_stylesheet(position + inserted, sheet);
+                    inserted += 1;
+                }
+                Err(err) => warn!("Error while parsing CSS stylesheet from {url}: {err}"),
+            }
+        }
+    }
+
     fn load_inline_stylesheet(
         &self,
         origin: CssOrigin,
@@ -4065,7 +4295,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         };
 
         match C::CssSystem::parse_str(text, config, origin, &source_url) {
-            Ok(stylesheet) => Some(stylesheet),
+            Ok(mut stylesheet) => {
+                self.resolve_stylesheet_imports(&mut stylesheet);
+                Some(stylesheet)
+            }
             Err(err) => {
                 warn!("Error while parsing CSS stylesheet: {err} ");
                 None
@@ -4073,78 +4306,70 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Load and parse an external stylesheet by URL
-    #[cfg(target_arch = "wasm32")]
-    fn load_external_stylesheet(
-        &self,
-        _origin: CssOrigin,
-        _url: Url,
-    ) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
-        None
+    /// The text of a stylesheet an `@import` asked for.
+    ///
+    /// The parser does not fetch. It asks the [`StylesheetSource`] -- the same seam a
+    /// `<link>` goes through -- so an import is a Fetcher request like every other
+    /// subresource, is visible in the developer tools, and is subject to the same policy.
+    /// Without a source there is nothing to ask and the import stays unresolved, which is
+    /// the answer wasm has always given.
+    ///
+    /// It still blocks: the sheet is being parsed and the import belongs in it. That is only
+    /// acceptable for the same reason [`Self::settle_stylesheets`] is -- the parse runs on
+    /// the blocking pool. The wait is accumulated so `parse_document` can take it back out
+    /// of `decode.html`; the fetch itself is timed by whoever performs it.
+    fn fetch_css_text(&self, url: &Url) -> Option<String> {
+        let source = self.stylesheet_source.clone()?;
+
+        let mut waited = Timer::new(Some(url.to_string()));
+        let body = source.fetch_blocking(&[url.to_string()]).pop().flatten();
+        waited.end();
+        self.blocked_on_css_us
+            .set(self.blocked_on_css_us.get() + waited.duration());
+
+        match body {
+            Some(bytes) => match String::from_utf8(bytes) {
+                Ok(css) => Some(css),
+                Err(err) => {
+                    warn!("Imported stylesheet from {url} is not valid UTF-8: {err}");
+                    None
+                }
+            },
+            None => {
+                warn!("Could not load imported stylesheet from {url}");
+                None
+            }
+        }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
-        let css = if url.scheme() == "http" || url.scheme() == "https" {
-            let response = match gosub_sonar::net::simple::sync_fetch(&url) {
-                Ok(r) => r,
-                Err(err) => {
-                    warn!("Could not load external stylesheet from {}. Error: {}", url, err);
-                    return None;
-                }
-            };
+    /// Pull in every `@import` the stylesheet declares.
+    ///
+    /// Each import is another round trip the parse waits on, and they are sequential, so a
+    /// chain costs its full depth in latency. Handing imports to the resource pipeline the
+    /// way `<link>` is handed to it is the fix; until then an unresolved `@import` silently
+    /// loses a whole stylesheet, which is worse.
+    fn resolve_stylesheet_imports(&self, sheet: &mut <C::CssSystem as CssSystem>::Stylesheet) {
+        let mut fetch = |base: &str, requested: &str| {
+            // A relative import resolves against the importing sheet, not the document.
+            let base_url = Url::parse(base).ok();
+            let resolved = base_url
+                .as_ref()
+                .and_then(|base| base.join(requested).ok())
+                .or_else(|| Url::parse(requested).ok())?;
 
-            if response.status != 200 {
+            if !import_scheme_allowed(base_url.as_ref(), &resolved) {
                 warn!(
-                    "Could not load external stylesheet from {}. Status code {}",
-                    url, response.status
+                    "Refusing '{}' import from remote stylesheet {}: only http(s) is allowed",
+                    resolved.scheme(),
+                    base
                 );
                 return None;
             }
 
-            match response.headers.get("content-type") {
-                Some(ct) if !ct.starts_with("text/css") => {
-                    warn!("External stylesheet has unexpected content type: {ct}");
-                }
-                None => warn!("External stylesheet has no content type: {url}"),
-                _ => {}
-            }
-
-            match String::from_utf8(response.body) {
-                Ok(css) => css,
-                Err(err) => {
-                    warn!("Could not load external stylesheet from {url}. Error: {err}");
-                    return None;
-                }
-            }
-        } else if url.scheme() == "file" {
-            let path = &url.as_str()[7..];
-
-            match std::fs::read_to_string(path) {
-                Ok(css) => css,
-                Err(err) => {
-                    warn!("Could not load external stylesheet from {url}. Error: {err}");
-                    return None;
-                }
-            }
-        } else {
-            warn!("Unsupported URL scheme for external stylesheet: {}", url.scheme());
-            return None;
+            let text = self.fetch_css_text(&resolved)?;
+            Some((resolved.to_string(), text))
         };
-
-        let config = ParserConfig {
-            source: Some(url.to_string()),
-            ignore_errors: true,
-            ..Default::default()
-        };
-
-        match C::CssSystem::parse_str(css.as_str(), config, origin, url.as_str()) {
-            Ok(stylesheet) => Some(stylesheet),
-            Err(err) => {
-                warn!("Error while parsing CSS stylesheet: {err}");
-                None
-            }
-        }
+        C::CssSystem::resolve_imports(sheet, &mut fetch);
     }
 
     fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
@@ -4205,16 +4430,70 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         }
                     }
                 };
-                if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url) {
-                    self.document.add_stylesheet(stylesheet);
-                } else {
-                    self.parse_error("failed to load external stylesheet");
-                }
+                // Recorded, not fetched. The parser has no business opening sockets: the
+                // resource pipeline is already fetching this sheet (and everything else the
+                // document links), and it fills the slot in once the bytes are here.
+                self.document.add_pending_stylesheet(css_url.as_str());
             }
             _ => {
                 self.parse_error(format!("link element with rel attribute '{rel}' is not supported").as_str());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod import_scheme_tests {
+    use super::import_scheme_allowed;
+    use url::Url;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    /// The one that matters: a sheet served over the network must not be able to name a local
+    /// file. `Url::join` hands back the absolute `file:` URL, and the fetch path would read it.
+    #[test]
+    fn a_remote_sheet_cannot_import_a_local_file() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+
+        let base = url("http://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("file:///etc/passwd")));
+    }
+
+    #[test]
+    fn a_remote_sheet_may_import_over_the_network() {
+        let base = url("https://example.org/a.css");
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+        assert!(import_scheme_allowed(Some(&base), &url("http://cdn.example.org/b.css")));
+    }
+
+    /// A local sheet keeps working: it can already read the filesystem it came from.
+    #[test]
+    fn a_local_sheet_is_unrestricted() {
+        let base = url("file:///home/u/site/a.css");
+        assert!(import_scheme_allowed(Some(&base), &url("file:///home/u/site/b.css")));
+        assert!(import_scheme_allowed(
+            Some(&base),
+            &url("https://cdn.example.org/b.css")
+        ));
+    }
+
+    /// An unparseable base is not known to be remote, so it is not treated as one.
+    #[test]
+    fn an_unknown_base_is_not_treated_as_remote() {
+        assert!(import_scheme_allowed(None, &url("file:///etc/passwd")));
+    }
+
+    /// Other non-network schemes are refused from a remote sheet too, not just `file:`.
+    #[test]
+    fn other_non_network_schemes_are_refused_from_remote() {
+        let base = url("https://example.org/a.css");
+        assert!(!import_scheme_allowed(Some(&base), &url("data:text/css,body{}")));
     }
 }
 
@@ -4560,5 +4839,88 @@ mod test {
         let div = doc.get_node_by_named_id("myid").unwrap();
         assert_eq!(div.id, NodeId::from(4usize));
         assert_eq!(div.get_element_data().unwrap().name(), "div");
+    }
+
+    /// Answers with a fixed stylesheet and records what it was asked for.
+    #[derive(Debug, Default)]
+    struct RecordingSheets {
+        asked: parking_lot::Mutex<Vec<String>>,
+    }
+
+    impl StylesheetSource for RecordingSheets {
+        fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
+            self.asked.lock().extend(urls.iter().cloned());
+            urls.iter().map(|_| Some(b"p { color: red; }".to_vec())).collect()
+        }
+    }
+
+    /// Parse `html` with a source in place, and report what the parse asked that source for.
+    fn sheets_awaited_by(html: &str) -> Vec<String> {
+        let source = Arc::new(RecordingSheets::default());
+        let options = Html5ParserOptions {
+            stylesheets: Some(source.clone()),
+            ..Default::default()
+        };
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(
+            #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
+            url::Url::parse("http://example.test/page.html").unwrap(),
+        ));
+        let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+
+        let asked = source.asked.lock().clone();
+        asked
+    }
+
+    /// The rule this exists for: a classic script may not run until the stylesheets written
+    /// before it have applied, so reaching one is what forces the wait.
+    #[test]
+    fn a_blocking_script_waits_for_the_stylesheets_before_it() {
+        let asked = sheets_awaited_by(
+            r#"<html><head><link rel="stylesheet" href="/a.css"><script>1</script></head><body></body></html>"#,
+        );
+        assert_eq!(asked, vec!["http://example.test/a.css".to_string()]);
+    }
+
+    /// `async` and `defer` say the script is not in the way, so nothing waits for it.
+    #[test]
+    fn a_deferred_script_waits_for_nothing() {
+        let asked = sheets_awaited_by(
+            r#"<html><head><link rel="stylesheet" href="/a.css"><script src="/s.js" defer></script></head><body></body></html>"#,
+        );
+        assert!(asked.is_empty(), "expected no wait, got {asked:?}");
+
+        let asked = sheets_awaited_by(
+            r#"<html><head><link rel="stylesheet" href="/a.css"><script src="/s.js" async></script></head><body></body></html>"#,
+        );
+        assert!(asked.is_empty(), "expected no wait, got {asked:?}");
+    }
+
+    /// ... but they say nothing about a script with no `src`: there is nothing to fetch, so
+    /// it runs where it stands and everything before it has to be ready.
+    #[test]
+    fn an_inline_script_waits_even_when_marked_defer() {
+        let asked = sheets_awaited_by(
+            r#"<html><head><link rel="stylesheet" href="/a.css"><script defer>1</script></head><body></body></html>"#,
+        );
+        assert_eq!(asked, vec!["http://example.test/a.css".to_string()]);
+    }
+
+    /// Only what came before it. A link after the script has not been seen yet when the
+    /// wait happens, and is left for the pipeline to resolve after the parse.
+    #[test]
+    fn a_script_does_not_wait_for_stylesheets_written_after_it() {
+        let asked = sheets_awaited_by(
+            r#"<html><head><link rel="stylesheet" href="/first.css"><script>1</script><link rel="stylesheet" href="/second.css"></head><body></body></html>"#,
+        );
+        assert_eq!(asked, vec!["http://example.test/first.css".to_string()]);
+    }
+
+    /// A page with no script never asks, which is the common case and must stay free.
+    #[test]
+    fn a_page_without_scripts_never_waits() {
+        let asked =
+            sheets_awaited_by(r#"<html><head><link rel="stylesheet" href="/a.css"></head><body></body></html>"#);
+        assert!(asked.is_empty(), "expected no wait, got {asked:?}");
     }
 }

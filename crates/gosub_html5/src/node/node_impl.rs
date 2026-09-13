@@ -2,8 +2,9 @@ use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
 use crate::node::data::document::DocumentData;
 use crate::node::data::element::ElementData;
+use crate::node::data::shadow_root::ShadowRootData;
 use crate::node::data::text::TextData;
-use gosub_interface::node::{NodeType, QuirksMode};
+use gosub_interface::node::{NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ pub enum NodeDataTypeInternal {
     Text(TextData),
     Comment(CommentData),
     Element(ElementData),
+    ShadowRoot(ShadowRootData),
 }
 
 /// A DOM node stored in the arena
@@ -97,6 +99,14 @@ impl NodeImpl {
     }
 
     #[must_use]
+    pub fn new_shadow_root(location: Location, host: NodeId, init: ShadowRootInit) -> Self {
+        Self::new(
+            location,
+            NodeDataTypeInternal::ShadowRoot(ShadowRootData::new(host, init)),
+        )
+    }
+
+    #[must_use]
     pub fn new_comment(location: Location, value: &str) -> Self {
         Self::new(location, NodeDataTypeInternal::Comment(CommentData::with_value(value)))
     }
@@ -108,11 +118,21 @@ impl NodeImpl {
 
     /// Shallow clone: same data, no tree links, not registered
     pub fn new_from_node(org_node: &Self) -> Self {
+        let mut data = org_node.data.clone();
+        // The clone must not inherit the host's side pointer to its shadow tree. Tree links are
+        // deliberately not copied here, but `shadow_root` lives in the element's data, so it
+        // would come along - leaving the clone sharing the original's root while
+        // `shadow_host(root)` still named the original. Two hosts for one root, and a back
+        // pointer that contradicts one of them. The spec gives a clone a shadow tree only when
+        // the root is `clonable`, and that needs the tree cloned too rather than an id copied.
+        if let NodeDataTypeInternal::Element(ref mut element) = data {
+            element.shadow_root = None;
+        }
         Self {
             id: NodeId::default(),
             parent: None,
             children: Vec::new(),
-            data: org_node.data.clone(),
+            data,
             registered: false,
             location: org_node.location,
         }
@@ -161,7 +181,15 @@ impl NodeImpl {
             NodeDataTypeInternal::Text(_) => NodeType::TextNode,
             NodeDataTypeInternal::Comment(_) => NodeType::CommentNode,
             NodeDataTypeInternal::Element(_) => NodeType::ElementNode,
+            NodeDataTypeInternal::ShadowRoot(_) => NodeType::ShadowRootNode,
         }
+    }
+
+    pub fn get_shadow_root_data(&self) -> Option<&ShadowRootData> {
+        if let NodeDataTypeInternal::ShadowRoot(data) = &self.data {
+            return Some(data);
+        }
+        None
     }
 
     pub fn is_element_node(&self) -> bool {

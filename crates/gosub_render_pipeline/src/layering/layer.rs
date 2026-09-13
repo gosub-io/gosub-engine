@@ -100,9 +100,13 @@ impl Clone for LayerList {
 }
 
 impl LayerList {
-    pub fn new(layout_tree: LayoutTree) -> LayerList {
+    /// Build the layer list over `layout_tree`.
+    ///
+    /// Takes the tree already shared so the caller can keep its own handle on it - the engine
+    /// retains one across frames to recompute geometry without rebuilding the taffy tree.
+    pub fn new(layout_tree: Arc<LayoutTree>) -> LayerList {
         let mut layer_list = LayerList {
-            layout_tree: Arc::new(layout_tree),
+            layout_tree,
             layers: RwLock::new(HashMap::new()),
             layer_ids: RwLock::new(Vec::new()),
             next_layer_id: RwLock::new(LayerId::new(0)),
