@@ -1,0 +1,29 @@
+<!doctype html>
+<title>Gosub forms: text editing</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 24px; }
+  label { display: block; margin: 14px 0 4px; }
+  input, textarea { font: 15px monospace; }
+</style>
+<h1>Text editing</h1>
+<p>Select with Shift+arrows, mouse drag, double-click (word) or triple-click (all); Ctrl+A/C/X/V;
+Ctrl+Left/Right word jumps; Up/Down/PageUp/PageDown in the textarea; wheel over a long textarea.</p>
+<label for="one">Single line</label>
+<input id="one" size="40" value="The quick brown fox jumps over the lazy dog">
+<label for="pw">Password (copy is refused)</label>
+<input id="pw" type="password" value="hunter2">
+<label for="long">Long textarea (12 lines, 4 visible)</label>
+<textarea id="long" rows="4" cols="40">line 1 the first
+line 2
+line 3
+line 4
+line 5 has a few more words so it wraps around
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12 the last</textarea>
+<label for="short">Short textarea</label>
+<textarea id="short" rows="3" cols="40">fits entirely</textarea>

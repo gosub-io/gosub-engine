@@ -327,6 +327,11 @@ pub enum StyleProperty {
     VerticalAlign,
     /// `border-collapse`: `separate` | `collapse`.
     BorderCollapse,
+    OutlineWidth,
+    OutlineStyle,
+    OutlineColor,
+    OutlineOffset,
+    Resize,
 }
 
 impl StyleProperty {
@@ -421,6 +426,11 @@ impl StyleProperty {
             StyleProperty::TableLayout => 85,
             StyleProperty::VerticalAlign => 86,
             StyleProperty::BorderCollapse => 87,
+            StyleProperty::OutlineWidth => 88,
+            StyleProperty::OutlineStyle => 89,
+            StyleProperty::OutlineColor => 90,
+            StyleProperty::OutlineOffset => 91,
+            StyleProperty::Resize => 92,
         }
     }
 
@@ -1017,6 +1027,36 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("separate"),
     },
+    // 88 outline-width - initial = medium = 3px; 0 when outline-style is none (see `get_style`)
+    PropertyMeta {
+        name: "outline-width",
+        inherited: false,
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
+    },
+    // 89 outline-style
+    PropertyMeta {
+        name: "outline-style",
+        inherited: false,
+        initial_kind: InitialKind::BorderStyle(BorderStyle::None),
+    },
+    // 90 outline-color - initial = currentColor (see `get_style`)
+    PropertyMeta {
+        name: "outline-color",
+        inherited: false,
+        initial_kind: InitialKind::Color(0, 0, 0, 255),
+    },
+    // 91 outline-offset
+    PropertyMeta {
+        name: "outline-offset",
+        inherited: false,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    // 92 resize
+    PropertyMeta {
+        name: "resize",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1166,6 +1206,11 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         85 => Some(StyleProperty::TableLayout),
         86 => Some(StyleProperty::VerticalAlign),
         87 => Some(StyleProperty::BorderCollapse),
+        88 => Some(StyleProperty::OutlineWidth),
+        89 => Some(StyleProperty::OutlineStyle),
+        90 => Some(StyleProperty::OutlineColor),
+        91 => Some(StyleProperty::OutlineOffset),
+        92 => Some(StyleProperty::Resize),
         _ => None,
     }
 }

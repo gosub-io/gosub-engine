@@ -12,14 +12,15 @@ one-line banner (name, version, purpose) on stderr when it starts.
 | 5 | `html5-parser-test` | `cargo run --bin html5-parser-test` | Run the html5lib tree-construction fixture suite (`*.dat`) and print a compact pass/fail summary. |
 | 6 | `parser-test` | `cargo run --bin parser-test` | html5lib tree-construction dev harness with detailed per-test failure output; accepts fixture filenames as arguments to filter. |
 | 7 | `run-js` | `cargo run --bin run-js` | Execute a JavaScript file in the bare V8 engine (no DOM or Web APIs) and print the resulting value. |
-| 8 | `gosub-screenshot` | `cargo run -p gosub-screenshot` | Headless full-page screenshot: load a URL through the complete engine + render pipeline and write a PNG. CPU rasterization only — no GPU, no window. See [headless.md](headless.md). |
-| 9 | `table_console` | `cargo run -p gosub_lattice --bin table_console` | Console demos of the lattice table layout engine (colspan/rowspan/section clamping) rendered as ASCII tables; mirrors the integration tests in `gosub_lattice/src/tests.rs`. |
-| 10 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. |
-| 11 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_domjs`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
-| 12–21 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
-| 22 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
-| 23 | `html5_parser` (fuzz) | `cargo +nightly fuzz run html5_parser` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tree-construction parser. |
-| 24 | `tokenizer` (fuzz) | `cargo +nightly fuzz run tokenizer` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tokenizer. |
+| 8 | `gosub-mini-browser` | `cargo run --release -p gosub-mini-browser` | The full-featured reference embedder (GTK4 + Cairo): keyboard editing in form fields, clipboard, cursor shapes, kinetic scrolling, dark colour scheme, persistent cookies/localStorage. The GUI examples stay minimal; interactive engine features are exercised here. |
+| 9 | `gosub-screenshot` | `cargo run -p gosub-screenshot` | Headless full-page screenshot: load a URL through the complete engine + render pipeline and write a PNG. CPU rasterization only — no GPU, no window. See [headless.md](headless.md). |
+| 10 | `table_console` | `cargo run -p gosub_lattice --bin table_console` | Console demos of the lattice table layout engine (colspan/rowspan/section clamping) rendered as ASCII tables; mirrors the integration tests in `gosub_lattice/src/tests.rs`. |
+| 11 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. |
+| 12 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_domjs`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
+| 13–22 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
+| 23 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
+| 24 | `html5_parser` (fuzz) | `cargo +nightly fuzz run html5_parser` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tree-construction parser. |
+| 25 | `tokenizer` (fuzz) | `cargo +nightly fuzz run tokenizer` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tokenizer. |
 
 Besides these, the workspace ships `cargo run --example …` targets (hello-world,
 multi-tab, tutorial, config-store, …); see [examples.md](examples.md).
@@ -37,6 +38,7 @@ cargo run --example hello-world    # single tab, headless
 cargo run --example multi-tab      # 25 tabs, live progress bars
 cargo run -p example-gtk4-cairo    # GTK4 window
 cargo run -p example-egui-vello    # egui/wgpu window
+cargo run --release -p gosub-mini-browser  # full interactive browser (GTK4 + Cairo)
 ```
 
 See [`examples/README.md`](../examples/README.md) for details.

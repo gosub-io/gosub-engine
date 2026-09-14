@@ -393,6 +393,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule {
+            media: None,
             selectors: vec![CssSelector {
                 parts: vec![CssSelectorPart {
                     type_: CssSelectorType::Type,

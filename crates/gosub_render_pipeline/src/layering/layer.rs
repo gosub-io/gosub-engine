@@ -265,6 +265,12 @@ impl LayerList {
 
         self.traverse(default_layer_id, root_id, false, false, 0);
 
+        // An open <select> dropdown floats above everything.
+        if let Some(popup) = self.layout_tree.popup {
+            let layer_id = self.new_layer(isize::MAX);
+            self.add_to_layer(layer_id, popup);
+        }
+
         // Composite order = stacking order. Sort layers by their `order` (z-index level); the sort is
         // stable, so layers at the same level keep DOM/creation order (the correct tie-break for
         // equal z-index). The compositor and hit-test both walk `layer_ids` in this order.
@@ -290,6 +296,8 @@ impl LayerList {
                         crate::layouter::ElementContext::Image(_) => "image",
                         crate::layouter::ElementContext::Svg(_) => "svg",
                         crate::layouter::ElementContext::TableBorderOverlay(_) => "overlay",
+                        crate::layouter::ElementContext::FormControl(_) => "control",
+                        crate::layouter::ElementContext::SelectPopup(_) => "popup",
                     };
                     eprintln!(
                         "  el {:?} dom={:?} <{}> ctx={} border_box=({},{} {}x{})",

@@ -2139,6 +2139,7 @@ name = "example-gtk4-cairo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_cairo",
@@ -2157,6 +2158,7 @@ name = "example-gtk4-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_skia",
@@ -2175,6 +2177,7 @@ name = "example-gtk4-skia-gpu"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_skia",
@@ -2195,6 +2198,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cairo-rs",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_cairo",
@@ -2214,6 +2218,7 @@ name = "example-winit-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_skia",
@@ -2236,6 +2241,7 @@ dependencies = [
  "anyhow",
  "glutin",
  "glutin-winit",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_skia",
@@ -2257,6 +2263,7 @@ name = "example-winit-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_vello",
@@ -3005,11 +3012,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub-mini-browser"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_config",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "gosub_renderer_cairo",
+ "gtk4",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "gosub-screenshot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_cairo",

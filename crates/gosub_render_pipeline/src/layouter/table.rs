@@ -576,7 +576,11 @@ fn subtree_min_content_width(
                 .map(|run| layouter.word_width(run, &text_ctx.font_info))
                 .fold(0.0_f32, f32::max)
         }
-        ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
+        // A form control, like an image, is as wide as its box and has no break opportunities.
+        ElementContext::Image(_)
+        | ElementContext::Svg(_)
+        | ElementContext::FormControl(_)
+        | ElementContext::SelectPopup(_) => el.box_model.border_box.width as f32,
         ElementContext::TableBorderOverlay(_) => 0.0,
         ElementContext::None => {
             let from_children = el

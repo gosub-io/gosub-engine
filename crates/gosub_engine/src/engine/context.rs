@@ -7,7 +7,11 @@
 //! representation the active backend consumes.
 
 use crate::engine::damage::{Damage, DamageLevel};
+use crate::engine::edit;
 use crate::engine::events::{CursorShape, HitTestResponse};
+use crate::engine::focus;
+use crate::engine::form;
+pub use crate::engine::form::Submission;
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
@@ -25,7 +29,7 @@ use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
-use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
+use gosub_render_pipeline::common::document::pipeline_doc::{pseudo_owner, GosubDocumentAdapter, PipelineDocument};
 use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TilePixels;
@@ -41,6 +45,22 @@ use gosub_shared::node::NodeId;
 use gosub_shared::{timing_start, timing_stop};
 use std::any::Any;
 use url::Url;
+
+mod select_ui;
+mod text_ui;
+
+#[cfg(test)]
+mod forms_tests;
+
+/// A textarea resize in progress: where the pointer started and the border-box size then.
+#[derive(Debug, Clone, Copy)]
+struct ResizeDrag {
+    node: NodeId,
+    start: (f64, f64),
+    size: (f64, f64),
+    horizontal: bool,
+    vertical: bool,
+}
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
 /// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
@@ -86,30 +106,7 @@ fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeI
             .iter()
             .any(|k| t.eq_ignore_ascii_case(k))
         }),
-        _ => doc
-            .attribute(node_id, "contenteditable")
-            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
-    }
-}
-
-/// True for elements that participate in keyboard focus: links, form controls,
-/// editable regions, and anything with a non-negative `tabindex`.
-fn is_focusable<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
-    if doc.node_type(node_id) != NodeType::ElementNode || doc.attribute(node_id, "disabled").is_some() {
-        return false;
-    }
-    if let Some(tabindex) = doc.attribute(node_id, "tabindex") {
-        return tabindex.trim().parse::<i32>().is_ok_and(|t| t >= 0);
-    }
-    match doc.tag_name(node_id) {
-        Some("a" | "area") => doc.attribute(node_id, "href").is_some(),
-        Some("input") => doc
-            .attribute(node_id, "type")
-            .is_none_or(|t| !t.eq_ignore_ascii_case("hidden")),
-        Some("textarea" | "select" | "button") => true,
-        _ => doc
-            .attribute(node_id, "contenteditable")
-            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
+        _ => focus::is_contenteditable(doc, node_id),
     }
 }
 
@@ -208,9 +205,6 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
-    /// The focused element (mirrors the document's interior-mutable focus, which drives
-    /// `:focus` matching; this field is the engine-side source of truth).
-    focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
     /// The last point hit-tested: the point, the scroll it was tested against, and the scene
@@ -222,6 +216,30 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// differently, and without the epoch the cached answer -- hover styling, cursor shape,
     /// link URL -- would stand until the reader moved the mouse.
     hover_probe: Option<(f64, f64, f64, f64, u64)>,
+    /// A form submit triggered by the last click/key, for the tab worker to navigate.
+    pending_submission: Option<Submission>,
+    /// Range slider being dragged: the input and its layout element (for track geometry).
+    drag_range: Option<(NodeId, LayoutElementId)>,
+    /// Textarea corner being dragged.
+    drag_resize: Option<ResizeDrag>,
+    /// Last pointer position in viewport px (for wheel routing).
+    pointer: Option<(f64, f64)>,
+    /// Dropdown scrollbar thumb being dragged: pointer y and `first_row` at the press.
+    drag_popup_thumb: Option<(f64, usize)>,
+    /// Selection being dragged out in a text control.
+    drag_select: Option<(NodeId, LayoutElementId)>,
+    /// Textarea scrollbar thumb being dragged: pointer y and scroll row at the press.
+    drag_area_thumb: Option<(NodeId, LayoutElementId, f64, usize)>,
+    /// Last press (time, position, click count) for double/triple-click detection.
+    last_press: Option<(std::time::Instant, f64, f64, u8)>,
+    /// Clipboard traffic towards the embedder; see `text_ui`.
+    clipboard_write: Option<String>,
+    paste_requested: bool,
+    /// Dropdown type-ahead: the letters typed so far and when the last one arrived.
+    typeahead: Option<(String, std::time::Instant)>,
+    /// Font system for caret placement when the rasterizer doesn't share one (tests, null
+    /// backend): the same default the layouter falls back to, so measurements agree.
+    fallback_font_system: std::sync::OnceLock<Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -272,9 +290,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             style_fingerprint: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
-            focused_node: None,
             hover_cursor: CursorShape::Default,
             hover_probe: None,
+            pending_submission: None,
+            drag_range: None,
+            drag_resize: None,
+            pointer: None,
+            drag_popup_thumb: None,
+            drag_select: None,
+            drag_area_thumb: None,
+            last_press: None,
+            clipboard_write: None,
+            paste_requested: false,
+            typeahead: None,
+            fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -343,7 +372,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
-        self.focused_node = None;
+        self.end_drag();
     }
 
     /// Drop cached raster output when the device-pixel ratio has moved since it was produced.
@@ -440,6 +469,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             "dark" => ColorScheme::Dark,
             _ => ColorScheme::Light,
         };
+        // `light-dark()` resolution and the engine-drawn controls (dropdowns, text fields) read
+        // the scheme from process-wide flags rather than through the environment; a change is
+        // still a restyle because the scheme is part of `style_environment_fingerprint`.
+        let dark = matches!(color_scheme, ColorScheme::Dark);
+        gosub_css3::stylesheet::set_prefers_dark(dark);
+        gosub_render_pipeline::common::theme::set_dark(dark);
         let reduced_motion = if self.config_store.get_bool("renderer.prefers_reduced_motion") {
             ReducedMotion::Reduce
         } else {
@@ -1036,14 +1071,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_cursor
     }
 
-    /// The currently focused element.
-    pub fn focused_node(&self) -> Option<NodeId> {
-        self.focused_node
-    }
-
     /// Whether the focused element is text-editable (input/textarea/contenteditable).
     pub fn focused_editable(&self) -> bool {
-        match (self.focused_node, self.document.as_ref()) {
+        match (self.focused_node(), self.document.as_ref()) {
             (Some(id), Some(doc)) => is_text_input(doc, id),
             _ => false,
         }
@@ -1051,51 +1081,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// The focused element's link target (`<a href>`), for Enter-to-activate.
     pub fn focused_link(&self) -> Option<String> {
-        let (id, doc) = (self.focused_node?, self.document.as_ref()?);
+        let doc = self.document.as_ref()?;
+        let id = self.focused_node()?;
         if doc.tag_name(id) == Some("a") {
             doc.attribute(id, "href").map(str::to_string)
         } else {
             None
         }
-    }
-
-    /// Move focus to `node` (or clear it with `None`). Returns whether focus changed.
-    /// A change re-styles the document so `:focus` rules apply.
-    pub fn set_focus(&mut self, node: Option<NodeId>) -> bool {
-        if self.focused_node == node {
-            return false;
-        }
-        let previous = self.focused_node;
-        self.focused_node = node;
-        if let Some(doc) = &self.document {
-            doc.set_focused_node(node);
-        }
-
-        // `:focus` only repaints the element itself - `:focus-within` is not implemented
-        // (`gosub_css3` matcher: "focus-within needs the focus chain; not tracked yet"), so no
-        // ancestor's styles can change. That makes this the same shape as a hover move: two
-        // elements' worth of paint damage rather than a whole-document rebuild.
-        self.damage.escalate(DamageLevel::Paint);
-        for id in [previous, node].into_iter().flatten() {
-            self.damage.add_node(id);
-        }
-        let leis = [previous, node].map(|id| id.and_then(|id| self.layout_element_for(id)));
-        self.record_element_damage(leis);
-        true
-    }
-
-    /// Look up the layout element that renders `node`.
-    ///
-    /// A linear scan of the layout arena: there is no reverse index today, and the callers
-    /// are one-off input events rather than anything per-frame. Worth an index if that changes.
-    fn layout_element_for(&self, node: NodeId) -> Option<LayoutElementId> {
-        let layer_list = self.active_layer_list()?;
-        layer_list
-            .layout_tree
-            .arena
-            .iter()
-            .find(|(_, el)| el.dom_node_id == node)
-            .map(|(id, _)| *id)
     }
 
     /// Record paint damage covering the margin boxes of `elements`, so the repaint touches
@@ -1116,68 +1108,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         for rect in rects {
             self.damage.add_rect(rect);
         }
-    }
-
-    /// Focus the nearest focusable ancestor of the element at viewport point `(x, y)`
-    /// (click-to-focus), blurring when the point hits nothing focusable. Returns whether
-    /// focus changed.
-    pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
-        let target = self.active_layer_list().and_then(|layer_list| {
-            let lei = layer_list.find_element_at(vp_x, vp_y, self.scroll_x, self.scroll_y)?;
-            layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id)
-        });
-        let focusable = target.and_then(|leaf| {
-            let doc = self.document.as_ref()?;
-            let mut id = leaf;
-            loop {
-                if is_focusable(doc.as_ref(), id) {
-                    return Some(id);
-                }
-                match doc.parent(id) {
-                    Some(parent) => id = parent,
-                    None => return None,
-                }
-            }
-        });
-        self.set_focus(focusable)
-    }
-
-    /// Move focus to the next (or previous) focusable element in document order,
-    /// wrapping around; from no focus, starts at the first (or last). Returns the newly
-    /// focused element, or `None` when the document has none.
-    pub fn focus_step(&mut self, backwards: bool) -> Option<NodeId> {
-        let order = self.focusable_elements();
-        if order.is_empty() {
-            self.set_focus(None);
-            return None;
-        }
-        let next = match self.focused_node.and_then(|cur| order.iter().position(|&n| n == cur)) {
-            Some(pos) if backwards => order[(pos + order.len() - 1) % order.len()],
-            Some(pos) => order[(pos + 1) % order.len()],
-            None if backwards => *order.last()?,
-            None => order[0],
-        };
-        self.set_focus(Some(next));
-        Some(next)
-    }
-
-    /// Every focusable element, in document order.
-    fn focusable_elements(&self) -> Vec<NodeId> {
-        let Some(doc) = self.document.as_ref() else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut stack = vec![doc.root()];
-        while let Some(id) = stack.pop() {
-            if is_focusable(doc.as_ref(), id) {
-                out.push(id);
-            }
-            // Push children reversed so the stack yields document order.
-            for &child in doc.children(id).iter().rev() {
-                stack.push(child);
-            }
-        }
-        out
     }
 
     /// Describe what is at viewport point `(vp_x, vp_y)` for a context menu: the nearest
@@ -1232,6 +1162,470 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         out
     }
 
+    /// The DOM node and layout element under viewport point `(vp_x, vp_y)`.
+    fn hit_at(&self, vp_x: f64, vp_y: f64) -> (Option<NodeId>, Option<LayoutElementId>) {
+        let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
+        self.active_layer_list().map_or((None, None), |layer_list| {
+            // find_element_at handles scroll per-layer (fixed layers ignore it).
+            let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
+                return (None, None);
+            };
+            // A `::before`/`::after` box counts as a hit on its owner.
+            let dom_node_id = layer_list
+                .layout_tree
+                .get_node_by_id(lei)
+                .map(|el| pseudo_owner(el.dom_node_id).unwrap_or(el.dom_node_id));
+            (dom_node_id, Some(lei))
+        })
+    }
+
+    pub fn focused_node(&self) -> Option<NodeId> {
+        self.document.as_ref().and_then(|d| d.focused_node())
+    }
+
+    /// Move focus to `node` (`None` blurs); `visible` = show the ring.
+    ///
+    /// `:focus` only repaints the element itself - `:focus-within` is not implemented
+    /// (`gosub_css3` matcher: "focus-within needs the focus chain; not tracked yet"), so no
+    /// ancestor's styles can change. That makes this the same shape as a hover move: two
+    /// elements' worth of paint damage rather than a whole-document rebuild.
+    pub fn set_focus(&mut self, node: Option<NodeId>, visible: bool) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let previous = doc.focused_node();
+        let unchanged = previous == node && node.is_none_or(|n| doc.is_focus_visible(n) == visible);
+        if unchanged {
+            return false;
+        }
+        doc.set_focused_node(node, visible);
+        self.damage.escalate(DamageLevel::Paint);
+        for id in [previous, node].into_iter().flatten() {
+            self.damage.add_node(id);
+        }
+        let leis = [previous, node].map(|id| id.and_then(|id| self.layout_element_of(id)));
+        self.record_element_damage(leis);
+        true
+    }
+
+    /// Click-to-focus: the nearest focusable element under the point (via `<label>` bindings),
+    /// or blur when there is none.
+    pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let (leaf, lei) = self.hit_at(vp_x, vp_y);
+        let (target, visible) = match (&self.document, leaf) {
+            (Some(doc), Some(leaf)) => {
+                let target = focus::click_target(doc, leaf);
+                let visible = target.is_some_and(|t| focus::click_shows_ring(doc, t));
+                (target, visible)
+            }
+            _ => (None, false),
+        };
+        log::debug!("focus: click at ({vp_x}, {vp_y}) hit {leaf:?} -> focus {target:?} (ring: {visible})");
+        let changed = self.set_focus(target, visible);
+        // A click straight into a text control also puts the caret where it landed.
+        let placed = match (target, lei) {
+            (Some(t), Some(lei)) if leaf == Some(t) => self.place_caret(t, lei, vp_x, vp_y),
+            _ => false,
+        };
+        changed || placed
+    }
+
+    /// The font system text measurements use: the rasterizer's, else a shared default.
+    fn font_system(&self) -> Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>> {
+        if let Some(fs) = self.rasterizer.as_ref().and_then(|r| r.font_system()) {
+            return fs;
+        }
+        self.fallback_font_system
+            .get_or_init(|| Arc::new(parking_lot::Mutex::new(gosub_fontmanager::ParleyFontSystem::new())))
+            .clone()
+    }
+
+    /// Click activation of what's under the point: picks a dropdown row, opens/closes a
+    /// `<select>`, toggles a checkbox / selects a radio. Any click closes an open dropdown.
+    pub fn activate_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let (leaf, lei) = self.hit_at(vp_x, vp_y);
+
+        if doc.open_select().is_some() {
+            return self.popup_press(lei, vp_x, vp_y);
+        }
+
+        let Some(target) = leaf.and_then(|l| focus::click_target(&doc, l)) else {
+            return false;
+        };
+        // Pressing on a slider's own box jumps the thumb there and starts a drag.
+        if leaf == Some(target) && edit::range_params(&doc, target).is_some() {
+            if let Some(lei) = lei {
+                self.drag_range = Some((target, lei));
+                return self.drag_to(vp_x);
+            }
+        }
+        // Pressing a textarea's grip corner starts a resize.
+        if leaf == Some(target) {
+            if let Some(drag) = lei.and_then(|lei| self.resize_grip_hit(target, lei, vp_x, vp_y)) {
+                self.drag_resize = Some(drag);
+                return true;
+            }
+        }
+        // Pressing a text control's own box: scrollbar, multi-click selection, drag start.
+        if leaf == Some(target) {
+            if let Some(lei) = lei.filter(|_| edit::text_entry_kind(&doc, target).is_some()) {
+                return self.text_press(target, lei, vp_x, vp_y);
+            }
+        }
+        match form::button_kind(&doc, target) {
+            Some(false) => return self.submit(target, Some(target)),
+            Some(true) => return self.reset_form(target),
+            None => {}
+        }
+        if edit::is_select(&doc, target) {
+            return self.open_select_popup(target);
+        }
+        self.toggle_control(target)
+    }
+
+    /// Pointer moved with the button held: follow a slider drag (paint-only) or a textarea
+    /// resize (re-layout).
+    pub fn drag_move(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        if self.drag_range.is_some() {
+            return self.drag_to(vp_x);
+        }
+        if let Some((start_y, start_first)) = self.drag_popup_thumb {
+            return self.popup_thumb_drag_to(start_y, start_first, vp_y);
+        }
+        if self.drag_select.is_some() {
+            return self.drag_select_to(vp_x, vp_y);
+        }
+        if self.drag_area_thumb.is_some() {
+            return self.area_thumb_drag_to(vp_y);
+        }
+        let (Some(drag), Some(doc)) = (self.drag_resize, &self.document) else {
+            return false;
+        };
+        let (mut w, mut h) = drag.size;
+        if drag.horizontal {
+            w = (drag.size.0 + vp_x - drag.start.0).max(40.0);
+        }
+        if drag.vertical {
+            h = (drag.size.1 + vp_y - drag.start.1).max(30.0);
+        }
+        if doc.control_size(drag.node) == Some((w, h)) {
+            return false;
+        }
+        doc.set_control_size(drag.node, Some((w, h)));
+        self.invalidate_render();
+        true
+    }
+
+    pub fn end_drag(&mut self) {
+        self.drag_range = None;
+        self.drag_resize = None;
+        self.drag_popup_thumb = None;
+        self.drag_select = None;
+        self.drag_area_thumb = None;
+    }
+
+    pub fn is_resizing(&self) -> bool {
+        self.drag_resize.is_some()
+    }
+
+    pub fn pointer(&self) -> Option<(f64, f64)> {
+        self.pointer
+    }
+
+    /// A press inside the bottom-right grip of a resizable textarea starts a resize.
+    fn resize_grip_hit(&self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> Option<ResizeDrag> {
+        use gosub_render_pipeline::layouter::{ElementContext, FormControl, Resize};
+        let ll = self.active_layer_list()?;
+        let el = ll.layout_tree.get_node_by_id(lei)?;
+        let ElementContext::FormControl(fc) = &el.context else {
+            return None;
+        };
+        let FormControl::TextField { resize, .. } = &fc.control else {
+            return None;
+        };
+        if *resize == Resize::None {
+            return None;
+        }
+        let bb = el.box_model.border_box;
+        let (x, y) = (vp_x + self.scroll_x, vp_y + self.scroll_y);
+        const GRIP: f64 = 16.0;
+        if x < bb.x + bb.width - GRIP || y < bb.y + bb.height - GRIP {
+            return None;
+        }
+        Some(ResizeDrag {
+            node,
+            start: (vp_x, vp_y),
+            size: (bb.width, bb.height),
+            horizontal: matches!(resize, Resize::Both | Resize::Horizontal),
+            vertical: matches!(resize, Resize::Both | Resize::Vertical),
+        })
+    }
+
+    /// Set the dragged slider from a viewport x, mapping the thumb's travel across the content
+    /// box the same way the painter does (thumb diameter = min(12, height)).
+    fn drag_to(&mut self, vp_x: f64) -> bool {
+        let (Some((node, lei)), Some(doc)) = (self.drag_range, self.document.clone()) else {
+            return false;
+        };
+        let Some((min, max, step)) = edit::range_params(&doc, node) else {
+            return false;
+        };
+        let Some(cb) = self
+            .active_layer_list()
+            .and_then(|ll| ll.layout_tree.get_node_by_id(lei).map(|el| el.box_model.content_box))
+        else {
+            return false;
+        };
+        let d = 12.0_f64.min(cb.height);
+        let travel = (cb.width - d).max(1.0);
+        let fraction = ((vp_x + self.scroll_x - cb.x - d / 2.0) / travel).clamp(0.0, 1.0);
+        let value = edit::range_snap(min, max, step, min + fraction * (max - min));
+        self.set_range_value(node, value)
+    }
+
+    fn set_range_value(&mut self, node: NodeId, value: f64) -> bool {
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let (min, max, _) = edit::range_params(doc, node).unwrap_or((0.0, 100.0, 1.0));
+        if edit::range_value(doc, node, min, max) == value && doc.control_edit_state(node).is_some() {
+            return false;
+        }
+        doc.set_control_edit_state(
+            node,
+            Some(gosub_interface::document::ControlEditState::new(
+                edit::format_number(value),
+                0,
+            )),
+        );
+        self.request_repaint(node);
+        true
+    }
+
+    /// Keyboard on a focused slider: arrows step, PageUp/Down jump 10 steps, Home/End go to the
+    /// ends.
+    fn range_key(&mut self, node: NodeId, key: &str) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some((min, max, step)) = edit::range_params(&doc, node) else {
+            return false;
+        };
+        let cur = edit::range_value(&doc, node, min, max);
+        let target = match key {
+            "ArrowRight" | "ArrowUp" => cur + step,
+            "ArrowLeft" | "ArrowDown" => cur - step,
+            "PageUp" => cur + step * 10.0,
+            "PageDown" => cur - step * 10.0,
+            "Home" => min,
+            "End" => max,
+            _ => return false,
+        };
+        self.set_range_value(node, edit::range_snap(min, max, step, target));
+        true
+    }
+
+    /// The submission the last click/Enter asked for, if any (consumed).
+    pub fn take_submission(&mut self) -> Option<Submission> {
+        self.pending_submission.take()
+    }
+
+    /// Submit the form owning `control` (a submit button, or a text field on Enter). Nothing
+    /// happens outside a form or without a document URL to resolve against.
+    fn submit(&mut self, control: NodeId, submitter: Option<NodeId>) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, control) else {
+            return false;
+        };
+        let Some(base) = doc.url() else {
+            return false;
+        };
+        self.pending_submission = form::submission(&doc, form, submitter, &base);
+        self.pending_submission.is_some()
+    }
+
+    /// Reset button: forget everything typed/toggled/picked in its form.
+    fn reset_form(&mut self, button: NodeId) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, button) else {
+            return false;
+        };
+        for id in form::controls(&doc, form) {
+            doc.set_control_edit_state(id, None);
+            doc.set_checked(id, None);
+            doc.set_selected_option(id, None);
+        }
+        self.invalidate_render();
+        true
+    }
+
+    /// Enter in a single-line text field: implicit submission through the form's first submit
+    /// button (or without one when the form has a single text field).
+    fn implicit_submit(&mut self, field: NodeId) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, field) else {
+            return false;
+        };
+        match form::default_submitter(&doc, form) {
+            Some(submitter) => self.submit(field, submitter),
+            None => false,
+        }
+    }
+
+    fn toggle_control(&mut self, node: NodeId) -> bool {
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let changes = edit::toggle(doc, node);
+        if changes.is_empty() {
+            return false;
+        }
+        for (n, checked) in changes {
+            doc.set_checked(n, Some(checked));
+        }
+        // `:checked` rules may restyle siblings and change layout.
+        self.invalidate_render();
+        true
+    }
+
+    /// Key press for the focused control: text editing, or Space toggling a checkbox/radio.
+    /// Returns whether the key was consumed. Ctrl/Meta chords are left alone.
+    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool, alt: bool, shift: bool) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(node) = doc.focused_node() else {
+            return false;
+        };
+        if key == " " && !ctrl_or_meta && edit::toggle_kind(&doc, node).is_some() {
+            return self.toggle_control(node);
+        }
+        if edit::is_select(&doc, node) && !ctrl_or_meta {
+            return self.select_key(node, key, alt);
+        }
+        if edit::range_params(&doc, node).is_some() && !ctrl_or_meta {
+            return self.range_key(node, key);
+        }
+        if matches!(key, "Enter" | " ") && !ctrl_or_meta {
+            match form::button_kind(&doc, node) {
+                Some(false) => return self.submit(node, Some(node)),
+                Some(true) => return self.reset_form(node),
+                None => {}
+            }
+        }
+        let Some(multiline) = edit::text_entry_kind(&doc, node) else {
+            return false;
+        };
+        if key == "Enter" && !multiline && !ctrl_or_meta {
+            return self.implicit_submit(node);
+        }
+        if ctrl_or_meta {
+            let masked = doc
+                .attribute(node, "type")
+                .is_some_and(|t| t.eq_ignore_ascii_case("password"));
+            if let Some(handled) = self.clipboard_key(node, key, masked) {
+                return handled;
+            }
+        } else if multiline {
+            if let Some(handled) = self.row_key(node, key, shift) {
+                return handled;
+            }
+        }
+        let Some(action) = edit::action_for_key(key, multiline, ctrl_or_meta, shift) else {
+            return false;
+        };
+        self.apply_edit(node, &action)
+    }
+
+    /// Committed text (IME / `TextInput`) into the focused text control.
+    pub fn insert_text(&mut self, text: &str) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(node) = doc.focused_node() else {
+            return false;
+        };
+        if edit::text_entry_kind(&doc, node).is_none() || text.is_empty() {
+            return false;
+        }
+        self.apply_edit(node, &edit::EditAction::Insert(text.to_string()))
+    }
+
+    /// Returns whether the control changed. The box doesn't depend on the value and the painter
+    /// reads it live, so this is paint-only.
+    fn apply_edit(&mut self, node: NodeId, action: &edit::EditAction) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let filtered;
+        let action = match action {
+            edit::EditAction::Insert(text) => {
+                filtered = edit::EditAction::Insert(edit::filter_insert(&doc, node, text));
+                if matches!(&filtered, edit::EditAction::Insert(t) if t.is_empty()) {
+                    return false;
+                }
+                &filtered
+            }
+            other => other,
+        };
+        let mut state = self.edit_state(node);
+        if !edit::apply(&mut state, action) {
+            return false;
+        }
+        self.commit_edit_state(node, state);
+        true
+    }
+
+    /// Repaint the tiles under `node` only; full render if it has no layout element yet.
+    fn request_repaint(&mut self, node: NodeId) {
+        match self.layout_element_of(node) {
+            Some(lei) => {
+                self.damage.escalate(DamageLevel::Paint);
+                self.record_element_damage([Some(lei)]);
+            }
+            None => self.invalidate_render(),
+        }
+    }
+
+    /// Tab / Shift+Tab: next/previous element in tab order, wrapping.
+    pub fn focus_step(&mut self, backwards: bool) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        if doc.open_select().is_some() {
+            self.close_select_popup();
+        }
+        // Only elements with a box are reachable by keyboard; no render yet = every focusable.
+        let rendered: Option<std::collections::HashSet<NodeId>> = self
+            .active_layer_list()
+            .map(|ll| ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect());
+        let order = focus::tab_order(&doc, rendered.as_ref());
+        if order.is_empty() {
+            return self.set_focus(None, false);
+        }
+        let current = doc.focused_node().and_then(|f| order.iter().position(|&n| n == f));
+        let next = match (current, backwards) {
+            (Some(i), false) => (i + 1) % order.len(),
+            (Some(i), true) => (i + order.len() - 1) % order.len(),
+            (None, false) => 0,
+            (None, true) => order.len() - 1,
+        };
+        let changed = self.set_focus(Some(order[next]), true);
+        if changed {
+            self.select_all_on_focus(order[next]);
+        }
+        changed
+    }
+
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
     ///
     /// Returns `(visual_dirty, url_changed, link_url)`:
@@ -1243,6 +1637,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverTotal);
+        self.pointer = Some((vp_x, vp_y));
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
 
@@ -1257,15 +1652,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         self.hover_probe = Some(probe);
 
-        let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
+        let (new_leaf, new_lei) = {
             let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::HoverHitTest);
-            // find_element_at handles scroll per-layer (fixed layers ignore it).
-            let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
-                return (None, None);
-            };
-            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
-            (dom_node_id, Some(lei))
-        });
+            self.hit_at(vp_x, vp_y)
+        };
 
         // Common case: same element - skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
@@ -2017,14 +2407,19 @@ mod tests {
             ctx.rebuild_pipeline_cache_if_needed();
 
             // Tab cycles a → input → button → wraps to a. The tabindex=-1 link is skipped.
-            let a = ctx.focus_step(false).expect("first focusable");
+            assert!(ctx.focus_step(false));
+            let a = ctx.focused_node().expect("first focusable");
             assert_eq!(ctx.focused_link().as_deref(), Some("/one"));
-            let input = ctx.focus_step(false).expect("second");
+            assert!(ctx.focus_step(false));
+            let input = ctx.focused_node().expect("second");
             assert!(ctx.focused_editable());
-            let button = ctx.focus_step(false).expect("third");
+            assert!(ctx.focus_step(false));
+            let button = ctx.focused_node().expect("third");
             assert!(!ctx.focused_editable());
-            assert_eq!(ctx.focus_step(false), Some(a), "wraps around");
-            assert_eq!(ctx.focus_step(true), Some(button), "shift-tab goes back");
+            assert!(ctx.focus_step(false));
+            assert_eq!(ctx.focused_node(), Some(a), "wraps around");
+            assert!(ctx.focus_step(true));
+            assert_eq!(ctx.focused_node(), Some(button), "shift-tab goes back");
             assert_ne!(a, input);
 
             // The document agrees (this is what :focus matching reads).
@@ -2283,7 +2678,8 @@ mod tests {
                 </body></html>"#;
             let mut ctx = built_context(html);
 
-            let first = ctx.focus_step(false).expect("a focusable link");
+            assert!(ctx.focus_step(false));
+            let first = ctx.focused_node().expect("a focusable link");
             assert_eq!(
                 ctx.damage.level(),
                 DamageLevel::Paint,
@@ -2297,7 +2693,8 @@ mod tests {
 
             // Moving on records both the element losing focus and the one gaining it.
             ctx.rebuild_pipeline_cache_if_needed();
-            let second = ctx.focus_step(false).expect("a second focusable link");
+            assert!(ctx.focus_step(false));
+            let second = ctx.focused_node().expect("a second focusable link");
             assert_eq!(ctx.damage.level(), DamageLevel::Paint);
             assert_eq!(ctx.damage.nodes(), &[first, second]);
         }
@@ -2388,7 +2785,7 @@ mod tests {
             assert!(full_rebuild_calls > 4, "the page should span several tiles");
 
             // Focus the first link and repaint.
-            ctx.focus_step(false).expect("a focusable link");
+            assert!(ctx.focus_step(false));
             assert_eq!(ctx.damage.level(), DamageLevel::Paint);
             ctx.rebuild_pipeline_cache_if_needed();
             let repaint_calls = calls.swap(0, Ordering::Relaxed);

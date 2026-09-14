@@ -4,9 +4,12 @@
 
 mod context;
 pub mod damage;
+mod edit;
 #[allow(clippy::module_inception)]
 mod engine;
 mod errors;
+mod focus;
+mod form;
 pub mod internal_pages;
 mod media_source;
 pub mod places;

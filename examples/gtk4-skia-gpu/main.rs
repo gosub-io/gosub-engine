@@ -12,7 +12,6 @@
 #[link(name = "GL")]
 extern "C" {}
 
-use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -102,20 +101,23 @@ fn main() {
 
         let backend = SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+        // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+        if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+            let _ = engine.settings().set(
+                "renderer.color_scheme",
+                gosub_config::settings::Setting::String("dark".into()),
+            );
+        }
         let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
         let event_rx = engine.subscribe_events();
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
-        let cookie_store: gosub_engine::cookies::CookieStoreHandle =
-            SqliteCookieStore::new(".pipeline-browser-cookies.db".into())
-                .expect("failed to open cookie store")
-                .into();
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(
-                Arc::new(SqliteLocalStore::new(".pipeline-browser-local.db").expect("local store")),
+                Arc::new(SqliteLocalStore::new(":memory:").expect("local store")),
                 Arc::new(InMemorySessionStore::new()),
             )),
-            cookie_store: Some(cookie_store),
+            cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
@@ -380,11 +382,29 @@ fn main() {
         click_ctl.set_button(gtk4::gdk::BUTTON_PRIMARY);
         click_ctl.connect_pressed({
             let tab = tab.clone();
-            move |_, _, x, y| {
+            move |gesture, _, x, y| {
+                if let Some(w) = gesture.widget() {
+                    w.grab_focus();
+                }
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab
                         .send(TabCommand::MouseDown {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+        });
+        click_ctl.connect_released({
+            let tab = tab.clone();
+            move |_, _, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
                             x: x as f32,
                             y: y as f32,
                             button: gosub_engine::events::MouseButton::Left,

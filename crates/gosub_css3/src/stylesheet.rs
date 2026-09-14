@@ -38,6 +38,18 @@ fn layout_viewport() -> (f32, f32) {
     (env.width, env.height)
 }
 
+static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
+/// `@media (prefers-color-scheme: …)`. Process-wide, like the rest of the UA preferences.
+pub fn set_prefers_dark(dark: bool) {
+    PREFERS_DARK.store(dark, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn prefers_dark() -> bool {
+    PREFERS_DARK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Severity of a CSS error
 #[derive(Debug, PartialEq)]
 pub enum Severity {
@@ -1307,6 +1319,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule {
+            media: None,
             selectors: vec![CssSelector {
                 parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
             }],
@@ -1315,7 +1328,6 @@ mod test {
                 value: CssValue::String("red".to_string()),
                 important: false,
             }],
-            media: None,
         };
 
         assert_eq!(rule.selectors().len(), 1);

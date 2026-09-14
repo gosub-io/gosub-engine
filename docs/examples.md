@@ -36,6 +36,12 @@ The winit-vello, egui-vello, and gosub-screenshot binaries have no system-librar
 
 ## GUI examples
 
+The GUI examples are intentionally minimal embedders: load the URL from the command line,
+scroll, hover, click links (the GTK/egui ones keep a toolkit-native address bar; the winit ones
+have no chrome at all). For the full interactive feature set (typing into forms, clipboard,
+cursor shapes, kinetic scrolling) use `cargo run --release -p gosub-mini-browser` — see
+[binaries.md](binaries.md).
+
 All GUI examples accept a URL as the first argument, e.g. `-- https://example.com`.
 
 ### winit (cross-platform, no GTK required)
