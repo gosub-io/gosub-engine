@@ -385,18 +385,42 @@ pub struct CssDeclaration {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssSelector {
-    // List of parts that make up this selector
-    pub parts: Vec<Vec<CssSelectorPart>>,
+    /// The complex selectors of the list (`a, b` is two), each as its sequence of parts.
+    parts: Vec<Vec<CssSelectorPart>>,
+    /// Specificity of each entry in `parts`, computed once when the selector is built.
+    ///
+    /// A selector's specificity depends on nothing but the selector, so it used to be counted
+    /// afresh every time the selector matched an element: a rule that matched a thousand
+    /// elements walked its parts a thousand times for the same answer. Both vectors are
+    /// private so the two cannot drift apart.
+    specificity: Vec<Specificity>,
 }
 
 impl CssSelector {
-    /// Generate specificity for this selector
     #[must_use]
-    pub fn specificity(&self) -> Vec<Specificity> {
+    pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
+        let specificity = parts.iter().map(|part| Specificity::from(part.as_slice())).collect();
+        Self { parts, specificity }
+    }
+
+    /// The complex selectors making up this selector list.
+    #[must_use]
+    pub fn parts(&self) -> &[Vec<CssSelectorPart>] {
+        &self.parts
+    }
+
+    /// The specificity of each complex selector, in the same order as [`CssSelector::parts`].
+    #[must_use]
+    pub fn specificity(&self) -> &[Specificity] {
+        &self.specificity
+    }
+
+    /// Each complex selector paired with its specificity.
+    pub fn complex(&self) -> impl Iterator<Item = (&[CssSelectorPart], Specificity)> {
         self.parts
             .iter()
-            .map(|part| Specificity::from(part.as_slice()))
-            .collect()
+            .zip(&self.specificity)
+            .map(|(parts, specificity)| (parts.as_slice(), *specificity))
     }
 }
 
@@ -1556,9 +1580,7 @@ mod test {
     fn test_css_rule() {
         let rule = CssRule {
             media: None,
-            selectors: vec![CssSelector {
-                parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
-            }],
+            selectors: vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
             declarations: vec![CssDeclaration {
                 property: "color".to_string(),
                 value: CssValue::String("red".to_string()),
@@ -1652,43 +1674,35 @@ mod test {
 
     #[test]
     fn test_specificity() {
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Type("h1".to_string()),
-                CssSelectorPart::Class("myclass".to_string()),
-                CssSelectorPart::Id("myid".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Type("h1".to_string()),
+            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Id("myid".to_string()),
+        ]]);
 
         let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(1, 1, 1)]);
+        assert_eq!(specificity, [Specificity::new(1, 1, 1)]);
 
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Type("h1".to_string()),
-                CssSelectorPart::Class("myclass".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Type("h1".to_string()),
+            CssSelectorPart::Class("myclass".to_string()),
+        ]]);
 
         let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 1, 1)]);
+        assert_eq!(specificity, [Specificity::new(0, 1, 1)]);
 
-        let selector = CssSelector {
-            parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
-        };
+        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]);
 
         let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 0, 1)]);
+        assert_eq!(specificity, [Specificity::new(0, 0, 1)]);
 
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Class("myclass".to_string()),
-                CssSelectorPart::Class("otherclass".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Class("otherclass".to_string()),
+        ]]);
 
         let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 2, 0)]);
+        assert_eq!(specificity, [Specificity::new(0, 2, 0)]);
     }
 
     #[test]

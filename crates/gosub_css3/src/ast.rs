@@ -270,13 +270,13 @@ fn collect_rule(
             return Ok(None);
         };
 
-        let mut selector = CssSelector { parts: vec![vec![]] };
+        let mut parts: Vec<Vec<CssSelectorPart>> = vec![vec![]];
         for node in selectors {
             let NodeType::Selector { children } = node.node_type else {
                 continue;
             };
 
-            convert_selector_children(children, &mut selector.parts)?;
+            convert_selector_children(children, &mut parts)?;
         }
 
         // A compound with no parts matches every element vacuously, so an empty prelude
@@ -284,12 +284,12 @@ fn collect_rule(
         // apply its declarations to the entire document. Per CSS Syntax a style rule with an
         // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
         // and the rule with them if nothing is left.
-        selector.parts.retain(|part| !part.is_empty());
-        if selector.parts.is_empty() {
+        parts.retain(|part| !part.is_empty());
+        if parts.is_empty() {
             return Ok(None);
         }
 
-        rule.selectors.push(selector);
+        rule.selectors.push(CssSelector::new(parts));
     }
 
     if let Some(declaration) = block {
@@ -676,7 +676,7 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1);
         assert_eq!(
-            stylesheet.rules[0].selectors.first().unwrap().parts.len(),
+            stylesheet.rules[0].selectors.first().unwrap().parts().len(),
             3,
             "dropping empty compounds must not drop real ones"
         );
@@ -694,7 +694,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts: Vec<_> = stylesheet.rules[0].selectors[0].parts[0].clone();
+        let parts: Vec<_> = stylesheet.rules[0].selectors[0].parts()[0].clone();
         assert!(
             parts
                 .iter()
@@ -702,7 +702,7 @@ mod tests {
             "`:after` must become a pseudo-element, got {parts:?}"
         );
 
-        let parts: Vec<_> = stylesheet.rules[1].selectors[0].parts[0].clone();
+        let parts: Vec<_> = stylesheet.rules[1].selectors[0].parts()[0].clone();
         assert!(
             parts
                 .iter()
@@ -774,7 +774,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let parts = &stylesheet.rules[0].selectors[0].parts()[0];
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -792,7 +792,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let parts = &stylesheet.rules[0].selectors[0].parts()[0];
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -810,7 +810,7 @@ mod tests {
         )
         .unwrap();
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].parts[0].as_slice());
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].parts()[0].as_slice());
         assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
         assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
         assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
@@ -863,15 +863,15 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 3);
         assert_eq!(
-            stylesheet.rules[0].selectors[0].parts[0][0],
+            stylesheet.rules[0].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h1".into())
         );
         assert_eq!(
-            stylesheet.rules[1].selectors[0].parts[0][0],
+            stylesheet.rules[1].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h2".into())
         );
         assert_eq!(
-            stylesheet.rules[2].selectors[0].parts[0][0],
+            stylesheet.rules[2].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h3".into())
         );
     }
@@ -1099,7 +1099,7 @@ mod tests {
 
         assert_eq!(sheet.rules.len(), 1, "only the satisfied block contributes rules");
         assert_eq!(
-            sheet.rules[0].selectors[0].parts[0][0],
+            sheet.rules[0].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h1".into())
         );
     }

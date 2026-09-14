@@ -142,7 +142,7 @@ mod tests {
         sheet
             .rules
             .iter()
-            .map(|rule| match &rule.selectors[0].parts[0][0] {
+            .map(|rule| match &rule.selectors[0].parts()[0][0] {
                 CssSelectorPart::Type(name) => name.clone(),
                 other => format!("{other:?}"),
             })

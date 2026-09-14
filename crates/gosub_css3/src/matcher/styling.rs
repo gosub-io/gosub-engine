@@ -35,7 +35,7 @@ pub(crate) fn match_selector<C: HasDocument>(
 ) -> (bool, Specificity) {
     // A selector list (`a, b`) matches with the highest specificity of its matching parts.
     let mut best: Option<Specificity> = None;
-    for part in &selector.parts {
+    for (part, specificity) in selector.complex() {
         // When matching a pseudo-element, the selector must explicitly target it.
         if let Some(target) = pseudo {
             if !part
@@ -54,7 +54,6 @@ pub(crate) fn match_selector<C: HasDocument>(
         }
 
         if match_compound::<C>(document, node_id, part, pseudo, scope) {
-            let specificity = Specificity::from(part.as_slice());
             best = Some(best.map_or(specificity, |b| b.max(specificity)));
         }
     }

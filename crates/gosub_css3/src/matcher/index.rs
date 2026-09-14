@@ -35,7 +35,7 @@ impl SelectorIndex {
         };
         for (rule_idx, rule) in rules.iter().enumerate() {
             for selector in &rule.selectors {
-                for complex in &selector.parts {
+                for complex in selector.parts() {
                     match rightmost_key(complex) {
                         Key::Id(name) => push_unique(index.by_id.entry(name.to_string()).or_default(), rule_idx),
                         Key::Class(name) => push_unique(index.by_class.entry(name.to_string()).or_default(), rule_idx),
@@ -132,7 +132,7 @@ mod tests {
 
     fn rule(selectors: Vec<Vec<CssSelectorPart>>) -> CssRule {
         CssRule {
-            selectors: vec![CssSelector { parts: selectors }],
+            selectors: vec![CssSelector::new(selectors)],
             declarations: vec![],
             media: None,
         }
