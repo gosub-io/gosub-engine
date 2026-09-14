@@ -143,6 +143,56 @@ fn focused_id(ctx: &Ctx) -> Option<String> {
         .and_then(|n| d.attribute(n, "id").map(str::to_string))
 }
 
+// ── layout ────────────────────────────────────────────────────────────────────
+
+/// A `transform: translate` is applied after layout as a post-pass. The geometry-only relayout
+/// that a hover triggers on the scene path used to skip it, so a translated element - the knob
+/// of a CSS toggle switch, say - snapped back to its untranslated place on the first pointer
+/// move after a load.
+#[test]
+fn translate_survives_a_geometry_only_relayout() {
+    // The toggle-switch idiom: a `::before` knob translated along the pill. The hover rule is
+    // what makes a pointer move damage at all; without one nothing is rebuilt.
+    let mut ctx = page(
+        r#"<style>
+             a:hover { color: red }
+             .pill { position: relative; display: inline-block; width: 46px; height: 26px; background: #ccc }
+             .pill::before { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px;
+                             background: #fff; transform: translateX(20px) }
+           </style>
+           <a id="link" href="/x">hover me</a>
+           <span id="pill" class="pill"></span>"#,
+    );
+    // The GPU shells rebuild the scene for any damage, hover included.
+    ctx.pipeline_cache = None;
+    ctx.invalidate_render();
+    ctx.rebuild_scene_cache_if_needed();
+    let pill = by_id(&ctx, "pill");
+    let knob_x = |ctx: &Ctx| {
+        let ll = ctx.active_layer_list().unwrap_or_else(|| unreachable!("rendered"));
+        ll.layout_tree
+            .arena
+            .values()
+            .find(|el| pseudo_owner(el.dom_node_id) == Some(pill) && el.box_model.border_box.width == 20.0)
+            .map(|el| el.box_model.border_box.x)
+            .unwrap_or_else(|| panic!("no knob box"))
+    };
+    let before = knob_x(&ctx);
+    assert_eq!(
+        before,
+        border_box(&ctx, pill).x + 3.0 + 20.0,
+        "translated on the first layout"
+    );
+    let (lx, ly) = center(&ctx, by_id(&ctx, "link"));
+    ctx.update_hover(lx, ly);
+    assert!(!ctx.damage.is_none(), "hovering the link is damage");
+    ctx.rebuild_scene_cache_if_needed();
+    assert_eq!(knob_x(&ctx), before, "the knob must not move on a hover relayout");
+    ctx.update_hover(0.0, 0.0);
+    ctx.rebuild_scene_cache_if_needed();
+    assert_eq!(knob_x(&ctx), before, "nor on the next one");
+}
+
 // ── focus ─────────────────────────────────────────────────────────────────────
 
 #[test]

@@ -641,6 +641,7 @@ impl TaffyLayouter {
     /// and above ask for.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
         let _ = self.compute_and_populate(layout_tree, viewport);
+        apply_translations(layout_tree);
     }
 
     /// Run taffy over the current tree and write the results back as box models, then run the
