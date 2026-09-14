@@ -2,6 +2,7 @@
 //! (`resources/definitions/`) by merging webref's spec grammars with MDN's
 //! property metadata. See README.md for the full data-flow description.
 
+mod fetch;
 mod mdn;
 mod types;
 mod webref;
@@ -97,12 +98,8 @@ fn main() -> Result<()> {
     // and many layers.
     let comma_list_idiom = Regex::new(r"(<[^>]+>)#\? , ")?;
 
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("gosub-generate-definitions")
-        .build()?;
-
-    let webref_data = webref::get_webref_data(&client)?;
-    let mdn_data = mdn::get_mdn_data(&client)?;
+    let webref_data = webref::get_webref_data()?;
+    let mdn_data = mdn::get_mdn_data()?;
 
     let mut data = Data::default();
 
@@ -172,7 +169,7 @@ fn main() -> Result<()> {
     // not fully cover (e.g. outline-radius, single-animation-*). Add every
     // entry webref did not already define, so grammar references to them
     // resolve.
-    for (name, syntax) in mdn::get_mdn_syntaxes(&client)? {
+    for (name, syntax) in mdn::get_mdn_syntaxes()? {
         let key = format!("<{name}>");
         if syntax.is_empty() || defined_values.contains(&key) {
             continue;

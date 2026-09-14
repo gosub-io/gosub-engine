@@ -38,6 +38,9 @@ fn main() -> Result<()> {
         .map_err(|_| anyhow!("not a valid URL or file path: {source}"))?,
     };
 
+    // A standalone tool with no engine behind it: there is no fetcher to route through, and
+    // nothing here loads a page. The ban exists for the engine's own paths.
+    #[allow(clippy::disallowed_methods)]
     let response = gosub_sonar::net::simple::sync_fetch(&url)?;
     if !response.is_ok() {
         bail!("could not fetch {source} (status {})", response.status);

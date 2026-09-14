@@ -33,6 +33,12 @@ impl Css3<'_> {
             self.consume(TokenType::RParen)?;
         }
 
-        Ok(Node::new(NodeType::Scope { root, limit }, t.location))
+        Ok(Node::new(
+            NodeType::Scope {
+                root: root.map(Box::new),
+                limit: limit.map(Box::new),
+            },
+            t.location,
+        ))
     }
 }

@@ -65,6 +65,9 @@ fn main() -> Result<()> {
         Err(_) => url::Url::from_file_path(std::path::Path::new(&url))
             .map_err(|_| anyhow!("Invalid URL or file path: {url}"))?,
     };
+    // A standalone tool with no engine behind it: there is no fetcher to route through, and
+    // nothing here loads a page. The ban exists for the engine's own paths.
+    #[allow(clippy::disallowed_methods)]
     let response = gosub_sonar::net::simple::sync_fetch(&parsed_url)?;
     if !response.is_ok() {
         bail!("Could not get url. Status code {}", response.status);
@@ -200,6 +203,10 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                         CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
                         CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
                         CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
+                        CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
+                        CssSelectorPart::Host(None) => println!("        [Host] :host"),
+                        CssSelectorPart::Host(Some(inner)) => println!("        [Host] :host({inner:?})"),
+                        CssSelectorPart::Slotted(inner) => println!("        [Slotted] ::slotted({inner:?})"),
                     }
                 }
             }

@@ -111,7 +111,7 @@ fn main() {
         // (GNOME's color-scheme GSetting, a "-dark" GTK theme, or an app-level prefer-dark flag).
         if shell::desktop_prefers_dark() {
             let _ = engine.settings().set(
-                "renderer.color_scheme",
+                "renderer.prefers_color_scheme",
                 gosub_config::settings::Setting::String("dark".into()),
             );
         }

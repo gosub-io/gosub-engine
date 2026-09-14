@@ -23,6 +23,18 @@ impl NavigationId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    /// This navigation as the subresource hand-off keys its entries.
+    ///
+    /// The hand-off is process-wide and sits below the engine, so it cannot name a navigation
+    /// and takes an opaque scope instead. A navigation is the right unit: two documents share
+    /// a cookie jar without sharing a request context -- the same URL fetched from different
+    /// pages can carry different `Referer` and different SameSite cookies, so one page's bytes
+    /// are not an answer to another's request for it. Zones are covered by the same key, a
+    /// navigation belonging to exactly one of them.
+    pub fn as_scope(&self) -> gosub_shared::subresource::Scope {
+        self.0.as_u128()
+    }
 }
 
 impl Default for NavigationId {

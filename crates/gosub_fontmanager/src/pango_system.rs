@@ -19,12 +19,6 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
-/// Serialises every direct fontconfig call in this module. Mutating the process-global config
-/// (`FcConfigAppFontAddFile`/`FcConfigBuildFonts`) while another thread matches against it
-/// (`FcFontMatch`) segfaults - fontconfig's documented thread safety does not cover concurrent
-/// mutation of the current config.
-static FONTCONFIG_LOCK: Mutex<()> = Mutex::new(());
-
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
 ///
 /// The bytes are written to a uniquely-named file in the temp dir - intentionally left on
@@ -64,7 +58,7 @@ fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> R
         .ok_or_else(|| FontError::InvalidFont("non-UTF-8 font path".to_string()))?;
     let c_path = std::ffi::CString::new(path_str).map_err(|e| FontError::InvalidFont(format!("font path: {e}")))?;
 
-    let _guard = FONTCONFIG_LOCK.lock();
+    let _guard = crate::fontconfig_lock::hold();
 
     #[allow(unsafe_code)] // fontconfig has no safe Rust binding for app-font registration
     // SAFETY: `FcConfigGetCurrent` returns the process-global config (auto-initialised, not
@@ -158,7 +152,7 @@ fn fontconfig_match(
         .filter_map(|f| std::ffi::CString::new(*f).ok())
         .collect();
 
-    let _guard = FONTCONFIG_LOCK.lock();
+    let _guard = crate::fontconfig_lock::hold();
 
     #[allow(unsafe_code)] // fontconfig has no safe Rust binding for font matching
     // SAFETY: `FcConfigGetCurrent` returns the process-global config (checked for null). The
@@ -282,7 +276,18 @@ impl PangoFontSystem {
 
     /// Walk `families` (comma-separated CSS `font-family` value) and return the
     /// first family name that Pango knows about, falling back to `"sans"`.
+    ///
+    /// Listing the context's families reads the fontconfig-backed font map, which
+    /// `register_font_via_fontconfig` mutates under `fontconfig_lock`, so the read is taken under
+    /// the same lock. The lock is a plain mutex and does not re-enter: a caller that already holds
+    /// it - `build_layout` does - must use [`Self::find_available_font_locked`] instead.
     pub fn find_available_font(&self, families: &str, ctx: &pango::Context) -> String {
+        let _guard = crate::fontconfig_lock::hold();
+        self.find_available_font_locked(families, ctx)
+    }
+
+    /// [`Self::find_available_font`] for a caller that is already holding `fontconfig_lock`.
+    fn find_available_font_locked(&self, families: &str, ctx: &pango::Context) -> String {
         let available_fonts: Vec<String> = ctx
             .list_families()
             .iter()
@@ -367,13 +372,17 @@ impl PangoFontSystem {
     fn build_layout(&self, text: &str, style: &TextStyle) -> Option<pango::Layout> {
         use pangocairo::functions::{context_set_resolution, create_layout};
 
+        // Same global config as `families()`: `create_layout` and `find_available_font` both
+        // read the fontconfig-backed font map.
+        let _guard = crate::fontconfig_lock::hold();
         let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).ok()?;
         let cr = cairo::Context::new(&surface).ok()?;
         let layout = create_layout(&cr);
         // 96 DPI matches the browser/CSS convention, same as the rasterizer.
         context_set_resolution(&layout.context(), 96.0);
 
-        let family = self.find_available_font(&style.family, &layout.context());
+        // The lock is held above and does not re-enter, so this takes the unlocked helper.
+        let family = self.find_available_font_locked(&style.family, &layout.context());
         let mut font_desc = pango::FontDescription::new();
         font_desc.set_family(&family);
         // CSS px → pt (× 72/96), then to Pango units (× SCALE).
@@ -408,11 +417,16 @@ impl PangoFontSystem {
         Some(layout)
     }
 
-    /// Measure `text` by reading the pixel size of its laid-out Pango layout.
+    /// Measure `text` by reading the pixel size of its laid-out Pango layout. An explicit CSS
+    /// line-height overrides the natural height: every line box is exactly that tall (CSS 2
+    /// §10.8 half-leading model), so the total is line-count x line-height.
     fn measure_inner(&self, text: &str, style: &TextStyle) -> Option<(f32, f32)> {
         let layout = self.build_layout(text, style)?;
         let (w, h) = layout.pixel_size();
-        Some((w as f32, h as f32))
+        match css_line_height(style) {
+            Some(lh) => Some((w as f32, lh * layout.line_count().max(1) as f32)),
+            None => Some((w as f32, h as f32)),
+        }
     }
 
     /// Walk a laid-out Pango layout and export its glyph runs in the neutral [`ShapedText`] form.
@@ -424,14 +438,45 @@ impl PangoFontSystem {
     fn runs_from_layout(&mut self, layout: &pango::Layout, style: &TextStyle) -> ShapedText {
         let scale = pango::SCALE as f32;
         let (px_w, px_h) = layout.pixel_size();
-        let ascent = layout.baseline() as f32 / scale;
+        let natural_ascent = layout.baseline() as f32 / scale;
         let line_count = layout.line_count().max(1) as f32;
+
+        // With an explicit CSS line-height, every line box is exactly that tall and the line's
+        // natural extent (ascent+descent) is centered inside it - the CSS 2 §10.8 half-leading
+        // model. Precompute per line: natural baseline (pango units) -> adjusted baseline (px);
+        // runs are then repositioned by looking up the line they sit on.
+        let css_lh = css_line_height(style);
+        let mut baseline_map: Vec<(i32, f32)> = Vec::new();
+        if let Some(lh) = css_lh {
+            let mut it = layout.iter();
+            let mut line_idx = 0usize;
+            loop {
+                let natural_baseline = it.baseline();
+                let (y0, y1) = it.line_yrange();
+                let natural_height = (y1 - y0) as f32 / scale;
+                let ascent_within_line = (natural_baseline - y0) as f32 / scale;
+                baseline_map.push((
+                    natural_baseline,
+                    line_idx as f32 * lh + (lh - natural_height) / 2.0 + ascent_within_line,
+                ));
+                line_idx += 1;
+                if !it.next_line() {
+                    break;
+                }
+            }
+        }
+        let adjust_baseline = |natural_units: i32| -> f32 {
+            baseline_map
+                .iter()
+                .find(|(n, _)| *n == natural_units)
+                .map_or(natural_units as f32 / scale, |(_, adjusted)| *adjusted)
+        };
 
         let mut runs: Vec<ShapedRun> = Vec::new();
         let mut iter = layout.iter();
         loop {
             if let Some(run) = iter.run_readonly() {
-                let baseline = iter.baseline() as f32 / scale;
+                let baseline = adjust_baseline(iter.baseline());
                 let (_, logical) = iter.run_extents();
                 let run_x = logical.x() as f32 / scale;
 
@@ -490,14 +535,32 @@ impl PangoFontSystem {
             }
         }
 
+        let (height, line_height, ascent) = match css_lh {
+            Some(lh) => (
+                lh * line_count,
+                lh,
+                baseline_map.first().map_or(natural_ascent, |(_, adjusted)| *adjusted),
+            ),
+            None => (px_h as f32, px_h as f32 / line_count, natural_ascent),
+        };
+
         ShapedText {
             runs,
             width: px_w as f32,
-            height: px_h as f32,
-            line_height: px_h as f32 / line_count,
+            height,
+            line_height,
             ascent,
         }
     }
+}
+
+/// The CSS line-height to apply, in device px, or `None` when the layout should keep Pango's
+/// natural line height (CSS `normal`).
+fn css_line_height(style: &TextStyle) -> Option<f32> {
+    style
+        .line_height
+        .filter(|lh| *lh > 0.0)
+        .map(|lh| lh * style.display_scale)
 }
 
 /// Pango as a swappable [`FontSystem`].
@@ -508,8 +571,10 @@ impl PangoFontSystem {
 /// pixel size. The Cairo rasterizer still draws through Pango natively; the glyph runs exist so
 /// any [`ShapedText`]-painting backend can consume this font system too.
 ///
-/// Note: Pango uses its own natural line height (matching how the Cairo rasterizer draws), so
-/// `TextStyle::line_height` is intentionally not applied during measurement or shaping.
+/// An explicit `TextStyle::line_height` is honoured exactly in both `measure` and `shape`
+/// (line boxes are line-height tall, glyphs centered via half-leading); `None` keeps Pango's
+/// natural per-font line height. Measurement and shaping apply the same rule, so layout boxes
+/// and painted glyph runs always agree.
 impl FontSystem for PangoFontSystem {
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
         register_font_via_fontconfig(&data, family_override)
@@ -538,6 +603,9 @@ impl FontSystem for PangoFontSystem {
         // default font map - the fontconfig database, including web fonts registered before
         // the font map was first built.
         use pangocairo::functions::create_layout;
+        // Walking the font map reads the global fontconfig config, so it must not overlap a
+        // thread registering a web font into it or building a fresh one.
+        let _guard = crate::fontconfig_lock::hold();
         let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
             return Vec::new();
         };
@@ -666,6 +734,63 @@ mod tests {
         assert!(res.is_ok(), "fontconfig registration failed: {res:?}");
     }
 
+    /// `find_available_font` takes `fontconfig_lock`, and `build_layout` holds it for the whole
+    /// of its work - including its own family lookup. A plain mutex does not re-enter, so if
+    /// `build_layout` ever went through the public entry point instead of the unlocked helper,
+    /// this deadlocks rather than failing an assertion. Running both concurrently is what makes
+    /// that visible.
+    #[test]
+    fn measuring_and_resolving_a_family_do_not_deadlock() {
+        use std::sync::Arc;
+
+        let fs = Arc::new(PangoFontSystem::new());
+        let style = TextStyle::new("sans-serif", 16.0);
+
+        // Each worker reports when it finishes. `join()` on its own cannot tell a deadlock from
+        // slow work - it waits forever, so the test would hang rather than report, and only the
+        // harness timeout would ever notice. Collecting the reports with a deadline turns a
+        // deadlock into a failure with a message.
+        const WORKERS: usize = 8;
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+        let threads: Vec<_> = (0..WORKERS)
+            .map(|i| {
+                let fs = Arc::clone(&fs);
+                let style = style.clone();
+                let done_tx = done_tx.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..20 {
+                        if i % 2 == 0 {
+                            let layout = fs.build_layout("hello", &style).expect("layout");
+                            assert!(layout.pixel_size().0 > 0);
+                        } else {
+                            let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).expect("surface");
+                            let cr = cairo::Context::new(&surface).expect("cairo");
+                            let layout = pangocairo::functions::create_layout(&cr);
+                            let family = fs.find_available_font("sans-serif", &layout.context());
+                            assert!(!family.is_empty(), "a family must always be chosen");
+                        }
+                    }
+                    let _ = done_tx.send(i);
+                })
+            })
+            .collect();
+        drop(done_tx);
+
+        // Generous against the work itself - 160 layouts take milliseconds - and decisive against
+        // a deadlock, which never finishes at all.
+        let deadline = std::time::Duration::from_secs(30);
+        for _ in 0..WORKERS {
+            done_rx
+                .recv_timeout(deadline)
+                .expect("a worker never finished: fontconfig_lock is being taken twice on one thread");
+        }
+
+        for t in threads {
+            t.join().expect("no thread may panic");
+        }
+    }
+
     /// `families()` reads the default Pango font map (fontconfig): non-empty on any machine
     /// with fonts, sorted, de-duplicated.
     #[test]
@@ -703,6 +828,53 @@ mod tests {
             "measure ({w} x {h}) must agree with shape ({} x {})",
             shaped.width,
             shaped.height
+        );
+    }
+
+    /// An explicit CSS line-height must be EXACT: line boxes are line-height tall (measure and
+    /// shape agree), and glyph baselines sit at half-leading inside each line box - not at
+    /// Pango's natural positions.
+    #[test]
+    fn explicit_line_height_is_exact() {
+        let mut fs = PangoFontSystem::new();
+
+        let mut style = TextStyle::new("sans-serif", 16.0);
+        style.line_height = Some(24.0);
+
+        let (_, h) = fs.measure("Hello", &style);
+        assert_eq!(h, 24.0, "single line at line-height 24px must measure exactly 24px");
+
+        let shaped = fs.shape("Hello", &style);
+        assert_eq!(shaped.height, 24.0);
+        assert_eq!(shaped.line_height, 24.0);
+        // Natural extent centered in the 24px box: baseline = (24 - natural)/2 + natural_ascent,
+        // which for a 16px font (natural height ~18-19px) lands well inside (2, 24).
+        assert!(
+            shaped.ascent > 2.0 && shaped.ascent < 24.0,
+            "adjusted first baseline {} must sit inside the line box",
+            shaped.ascent
+        );
+        for run in &shaped.runs {
+            assert!(
+                (run.baseline - shaped.ascent).abs() < 0.01,
+                "single-line run baseline {} must match the adjusted ascent {}",
+                run.baseline,
+                shaped.ascent
+            );
+        }
+
+        // Two forced lines: exactly 2 x 24px, and the two baselines exactly 24px apart.
+        let (_, h2) = fs.measure("Hello\nWorld", &style);
+        assert_eq!(h2, 48.0, "two lines at line-height 24px must measure exactly 48px");
+        let shaped2 = fs.shape("Hello\nWorld", &style);
+        let mut baselines: Vec<f32> = shaped2.runs.iter().map(|r| r.baseline).collect();
+        baselines.dedup();
+        assert_eq!(baselines.len(), 2, "expected two distinct line baselines");
+        assert!(
+            (baselines[1] - baselines[0] - 24.0).abs() < 0.01,
+            "baselines must be exactly one line-height apart, got {} and {}",
+            baselines[0],
+            baselines[1]
         );
     }
 }

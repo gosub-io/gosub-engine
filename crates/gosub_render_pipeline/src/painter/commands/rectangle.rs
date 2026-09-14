@@ -161,6 +161,11 @@ impl Rectangle {
         self
     }
 
+    pub fn with_rect(mut self, rect: Rect) -> Self {
+        self.rect = rect;
+        self
+    }
+
     pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
         self.blend_mode = blend_mode;
         self

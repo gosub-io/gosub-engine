@@ -10,6 +10,8 @@ use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
 use crate::zone::ZoneId;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 // async_trait expands each method with a bare #[must_use], which nightly clippy
 // rejects (double_must_use) on Result-returning fns.
@@ -23,6 +25,8 @@ pub mod html;
 pub mod image;
 #[allow(clippy::double_must_use)]
 pub mod js;
+/// `@font-face` web fonts, loaded as a stage of the document parse.
+pub mod webfonts;
 
 /// Resource pipeline entry points used by the router for each resource type.
 pub struct ResourcePipelines<C: RenderConfiguration> {
@@ -37,13 +41,20 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub fn new(
+        zone_id: ZoneId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+        font_system: Arc<Mutex<C::FontSystem>>,
+    ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
                 zone_id,
                 io_tx,
                 accept_language,
                 max_document_bytes,
+                font_system,
             )),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),

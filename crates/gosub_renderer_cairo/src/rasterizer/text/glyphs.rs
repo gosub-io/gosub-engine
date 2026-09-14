@@ -170,7 +170,7 @@ mod tests {
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: 28.0,
+            line_height: Some(28.0),
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: true,

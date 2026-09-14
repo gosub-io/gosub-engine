@@ -116,25 +116,20 @@ fn main() {
                     }
                 }
             }
-            ElementContext::Text(ctx) => {
-                if !ctx.text.trim().is_empty() {
-                    // Approximate text as a dark semi-transparent bar sized to the font.
-                    let bb = &el.box_model.content_box;
-                    let bar_h = (ctx.font_info.size as f32 * 0.6).max(4.0);
-                    fill_rect(
-                        &mut img,
-                        bb.x as f32,
-                        (bb.y + ctx.text_offset.y) as f32,
-                        (bb.width as f32).max(8.0),
-                        bar_h,
-                        [40, 40, 40, 200],
-                    );
-                }
+            ElementContext::Text(ctx) if !ctx.text.trim().is_empty() => {
+                // Approximate text as a dark semi-transparent bar sized to the font.
+                let bb = &el.box_model.content_box;
+                let bar_h = (ctx.font_info.size as f32 * 0.6).max(4.0);
+                fill_rect(
+                    &mut img,
+                    bb.x as f32,
+                    (bb.y + ctx.text_offset.y) as f32,
+                    (bb.width as f32).max(8.0),
+                    bar_h,
+                    [40, 40, 40, 200],
+                );
             }
-            ElementContext::Image(_)
-            | ElementContext::Svg(_)
-            | ElementContext::FormControl(_)
-            | ElementContext::SelectPopup(_) => {}
+            _ => {}
         }
 
         for &child_id in el.children.iter().rev() {

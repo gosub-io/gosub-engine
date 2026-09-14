@@ -19,12 +19,22 @@ This is an initial (but not fully complete) contribution guide.
 * [Signed Commits](#signed-commits)
 * [PR Guidelines](#pr-guidelines)
 * [What to do?](#what-to-do)
+    * [Your first contribution](#your-first-contribution)
+    * [Other paths](#other-paths)
 
 ## Introduction to the Makefiles
 Before writing any code, it's good to get familiar with our Makefile(s). Use "make" or "make help" for a list of available commands. 
 
 ### Building the Entire Project
 In the root directory, run `make build` to build the entire project. If you're only interested in building components of the engine (e.g., the core engine or the bindings) then you can use `cargo build` in the relevant directory.
+
+Note that a full build includes the GTK4 and Cairo render backends, which need OS packages
+installed first — see [`docs/examples.md`](docs/examples.md) for the list. If you are working on
+one of the parsers you do not need any of that, and can stay on a much faster loop:
+
+```bash
+cargo test -p gosub_css3 -p gosub_html5    # ~470 tests, no system dependencies
+```
 
 ### Running Tests and Formatter
 In the root directory, run `make test` to run all unit tests and the format checker. If there are issues with formatting, you should see a `git diff`-like output in the terminal. Please resolve these formatting issues prior to pushing any code! This is validated in our CI when creating a pull request.
@@ -94,7 +104,39 @@ When creating PRs, please keep the following things in mind:
 ## What to do?
 Great! You're now familiar with our contribution guidelines and maybe even a bit of our codebase. So...now what?
 
-At this point, there are a few main paths:
+### Your first contribution
+
+If you want something concrete to work on rather than a research topic, the shortest path in is
+a failing web-platform-test. WPT is the browser industry's shared conformance suite, so each
+failing subtest is a specific, already-triaged statement about something the engine gets wrong —
+no need to invent a task or guess whether it is wanted.
+
+**[`docs/wpt-quickstart.md`](docs/wpt-quickstart.md) takes you from cloning this repo to a fixed
+test in about ten minutes** — every command, nothing to configure, no system packages. Start
+there. [`docs/wpt.md`](docs/wpt.md) is the full reference behind it.
+
+The short version: point `$WPT_ROOT` at a wpt checkout, then
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" css/css-values
+```
+
+prints a pass rate per directory and a list of suites. Pick a file that is **partly** passing —
+those are ones where the engine already understands the shape of the thing and is wrong about a
+detail, which is an afternoon's work rather than a project. Run that one file to see the failing
+subtests by name, fix it in engine code, and regenerate the baseline.
+
+`tests/wpt/expectations-css.txt` is the current baseline for the CSS parser and holds a few
+thousand of these. A `CRASH` line in it is the best thing to pick up: it means engine code
+panicked on input a real page could carry.
+
+One rule: engine *behaviour* is fixed in engine code. `gosub_domjs` is a binding layer, so
+adding or correcting a Web API that a test needs belongs there — but a shim that hard-codes an
+answer, rather than reading it out of the engine, makes the test green and tells us nothing.
+
+### Other paths
+
+Beyond that, there are a few main directions:
 * Research
     * Research? That doesn't sound like code... and you're right! None of us have built a browser before and we are learning (a lot) as we go. Researching different components (rendering, tokenizing, parsing, etc.) and starting/participating in discussions is a valuable contribution even when you are not adding lines of code to the project.
 * Study the codebase

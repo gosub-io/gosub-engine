@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples wpt wpt-css wpt-shortlist wpt-update
 
 all: help
 
@@ -67,10 +67,73 @@ test-smoke: ## CLI smoke tests
 		cargo run --bin html5-parser-test >/dev/null && \
 		cargo run --bin parser-test >/dev/null && \
 		cargo run --example config-store -- list >/dev/null && \
-		cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null && \
+		cargo run --bin gosub-parser file://$(CURDIR)/tests/data/tree_iterator/stackoverflow.html >/dev/null && \
 		cargo run --example html5-parser >/dev/null && \
 		cargo run --example pipeline-test \
 	'
+
+# The wpt targets all need a checkout. `WPT_ROOT` wins if it is set; otherwise a `wpt/`
+# directory in the repo root is used, which is where docs/wpt-quickstart.md puts one and which
+# .gitignore already knows about.
+WPT_ROOT ?= $(CURDIR)/wpt
+
+# The sparse set matters as much as the commit: a checkout made for the CSS component has no
+# dom/events in it, and the gate would otherwise report every one of its 621 suites as ERROR.
+# `$(call require_wpt,<dir>)` checks the directory this target actually reads and prints the
+# command to add it - much better than "No such file or directory" from inside the runner.
+define require_wpt
+	if [ ! -d "$(WPT_ROOT)/resources" ]; then \
+		echo "No web-platform-tests checkout at $(WPT_ROOT)."; \
+		echo "Set WPT_ROOT, or create one in the repo root:"; \
+		echo; \
+		echo "  git clone --filter=blob:none --sparse \\"; \
+		echo "      https://github.com/web-platform-tests/wpt.git wpt"; \
+		echo "  git -C wpt sparse-checkout set resources common $(1)"; \
+		echo "  git -C wpt checkout \"\$$(cat tests/wpt/wpt-commit.txt)\""; \
+		echo; \
+		echo "See docs/wpt-quickstart.md."; \
+		exit 1; \
+	fi; \
+	for dir in $(1); do \
+		if [ ! -d "$(WPT_ROOT)/$$dir" ]; then \
+			echo "$(WPT_ROOT) has no $$dir - this target needs it."; \
+			echo "Widen the checkout (sparse-checkout add keeps what is already there):"; \
+			echo; \
+			echo "  git -C $(WPT_ROOT) sparse-checkout add $(1)"; \
+			echo; \
+			exit 1; \
+		fi; \
+	done
+endef
+
+# dom/nodes is not read directly: three gate suites pull support scripts out of it and become
+# ERROR records without it. See docs/wpt.md.
+wpt: ## Check the WPT gate against tests/wpt/expectations.txt (needs a checkout)
+	$(call require_wpt,dom/events html/dom dom/nodes)
+	source test-utils.sh ;\
+	run_section "WPT gate" cargo run --release -p gosub-wpt -- \
+		"$(WPT_ROOT)" --all --expect tests/wpt/expectations.txt
+
+wpt-css: ## Check the CSS parser component against tests/wpt/expectations-css.txt
+	$(call require_wpt,css/css-syntax css/css-values css/support)
+	source test-utils.sh ;\
+	run_section "WPT CSS component" cargo run --release -p gosub-wpt -- \
+		"$(WPT_ROOT)" --all --expect tests/wpt/expectations-css.txt
+
+wpt-shortlist: ## List the WPT suites worth picking up (DIR=... to pick the subtree)
+	$(call require_wpt,$(or $(DIR),css/css-values))
+	cargo run --release --quiet -p gosub-wpt -- "$(WPT_ROOT)" $(or $(DIR),css/css-values) --shortlist
+
+wpt-update: ## Regenerate both WPT baselines after a fix, for committing alongside it
+	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support)
+	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
+		--tests-from <(grep '^FILE ' tests/wpt/expectations.txt | sed 's/^FILE //') \
+		--write-expectations > tests/wpt/expectations.txt.new
+	mv tests/wpt/expectations.txt.new tests/wpt/expectations.txt
+	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" css/css-syntax css/css-values \
+		--write-expectations > tests/wpt/expectations-css.txt.new
+	mv tests/wpt/expectations-css.txt.new tests/wpt/expectations-css.txt
+	echo "Baselines regenerated. Review the diff and commit it with the fix."
 
 fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)
 	cd crates/gosub_html5 && cargo +nightly fuzz run html5_parser -- -dict=fuzz/html.dict
@@ -85,3 +148,83 @@ help: ## Display available commands
 	echo "Available make commands:"
 	echo
 	grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	echo
+	printf 'To run an example: \033[36mmake examples\033[0m lists them all with a ready-to-paste command.\n'
+
+# ---------------------------------------------------------------------------
+# Examples
+#
+# One table drives both the menu and the run-% rule. Columns: name, group,
+# description. Adding a row here is all a new example needs; anything found on
+# disk but missing from the table still shows up under "Undocumented".
+# ---------------------------------------------------------------------------
+define EXAMPLES_TABLE
+hello-world     engine  Single tab navigating a URL, streaming every engine event to stdout
+tutorial        engine  Minimal Engine -> Zone -> Tab -> Navigate lifecycle (see docs/tutorial.md)
+multi-tab       engine  25 tabs navigating at once, with live per-tab progress bars
+multi-process   engine  Browser-shaped embedder running the engine with process isolation
+html5-parser    engine  Parse an HTML document with gosub_html5 directly and print the DOM
+pipeline-test   engine  End-to-end smoke test against a tiny local HTTP server
+config-store    engine  View and modify the configuration store (list, search, set, ...)
+metrics-cli     engine  Timing stats from a running engine (--watch, --json, --reset)
+winit-vello     gui     winit window, Vello/wgpu GPU rendering
+winit-skia      gui     winit window, Skia CPU rendering
+winit-skia-gpu  gui     winit window, Skia GPU (OpenGL) rendering
+winit-cairo     gui     winit window, Cairo CPU rendering
+gtk4-cairo      gui     GTK4 window, Cairo CPU rendering (Pango text)
+gtk4-skia       gui     GTK4 window, Skia CPU rendering
+gtk4-skia-gpu   gui     GTK4 window, Skia GPU (OpenGL/GLArea) rendering
+egui-vello      gui     egui window, Vello/wgpu GPU rendering
+egui-skia       gui     egui window, Skia CPU rendering
+egui-cairo      gui     egui window, Cairo CPU rendering
+mini-browser    gui     Every process-isolation setting on; Ctrl+P prints the process tree
+endef
+export EXAMPLES_TABLE
+
+# Every example target that actually exists: [[example]] names in the root
+# Cargo.toml, plus one package per examples/<name>/ directory.
+define discover_examples
+{ awk '/^\[\[example\]\]/{g=1;next} g&&/^name/{if(match($$0,/"[^"]+"/))print substr($$0,RSTART+1,RLENGTH-2);g=0}' Cargo.toml; \
+  find examples -mindepth 2 -maxdepth 2 -name Cargo.toml -printf '%h\n' 2>/dev/null | xargs -r -n1 basename; } | sort -u
+endef
+
+examples: ## List the runnable examples and how to start each one
+	found=$$($(discover_examples)) ;\
+	list() { echo "$$EXAMPLES_TABLE" | awk -v found="$$found" -v grp="$$1" \
+		'BEGIN{n=split(found,a,"\n");for(i=1;i<=n;i++)have[a[i]]=1} \
+		 $$2==grp && have[$$1] {n2=$$1;$$1="";$$2="";sub(/^ +/,""); \
+		 printf "  \033[36mmake run-%-16s\033[0m %s\n",n2,$$0}' ; } ;\
+	printf '\033[1mEngine examples\033[0m  (headless, no GUI or extra system packages)\n\n' ;\
+	list engine ;\
+	printf '\n\033[1mGUI examples\033[0m  (open a window; need GTK4/Cairo/Skia system libs)\n\n' ;\
+	list gui ;\
+	known=$$(echo "$$EXAMPLES_TABLE" | awk 'NF{print $$1}' | sort -u) ;\
+	extra=$$(comm -13 <(echo "$$known") <(echo "$$found")) ;\
+	if [ -n "$$extra" ]; then \
+		printf '\n\033[1mUndocumented\033[0m  (found on disk, missing from the Makefile table)\n\n' ;\
+		echo "$$extra" | sed 's/^/  \x1b[36mmake run-/;s/$$/\x1b[0m/' ;\
+	fi ;\
+	printf '\n\033[1mUsage\033[0m\n\n' ;\
+	printf '  make run-<name>                             run it\n' ;\
+	printf '  make run-winit-vello URL=https://gosub.io   pass a URL\n' ;\
+	printf '  make run-config-store ARGS="list"           pass arbitrary arguments\n' ;\
+	printf '  make run-winit-vello RELEASE=1              build optimised (recommended for GUI)\n\n'
+
+# CARGO is overridable so the dispatch can be exercised without a real build.
+CARGO ?= cargo
+
+# RELEASE=1 -> --release; URL/ARGS are forwarded to the example itself.
+run-%:
+	name='$*' ;\
+	relflag='' ; [ -n "$(RELEASE)" ] && relflag='--release' ;\
+	if [ -f "examples/$$name/Cargo.toml" ]; then \
+		set -- $(CARGO) run $$relflag -p "example-$$name" -- $(URL) $(ARGS) ;\
+	elif $(discover_examples) | grep -qx "$$name"; then \
+		set -- $(CARGO) run $$relflag --example "$$name" -- $(URL) $(ARGS) ;\
+	else \
+		printf '\033[31mUnknown example: %s\033[0m\n\n' "$$name" >&2 ;\
+		$(MAKE) --no-print-directory examples >&2 ;\
+		exit 1 ;\
+	fi ;\
+	printf '\033[90m$$ %s\033[0m\n' "$$*" ;\
+	exec "$$@"

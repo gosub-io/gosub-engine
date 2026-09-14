@@ -7,6 +7,9 @@ target/
 
 # Local testing
 
+# A web-platform-tests checkout, when it is kept inside the repo (see docs/wpt-quickstart.md)
+/wpt/
+
 # Misc files
 settings.db
 

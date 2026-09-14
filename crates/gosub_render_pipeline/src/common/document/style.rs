@@ -59,12 +59,21 @@ pub enum Display {
     Grid,
     InlineGrid,
     Table,
+    /// Table interior, but participates in its parent's inline formatting context
+    /// (CSS 2.1 §17.4). Table machinery treats it as `Table` (via `display_of`
+    /// normalization and explicit matches); only the layouter's line grouping sees
+    /// its inline-level nature (the Node carries `InlineBlock`).
+    InlineTable,
     TableCaption,
     TableCell,
     TableFooterGroup,
     TableHeaderGroup,
     TableRow,
     TableRowGroup,
+    /// `<col>` - defines column properties, generates no box of its own.
+    TableColumn,
+    /// `<colgroup>` - groups `<col>` elements, generates no box of its own.
+    TableColumnGroup,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,14 +114,14 @@ pub enum TextWrap {
     Unset,
 }
 
-// ── Value - replaces StyleValue, ≤8 bytes, zero heap ─────────────────────────
+// ── Value - replaces StyleValue, <=8 bytes, zero heap ─────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Unit(f32, Unit),
     /// Each channel 0-255; alpha 255 = fully opaque.
     Color(u8, u8, u8, u8),
-    /// Unitless number (flex-grow, flex-shrink, aspect-ratio, …).
+    /// Unitless number (flex-grow, flex-shrink, aspect-ratio, ...).
     Number(f32),
     Percentage(f32),
     Display(Display),
@@ -120,7 +129,7 @@ pub enum Value {
     TextAlign(TextAlign),
     TextWrap(TextWrap),
     BorderStyle(BorderStyle),
-    /// An interned keyword string (font-family, position, flex-direction, …).
+    /// An interned keyword string (font-family, position, flex-direction, ...).
     Keyword(u32),
 }
 
@@ -157,12 +166,15 @@ impl Value {
                 Display::Grid => "grid",
                 Display::InlineGrid => "inline-grid",
                 Display::Table => "table",
+                Display::InlineTable => "inline-table",
                 Display::TableCaption => "table-caption",
                 Display::TableCell => "table-cell",
                 Display::TableFooterGroup => "table-footer-group",
                 Display::TableHeaderGroup => "table-header-group",
                 Display::TableRow => "table-row",
                 Display::TableRowGroup => "table-row-group",
+                Display::TableColumn => "table-column",
+                Display::TableColumnGroup => "table-column-group",
             }
             .to_string(),
             Value::FontWeight(fw) => match fw {
@@ -289,6 +301,9 @@ pub enum StyleProperty {
     GridTemplateColumns,
     GridAutoRows,
     GridAutoColumns,
+    GridArea,
+    GridTemplateAreas,
+    CaptionSide,
     FontStyle,
     WhiteSpace,
     TextDecorationLine,
@@ -299,6 +314,19 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    Float,
+    Clear,
+    /// Horizontal component of `border-spacing` (both variants read the same
+    /// declaration; X takes the first length, Y the second, per CSS 2 §17.6.1).
+    BorderSpacingX,
+    /// Vertical component of `border-spacing`.
+    BorderSpacingY,
+    /// `table-layout`: `auto` | `fixed`.
+    TableLayout,
+    /// `vertical-align` (keyword form; only cell alignment is consumed so far).
+    VerticalAlign,
+    /// `border-collapse`: `separate` | `collapse`.
+    BorderCollapse,
     OutlineWidth,
     OutlineStyle,
     OutlineColor,
@@ -388,11 +416,21 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
-            StyleProperty::OutlineWidth => 78,
-            StyleProperty::OutlineStyle => 79,
-            StyleProperty::OutlineColor => 80,
-            StyleProperty::OutlineOffset => 81,
-            StyleProperty::Resize => 82,
+            StyleProperty::Float => 78,
+            StyleProperty::Clear => 79,
+            StyleProperty::GridArea => 80,
+            StyleProperty::GridTemplateAreas => 81,
+            StyleProperty::CaptionSide => 82,
+            StyleProperty::BorderSpacingX => 83,
+            StyleProperty::BorderSpacingY => 84,
+            StyleProperty::TableLayout => 85,
+            StyleProperty::VerticalAlign => 86,
+            StyleProperty::BorderCollapse => 87,
+            StyleProperty::OutlineWidth => 88,
+            StyleProperty::OutlineStyle => 89,
+            StyleProperty::OutlineColor => 90,
+            StyleProperty::OutlineOffset => 91,
+            StyleProperty::Resize => 92,
         }
     }
 
@@ -927,31 +965,93 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 78 outline-width - initial = medium = 3px; 0 when outline-style is none (see `get_style`)
+    // 78 float
+    PropertyMeta {
+        name: "float",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 79 clear
+    PropertyMeta {
+        name: "clear",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 80 grid-area - the shorthand, kept whole: a single named area (`grid-area: content`) is
+    // the form that matters, and it is resolved against the container's `grid-template-areas`.
+    PropertyMeta {
+        name: "grid-area",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 81 grid-template-areas
+    PropertyMeta {
+        name: "grid-template-areas",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 82 caption-side - inherited, so a caption picks it up from the table it belongs to
+    PropertyMeta {
+        name: "caption-side",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("top"),
+    },
+    // 83/84 border-spacing - inherited; initial = 0. Two internal longhands share the
+    // one CSS declaration: the value bridge picks the first length for X, second for Y.
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    // 85 table-layout
+    PropertyMeta {
+        name: "table-layout",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 86 vertical-align - not inherited per CSS; the HTML rendering spec puts
+    // `vertical-align: inherit` on cells, which consumers resolve by walking up.
+    PropertyMeta {
+        name: "vertical-align",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("baseline"),
+    },
+    // 87 border-collapse
+    PropertyMeta {
+        name: "border-collapse",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("separate"),
+    },
+    // 88 outline-width - initial = medium = 3px; 0 when outline-style is none (see `get_style`)
     PropertyMeta {
         name: "outline-width",
         inherited: false,
         initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
-    // 79 outline-style
+    // 89 outline-style
     PropertyMeta {
         name: "outline-style",
         inherited: false,
         initial_kind: InitialKind::BorderStyle(BorderStyle::None),
     },
-    // 80 outline-color - initial = currentColor (see `get_style`)
+    // 90 outline-color - initial = currentColor (see `get_style`)
     PropertyMeta {
         name: "outline-color",
         inherited: false,
         initial_kind: InitialKind::Color(0, 0, 0, 255),
     },
-    // 81 outline-offset
+    // 91 outline-offset
     PropertyMeta {
         name: "outline-offset",
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 82 resize
+    // 92 resize
     PropertyMeta {
         name: "resize",
         inherited: false,
@@ -1096,11 +1196,21 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
-        78 => Some(StyleProperty::OutlineWidth),
-        79 => Some(StyleProperty::OutlineStyle),
-        80 => Some(StyleProperty::OutlineColor),
-        81 => Some(StyleProperty::OutlineOffset),
-        82 => Some(StyleProperty::Resize),
+        78 => Some(StyleProperty::Float),
+        79 => Some(StyleProperty::Clear),
+        80 => Some(StyleProperty::GridArea),
+        81 => Some(StyleProperty::GridTemplateAreas),
+        82 => Some(StyleProperty::CaptionSide),
+        83 => Some(StyleProperty::BorderSpacingX),
+        84 => Some(StyleProperty::BorderSpacingY),
+        85 => Some(StyleProperty::TableLayout),
+        86 => Some(StyleProperty::VerticalAlign),
+        87 => Some(StyleProperty::BorderCollapse),
+        88 => Some(StyleProperty::OutlineWidth),
+        89 => Some(StyleProperty::OutlineStyle),
+        90 => Some(StyleProperty::OutlineColor),
+        91 => Some(StyleProperty::OutlineOffset),
+        92 => Some(StyleProperty::Resize),
         _ => None,
     }
 }
@@ -1134,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_id_round_trip() {
-        // Every StyleProperty should round-trip through id → from_id
+        // Every StyleProperty should round-trip through id -> from_id
         let props = [
             StyleProperty::Color,
             StyleProperty::BackgroundColor,

@@ -8,7 +8,7 @@ use gosub_lattice::{compute_table_layout, TableRole};
 
 fn main() {
     eprintln!(
-        "{} v{} — console demos of the lattice table layout engine (colspan/rowspan/sections)",
+        "{} v{} - console demos of the lattice table layout engine (colspan/rowspan/sections)",
         env!("CARGO_BIN_NAME"),
         env!("CARGO_PKG_VERSION")
     );
@@ -29,7 +29,7 @@ fn main() {
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Name"), cell("Info")])
         .body_row(vec![cell("Alice"), cell("Amsterdam")])
-        .body_row(vec![cell("Bob — long name that spans both columns").colspan(2)])
+        .body_row(vec![cell("Bob - long name that spans both columns").colspan(2)])
         .body_row(vec![cell("Carol"), cell("Brussels")])
         .render();
     println!("{out}");
@@ -45,11 +45,11 @@ fn main() {
         .render();
     println!("{out}");
 
-    // 4. rowspan that would cross thead→tbody boundary - must be clamped
+    // 4. rowspan that would cross thead->tbody boundary - must be clamped
     println!("=== rowspan clamped at section boundary ===");
     let out = MockTable::new(60.0)
         .header_row(vec![
-            cell("Header rowspan=99").rowspan(99), // only 1 row in thead → clamped to 1
+            cell("Header rowspan=99").rowspan(99), // only 1 row in thead -> clamped to 1
             cell("H2"),
         ])
         .body_row(vec![cell("Body A"), cell("Body B")])
@@ -110,8 +110,8 @@ fn main() {
     }
 
     // 9. Section order normalization (test 13): source order is tfoot, tbody,
-    //    thead - the layout renders header → body → footer regardless.
-    println!("=== source order tfoot/tbody/thead → renders head/body/foot ===");
+    //    thead - the layout renders header -> body -> footer regardless.
+    println!("=== source order tfoot/tbody/thead -> renders head/body/foot ===");
     let mut tree = MockTree::new(1.0, 0.0);
     let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
     for (role, label) in [

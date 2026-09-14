@@ -41,7 +41,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Paint-only repaint of the popup after a highlight/scroll change.
     fn repaint_popup(&mut self) {
         if let Some(popup) = self.popup_lei() {
-            self.paint_dirty_leis.push(popup);
+            self.damage.escalate(crate::engine::damage::DamageLevel::Paint);
+            self.record_element_damage([Some(popup)]);
         }
     }
 

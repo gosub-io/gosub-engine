@@ -45,61 +45,81 @@ impl Default for RgbColor {
 }
 
 impl From<&str> for RgbColor {
+    /// Lossy conversion: anything that is not a colour becomes opaque black. Prefer
+    /// [`RgbColor::try_from_str`], which reports that case instead of inventing a colour.
     fn from(value: &str) -> Self {
+        RgbColor::try_from_str(value).unwrap_or_default()
+    }
+}
+
+impl RgbColor {
+    /// Parses a CSS `<color>` from its textual form, or `None` when the string is not a colour.
+    ///
+    /// Reporting the failure matters: a declaration whose value is invalid at computed-value
+    /// time must be dropped, so the property keeps its inherited or initial value. Answering
+    /// with a colour instead turns every keyword that reaches a colour slot into an opaque
+    /// black paint - `background: none` and `background: no-repeat` (the shorthand's non-colour
+    /// components) both filled their box with black.
+    #[must_use]
+    pub fn try_from_str(value: &str) -> Option<Self> {
         if value.is_empty() {
-            return RgbColor::default();
+            return None;
         }
-        if value == "currentcolor" {
-            // @todo: implement currentcolor
-            return RgbColor::default();
+        // CSS defines it as rgba(0, 0, 0, 0), and the named-colour table does not carry it.
+        if value.eq_ignore_ascii_case("transparent") {
+            return Some(RgbColor::new(0.0, 0.0, 0.0, 0.0));
+        }
+        if value.eq_ignore_ascii_case("currentcolor") {
+            // @todo: implement currentcolor - it resolves to the element's own `color`, which
+            // is not reachable from here. Black keeps the pre-existing behaviour; returning
+            // `None` instead would silently drop every `currentcolor` declaration.
+            return Some(RgbColor::default());
         }
 
         if value.starts_with('#') {
-            return parse_hex(value);
+            return try_parse_hex(value);
         }
         if value.starts_with("rgb(") {
             // Rgb function
-            let Ok(rgb) = Rgb::from_str(value) else {
-                return RgbColor::default();
-            };
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            let rgb = Rgb::from_str(value).ok()?;
+            return Some(RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0));
         }
         if value.starts_with("rgba(") {
             // Rgba function - alpha from colors_transform is in 0..1 range; scale to 0..255
-            let Ok(rgb) = Rgb::from_str(value) else {
-                return RgbColor::default();
-            };
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
+            let rgb = Rgb::from_str(value).ok()?;
+            return Some(RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha() * 255.0,
+            ));
         }
         if value.starts_with("hsl(") {
-            let Ok(hsl) = Hsl::from_str(value) else {
-                return RgbColor::default();
-            };
+            let hsl = Hsl::from_str(value).ok()?;
             let rgb: Rgb = hsl.to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            return Some(RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0));
         }
         if value.starts_with("hsla(") {
             // hsla() - alpha from colors_transform is in 0..1 range; scale to 0..255
-            let Ok(hsl) = Hsl::from_str(value) else {
-                return RgbColor::default();
-            };
+            let hsl = Hsl::from_str(value).ok()?;
             let rgb: Rgb = hsl.to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
+            return Some(RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha() * 255.0,
+            ));
         }
 
         // Modern CSS Color Level 4 functions stored as unparsed strings.
         if value.starts_with("oklch(") {
-            if let Some(c) = parse_oklch_str(value) {
-                return c;
-            }
+            return parse_oklch_str(value);
         }
         if value.starts_with("oklab(") {
-            if let Some(c) = parse_oklab_str(value) {
-                return c;
-            }
+            return parse_oklab_str(value);
         }
 
-        named_color_hex(value).map_or(RgbColor::default(), parse_hex)
+        named_color_hex(value).and_then(try_parse_hex)
     }
 }
 
@@ -214,7 +234,9 @@ fn is_hex(value: &str) -> bool {
     value.chars().skip(1).all(|c| c.is_ascii_hexdigit())
 }
 
-fn parse_hex(value: &str) -> RgbColor {
+/// Parses `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, or `None` when the string is not one of
+/// those - a malformed hex value is an invalid declaration, not black.
+fn try_parse_hex(value: &str) -> Option<RgbColor> {
     const R: usize = 0;
     const G: usize = 1;
     const B: usize = 2;
@@ -222,7 +244,7 @@ fn parse_hex(value: &str) -> RgbColor {
     const DEFAULT_A_VALUE: f32 = 255.0;
 
     if !is_hex(value) {
-        return RgbColor::default();
+        return None;
     }
 
     // 3 hex digits (RGB)
@@ -233,12 +255,12 @@ fn parse_hex(value: &str) -> RgbColor {
         let r = number_array[R];
         let g = number_array[G];
         let b = number_array[B];
-        return RgbColor::new(
+        return Some(RgbColor::new(
             (r * 16 + r) as f32,
             (g * 16 + g) as f32,
             (b * 16 + b) as f32,
             DEFAULT_A_VALUE,
-        );
+        ));
     }
 
     // 4 hex digits (RGBA)
@@ -251,12 +273,12 @@ fn parse_hex(value: &str) -> RgbColor {
         let b = number_array[B];
         let a = number_array[A];
 
-        return RgbColor::new(
+        return Some(RgbColor::new(
             (r * 16 + r) as f32,
             (g * 16 + g) as f32,
             (b * 16 + b) as f32,
             (a * 16 + a) as f32,
-        );
+        ));
     }
 
     // 6 hex digits (RRGGBB)
@@ -267,7 +289,7 @@ fn parse_hex(value: &str) -> RgbColor {
         let g = number_array[G];
         let b = number_array[B];
 
-        return RgbColor::new(r as f32, g as f32, b as f32, DEFAULT_A_VALUE);
+        return Some(RgbColor::new(r as f32, g as f32, b as f32, DEFAULT_A_VALUE));
     }
 
     // 8 hex digits (RRGGBBAA)
@@ -280,10 +302,10 @@ fn parse_hex(value: &str) -> RgbColor {
         let b = number_array[B];
         let a = number_array[A];
 
-        return RgbColor::new(r as f32, g as f32, b as f32, a as f32);
+        return Some(RgbColor::new(r as f32, g as f32, b as f32, a as f32));
     }
 
-    RgbColor::default()
+    None
 }
 
 fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
@@ -546,5 +568,55 @@ mod tests {
         assert_eq!(color.g, 0.0);
         assert_eq!(color.b, 0.0);
         assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn non_colours_are_reported_rather_than_blackened() {
+        // These reach a colour slot through the `background` shorthand, whose non-colour
+        // components used to parse as opaque black and fill the element's box.
+        for keyword in ["none", "no-repeat", "center", "inherit", "", "notacolour"] {
+            assert_eq!(
+                super::RgbColor::try_from_str(keyword),
+                None,
+                "{keyword} is not a colour"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_values_are_reported() {
+        for value in ["#incorrect", "ff0000", "abcd", "#12345", "rgb(bogus)", "hsl(nope)"] {
+            assert_eq!(super::RgbColor::try_from_str(value), None, "{value} is not a colour");
+        }
+    }
+
+    #[test]
+    fn transparent_is_a_colour_with_zero_alpha() {
+        let color = super::RgbColor::try_from_str("transparent").expect("transparent is a colour");
+        assert_eq!((color.r, color.g, color.b, color.a), (0.0, 0.0, 0.0, 0.0));
+        // CSS keywords are ASCII case-insensitive.
+        assert_eq!(super::RgbColor::try_from_str("TRANSPARENT"), Some(color));
+    }
+
+    #[test]
+    fn colours_still_parse() {
+        assert_eq!(
+            super::RgbColor::try_from_str("#ff0000"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("red"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("rgb(255, 0, 0)"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+    }
+
+    #[test]
+    fn the_lossy_conversion_keeps_its_black_default() {
+        // `From<&str>` is unchanged for callers that have nowhere to report a failure.
+        assert_eq!(super::RgbColor::from("none"), super::RgbColor::default());
     }
 }

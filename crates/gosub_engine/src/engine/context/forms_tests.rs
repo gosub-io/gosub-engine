@@ -589,7 +589,7 @@ ef</textarea>"#,
     );
     let node = by_id(&ctx, "ta");
     let (content, font) = text_box(&ctx, node);
-    let line_h = font.line_height.max(font.size);
+    let line_h = font.line_height_px().max(font.size);
     // Start of the second line.
     click_at(&mut ctx, content.x + 1.0, content.y + line_h * 1.5);
     type_text(&mut ctx, "Z");
@@ -607,7 +607,7 @@ fn click_places_the_caret_on_a_soft_wrapped_row() {
     );
     let node = by_id(&ctx, "ta");
     let (content, font) = text_box(&ctx, node);
-    let line_h = font.line_height.max(font.size);
+    let line_h = font.line_height_px().max(font.size);
     let rows = {
         let fs = ctx.font_system();
         let mut fs = fs.lock();

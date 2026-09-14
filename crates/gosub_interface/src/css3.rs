@@ -35,6 +35,12 @@ pub struct HoverFingerprints {
     pub ids: std::collections::HashSet<String>,
 }
 
+/// Fetches an imported stylesheet for [`CssSystem::resolve_imports`].
+///
+/// Called with `(base_url, requested_url)` and returns the absolute URL actually loaded plus
+/// its text, or `None` when it could not be fetched.
+pub type ImportFetcher<'a> = dyn FnMut(&str, &str) -> Option<(String, String)> + 'a;
+
 /// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
 pub trait CssSystem: Clone + Debug + 'static {
@@ -75,7 +81,46 @@ pub trait CssSystem: Clone + Debug + 'static {
         None
     }
 
+    /// Resolve the `@import` rules in `sheet`, splicing what they pull in ahead of the
+    /// sheet's own rules.
+    ///
+    /// `fetch` is called with `(base_url, requested_url)` - the importing sheet's own URL and
+    /// the target exactly as written - and returns the absolute URL actually loaded plus its
+    /// text, or `None` when it could not be fetched. Only the host has a network stack and a
+    /// URL resolver, which is why it supplies this; cascade order, media and `supports()`
+    /// gating, cycle detection and recursion limits belong to the CSS implementation.
+    ///
+    /// The default implementation does nothing, leaving `@import` unresolved.
+    fn resolve_imports(_sheet: &mut Self::Stylesheet, _fetch: &mut ImportFetcher<'_>) {}
+
+    /// Records which tree scope a stylesheet belongs to: `None` for the document, or the shadow
+    /// root whose shadow tree holds the `<style>` or `<link>` it came from.
+    ///
+    /// A scoped sheet applies only inside that shadow tree, apart from its `:host` and
+    /// `::slotted()` rules, which deliberately reach one step outwards. The default does
+    /// nothing, which means no scoping - every sheet applies to the whole document.
+    fn set_stylesheet_scope(_sheet: &mut Self::Stylesheet, _scope: Option<NodeId>) {}
+
+    /// A hash of everything *outside* the DOM that the cascade reads, under the environment
+    /// currently in force: which `@media` conditions hold, and the viewport when any sheet
+    /// uses viewport-relative units.
+    ///
+    /// Two frames whose fingerprints are equal compute identical styles for an unchanged DOM,
+    /// so a caller can keep every cached computed value across a viewport change instead of
+    /// restyling the document. `None` means the implementation cannot tell, and the caller
+    /// must assume styles went stale - which is the safe answer and the default.
+    fn style_environment_fingerprint(_sheets: &[Self::Stylesheet]) -> Option<u64> {
+        None
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
+
+    /// The extra user-agent rules for a document in quirks mode (HTML spec, Rendering:
+    /// tables do not inherit font and alignment there). Attached after the default sheet;
+    /// `None` when this system has no quirks rules.
+    fn load_quirks_useragent_stylesheet() -> Option<Self::Stylesheet> {
+        None
+    }
 
     /// Scan `sheets` and collect the [`HoverFingerprints`] - the element types/classes/ids that
     /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
@@ -143,6 +188,11 @@ pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn as_function(&self) -> Option<(&str, &[S::Value])>;
 
     fn is_none(&self) -> bool;
+
+    /// Origin of the cascade-winning declaration for this property, if any was declared.
+    /// Lets consumers slot HTML presentational hints (`cellspacing`, `cellpadding`, ...)
+    /// between user-agent and author styles.
+    fn winning_origin(&self) -> Option<CssOrigin>;
 }
 
 pub trait CssValue: Sized {

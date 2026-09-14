@@ -242,7 +242,7 @@ fn finish_box(entries: Vec<TextEntry>) -> Vec<InlineSegment> {
             });
         }
     }
-    // A trailing `pending_space` is never flushed → trailing whitespace is trimmed.
+    // A trailing `pending_space` is never flushed -> trailing whitespace is trimmed.
     out
 }
 
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn copyright_case_splits_and_orders_correctly() {
-        // <p>Copyright …, the Gosub community.<br>Spotted an issue? <a>Send a PR on GitHub</a>.</p>
+        // <p>Copyright ..., the Gosub community.<br>Spotted an issue? <a>Send a PR on GitHub</a>.</p>
         let raw = vec![
             RawEntry::Text(te("Copyright 2024\u{2013}2026, the Gosub community.", 1)),
             RawEntry::Break(20.0),

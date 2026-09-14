@@ -17,13 +17,16 @@ use gosub_shared::{timing_start, timing_stop};
 pub mod ast;
 pub mod colors;
 mod functions;
+pub mod imports;
 pub mod matcher;
+pub mod media_query;
 // The as_* accessors panic by contract when called on the wrong node type;
 // callers are expected to check the matching is_* predicate first.
 #[allow(clippy::panic)]
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
+pub mod supports;
 pub mod system;
 pub mod tokenizer;
 mod unicode;
@@ -113,7 +116,10 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("Expected a stylesheet context"));
         }
 
-        let t_id = timing_start!("css3.parse", self.config.source.as_deref().unwrap_or(""));
+        let t_id = timing_start!(
+            gosub_shared::timing::Timing::DecodeCss,
+            self.config.source.as_deref().unwrap_or("")
+        );
 
         let node_tree = match self.config.context {
             Context::Stylesheet => self.parse_stylesheet_internal(),
@@ -126,7 +132,7 @@ impl<'stream> Css3<'stream> {
 
         match node_tree {
             Ok(None) => Err(CssError::new("No node tree found")),
-            Ok(Some(node)) => convert_ast_to_stylesheet(&node, self.origin, self.source.clone().as_str()),
+            Ok(Some(node)) => convert_ast_to_stylesheet(node, self.origin, self.source.clone().as_str()),
             Err(e) => Err(e),
         }
     }
@@ -147,6 +153,20 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     let css_data = include_str!("../resources/useragent.css");
     #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by every parser test
     Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
+}
+
+/// The rules the HTML spec adds for documents in quirks mode; attached after the default sheet.
+#[must_use]
+pub fn load_quirks_useragent_stylesheet() -> CssStylesheet {
+    let config = ParserConfig {
+        ignore_errors: true,
+        match_values: true,
+        ..Default::default()
+    };
+    let css_data = include_str!("../resources/useragent-quirks.css");
+    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by the parser tests
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, "gosub:useragent-quirks.css")
+        .expect("Could not parse quirks useragent stylesheet")
 }
 
 #[cfg(test)]

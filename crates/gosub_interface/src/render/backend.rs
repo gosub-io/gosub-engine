@@ -472,8 +472,10 @@ pub trait RenderBackend: Send {
         RasterStrategy::None
     }
 
-    /// The device-pixel ratio this backend rasterizes at. Backends that rasterize at physical
-    /// pixels (Cairo) override this; CSS-pixel backends (Skia, Vello) and the null backend use 1.
+    /// The device-pixel ratio this backend rasterizes at. Cairo, Skia and Vello all override
+    /// this to follow the host's [`DEVICE_PIXEL_RATIO`]; only the null backend keeps 1.
+    ///
+    /// [`DEVICE_PIXEL_RATIO`]: crate::render::DEVICE_PIXEL_RATIO
     fn device_pixel_ratio(&self) -> u32 {
         1
     }

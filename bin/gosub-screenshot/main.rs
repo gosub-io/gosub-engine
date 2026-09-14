@@ -30,6 +30,10 @@ use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
 
+/// Cap on the composited RGBA buffer (1 GiB): keeps a runaway `--min-height` from
+/// wrapping the size arithmetic or exhausting memory.
+const MAX_CAPTURE_BYTES: usize = 1 << 30;
+
 const BUILD_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
@@ -75,6 +79,11 @@ struct Args {
     /// this run.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
+    /// Minimum capture height in CSS pixels. The image is normally cut at the page's flow
+    /// height; absolutely-positioned content below it (common in WPT reftest references)
+    /// would be lost, so reftest runners pass the comparison-canvas height here.
+    #[arg(long, default_value = "0")]
+    min_height: u32,
     /// Print the aggregated pipeline timing table (per stage) after the capture
     #[arg(long)]
     timings: bool,
@@ -227,6 +236,7 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
+
 /// Initial viewport height used for layout, in CSS pixels. Tall enough to trigger
 /// below-the-fold / lazily-loaded content; the captured image uses the page's *true*
 /// height, not this value. CPU rasterization has no GPU texture limit, so there is no
@@ -392,6 +402,27 @@ fn main() {
     if args.settle > 0 {
         std::thread::sleep(Duration::from_secs(args.settle));
         while rx_redraw.try_recv().is_ok() {}
+    } else {
+        // Quiescence wait: async media (images) decode after the first render and
+        // trigger reflows. Capturing between first render and that reflow races -
+        // e.g. an image-only table captures as zero-size. Wait until no redraw has
+        // arrived for a quiet window (capped, so pages that keep animating still
+        // capture promptly).
+        let quiet_window = Duration::from_millis(300);
+        let cap = Instant::now() + Duration::from_secs(3);
+        let mut last_redraw = Instant::now();
+        while Instant::now() < cap {
+            let mut saw = false;
+            while rx_redraw.try_recv().is_ok() {
+                saw = true;
+            }
+            if saw {
+                last_redraw = Instant::now();
+            } else if last_redraw.elapsed() >= quiet_window {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     // ── Phase 1b: replay interactions, waiting for each repaint ──────────────
@@ -576,7 +607,7 @@ fn main() {
     };
 
     let page_w = viewport_w;
-    let page_h = (page_height_f.ceil() as u32).max(1);
+    let page_h = (page_height_f.ceil() as u32).max(1).max(args.min_height);
 
     eprintln!(
         "Page size: {}×{} px. Compositing {} tile(s)…",
@@ -585,8 +616,22 @@ fn main() {
         tiles.len()
     );
 
-    // Fill with opaque white, then alpha-blend each tile (premultiplied).
-    let mut pixels = vec![255u8; (page_w * page_h * 4) as usize];
+    // Fill with opaque white, then alpha-blend each tile (premultiplied). The height can now
+    // come from the command line, so the size arithmetic is checked: `page_w * page_h * 4`
+    // silently wraps in release for a large enough --min-height, and the wrapped length would
+    // hand every tile copy below an out-of-bounds slice.
+    let Some(buf_len) = (page_w as usize)
+        .checked_mul(page_h as usize)
+        .and_then(|n| n.checked_mul(4))
+        .filter(|&n| n <= MAX_CAPTURE_BYTES)
+    else {
+        eprintln!(
+            "Capture of {page_w}x{page_h} px exceeds the supported size ({} MiB); lower the width or --min-height.",
+            MAX_CAPTURE_BYTES / (1024 * 1024)
+        );
+        std::process::exit(1);
+    };
+    let mut pixels = vec![255u8; buf_len];
 
     for tile in tiles.iter() {
         let tx = tile.page_x as u32;

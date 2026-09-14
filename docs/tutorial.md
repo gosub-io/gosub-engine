@@ -32,7 +32,7 @@ The engine is **event-driven**. It communicates with your application by emittin
 
 ### DecisionRequired
 
-When the engine fetches a URL it needs to know what to do with the response: render the page, or save the file? It can't decide on its own (it doesn't know your UI), so it pauses the navigation and emits a `NavigationEvent::DecisionRequired` event. Your application must reply with `TabCommand::SubmitDecision` carrying either `Action::Render` or `Action::Download`. If you do not reply, the navigation stalls indefinitely.
+Most responses are obviously renderable (an HTML page) and the engine just renders them. When a response is *not* obviously a page - the content-type is unknown, or a `Content-Disposition: attachment` header says it is a download - the engine can't decide on its own (it doesn't know your UI), so it pauses that navigation and emits a `NavigationEvent::DecisionRequired` event. Your application replies with `TabCommand::SubmitDecision` carrying either `Action::Render` or `Action::Download`. Only that navigation waits for the reply; ordinary page loads never raise the event. A UA that doesn't handle it still browses normal pages fine, but navigations to downloads will hang.
 
 ------------------------------------------------------------------------
 
@@ -45,25 +45,32 @@ In your `Cargo.toml`:
 ``` toml
 [dependencies]
 gosub_engine = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_engine" }
+# Provides the render backends, `DefaultCompositor` and `Viewport` used below.
+gosub_render_pipeline = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_render_pipeline" }
 tokio = { version = "1", features = ["full"] }
 ```
+
+If you work from a local checkout, use `path = "…/gosub-engine/crates/gosub_engine"` (and the same for `gosub_render_pipeline`) instead of `git`.
 
 ### 2. Create the engine
 
 ``` rust
-use std::sync::{Arc, RwLock};
-use gosub_engine::{EngineSettings, GosubEngine};
+use std::sync::Arc;
+use gosub_engine::{DefaultRenderConfig, EngineConfig, GosubEngine};
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor};
 
 let backend = NullBackend::new();
-let mut engine = GosubEngine::new(
-    Some(EngineSettings::default()),
+let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
+    Some(EngineConfig::default()),
     Arc::new(backend),
-    Arc::new(RwLock::new(DefaultCompositor::default())),
+    Arc::new(DefaultCompositor::default()),
 );
 
-let join_handle = engine.start().expect("cannot start engine");
+// start() returns the engine's run-loop future; spawn it on your runtime.
+let join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 ```
+
+`DefaultRenderConfig<_>` names the component set at compile time (backend, font system, compositor); with the `NullBackend` the remaining parameters take their headless defaults. `EngineConfig` holds set-once limits such as `max_zones`; `EngineConfig::builder()` lets you change them.
 
 `NullBackend` skips all pixel rendering - useful for headless scenarios or whenever you just want navigation and events without a visible window. Swap it for `CairoBackend` or `VelloBackend` to get an actual rendered surface --- see [`configuration.md`](configuration.md) for how to wire a real backend into the engine config.
 
@@ -80,7 +87,7 @@ use gosub_engine::cookies::DefaultCookieJar;
 use gosub_engine::storage::{
     InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
 };
-use gosub_engine::zone::{ZoneConfig, ZoneServices};
+use gosub_engine::zone::ZoneServices;
 
 let services = ZoneServices {
     storage: Arc::new(StorageService::new(
@@ -90,12 +97,13 @@ let services = ZoneServices {
     cookie_store: None,
     cookie_jar: Some(DefaultCookieJar::new().into()),
     partition_policy: PartitionPolicy::None,
+    places: None, // no bookmarks / visited-history store
 };
 
 let mut zone = engine.create_zone(None, services, None)?;
 ```
 
-`InMemoryLocalStore` and `InMemorySessionStore` give you ephemeral storage that disappears when the zone is dropped. For persistent cookies, pass a `CookieStore` in `ZoneServices::cookie_store` and set `cookie_jar` to `None`.
+`InMemoryLocalStore` and `InMemorySessionStore` give you ephemeral storage that disappears when the zone is dropped. For persistent cookies, pass a `CookieStore` in `ZoneServices::cookie_store` and set `cookie_jar` to `None`. The first argument to `create_zone` is an optional `ZoneConfig` (built with `ZoneConfig::builder()`) for per-profile settings such as `do_not_track` or `accept_languages`.
 
 ### 4. Open a tab
 
@@ -169,15 +177,13 @@ loop {
 }
 ```
 
-The `DecisionRequired` arm is important: without it the navigation stalls because the engine is waiting for your reply.
+The `DecisionRequired` arm only fires for responses that aren't obviously a page (see [Key concepts](#decisionrequired)); without it those particular navigations stall because the engine is waiting for your reply.
 
 ### 7. Shutdown
 
 ``` rust
 engine.shutdown().await?;
-if let Some(handle) = join_handle {
-    let _ = handle.await;
-}
+let _ = join_handle.await;
 ```
 
 Always shut down cleanly. This drains in-flight network requests and flushes any pending state before the process exits.

@@ -37,7 +37,7 @@ pub fn text_style(font_info: &FontInfo, max_width: f64) -> TextStyle {
             FontStyle::Normal
         },
         stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
+        line_height: Some(font_info.line_height_px() as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width.max(1.0) as f32),
         align,
@@ -80,7 +80,7 @@ fn width_with_trailing(fs: &mut dyn FontSystem, text: &str, font_info: &FontInfo
 /// Run x offsets aren't used: Pango reports them relative to the paragraph, not the box.
 pub fn caret_offset(fs: &mut dyn FontSystem, text: &str, caret: usize, font_info: &FontInfo, avail: f64) -> (f64, f64) {
     let prefix: String = text.chars().take(caret).collect();
-    let line_h = font_info.line_height.max(font_info.size);
+    let line_h = font_info.line_height_px().max(font_info.size);
     if prefix.is_empty() {
         return (0.0, 0.0);
     }
@@ -285,7 +285,7 @@ pub struct AreaLayout {
 }
 
 pub fn area_layout(fs: &mut dyn FontSystem, text: &str, font_info: &FontInfo, content: Rect) -> AreaLayout {
-    let line_h = font_info.line_height.max(font_info.size);
+    let line_h = font_info.line_height_px().max(font_info.size);
     let rows_fit = (((content.height + 0.5) / line_h).floor() as usize).max(1);
     let inset = inset_x(content.width);
     let full = Rect::new(

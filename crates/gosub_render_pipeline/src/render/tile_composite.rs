@@ -17,7 +17,7 @@ use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premu
 /// A rectangular region of a premultiplied-ARGB (`0xAARRGGBB`) `u32` buffer that tiles composite
 /// into.
 ///
-/// `buf` is row-major with `stride` pixels per row. Tiles are clipped to the `width × height`
+/// `buf` is row-major with `stride` pixels per row. Tiles are clipped to the `width x height`
 /// device-pixel region at (`origin_x`, `origin_y`); the offset lets a host reserve rows for its own
 /// chrome while still handing over the whole window buffer.
 ///
@@ -116,7 +116,7 @@ mod tests {
 
     const WHITE: u32 = 0xFFFF_FFFF;
 
-    /// A 1×1 opaque tile of the given RGBA bytes at page (page_x, page_y).
+    /// A 1x1 opaque tile of the given RGBA bytes at page (page_x, page_y).
     fn tile_rgba(page_x: f32, page_y: f32, rgba: [u8; 4]) -> CachedTile {
         CachedTile {
             page_x,
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn scroll_moves_tiles_up() {
-        // Tile at page y=1, scrolled down by 1 CSS px → lands at viewport (0,0).
+        // Tile at page y=1, scrolled down by 1 CSS px -> lands at viewport (0,0).
         let mut buf = [WHITE; 4];
         composite_tiles(
             &[tile_rgba(0.0, 1.0, [0, 255, 0, 255])],
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn argb_to_rgba8_channel_order() {
-        // 0xAARRGGBB red → [R,G,B,255].
+        // 0xAARRGGBB red -> [R,G,B,255].
         assert_eq!(argb_u32_to_rgba8(&[0xFF12_3456]), vec![0x12, 0x34, 0x56, 255]);
     }
 }

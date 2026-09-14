@@ -44,6 +44,12 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
                     }
                 }
 
+                // A shadow host's tree is printed under the host, before its light children,
+                // since the shadow root is not one of them.
+                if let Some(shadow_root) = self.document.shadow_root(node_id) {
+                    output.append(&mut self.output_treeline(shadow_root, indent_level + 1));
+                }
+
                 // Template tags have an extra "content" node in the test tree output
                 let is_html_template = self.document.tag_name(node_id) == Some("template")
                     && self.document.namespace(node_id) == Some(crate::node::HTML_NAMESPACE);
@@ -93,6 +99,13 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
                     format!(r#"{name} "{pub_id}" "{sys_id}""#)
                 };
                 format!("<!DOCTYPE {}>", doctype_text.trim())
+            }
+            NodeType::ShadowRootNode => {
+                let mode = self
+                    .document
+                    .shadow_root_init(node_id)
+                    .map_or("open", |init| init.mode.as_attribute());
+                format!("#shadow-root ({mode})")
             }
             NodeType::DocumentNode => String::new(),
         }

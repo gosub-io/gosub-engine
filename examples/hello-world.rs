@@ -347,6 +347,9 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 ResourceEvent::Cancelled { url, reason, .. } => {
                     println!("[res ] cancelled [{t}] {url}  ({reason:?})");
                 }
+                // Request line, body preview and connection timings: detail for a devtools
+                // panel rather than a log line, and this example is a log line.
+                _ => {}
             }
         }
 

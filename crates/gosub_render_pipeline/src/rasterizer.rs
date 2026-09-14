@@ -265,7 +265,8 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                     hstr!(&t.text);
                     hstr!(&t.font_info.family);
                     hf64!(t.font_info.size);
-                    hf64!(t.font_info.line_height);
+                    // `normal` (None) hashes as -1.0, distinct from any real px line-height.
+                    hf64!(t.font_info.line_height.unwrap_or(-1.0));
                     hu64!(t.font_info.weight as u64);
                     hu64!(t.font_info.width as u64);
                     hu64!(t.font_info.slant as u64);
@@ -308,7 +309,7 @@ pub fn rasterize_sequential(
     use crate::tiler::TileState;
     use gosub_shared::{timing_start, timing_stop};
 
-    let ts6 = timing_start!("pipeline.rasterize");
+    let ts6 = timing_start!(gosub_shared::timing::Timing::PipelineRasterize);
     let mut texture_store = TextureStore::new();
 
     for &layer_id in layer_ids {
@@ -361,7 +362,7 @@ pub fn rasterize_parallel(
     full_page_rect: crate::common::geo::Rect,
     media_store: &crate::common::media::MediaStore,
     prev_tile_cache: &TilePixelCache,
-    timing_label: &str,
+    timing_label: gosub_shared::timing::Timing,
 ) -> (Vec<BakedTile>, TilePixelCache) {
     use crate::common::texture_store::TextureStore;
     use crate::render::backend::PixelFormat;

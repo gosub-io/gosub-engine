@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>09 - explicit cell widths</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; width: 600px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .w100 { width: 100px; background-color: #ffd9b3; }
+  .w25p { width: 25%; background-color: #d9ffb3; }
+  .late { background-color: #f0d9ff; width: 320px; }
+</style>
+</head>
+<body>
+<h3>Explicit widths - px, %, auto mixed in a 600px table</h3>
+<p>Expected: column 1 is 100px (orange), column 2 is 25% of 600px = 150px
+(green), columns 3 and 4 share the rest. Second table: the explicit width
+sits on a <em>second-row</em> cell (purple, 320px) - it must still win the
+column width (320px is deliberately not the equal share, so a failure is
+visible).</p>
+<table>
+  <tr><td class="w100">100px</td><td class="w25p">25%</td><td>auto</td><td>auto</td></tr>
+  <tr><td>x</td><td>x</td><td>x</td><td>x</td></tr>
+</table>
+
+<br>
+
+<table>
+  <tr><td>auto</td><td>auto</td><td>auto</td></tr>
+  <tr><td class="late">320px on row 2</td><td>x</td><td>x</td></tr>
+</table>
+</body>
+</html>
