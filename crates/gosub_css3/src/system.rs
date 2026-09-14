@@ -10,7 +10,6 @@ use crate::matcher::styling::{
 };
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
-use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
@@ -367,55 +366,6 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
                     fix_list.reset_multiplier(&declaration.property);
                     if !definition.matches_and_shorthands(match_value, &mut fix_list) {
-                        // Special-case: the full `background` shorthand grammar
-                        // (comma-separated `<bg-layer>` lists) is stricter than the
-                        // matcher supports, so common forms like
-                        // `background: url(x) no-repeat` or `background: #fff` fail
-                        // validation and would be dropped entirely. Recover the parts
-                        // the consumer understands - `background-image` (a `url()`)
-                        // and `background-color` (a color) - and emit them as the
-                        // corresponding longhands. Position/repeat/size are still
-                        // ignored.
-                        if declaration.property == "background" {
-                            let mut recovered = false;
-                            // `url(...)` or a `*-gradient(...)` both become the
-                            // `background-image` longhand the consumer reads.
-                            if let Some(image_value) =
-                                find_background_url(&value).or_else(|| find_background_gradient(&value))
-                            {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-image".to_string(),
-                                        value: image_value,
-                                        important: declaration.important,
-                                    },
-                                    depth,
-                                    order,
-                                );
-                                recovered = true;
-                            }
-                            if let Some(color_value) = find_background_color(&value) {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-color".to_string(),
-                                        value: color_value,
-                                        important: declaration.important,
-                                    },
-                                    depth,
-                                    order,
-                                );
-                                recovered = true;
-                            }
-                            if recovered {
-                                continue;
-                            }
-                        }
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
                     }
@@ -746,31 +696,10 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
     }
 }
 
-/// Recursively find the first `url(...)` function inside a (possibly nested/list) CSS value.
-/// Used to recover `background-image` from a `background` shorthand that fails strict matching.
-fn find_background_url(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.eq_ignore_ascii_case("url") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_url),
-        _ => None,
-    }
-}
-
-/// Recursively find the first `*-gradient(...)` function inside a (possibly nested/list)
-/// CSS value. Used to recover the image part of a `background` shorthand whose full
-/// `<bg-layer>` grammar the value matcher does not yet support.
-fn find_background_gradient(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.cow_to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_gradient),
-        _ => None,
-    }
-}
-
-/// Recursively find the first color inside a (possibly nested/list) CSS value.
-/// Used to recover `background-color` from a `background` shorthand. The `currentColor`
-/// keyword is a valid color too; it is preserved as a string and resolved to the element's
-/// `color` later in the render bridge.
+/// Recursively find the first color inside a (possibly nested/list) CSS value. Used to emit
+/// the `background-color` longhand of a `background` shorthand. The `currentColor` keyword is
+/// a valid color too; it is preserved as a string and resolved to the element's `color` later
+/// in the render bridge.
 fn find_background_color(value: &CssValue) -> Option<CssValue> {
     match value {
         CssValue::Color(_) => Some(value.clone()),
