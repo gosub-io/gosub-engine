@@ -142,14 +142,26 @@ impl PropertyDefinition {
         self.syntax.matches(input)
     }
 
+    /// Matches `input` against this definition and, for a shorthand, records the longhands it
+    /// expands to in `fix_list`.
+    ///
+    /// On a failed match the fix list is left exactly as it was. The resolver records a longhand
+    /// the moment its piece of the grammar completes, and only a branch abandoned *before* that
+    /// point is undone by its snapshot - so `border: 1px solid banana` used to leave
+    /// `border-width: 1px` and `border-style: solid` behind after the declaration as a whole was
+    /// rejected, and they reached the element as if the author had written them.
     pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
-        if let Some(shorthands) = &self.shorthands {
-            let resolver = shorthands.get_resolver(fix_list);
+        let Some(shorthands) = &self.shorthands else {
+            return self.syntax.matches(input);
+        };
 
-            self.syntax.matches_and_shorthands(input, resolver)
-        } else {
-            self.syntax.matches(input)
+        let before = fix_list.clone();
+        let resolver = shorthands.get_resolver(fix_list);
+        if self.syntax.matches_and_shorthands(input, resolver) {
+            return true;
         }
+        *fix_list = before;
+        false
     }
 
     #[must_use]

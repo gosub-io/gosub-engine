@@ -50,6 +50,9 @@ mod select_ui;
 mod text_ui;
 
 #[cfg(test)]
+// Same waiver as `mod tests` at the bottom of this file: `clippy.toml` exempts the other panics in
+// tests, but there is no `allow-unreachable-in-tests` to match.
+#[allow(clippy::unreachable)]
 mod forms_tests;
 
 /// A picker input the user activated: the embedder should open its picker over it.

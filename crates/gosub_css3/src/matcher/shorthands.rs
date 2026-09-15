@@ -845,6 +845,35 @@ mod tests {
         expanded.iter().find(|(n, _)| n == name).map(|(_, v)| v)
     }
 
+    /// A declaration that fails as a whole must leave nothing behind. The resolver records a
+    /// longhand as soon as its grammar piece completes, so without a rollback `border: 1px solid
+    /// banana` set `border-width` and `border-style` even though the declaration was rejected.
+    #[test]
+    fn a_failed_shorthand_records_no_longhands() {
+        use crate::Css3;
+        use gosub_interface::css3::CssOrigin;
+        use gosub_shared::config::ParserConfig;
+
+        let definitions = get_css_definitions();
+        let prop = definitions.find_property("border").expect("border is defined");
+        let config = ParserConfig {
+            match_values: false,
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let sheet = Css3::parse_str("x { border: 1px solid banana; }", config, CssOrigin::Author, "t").expect("parse");
+        let decl = &sheet.rules[0].declarations[0];
+        let values = decl.value.to_slice();
+
+        let mut fix_list = FixList::new();
+        assert!(!prop.matches_and_shorthands(values, &mut fix_list));
+        let recorded: Vec<&str> = fix_list.list.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(
+            recorded.is_empty(),
+            "a rejected declaration left {recorded:?} in the fix list"
+        );
+    }
+
     /// `font: <size>/<line-height> <family>` must expand line-height - it drives the line-box
     /// height of every WPT table test using the `font:` shorthand.
     #[test]
