@@ -136,6 +136,35 @@ pub enum IoCommand {
     },
 }
 
+/// Which picker an input opens; the `type` attribute, for the six types the engine does not
+/// edit as text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PickerKind {
+    Color,
+    Date,
+    Time,
+    DateTimeLocal,
+    Month,
+    Week,
+}
+
+impl PickerKind {
+    /// From the `type` attribute (any case). `None` for the types that edit as text.
+    pub fn from_input_type(ty: &str) -> Option<Self> {
+        [
+            ("color", Self::Color),
+            ("date", Self::Date),
+            ("time", Self::Time),
+            ("datetime-local", Self::DateTimeLocal),
+            ("month", Self::Month),
+            ("week", Self::Week),
+        ]
+        .into_iter()
+        .find(|(name, _)| ty.eq_ignore_ascii_case(name))
+        .map(|(_, kind)| kind)
+    }
+}
+
 /// Commands that can be sent to a specific tab
 #[derive(Clone, Debug, PartialEq)]
 pub enum TabCommand {
@@ -255,6 +284,19 @@ pub enum TabCommand {
     CharInput {
         ch: char,
     },
+    /// The shell's picker moved: apply `value` to the input that asked for it (see
+    /// [`EngineEvent::PickerRequested`]). The value is sanitised the way the HTML spec
+    /// sanitises the control's value: a colour in any CSS notation (`#663399`,
+    /// `rebeccapurple`, `rgb(102 51 153)`) lands as `#rrggbb` and an unparsable one as
+    /// `#000000`; a date, time, `datetime-local`, month or week must be a valid string of
+    /// that kind (`2026-09-15`, `10:35`, `2026-09-15T10:35`, `2026-09`, `2026-W38`) and
+    /// anything else clears the control. Sent on every change while the picker is open, so
+    /// the control previews live; a cancel is a `PickerChanged` back to the original value.
+    PickerChanged {
+        value: String,
+    },
+    /// The shell's picker closed. Later `PickerChanged`s are dropped until the next request.
+    PickerClosed,
 
     // ****************************************
     // ** Session / zone state
@@ -656,6 +698,27 @@ pub enum EngineEvent {
     /// [`TabCommand::TextInput`].
     PasteRequested {
         tab_id: TabId,
+    },
+    /// The user activated an input that opens a picker - `type=color`, `date`, `time`,
+    /// `datetime-local`, `month` or `week` - by clicking it, or with Enter/Space while it is
+    /// focused. The engine draws no picker of its own: the shell opens the platform's over
+    /// the control's border box (`x`, `y`, `width`, `height`, in viewport CSS px - the same
+    /// space mouse coordinates arrive in) and answers with [`TabCommand::PickerChanged`] as
+    /// the choice moves and [`TabCommand::PickerClosed`] when it is done. `value` is the
+    /// input's current value, sanitised (`#rrggbb`, or the ISO form of the date kinds, or
+    /// empty); `min`, `max` and `step` are the attributes as written, for the shell to grey
+    /// out what the control would refuse.
+    PickerRequested {
+        tab_id: TabId,
+        kind: PickerKind,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        value: String,
+        min: Option<String>,
+        max: Option<String>,
+        step: Option<String>,
     },
     /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {

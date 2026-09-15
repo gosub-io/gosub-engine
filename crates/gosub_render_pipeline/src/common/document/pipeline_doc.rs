@@ -955,6 +955,12 @@ pub trait PipelineDocument: Send + Sync {
         false
     }
 
+    /// An element's attribute, for the few paint decisions that hang on markup rather than
+    /// style: which format a date input shows its value in.
+    fn attribute(&self, _id: NodeId, _name: &str) -> Option<String> {
+        None
+    }
+
     fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
         None
     }
@@ -2429,6 +2435,10 @@ where
 
     fn is_checked(&self, id: NodeId) -> bool {
         self.doc.is_checked(id)
+    }
+
+    fn attribute(&self, id: NodeId, name: &str) -> Option<String> {
+        self.doc.attribute(id, name).map(str::to_string)
     }
 
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {

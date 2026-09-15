@@ -707,6 +707,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.render_now = true;
                 self.run_pending_submission();
                 self.run_clipboard_traffic();
+                self.run_picker_request();
                 return ControlFlow::Continue;
             }
             // A clipboard chord can ask for a paste without consuming the key visibly.
@@ -1072,6 +1073,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.runtime.render_now = true;
                     }
                     self.run_pending_submission();
+                    self.run_picker_request();
                 }
                 self.runtime.dirty = true;
                 ControlFlow::Continue
@@ -1089,6 +1091,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     self.runtime.render_now = true;
                 }
                 self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::PickerChanged { value } => {
+                if self.context.set_picker_value(&value) {
+                    self.runtime.dirty = true;
+                    self.runtime.render_now = true;
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::PickerClosed => {
+                self.context.end_picker();
                 ControlFlow::Continue
             }
             TabCommand::MouseUp { .. } => {
@@ -1174,6 +1187,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
         if self.context.take_paste_request() {
             self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id });
+        }
+    }
+
+    /// Tell the embedder an input wants its picker, if the last click/key activated one.
+    fn run_picker_request(&mut self) {
+        if let Some(req) = self.context.take_picker_request() {
+            self.send_event(EngineEvent::PickerRequested {
+                tab_id: self.tab_id,
+                kind: req.kind,
+                x: req.anchor.x as f32,
+                y: req.anchor.y as f32,
+                width: req.anchor.width as f32,
+                height: req.anchor.height as f32,
+                value: req.value,
+                min: req.min,
+                max: req.max,
+                step: req.step,
+            });
         }
     }
 

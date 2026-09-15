@@ -1,6 +1,7 @@
 //! Editing form controls: typing into text fields, toggling checkboxes/radios. The state lives
 //! on the DOM document (`ControlEditState`, `is_checked`) where selectors and the painter read it.
 
+use crate::engine::events::PickerKind;
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
 use gosub_interface::document::{ControlEditState, Document as _};
@@ -62,6 +63,225 @@ pub fn initial_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId
         return out.strip_prefix('\n').unwrap_or(&out).to_string();
     }
     doc.attribute(id, "value").unwrap_or_default().to_string()
+}
+
+/// Which picker `id` opens, when it is an enabled, writable input of a picker type.
+pub fn picker_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<PickerKind> {
+    if doc.tag_name(id) != Some("input") || doc.attribute(id, "disabled").is_some() {
+        return None;
+    }
+    let kind = PickerKind::from_input_type(doc.attribute(id, "type")?)?;
+    // A colour input has no readonly state (the attribute does not apply to it); the others do.
+    if kind != PickerKind::Color && doc.attribute(id, "readonly").is_some() {
+        return None;
+    }
+    Some(kind)
+}
+
+/// Any CSS colour as the simple `#rrggbb` an `<input type=color>` holds, or `None` when it does
+/// not parse. Alpha is dropped: the control has none.
+pub fn simple_color(raw: &str) -> Option<String> {
+    let c = gosub_render_pipeline::painter::commands::color::Color::try_from_css(raw.trim())?;
+    Some(format!("#{:02x}{:02x}{:02x}", c.r8(), c.g8(), c.b8()))
+}
+
+/// `raw` as the control of `kind` would hold it, per the HTML value sanitisation algorithm: a
+/// colour is `#rrggbb` or black; the date kinds are their valid ISO string, or empty.
+pub fn sanitize_picker_value(kind: PickerKind, raw: &str) -> String {
+    let raw = raw.trim();
+    match kind {
+        PickerKind::Color => simple_color(raw).unwrap_or_else(|| "#000000".to_string()),
+        PickerKind::Date => valid_date(raw).map(str::to_string).unwrap_or_default(),
+        PickerKind::Time => valid_time(raw).unwrap_or_default(),
+        PickerKind::DateTimeLocal => valid_datetime_local(raw).unwrap_or_default(),
+        PickerKind::Month => valid_month(raw).map(str::to_string).unwrap_or_default(),
+        PickerKind::Week => valid_week(raw).map(str::to_string).unwrap_or_default(),
+    }
+}
+
+/// The live value of a picker input, sanitised.
+pub fn picker_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId, kind: PickerKind) -> String {
+    let raw = doc
+        .control_edit_state(id)
+        .map(|s| s.value)
+        .unwrap_or_else(|| initial_value(doc, id));
+    sanitize_picker_value(kind, &raw)
+}
+
+/// The `min`, `max` and `step` attributes as written, for the shell.
+pub fn picker_bounds<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    id: NodeId,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let attr = |name: &str| doc.attribute(id, name).map(str::to_string);
+    (attr("min"), attr("max"), attr("step"))
+}
+
+fn digits(s: &str, n: usize) -> Option<u32> {
+    (s.len() == n && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok())?
+}
+
+fn is_leap(year: u32) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+/// `yyyy-mm` with a real month and a year of at least four digits (the spec allows more).
+fn year_month(s: &str) -> Option<(u32, u32)> {
+    let (y, m) = s.split_once('-')?;
+    if y.len() < 4 || !y.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let year: u32 = y.parse().ok()?;
+    let month = digits(m, 2)?;
+    (year >= 1 && (1..=12).contains(&month)).then_some((year, month))
+}
+
+fn valid_month(s: &str) -> Option<&str> {
+    year_month(s).map(|_| s)
+}
+
+fn valid_date(s: &str) -> Option<&str> {
+    let (ym, d) = s.rsplit_once('-')?;
+    let (year, month) = year_month(ym)?;
+    let day = digits(d, 2)?;
+    (day >= 1 && day <= days_in_month(year, month)).then_some(s)
+}
+
+/// `hh:mm` or `hh:mm:ss[.fff]`, normalised: seconds are kept only when present.
+fn valid_time(s: &str) -> Option<String> {
+    let mut parts = s.split(':');
+    let hour = digits(parts.next()?, 2)?;
+    let minute = digits(parts.next()?, 2)?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    match parts.next() {
+        None => Some(format!("{hour:02}:{minute:02}")),
+        Some(sec) => {
+            if parts.next().is_some() {
+                return None;
+            }
+            let (whole, frac) = sec.split_once('.').unwrap_or((sec, ""));
+            let second = digits(whole, 2)?;
+            if second > 59 || frac.len() > 3 || !frac.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            Some(if frac.is_empty() {
+                format!("{hour:02}:{minute:02}:{second:02}")
+            } else {
+                format!("{hour:02}:{minute:02}:{second:02}.{frac}")
+            })
+        }
+    }
+}
+
+/// A date and a time joined by `T` (or a space, which the spec also takes), normalised to `T`.
+fn valid_datetime_local(s: &str) -> Option<String> {
+    let (date, time) = s.split_once(['T', ' '])?;
+    let date = valid_date(date)?;
+    let time = valid_time(time)?;
+    Some(format!("{date}T{time}"))
+}
+
+/// `yyyy-Www`, where week 53 exists only in a year that has one (ISO 8601: a year starting on
+/// a Thursday, or a leap year starting on a Wednesday).
+fn valid_week(s: &str) -> Option<&str> {
+    let (y, w) = s.split_once("-W")?;
+    if y.len() < 4 || !y.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let year: u32 = y.parse().ok()?;
+    let week = digits(w, 2)?;
+    if year == 0 || week == 0 || week > 53 {
+        return None;
+    }
+    if week == 53 {
+        // Day of week of 1 January (0 = Sunday), by Zeller's congruence on the Gregorian calendar.
+        let (q, m, y) = (1u32, 13u32, year - 1);
+        let (k, j) = (y % 100, y / 100);
+        let h = (q + (13 * (m + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
+        // h: 0 = Saturday, 1 = Sunday, ..., 5 = Thursday, 4 = Wednesday
+        let thursday = h == 5;
+        let wednesday = h == 4;
+        if !(thursday || (is_leap(year) && wednesday)) {
+            return None;
+        }
+    }
+    Some(s)
+}
+
+#[cfg(test)]
+mod picker_value_tests {
+    use super::*;
+
+    #[test]
+    fn dates_are_checked_against_the_calendar() {
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "2026-09-15"), "2026-09-15");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "2024-02-29"), "2024-02-29");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "2026-02-29"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "2026-13-01"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "26-09-15"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, "15-09-2026"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Date, ""), "");
+    }
+
+    #[test]
+    fn times_normalise_and_refuse_nonsense() {
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "10:35"), "10:35");
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "10:35:07"), "10:35:07");
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "10:35:07.5"), "10:35:07.5");
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "24:00"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "9:05"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Time, "10:35 AM"), "");
+    }
+
+    #[test]
+    fn the_compound_kinds() {
+        assert_eq!(
+            sanitize_picker_value(PickerKind::DateTimeLocal, "2026-09-15T10:35"),
+            "2026-09-15T10:35"
+        );
+        assert_eq!(
+            sanitize_picker_value(PickerKind::DateTimeLocal, "2026-09-15 10:35"),
+            "2026-09-15T10:35"
+        );
+        assert_eq!(sanitize_picker_value(PickerKind::DateTimeLocal, "2026-09-15"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Month, "2026-09"), "2026-09");
+        assert_eq!(sanitize_picker_value(PickerKind::Month, "2026-00"), "");
+        assert_eq!(sanitize_picker_value(PickerKind::Week, "2026-W38"), "2026-W38");
+        assert_eq!(
+            sanitize_picker_value(PickerKind::Week, "2025-W53"),
+            "",
+            "2025 has 52 weeks"
+        );
+        assert_eq!(
+            sanitize_picker_value(PickerKind::Week, "2026-W53"),
+            "2026-W53",
+            "2026 starts on a Thursday: 53"
+        );
+        assert_eq!(
+            sanitize_picker_value(PickerKind::Week, "2020-W53"),
+            "2020-W53",
+            "2020: leap year from a Wednesday"
+        );
+        assert_eq!(sanitize_picker_value(PickerKind::Week, "2026-W00"), "");
+    }
+
+    #[test]
+    fn colours_stay_as_before() {
+        assert_eq!(sanitize_picker_value(PickerKind::Color, "RebeccaPurple"), "#663399");
+        assert_eq!(sanitize_picker_value(PickerKind::Color, "nope"), "#000000");
+    }
 }
 
 /// `Some(is_radio)` when `id` is an enabled checkbox or radio button.

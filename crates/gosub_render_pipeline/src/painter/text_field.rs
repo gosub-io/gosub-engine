@@ -454,3 +454,70 @@ pub fn index_at_x(fs: &mut dyn FontSystem, text: &str, font_info: &FontInfo, x: 
         lo
     }
 }
+
+/// How a date/time input shows its ISO value: the format its empty placeholder promises
+/// (`dd-mm-yyyy`, `--:--`, `dd-mm-yyyy --:--`, a month name and year, `Week ww, yyyy`).
+/// `None` for the text kinds, and for a value that is not in the kind's form.
+pub fn display_value(input_type: &str, value: &str) -> Option<String> {
+    fn date(v: &str) -> Option<String> {
+        let mut it = v.splitn(3, '-');
+        let (y, m, d) = (it.next()?, it.next()?, it.next()?);
+        (y.len() >= 4 && m.len() == 2 && d.len() == 2).then(|| format!("{d}-{m}-{y}"))
+    }
+    fn time(v: &str) -> Option<String> {
+        let (h, rest) = v.split_once(':')?;
+        (h.len() == 2 && rest.len() >= 2).then(|| v.to_string())
+    }
+    let is = |name: &str| input_type.eq_ignore_ascii_case(name);
+    match () {
+        _ if is("date") => date(value),
+        _ if is("time") => time(value),
+        _ if is("datetime-local") => {
+            let (d, t) = value.split_once('T')?;
+            Some(format!("{} {}", date(d)?, time(t)?))
+        }
+        _ if is("month") => {
+            let (y, m) = value.split_once('-')?;
+            let name = match m {
+                "01" => "January",
+                "02" => "February",
+                "03" => "March",
+                "04" => "April",
+                "05" => "May",
+                "06" => "June",
+                "07" => "July",
+                "08" => "August",
+                "09" => "September",
+                "10" => "October",
+                "11" => "November",
+                "12" => "December",
+                _ => return None,
+            };
+            Some(format!("{name} {y}"))
+        }
+        _ if is("week") => {
+            let (y, w) = value.split_once("-W")?;
+            (w.len() == 2).then(|| format!("Week {w}, {y}"))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::display_value;
+
+    #[test]
+    fn picked_values_show_in_the_placeholder_format() {
+        assert_eq!(display_value("date", "2026-09-15").as_deref(), Some("15-09-2026"));
+        assert_eq!(display_value("time", "10:35").as_deref(), Some("10:35"));
+        assert_eq!(
+            display_value("datetime-local", "2026-09-15T10:35").as_deref(),
+            Some("15-09-2026 10:35")
+        );
+        assert_eq!(display_value("month", "2026-09").as_deref(), Some("September 2026"));
+        assert_eq!(display_value("week", "2026-W38").as_deref(), Some("Week 38, 2026"));
+        assert_eq!(display_value("text", "2026-09-15"), None);
+        assert_eq!(display_value("date", ""), None);
+    }
+}
