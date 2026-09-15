@@ -814,15 +814,21 @@ impl Painter {
                     .control_edit_state(dom_node_id)
                     .unwrap_or_else(|| ControlEditState::new(initial_value.clone(), initial_value.chars().count()));
                 let value = state.value.clone();
-                let caret = focused.then_some(state.caret);
-                let selection = if focused { state.selection() } else { None };
+                // A date/time kind holds an ISO string and shows it the way its placeholder
+                // promised (`dd-mm-yyyy`); it is picked, not typed, so it has no caret.
+                let shown = doc
+                    .attribute(dom_node_id, "type")
+                    .and_then(|ty| text_field::display_value(&ty, &value));
+                let picked = shown.is_some();
+                let caret = if picked { None } else { focused.then_some(state.caret) };
+                let selection = if focused && !picked { state.selection() } else { None };
                 let is_placeholder = value.is_empty();
                 let mut text = if is_placeholder {
                     placeholder.clone()
                 } else if *masked {
                     "\u{2022}".repeat(value.chars().count())
                 } else {
-                    value.clone()
+                    shown.unwrap_or_else(|| value.clone())
                 };
                 let brush = if is_placeholder {
                     fill(Color::from_rgb8(0x75, 0x75, 0x75))
@@ -1116,7 +1122,11 @@ impl Painter {
                 }
             }
             FormControl::ColorSwatch { value } => {
-                let color = Color::try_from_css(value).unwrap_or(Color::BLACK);
+                // What the picker chose lives on the document, like typed text; the markup
+                // value is only the default. Unparsable is black, per value sanitisation.
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let live = doc.control_edit_state(dom_node_id).map(|s| s.value);
+                let color = Color::try_from_css(live.as_deref().unwrap_or(value)).unwrap_or(Color::BLACK);
                 commands.push(PaintCommand::rectangle(
                     Rectangle::new(content_box)
                         .with_background(fill(color))
