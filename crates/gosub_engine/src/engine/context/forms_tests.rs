@@ -511,6 +511,116 @@ fn range_keys_and_drag() {
     assert_eq!(value(&ctx, "r"), "100");
 }
 
+#[test]
+fn color_input_asks_the_embedder_and_takes_its_answers() {
+    let mut ctx = page(
+        r##"<input id="c" type="color" value="#0066CC"><label for="c" id="l">pick</label>
+            <input id="d" type="color" disabled>"##,
+    );
+    assert!(ctx.take_picker_request().is_none());
+
+    // A click asks for the picker over the control, with its current colour.
+    click(&mut ctx, "c");
+    let req = ctx.take_picker_request().expect("a click asks for the picker");
+    assert_eq!(req.node, by_id(&ctx, "c"));
+    assert_eq!(req.kind, crate::engine::events::PickerKind::Color);
+    assert_eq!(req.value, "#0066cc", "the value is handed over sanitised");
+    let b = border_box(&ctx, by_id(&ctx, "c"));
+    assert_eq!((req.anchor.x, req.anchor.y), (b.x, b.y));
+    assert_eq!((req.anchor.width, req.anchor.height), (b.width, b.height));
+    assert!(ctx.take_picker_request().is_none(), "a request is handed over once");
+
+    // Answers arrive in any CSS notation and land as the simple colour the control holds.
+    assert!(ctx.set_picker_value("rebeccapurple"));
+    assert_eq!(value(&ctx, "c"), "#663399");
+    assert!(ctx.set_picker_value("rgb(255, 0, 0)"));
+    assert_eq!(value(&ctx, "c"), "#ff0000");
+    assert!(
+        !ctx.set_picker_value("#FF0000"),
+        "the same colour again is not a change"
+    );
+    assert!(ctx.set_picker_value("not a colour"));
+    assert_eq!(value(&ctx, "c"), "#000000", "unparsable sanitises to black");
+
+    // Once the picker is closed, stray answers go nowhere.
+    ctx.end_picker();
+    assert!(!ctx.set_picker_value("#123456"));
+    assert_eq!(value(&ctx, "c"), "#000000");
+
+    // The keyboard opens it too, and a label click reaches the control.
+    key(&mut ctx, "Enter");
+    assert_eq!(ctx.take_picker_request().map(|r| r.value).as_deref(), Some("#000000"));
+    key(&mut ctx, " ");
+    assert!(ctx.take_picker_request().is_some());
+    click(&mut ctx, "l");
+    assert_eq!(ctx.take_picker_request().map(|r| r.node), Some(by_id(&ctx, "c")));
+
+    // A disabled control asks for nothing.
+    click(&mut ctx, "d");
+    assert!(ctx.take_picker_request().is_none());
+}
+
+#[test]
+fn date_inputs_ask_for_a_picker_and_take_only_valid_answers() {
+    use crate::engine::events::PickerKind;
+    let mut ctx = page(
+        r#"<input id="d" type="date" value="2026-09-15" min="2026-01-01" max="2026-12-31" step="7">
+           <input id="t" type="time" value="10:35">
+           <input id="dt" type="datetime-local">
+           <input id="ro" type="date" readonly value="2026-01-01">"#,
+    );
+    click(&mut ctx, "d");
+    let req = ctx.take_picker_request().expect("a date input asks");
+    assert_eq!(req.kind, PickerKind::Date);
+    assert_eq!(req.value, "2026-09-15");
+    assert_eq!(
+        (req.min.as_deref(), req.max.as_deref(), req.step.as_deref()),
+        (Some("2026-01-01"), Some("2026-12-31"), Some("7"))
+    );
+    assert!(ctx.set_picker_value("2026-10-01"));
+    assert_eq!(value(&ctx, "d"), "2026-10-01");
+    assert!(ctx.set_picker_value("2026-02-30"));
+    assert_eq!(value(&ctx, "d"), "", "an impossible date clears the control");
+    ctx.end_picker();
+
+    click(&mut ctx, "t");
+    let req = ctx.take_picker_request().expect("a time input asks");
+    assert_eq!(
+        (req.kind, req.value.as_str(), req.min),
+        (PickerKind::Time, "10:35", None)
+    );
+    assert!(ctx.set_picker_value("23:59:30"));
+    assert_eq!(value(&ctx, "t"), "23:59:30");
+    ctx.end_picker();
+
+    // Empty until picked; a space between date and time is taken and normalised.
+    click(&mut ctx, "dt");
+    let req = ctx.take_picker_request().expect("a datetime-local input asks");
+    assert_eq!((req.kind, req.value.as_str()), (PickerKind::DateTimeLocal, ""));
+    assert!(ctx.set_picker_value("2026-09-15 10:35"));
+    assert_eq!(value(&ctx, "dt"), "2026-09-15T10:35");
+    ctx.end_picker();
+
+    // Readonly date inputs are not editable by picker either.
+    click(&mut ctx, "ro");
+    assert!(ctx.take_picker_request().is_none());
+    assert!(!ctx.set_picker_value("2026-05-05"));
+}
+
+#[test]
+fn color_input_submits_what_the_picker_chose() {
+    let mut ctx = page(
+        r##"<form id="f" action="/go"><input name="c" id="c" type="color" value="#0066cc"><input id="s" type="submit"></form>"##,
+    );
+    click(&mut ctx, "c");
+    ctx.take_picker_request();
+    ctx.set_picker_value("Rebeccapurple");
+    ctx.end_picker();
+    click(&mut ctx, "s");
+    let sub = ctx.take_submission().expect("submitted");
+    assert_eq!(sub.url.query(), Some("c=%23663399"));
+}
+
 // ── submit / reset ────────────────────────────────────────────────────────────
 
 #[test]

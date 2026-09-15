@@ -8,7 +8,7 @@
 
 use crate::engine::damage::{Damage, DamageLevel};
 use crate::engine::edit;
-use crate::engine::events::{CursorShape, HitTestResponse};
+use crate::engine::events::{CursorShape, HitTestResponse, PickerKind};
 use crate::engine::focus;
 use crate::engine::form;
 pub use crate::engine::form::Submission;
@@ -52,6 +52,19 @@ mod text_ui;
 #[cfg(test)]
 mod forms_tests;
 
+/// A picker input the user activated: the embedder should open its picker over it.
+#[derive(Debug, Clone)]
+pub struct PickerRequest {
+    pub node: NodeId,
+    pub kind: PickerKind,
+    /// The control's border box in viewport CSS px.
+    pub anchor: PipelineRect,
+    /// Its current value, sanitised.
+    pub value: String,
+    pub min: Option<String>,
+    pub max: Option<String>,
+    pub step: Option<String>,
+}
 /// A textarea resize in progress: where the pointer started and the border-box size then.
 #[derive(Debug, Clone, Copy)]
 struct ResizeDrag {
@@ -235,6 +248,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// Clipboard traffic towards the embedder; see `text_ui`.
     clipboard_write: Option<String>,
     paste_requested: bool,
+    /// A picker input the user activated, waiting for the tab worker to tell the embedder.
+    picker_request: Option<PickerRequest>,
+    /// The input whose picker the embedder has open; its answers land here.
+    picker_target: Option<NodeId>,
     /// Dropdown type-ahead: the letters typed so far and when the last one arrived.
     typeahead: Option<(String, std::time::Instant)>,
     /// Font system for caret placement when the rasterizer doesn't share one (tests, null
@@ -302,6 +319,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             last_press: None,
             clipboard_write: None,
             paste_requested: false,
+            picker_request: None,
+            picker_target: None,
             typeahead: None,
             fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
@@ -373,6 +392,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
         self.end_drag();
+        // Node ids belong to the document that is gone; an answer for the old picker must not
+        // land on whatever node the new document gave the same id to.
+        self.picker_request = None;
+        self.picker_target = None;
     }
 
     /// Drop cached raster output when the device-pixel ratio has moved since it was produced.
@@ -1283,7 +1306,80 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if edit::is_select(&doc, target) {
             return self.open_select_popup(target);
         }
+        if let Some(kind) = edit::picker_kind(&doc, target) {
+            return self.request_picker(target, kind);
+        }
         self.toggle_control(target)
+    }
+
+    /// The border box of `node`'s form control, in document coordinates.
+    pub(super) fn control_anchor(&self, node: NodeId) -> Option<PipelineRect> {
+        use gosub_render_pipeline::layouter::ElementContext;
+        let ll = self.active_layer_list()?;
+        ll.layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == node && matches!(el.context, ElementContext::FormControl(_)))
+            .map(|el| el.box_model.border_box)
+    }
+
+    /// Ask the embedder to open its picker for `node`. Nothing is drawn: the request is parked
+    /// for the tab worker to emit, and the answers arrive through [`Self::set_picker_value`].
+    fn request_picker(&mut self, node: NodeId, kind: PickerKind) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let anchor = self
+            .control_anchor(node)
+            .unwrap_or(PipelineRect::new(0.0, 0.0, 0.0, 0.0));
+        // Viewport coordinates, like the pointer events the shell sends: it is placing a
+        // window over the control, not over the document.
+        let anchor = PipelineRect::new(
+            anchor.x - self.scroll_x,
+            anchor.y - self.scroll_y,
+            anchor.width,
+            anchor.height,
+        );
+        let (min, max, step) = edit::picker_bounds(&doc, node);
+        self.picker_request = Some(PickerRequest {
+            node,
+            kind,
+            anchor,
+            value: edit::picker_value(&doc, node, kind),
+            min,
+            max,
+            step,
+        });
+        self.picker_target = Some(node);
+        true
+    }
+
+    /// The picker input activated since the last call, for the tab worker to pass on.
+    pub fn take_picker_request(&mut self) -> Option<PickerRequest> {
+        self.picker_request.take()
+    }
+
+    /// The embedder's picker moved to `value`: store it on the input that asked, sanitised for
+    /// its kind. False when nothing changed, or no picker is open.
+    pub fn set_picker_value(&mut self, value: &str) -> bool {
+        let (Some(node), Some(doc)) = (self.picker_target, self.document.clone()) else {
+            return false;
+        };
+        let Some(kind) = edit::picker_kind(&doc, node) else {
+            return false;
+        };
+        let next = edit::sanitize_picker_value(kind, value);
+        if edit::picker_value(&doc, node, kind) == next && doc.control_edit_state(node).is_some() {
+            return false;
+        }
+        doc.set_control_edit_state(node, Some(gosub_interface::document::ControlEditState::new(next, 0)));
+        self.request_repaint(node);
+        true
+    }
+
+    /// The embedder closed its picker; further answers are ignored until the next request.
+    pub fn end_picker(&mut self) {
+        self.picker_target = None;
     }
 
     /// Pointer moved with the button held: follow a slider drag (paint-only) or a textarea
@@ -1514,6 +1610,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         if edit::range_params(&doc, node).is_some() && !ctrl_or_meta {
             return self.range_key(node, key);
+        }
+        if let Some(kind) = edit::picker_kind(&doc, node).filter(|_| !ctrl_or_meta && matches!(key, "Enter" | " ")) {
+            return self.request_picker(node, kind);
         }
         if matches!(key, "Enter" | " ") && !ctrl_or_meta {
             match form::button_kind(&doc, node) {

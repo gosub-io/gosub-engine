@@ -57,7 +57,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let chosen = doc.selected_option(select);
         let chosen_row = rows.iter().find(|(n, _)| Some(*n) == chosen).map(|(_, row)| *row);
         let total_rows = rows.last().map_or(0, |(_, r)| r + 1);
-        let anchor = self.select_anchor(select).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+        let anchor = self.control_anchor(select).unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
         let (_, visible) = popup_placement(anchor, viewport, total_rows);
         let first_row = chosen_row.map_or(0, |r| {
             r.saturating_sub(visible / 2).min(total_rows.saturating_sub(visible))
@@ -81,15 +81,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Border box of the select in page px.
-    fn select_anchor(&self, select: NodeId) -> Option<Rect> {
-        let ll = self.active_layer_list()?;
-        ll.layout_tree
-            .arena
-            .values()
-            .find(|el| el.dom_node_id == select && matches!(el.context, ElementContext::FormControl(_)))
-            .map(|el| el.box_model.border_box)
-    }
-
     /// A press while a dropdown is open: scrollbar (thumb drag / page), a selectable row
     /// (commit), or anything else (close without changing).
     pub(super) fn popup_press(&mut self, lei: Option<LayoutElementId>, vp_x: f64, vp_y: f64) -> bool {

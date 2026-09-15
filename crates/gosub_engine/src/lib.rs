@@ -212,7 +212,7 @@ pub use crate::engine::cookies::ThirdPartyCookiePolicy;
 pub mod events {
     pub use crate::engine::events::{
         CursorShape, DownloadId, EngineCommand, EngineEvent, HitTestResponse, HitTestToken, IoCommand, Modifiers,
-        MouseButton, TabCommand,
+        MouseButton, PickerKind, TabCommand,
     };
     pub use crate::engine::events::{FailureKind, NavigationEvent, ResourceEvent};
 }
