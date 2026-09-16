@@ -2,7 +2,7 @@ use crate::stylesheet::{CssValue, Specificity};
 use gosub_interface::css3::CssOrigin;
 use std::collections::hash_map::Entry;
 
-use crate::matcher::property_definitions::CssDefinitions;
+use crate::matcher::property_definitions::{CssDefinitions, PropertyDefinition};
 use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
@@ -107,6 +107,10 @@ pub struct Shorthands {
 pub struct FixList {
     list: Vec<(String, Vec<DeclarationProperty>)>,
     multipliers: Vec<(String, usize)>,
+    /// The longhands the declaration currently being expanded has set, so
+    /// [`FixList::reset_unmentioned`] can tell which of a shorthand's longhands it left out.
+    /// Cleared by [`FixList::set_info`], which every expansion calls first.
+    touched: Vec<String>,
 
     current_info: Option<FixListInfo>,
 }
@@ -359,12 +363,73 @@ impl FixList {
         Self {
             list: Vec::new(),
             multipliers: Vec::new(),
+            touched: Vec::new(),
             current_info: None,
         }
     }
 
+    /// Start expanding a declaration: the cascade facts every longhand it produces will carry.
     pub fn set_info(&mut self, info: FixListInfo) {
         self.current_info = Some(info);
+        self.touched.clear();
+    }
+
+    /// Give every longhand of `shorthand` that the declaration did not set its initial value.
+    ///
+    /// A shorthand sets *all* of its longhands (css-cascade-5 §2.5): the ones it does not
+    /// mention are reset to their initial value, which is the whole point of writing one -
+    /// `border: 1px solid` makes the colour `currentColor`, and `font: 12px serif` undoes an
+    /// earlier `font-weight: bold`. The resolver only records what consumed a value, so without
+    /// this an unmentioned longhand kept whatever it had.
+    ///
+    /// A longhand that is itself a shorthand (`border-color` under `border`) is walked into, so
+    /// the reset lands on the real longhands. One whose initial value the definitions give only
+    /// as prose (`font-family` is "depends on user agent") is left alone; it cannot be reset to
+    /// anything, and nothing an author writes leaves it out anyway.
+    pub fn reset_unmentioned(&mut self, shorthand: &PropertyDefinition, definitions: &CssDefinitions) {
+        if !shorthand.is_shorthand() {
+            return;
+        }
+        // A shorthand whose grammar the resolver cannot map records nothing at all - `background`
+        // is `[ <bg-layer> , ]* <final-bg-layer>`, beyond what the resolver follows. Resetting
+        // every longhand of a shorthand this has not expanded would erase the value the author
+        // gave (`background: #c22` would end as `background-color: transparent`), so an expansion
+        // that set nothing is left alone: the consumer reads the stored shorthand instead.
+        if self.touched.is_empty() {
+            return;
+        }
+        // css-lists-3 §3.5: a `none` in `list-style` means both `list-style-image: none` and
+        // `list-style-type: none`, unless a type is given as well. The grammar hands the `none`
+        // to the image, so the type has to be filled in here before the general reset would give
+        // it `disc` - and `ul { list-style: none }` is how every page hides its bullets.
+        if shorthand.name() == "list-style"
+            && !self.touched.iter().any(|t| t == "list-style-type")
+            && self.list.iter().any(|(name, decls)| {
+                name == "list-style-image"
+                    && decls.last().is_some_and(|d| {
+                        matches!(&d.value, CssValue::None)
+                            || matches!(&d.value, CssValue::String(s) if s.eq_ignore_ascii_case("none"))
+                    })
+            })
+        {
+            self.insert("list-style-type".to_string(), CssValue::String("none".to_string()));
+        }
+        for name in shorthand.expanded_properties() {
+            if self.touched.contains(&name) {
+                continue;
+            }
+            let Some(def) = definitions.find_property(&name) else {
+                continue;
+            };
+            if def.is_shorthand() {
+                self.reset_unmentioned(def, definitions);
+                continue;
+            }
+            match &def.initial_value {
+                Some(initial) => self.insert(name, initial.clone()),
+                None => log::debug!("{}: no initial value to reset {name} to", shorthand.name()),
+            }
+        }
     }
 
     /// Reset the {1,4}-multiplier counter for a specific shorthand name.
@@ -410,6 +475,9 @@ impl FixList {
 
     pub fn insert(&mut self, name: String, value: CssValue) {
         let value = self.get_declaration(value);
+        if !self.touched.contains(&name) {
+            self.touched.push(name.clone());
+        }
 
         for (k, v) in &mut self.list {
             if *k == name {
@@ -461,7 +529,9 @@ impl FixList {
                 decl.order,
             ));
 
-            prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list);
+            if prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list) {
+                fix_list.reset_unmentioned(prop, definitions);
+            }
         }
 
         if had_shorthands {
@@ -845,6 +915,113 @@ mod tests {
         expanded.iter().find(|(n, _)| n == name).map(|(_, v)| v)
     }
 
+    /// Expand `prop: decl` the way `compute_properties` does: match, reset what the shorthand
+    /// left out, expand nested shorthands. Returns the fix list's longhands and their values.
+    fn expand(prop: &str, decl: &str) -> Vec<(String, CssValue)> {
+        use crate::stylesheet::Specificity;
+        use crate::Css3;
+        use gosub_interface::css3::CssOrigin;
+        use gosub_shared::config::ParserConfig;
+
+        let definitions = get_css_definitions();
+        let def = definitions.find_property(prop).expect("property is defined");
+        let config = ParserConfig {
+            match_values: false,
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let sheet =
+            Css3::parse_str(&format!("x {{ {prop}: {decl}; }}"), config, CssOrigin::Author, "t").expect("parse");
+        let values = sheet.rules[0].declarations[0].value.to_slice().to_vec();
+
+        let mut fix_list = FixList::new();
+        fix_list.set_info(super::FixListInfo::new(
+            CssOrigin::Author,
+            false,
+            String::new(),
+            Specificity::new(0, 0, 0),
+            0,
+            1,
+        ));
+        assert!(
+            def.matches_and_shorthands(&values, &mut fix_list),
+            "{prop}: {decl} should match"
+        );
+        fix_list.reset_unmentioned(def, definitions);
+        fix_list.resolve_nested(definitions);
+        fix_list
+            .list
+            .iter()
+            .map(|(name, decls)| (name.clone(), decls.last().expect("a value").value.clone()))
+            .collect()
+    }
+
+    /// A shorthand sets all of its longhands: the ones it does not mention get their initial
+    /// value. Without this `border-color: red; border: 1px solid` kept the red, and
+    /// `font-weight: bold; font: 12px serif` kept the bold.
+    #[test]
+    fn a_shorthand_resets_the_longhands_it_leaves_out() {
+        let border = expand("border", "1px solid");
+        for side in ["top", "right", "bottom", "left"] {
+            assert_eq!(
+                value_of(&border, &format!("border-{side}-color")),
+                Some(&CssValue::String("currentcolor".into())),
+                "border-{side}-color"
+            );
+            assert_eq!(
+                value_of(&border, &format!("border-{side}-width")),
+                Some(&CssValue::Unit(1.0, "px".into()))
+            );
+        }
+
+        let font = expand("font", "12px serif");
+        for longhand in [
+            "font-weight",
+            "font-style",
+            "font-variant",
+            "font-stretch",
+            "line-height",
+        ] {
+            assert_eq!(
+                value_of(&font, longhand),
+                Some(&CssValue::String("normal".into())),
+                "{longhand}"
+            );
+        }
+        assert_eq!(value_of(&font, "font-size"), Some(&CssValue::Unit(12.0, "px".into())));
+    }
+
+    /// css-lists-3 §3.5: `none` in `list-style` is both the image and the marker type. The
+    /// grammar gives it to the image, so the reset must not then hand the type its initial
+    /// `disc` - that would put the bullets back on every `ul { list-style: none }`.
+    #[test]
+    fn list_style_none_removes_the_marker_too() {
+        let none = expand("list-style", "none");
+        assert_eq!(
+            value_of(&none, "list-style-type"),
+            Some(&CssValue::String("none".into()))
+        );
+        assert_eq!(
+            value_of(&none, "list-style-position"),
+            Some(&CssValue::String("outside".into()))
+        );
+
+        // A type given alongside `none` is kept; `none` is then the image alone.
+        let square = expand("list-style", "none square");
+        assert_eq!(
+            value_of(&square, "list-style-type"),
+            Some(&CssValue::String("square".into()))
+        );
+    }
+
+    /// The resolver cannot follow `background`'s grammar and records nothing for it. Resetting
+    /// its longhands from that would turn `background: #c22` into `background-color:
+    /// transparent`, so a shorthand that expanded to nothing is left alone.
+    #[test]
+    fn a_shorthand_the_resolver_cannot_expand_is_not_reset() {
+        assert!(expand("background", "#c22").is_empty());
+    }
+
     /// A declaration that fails as a whole must leave nothing behind. The resolver records a
     /// longhand as soon as its grammar piece completes, so without a rollback `border: 1px solid
     /// banana` set `border-width` and `border-style` even though the declaration was rejected.
@@ -979,6 +1156,12 @@ mod tests {
                     ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 1),],
+                touched: vec![
+                    "margin-bottom".to_string(),
+                    "margin-left".to_string(),
+                    "margin-right".to_string(),
+                    "margin-top".to_string(),
+                ],
                 current_info: None
             }
         );
@@ -999,6 +1182,12 @@ mod tests {
                     ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 2),],
+                touched: vec![
+                    "margin-bottom".to_string(),
+                    "margin-left".to_string(),
+                    "margin-right".to_string(),
+                    "margin-top".to_string(),
+                ],
                 current_info: None
             }
         );
@@ -1018,6 +1207,12 @@ mod tests {
                     ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 3),],
+                touched: vec![
+                    "margin-bottom".to_string(),
+                    "margin-left".to_string(),
+                    "margin-right".to_string(),
+                    "margin-top".to_string(),
+                ],
                 current_info: None
             }
         );
@@ -1038,6 +1233,12 @@ mod tests {
                     ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 4),],
+                touched: vec![
+                    "margin-bottom".to_string(),
+                    "margin-left".to_string(),
+                    "margin-right".to_string(),
+                    "margin-top".to_string(),
+                ],
                 current_info: None
             }
         );

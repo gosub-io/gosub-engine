@@ -800,6 +800,22 @@ impl CssProperty {
             }
         }
 
+        // A `<line-width>` keyword computes to an absolute length (css-backgrounds-3 §4.1 leaves
+        // the sizes to the UA; these are what every browser uses). Only the `*-width` properties
+        // take these keywords, and for them a keyword that reached the consumer as a string
+        // measured as zero, so `border: solid red` drew no border at all.
+        if self.name.ends_with("-width") {
+            if let CssValue::String(keyword) = &specified {
+                let px = [("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
+                    .into_iter()
+                    .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+                    .map(|(_, px)| px);
+                if let Some(px) = px {
+                    return CssValue::Unit(px, "px".to_string());
+                }
+            }
+        }
+
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
         // containing block, and the units nothing has a value for.

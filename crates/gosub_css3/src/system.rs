@@ -369,6 +369,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
                     }
+                    // A shorthand sets every one of its longhands; the ones it left out are
+                    // reset to their initial value.
+                    fix_list.reset_unmentioned(definition, definitions);
 
                     let value = if let CssValue::List(mut values) = value {
                         match values.pop() {

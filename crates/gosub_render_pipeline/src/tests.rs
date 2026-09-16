@@ -112,6 +112,46 @@ mod rendertree_from_engine {
         assert!(matches!(c, Value::Color(0, 128, 0, _)), "inline color: {c:?}");
     }
 
+    /// A shorthand resets the longhands it does not mention (css-cascade-5 §2.5). An earlier
+    /// `border-color: red` must not survive a later `border: 1px solid`, an earlier
+    /// `font-weight: bold` must not survive `font: 12px serif`, and a `border` without a width
+    /// gets `medium`, which is 3px and not nothing.
+    #[test]
+    fn a_shorthand_resets_the_longhands_it_leaves_out() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{FontWeight, StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>
+          #b { border-color: red; border: 1px solid }
+          #f { font-weight: bold; font: 12px serif }
+          #w { border: solid red }
+        </style></head>
+        <body><div id="b">b</div><div id="f">f</div><div id="w">w</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        // `currentColor`, which resolves to the text colour: black, not red.
+        let b = find_node_by_id_attr(&adapter.doc, root, "b").expect("#b");
+        let c = adapter.get_style(b, &StyleProperty::BorderTopColor);
+        assert!(matches!(c, Value::Color(0, 0, 0, _)), "border reset colour: {c:?}");
+
+        let f = find_node_by_id_attr(&adapter.doc, root, "f").expect("#f");
+        let fw = adapter.get_style(f, &StyleProperty::FontWeight);
+        assert!(
+            matches!(fw, Value::FontWeight(FontWeight::Normal)),
+            "font reset weight: {fw:?}"
+        );
+
+        let w = find_node_by_id_attr(&adapter.doc, root, "w").expect("#w");
+        let bw = adapter.get_style(w, &StyleProperty::BorderTopWidth);
+        assert!(
+            matches!(bw, Value::Unit(v, Unit::Px) if (v - 3.0).abs() < 0.01),
+            "medium border width: {bw:?}"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
