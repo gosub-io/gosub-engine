@@ -51,6 +51,9 @@ The engine is under active development. What works today:
 - **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia (CPU / GPU), Vello (wgpu)
 - **Conformance measurement** — a gated web-platform-tests run in CI, plus a reftest runner; see [docs/wpt.md](docs/wpt.md) for where the numbers stand
 
+**[`docs/status.md`](docs/status.md) is the detailed version of this list** — per component,
+what works and what does not, with the numbers.
+
 Not there yet: scripting is not wired into the engine. The V8 and web-API crates exist and
 build, but no page runs JavaScript — see [docs/javascript.md](docs/javascript.md). WPT drives
 the DOM through a separate test-only QuickJS binding (`gosub_domjs`).
@@ -72,6 +75,7 @@ ones worth reading first.
 
 **Reference**
 
+- [What the engine can do today](docs/status.md) — per-component capability and gaps
 - [Crates](docs/crates.md) — the workspace crate layout, and where to find anything
 - [Component tools](docs/binaries.md) — the standalone `cargo run --bin …` tools
 
