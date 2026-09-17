@@ -34,7 +34,7 @@ git sparse-checkout add css/css-align css/css-animations css/css-backgrounds css
 ```
 
 For the directories CI gates instead, use
-`resources common dom/nodes dom/events html/dom`.
+`resources common dom/nodes dom/events html/dom`, plus the single file `dom/constants.js` (a leading slash in non-cone mode: `git sparse-checkout add /dom/constants.js`).
 
 **2. Run a component.** A directory argument runs every testharness suite underneath it:
 
@@ -337,8 +337,13 @@ here rather than in a comment at the top of it. For the gated file, that is:
 - **Covered:** `dom/events` and `html/dom`, the two directories the `gosub_domjs` bindings
   actually reach. The checkout also needs `dom/nodes`: three suites pull support scripts out of
   it (`Document-createEvent.js`, `DOMImplementation-createHTMLDocument.js`, `attributes.js`) and
-  become `ERROR` records without it. The baseline is pinned to the sparse set as much as to the
-  commit in `wpt-commit.txt` — widen or narrow the checkout and the results move.
+  become `ERROR` records without it, as does `dom/events/Event-constants.html` without
+  `dom/constants.js`. The baseline is pinned to the sparse set as much as to the commit in
+  `wpt-commit.txt` — widen or narrow the checkout and the results move. Note that
+  `git sparse-checkout set` replaces the pattern list: a set made for the CSS component drops
+  the gate's directories, and `make wpt-update` will not notice, since the directory guard only
+  checks that each directory exists, not that it is complete. Regenerating then rewrites the gate
+  baseline as 600 `ERROR` records.
 - **Form controls are out of scope.** That work lives on its own branch and needs engine modules
   (`edit`, `form`, `focus`) that are not on main yet.
 - **`dom/events/passive-by-default.html` is deliberately not covered.** It names three subtests

@@ -910,7 +910,7 @@ FILE html/dom/elements/global-attributes/translate-inherit-no-parent-element.htm
 FILE html/dom/elements/global-attributes/translate-non-html-translation-mode.html
 FILE html/dom/elements/images/bypass-cache-revalidation.html
 FILE html/dom/elements/name-content-attribute-and-property.html
-ERROR html/dom/elements/name-content-attribute-and-property.html
+HARNESS html/dom/elements/name-content-attribute-and-property.html
 FILE html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
 HARNESS html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
 FILE html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001b.html
