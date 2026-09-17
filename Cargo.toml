@@ -102,6 +102,7 @@ simple_logger = "5.2.0"
 # (~14 min per cold CI job).
 skia-safe = { version = "0.99.0", features = ["svg", "wayland", "x11"] }
 softbuffer = "0.4"
+stacker = "0.1.25"
 taffy = {version = "0.12.1", default-features = false}
 tempfile = "3.21.0"
 test-case = "3.3.1"
