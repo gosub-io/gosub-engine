@@ -38,6 +38,9 @@ futures = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
+# Pinned to the version `usvg` parses with, so the differential test compares against the parser
+# we actually ship rather than a lookalike. Bump this whenever resvg is bumped.
+roxmltree = "0.21.1"
 wasm-bindgen-test = "0.3.64"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
