@@ -209,6 +209,18 @@ PASS css/css-align/parsing/gap-invalid.html :: e.style['gap'] = "-10px" should n
 PASS css/css-align/parsing/gap-invalid.html :: e.style['gap'] = "10px 20% 30px" should not set the property value
 PASS css/css-align/parsing/gap-invalid.html :: e.style['gap'] = "normal 10px normal" should not set the property value
 FILE css/css-align/parsing/gap-shorthand.html
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal" should set column-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal" should set row-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px 20%" should set column-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px 20%" should set row-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px 20%" should not set unrelated longhands
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px normal" should set column-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px normal" should set row-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "10px normal" should not set unrelated longhands
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal calc(20% + 10px)" should set column-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal calc(20% + 10px)" should set row-gap
+PASS css/css-align/parsing/gap-shorthand.html :: e.style['gap'] = "normal calc(20% + 10px)" should not set unrelated longhands
 FILE css/css-align/parsing/gap-valid.html
 PASS css/css-align/parsing/gap-valid.html :: e.style['gap'] = "normal 10px" should set the property value
 PASS css/css-align/parsing/gap-valid.html :: e.style['gap'] = "10px 20%" should set the property value
@@ -249,6 +261,15 @@ PASS css/css-align/parsing/grid-gap-invalid.html :: e.style['grid-gap'] = "-10px
 PASS css/css-align/parsing/grid-gap-invalid.html :: e.style['grid-gap'] = "10px 20% 30px" should not set the property value
 PASS css/css-align/parsing/grid-gap-invalid.html :: e.style['grid-gap'] = "normal 10px normal" should not set the property value
 FILE css/css-align/parsing/grid-gap-shorthand.html
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "normal" should set column-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "normal" should set row-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px 20%" should set column-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px 20%" should set row-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px 20%" should not set unrelated longhands
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px normal" should set column-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px normal" should set row-gap
+PASS css/css-align/parsing/grid-gap-shorthand.html :: e.style['gap'] = "10px normal" should not set unrelated longhands
 FILE css/css-align/parsing/grid-gap-valid.html
 PASS css/css-align/parsing/grid-gap-valid.html :: e.style['grid-gap'] = "normal 10px" should set the property value
 PASS css/css-align/parsing/grid-gap-valid.html :: e.style['grid-gap'] = "10px 20%" should set the property value
@@ -453,6 +474,18 @@ PASS css/css-align/parsing/place-content-invalid.html :: e.style['place-content'
 PASS css/css-align/parsing/place-content-invalid.html :: e.style['place-content'] = "first baseline first baseline" should not set the property value
 PASS css/css-align/parsing/place-content-invalid.html :: e.style['place-content'] = "baseline safe" should not set the property value
 FILE css/css-align/parsing/place-content-shorthand.html
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should set align-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should set justify-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "first baseline" should not set unrelated longhands
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should set align-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should set justify-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should not set unrelated longhands
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-around" should set align-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-around" should not set unrelated longhands
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-evenly unsafe end" should set align-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-evenly unsafe end" should set justify-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-evenly unsafe end" should not set unrelated longhands
 FILE css/css-align/parsing/place-content-valid.html
 PASS css/css-align/parsing/place-content-valid.html :: e.style['place-content'] = "last baseline flex-start" should set the property value
 PASS css/css-align/parsing/place-content-valid.html :: e.style['place-content'] = "baseline stretch" should set the property value
@@ -498,6 +531,14 @@ PASS css/css-align/parsing/place-items-invalid.html :: e.style['place-items'] = 
 PASS css/css-align/parsing/place-items-invalid.html :: e.style['place-items'] = "normal flex-start baseline" should not set the property value
 PASS css/css-align/parsing/place-items-invalid.html :: e.style['place-items'] = "baseline safe" should not set the property value
 FILE css/css-align/parsing/place-items-shorthand.html
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "normal" should set align-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "first baseline" should not set unrelated longhands
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should set align-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should set justify-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should not set unrelated longhands
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "stretch right legacy" should set align-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "stretch right legacy" should not set unrelated longhands
 FILE css/css-align/parsing/place-items-valid.html
 PASS css/css-align/parsing/place-items-valid.html :: e.style['place-items'] = "normal" should set the property value
 PASS css/css-align/parsing/place-items-valid.html :: e.style['place-items'] = "center" should set the property value
@@ -534,6 +575,15 @@ PASS css/css-align/parsing/place-self-invalid.html :: e.style['place-self'] = "u
 PASS css/css-align/parsing/place-self-invalid.html :: e.style['place-self'] = "normal flex-start baseline" should not set the property value
 PASS css/css-align/parsing/place-self-invalid.html :: e.style['place-self'] = "baseline safe" should not set the property value
 FILE css/css-align/parsing/place-self-shorthand.html
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "normal" should set align-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "first baseline" should not set unrelated longhands
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "last baseline flex-start" should set align-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "last baseline flex-start" should set justify-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "last baseline flex-start" should not set unrelated longhands
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "unsafe self-start stretch" should set align-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "unsafe self-start stretch" should set justify-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "unsafe self-start stretch" should not set unrelated longhands
 FILE css/css-align/parsing/place-self-valid.html
 PASS css/css-align/parsing/place-self-valid.html :: e.style['place-self'] = "normal" should set the property value
 PASS css/css-align/parsing/place-self-valid.html :: e.style['place-self'] = "stretch" should set the property value
@@ -819,6 +869,41 @@ PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['anima
 PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "100% thing" should not set the property value
 PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal foo normal 100%" should not set the property value
 PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal normal 100%" should not set the property value
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal normal" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal normal" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal normal" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal entry 100%" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal entry 100%" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal entry 10%" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal entry 10%" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "normal entry 10%" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "cover" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "cover" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "contain" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "contain" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "contain 100% contain 0%" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "contain 100% contain 0%" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "contain 100% contain 0%" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry 10% exit 20%" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry 10% exit 20%" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry 10% exit 20%" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry calc(10% + 10px) exit 20px" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry calc(10% + 10px) exit 20px" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry calc(10% + 10px) exit 20px" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry, exit" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry, exit" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "entry 0%, exit" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "exit calc(10% + 50px)" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "exit calc(10% + 50px)" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "100px" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "100px" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "100px" should not set unrelated longhands
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "10%" should set animation-range-end
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "10%" should set animation-range-start
+PASS css/css-animations/parsing/animation-range-shorthand.html :: e.style['animation-range'] = "10%" should not set unrelated longhands
 FILE css/css-animations/parsing/animation-range-start-computed.html
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'initial'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'normal'
@@ -881,6 +966,29 @@ PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['ani
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "entry" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "exit" should set the property value
 FILE css/css-animations/parsing/animation-shorthand.html
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-delay
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-direction
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-duration
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-fill-mode
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-iteration-count
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-name
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-play-state
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-timeline
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-timing-function
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-delay
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-direction
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-fill-mode
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-iteration-count
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-name
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-play-state
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set animation-timing-function
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-delay
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-direction
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-fill-mode
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-iteration-count
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-name
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-play-state
+PASS css/css-animations/parsing/animation-shorthand.html :: e.style['animation'] = "4 1s -3s cubic-bezier(0, -2, 1, 3), anim paused both reverse" should set animation-timing-function
 FILE css/css-animations/parsing/animation-timing-function-invalid.html
 PASS css/css-animations/parsing/animation-timing-function-invalid.html :: e.style['animation-timing-function'] = "steps(2,()start)" should not set the property value
 PASS css/css-animations/parsing/animation-timing-function-invalid.html :: e.style['animation-timing-function'] = "steps(2,() start)" should not set the property value
@@ -1201,11 +1309,51 @@ PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['backgrou
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "auto 1px, 2% 3%, contain" should set the property value
 FILE css/css-backgrounds/parsing/background-valid.html
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set the property value
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-attachment
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-clip
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-image
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-origin
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-repeat
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-attachment
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-clip
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-color
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-image
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-origin
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-position
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-attachment
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-clip
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-color
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-image
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-origin
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-repeat
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-color-computed.html
 FILE css/css-backgrounds/parsing/border-color-invalid.html
 PASS css/css-backgrounds/parsing/border-color-invalid.html :: e.style['border-color'] = "black, white" should not set the property value
 PASS css/css-backgrounds/parsing/border-color-invalid.html :: e.style['border-color'] = "black white red green blue" should not set the property value
 FILE css/css-backgrounds/parsing/border-color-shorthand.html
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "currentcolor" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "currentcolor" should set border-left-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "currentcolor" should set border-right-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "currentcolor" should set border-top-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "currentcolor" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow" should set border-left-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow" should set border-right-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow" should set border-top-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green" should set border-left-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green" should set border-right-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green" should set border-top-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should set border-left-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should set border-right-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should set border-top-color
+PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-color-valid.html
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-color'] = "currentcolor" should set the property value
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-color'] = "red yellow green blue" should set the property value
@@ -1257,6 +1405,27 @@ FILE css/css-backgrounds/parsing/border-image-repeat-valid.html
 PASS css/css-backgrounds/parsing/border-image-repeat-valid.html :: e.style['border-image-repeat'] = "stretch" should set the property value
 PASS css/css-backgrounds/parsing/border-image-repeat-valid.html :: e.style['border-image-repeat'] = "repeat round" should set the property value
 FILE css/css-backgrounds/parsing/border-image-shorthand.sub.html
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-outset
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-slice
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-source
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-width
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-outset
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-source
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-width
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-outset
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-source
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-width
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-outset
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-source
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-width
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-image-slice-computed.html
 PASS css/css-backgrounds/parsing/border-image-slice-computed.html :: Property border-image-slice value '1'
 PASS css/css-backgrounds/parsing/border-image-slice-computed.html :: Property border-image-slice value '1 2%'
@@ -1382,6 +1551,35 @@ PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-bot
 FILE css/css-backgrounds/parsing/border-shorthand.html
 PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "2px solid color-mix(42deg)" should not set the property value
 PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "2px solid color-contrast(42deg)" should not set the property value
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-left-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-left-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-left-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-right-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-right-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-right-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-top-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-top-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should set border-top-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border'] = "5px dotted blue" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-top'] = "thin" should set border-top-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-top'] = "thin" should set border-top-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-top'] = "thin" should set border-top-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-top'] = "thin" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-right'] = "double" should set border-right-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-right'] = "double" should set border-right-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-right'] = "double" should set border-right-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-right'] = "double" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-bottom'] = "green" should set border-bottom-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-bottom'] = "green" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-bottom'] = "green" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-bottom'] = "green" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should set border-left-color
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should set border-left-style
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should set border-left-width
+PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-style-computed.html
 PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'inset outset'
 PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'hidden dotted dashed'
@@ -1394,6 +1592,26 @@ FILE css/css-backgrounds/parsing/border-style-invalid.html
 PASS css/css-backgrounds/parsing/border-style-invalid.html :: e.style['border-style'] = "auto" should not set the property value
 PASS css/css-backgrounds/parsing/border-style-invalid.html :: e.style['border-style'] = "solid double groove ridge none" should not set the property value
 FILE css/css-backgrounds/parsing/border-style-shorthand.html
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "none" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "none" should set border-left-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "none" should set border-right-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "none" should set border-top-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "none" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "inset outset" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "inset outset" should set border-left-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "inset outset" should set border-right-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "inset outset" should set border-top-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "inset outset" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "hidden dotted dashed" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "hidden dotted dashed" should set border-left-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "hidden dotted dashed" should set border-right-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "hidden dotted dashed" should set border-top-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "hidden dotted dashed" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "solid double groove ridge" should set border-bottom-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "solid double groove ridge" should set border-left-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "solid double groove ridge" should set border-right-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "solid double groove ridge" should set border-top-style
+PASS css/css-backgrounds/parsing/border-style-shorthand.html :: e.style['border-style'] = "solid double groove ridge" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-style-valid.html
 PASS css/css-backgrounds/parsing/border-style-valid.html :: e.style['border-style'] = "none" should set the property value
 PASS css/css-backgrounds/parsing/border-style-valid.html :: e.style['border-style'] = "none hidden dotted dashed" should set the property value
@@ -1425,6 +1643,26 @@ PASS css/css-backgrounds/parsing/border-width-invalid.html :: e.style['border-wi
 PASS css/css-backgrounds/parsing/border-width-invalid.html :: e.style['border-width'] = "thin medium thick medium thin" should not set the property value
 PASS css/css-backgrounds/parsing/border-width-invalid.html :: e.style['border-width'] = "-1px" should not set the property value
 FILE css/css-backgrounds/parsing/border-width-shorthand.html
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "5px" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "5px" should set border-left-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "5px" should set border-right-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "5px" should set border-top-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "5px" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thick thin" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thick thin" should set border-left-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thick thin" should set border-right-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thick thin" should set border-top-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thick thin" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thin medium thick" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thin medium thick" should set border-left-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thin medium thick" should set border-right-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thin medium thick" should set border-top-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "thin medium thick" should not set unrelated longhands
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "1px 2px 3px 4px" should set border-bottom-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "1px 2px 3px 4px" should set border-left-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "1px 2px 3px 4px" should set border-right-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "1px 2px 3px 4px" should set border-top-width
+PASS css/css-backgrounds/parsing/border-width-shorthand.html :: e.style['border-width'] = "1px 2px 3px 4px" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-width-valid.html
 PASS css/css-backgrounds/parsing/border-width-valid.html :: e.style['border-width'] = "1em" should set the property value
 PASS css/css-backgrounds/parsing/border-width-valid.html :: e.style['border-width'] = "2px thin medium thick" should set the property value
@@ -1542,6 +1780,26 @@ PASS css/css-box/parsing/margin-invalid.html :: e.style['margin-right'] = "auto 
 PASS css/css-box/parsing/margin-invalid.html :: e.style['margin-bottom'] = "10px 20% calc(2em + 3ex) auto" should not set the property value
 PASS css/css-box/parsing/margin-invalid.html :: e.style['margin-bottom-left'] = "none" should not set the property value
 FILE css/css-box/parsing/margin-shorthand.html
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px 4px" should set margin-bottom
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px 4px" should set margin-left
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px 4px" should set margin-right
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px 4px" should set margin-top
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px 4px" should not set unrelated longhands
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px" should set margin-bottom
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px" should set margin-left
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px" should set margin-right
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px" should set margin-top
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px 3px" should not set unrelated longhands
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px" should set margin-bottom
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px" should set margin-left
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px" should set margin-right
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px" should set margin-top
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px 2px" should not set unrelated longhands
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px" should set margin-bottom
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px" should set margin-left
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px" should set margin-right
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px" should set margin-top
+PASS css/css-box/parsing/margin-shorthand.html :: e.style['margin'] = "1px" should not set unrelated longhands
 FILE css/css-box/parsing/margin-trim-computed.html
 PASS css/css-box/parsing/margin-trim-computed.html :: Property margin-trim value 'none'
 PASS css/css-box/parsing/margin-trim-computed.html :: Property margin-trim value 'block'
@@ -1656,6 +1914,26 @@ PASS css/css-box/parsing/padding-invalid.html :: e.style['padding-bottom-left'] 
 PASS css/css-box/parsing/padding-invalid.html :: e.style['padding-top'] = "-10px" should not set the property value
 PASS css/css-box/parsing/padding-invalid.html :: e.style['padding-right'] = "-20%" should not set the property value
 FILE css/css-box/parsing/padding-shorthand.html
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px 4px" should set padding-bottom
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px 4px" should set padding-left
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px 4px" should set padding-right
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px 4px" should set padding-top
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px 4px" should not set unrelated longhands
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px" should set padding-bottom
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px" should set padding-left
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px" should set padding-right
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px" should set padding-top
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px 3px" should not set unrelated longhands
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px" should set padding-bottom
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px" should set padding-left
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px" should set padding-right
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px" should set padding-top
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px 2px" should not set unrelated longhands
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px" should set padding-bottom
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px" should set padding-left
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px" should set padding-right
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px" should set padding-top
+PASS css/css-box/parsing/padding-shorthand.html :: e.style['padding'] = "1px" should not set unrelated longhands
 FILE css/css-box/parsing/padding-valid.html
 PASS css/css-box/parsing/padding-valid.html :: e.style['padding'] = "10px" should set the property value
 PASS css/css-box/parsing/padding-valid.html :: e.style['padding'] = "10px 20px 30px 40px" should set the property value
@@ -6600,6 +6878,12 @@ FILE css/css-flexbox/parsing/flex-flow-invalid.html
 PASS css/css-flexbox/parsing/flex-flow-invalid.html :: e.style['flex-flow'] = "nowrap row nowrap" should not set the property value
 PASS css/css-flexbox/parsing/flex-flow-invalid.html :: e.style['flex-flow'] = "column wrap column" should not set the property value
 FILE css/css-flexbox/parsing/flex-flow-shorthand.html
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "nowrap column" should set flex-direction
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "nowrap column" should set flex-wrap
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "nowrap column" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "wrap row-reverse" should set flex-direction
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "wrap row-reverse" should set flex-wrap
+PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "wrap row-reverse" should not set unrelated longhands
 FILE css/css-flexbox/parsing/flex-flow-valid.html
 PASS css/css-flexbox/parsing/flex-flow-valid.html :: e.style['flex-flow'] = "wrap" should set the property value
 FILE css/css-flexbox/parsing/flex-grow-computed.html
@@ -6624,6 +6908,46 @@ PASS css/css-flexbox/parsing/flex-invalid.html :: e.style['flex'] = "9 none" sho
 PASS css/css-flexbox/parsing/flex-invalid.html :: e.style['flex'] = "1 2 calc(0)" should not set the property value
 PASS css/css-flexbox/parsing/flex-invalid.html :: e.style['flex'] = "1 2 calc(3 - 3)" should not set the property value
 FILE css/css-flexbox/parsing/flex-shorthand.html
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "none" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "none" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "none" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "none" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "2 3" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "2 3" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "2 3" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "2 3" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "4 5 6px" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "4 5 6px" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "4 5 6px" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "4 5 6px" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "7% 8" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "7% 8" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "7% 8" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "7% 8" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "8 auto" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "8 auto" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "8 auto" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "8 auto" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "content" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "content" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "content" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "content" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "0 fit-content" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "0 fit-content" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "0 fit-content" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "0 fit-content" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1 0 max-content" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1 0 max-content" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1 0 max-content" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "1 0 max-content" should not set unrelated longhands
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "auto 1 2" should set flex-basis
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "auto 1 2" should set flex-grow
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "auto 1 2" should set flex-shrink
+PASS css/css-flexbox/parsing/flex-shorthand.html :: e.style['flex'] = "auto 1 2" should not set unrelated longhands
 FILE css/css-flexbox/parsing/flex-shrink-computed.html
 PASS css/css-flexbox/parsing/flex-shrink-computed.html :: Property flex-shrink value '1'
 PASS css/css-flexbox/parsing/flex-shrink-computed.html :: Property flex-shrink value '2.34e+06'
@@ -7364,6 +7688,18 @@ PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-area'] = "auto
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "33 -A0 auto" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "auto i 2 j span 3 k" should not set the property value
 FILE css/css-grid/parsing/grid-area-shorthand.html
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "one / 2" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "one / 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "1 two / four 3" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "1 two / four 3" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "5 span" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "5 span" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "1 / two" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "1 / two" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "span 1 two / four 3 span" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-area-valid.html
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "auto" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row'] = "auto" should set the property value
@@ -7589,6 +7925,45 @@ PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property gr
 PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property grid-column value 'span first'
 PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property grid-column value 'span 2 first'
 FILE css/css-grid/parsing/grid-column-shorthand.html
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10 / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10 / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first / auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should set grid-column-end
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last / last" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last / last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last" should set grid-column-start
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-columns-rows-get-set-multiple.html
 HARNESS css/css-grid/parsing/grid-columns-rows-get-set-multiple.html
 FILE css/css-grid/parsing/grid-content-sized-columns-resolution.html
@@ -7628,6 +8003,45 @@ PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-
 PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-row value 'span first'
 PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-row value 'span 2 first'
 FILE css/css-grid/parsing/grid-row-shorthand.html
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10 / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10 / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first / auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first / auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should set grid-row-end
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last / last" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last / last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should set grid-row-start
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-shorthand-invalid.html
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "none []" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[a]" should not set the property value
@@ -7687,8 +8101,12 @@ PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText =
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid: auto-flow 1px / none; grid-template-rows: repeat(auto-fit, 3px) should set grid-template-rows
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: none; should set grid
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: none; should set grid-template
+PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: none; should set grid-template-areas
+PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: none; should set grid-template-columns
+PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: none; should set grid-template-rows
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: auto / auto; should set grid
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: auto / auto; should set grid-template
+PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template: auto / auto; should set grid-template-areas
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template:  [header-top] "a   a   a" [header-bottom] [main-top] "b   b   b" 1fr [main-bottom] / auto 1fr auto should set grid
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template:  [header-top] "a   a   a" [header-bottom] [main-top] "b   b   b" 1fr [main-bottom] "c  c  c" "d  d  d" / auto should set grid
 PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText = grid-template-rows: auto auto; grid-template-columns: repeat(2, 3px); grid-template-areas: "one two" "three four" should set grid
@@ -7960,6 +8378,15 @@ FILE css/css-grid/parsing/grid-template-shorthand-valid.html
 PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "none" should set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "auto / auto" should set the property value
 FILE css/css-grid/parsing/grid-template-shorthand.html
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should set grid-template-areas
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should set grid-template-columns
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should set grid-template-rows
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "10px / 20%" should set grid-template-areas
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "10px / 20%" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "fit-content(calc(-0.5em + 10px)) / fit-content(calc(0.5em + 10px))" should set grid-template-areas
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "fit-content(calc(-0.5em + 10px)) / fit-content(calc(0.5em + 10px))" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "  \\"a a a\\"  \\"b b b\\" 1fr/ auto 1fr auto" should not set unrelated longhands
 FILE css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "linear-gradient(red calc(50% + 30deg), blue)" should not set the property value
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "radial-gradient(red calc(50% + 30deg), blue)" should not set the property value
@@ -8707,6 +9134,10 @@ FILE css/css-lists/parsing/list-style-position-valid.html
 PASS css/css-lists/parsing/list-style-position-valid.html :: e.style['list-style-position'] = "inside" should set the property value
 PASS css/css-lists/parsing/list-style-position-valid.html :: e.style['list-style-position'] = "outside" should set the property value
 FILE css/css-lists/parsing/list-style-shorthand.sub.html
+PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should set list-style-image
+PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should set list-style-position
+PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should set list-style-type
+PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should not set unrelated longhands
 FILE css/css-lists/parsing/list-style-type-computed.html
 PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'disc'
 PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'circle'
@@ -8987,6 +9418,18 @@ PASS css/css-logical/parsing/inset-block-inline-invalid.html :: e.style['inset-b
 PASS css/css-logical/parsing/inset-block-inline-invalid.html :: e.style['inset-block'] = "20%, calc(10px - 0.5em)" should not set the property value
 PASS css/css-logical/parsing/inset-block-inline-invalid.html :: e.style['inset-inline'] = "10px auto 20px" should not set the property value
 FILE css/css-logical/parsing/inset-block-inline-shorthand.html
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "10px" should set inset-block-end
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "10px" should set inset-block-start
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "10px" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "20% auto" should set inset-block-end
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "20% auto" should set inset-block-start
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-block'] = "20% auto" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "30%" should set inset-inline-end
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "30%" should set inset-inline-start
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "30%" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "auto 40px" should set inset-inline-end
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "auto 40px" should set inset-inline-start
+PASS css/css-logical/parsing/inset-block-inline-shorthand.html :: e.style['inset-inline'] = "auto 40px" should not set unrelated longhands
 FILE css/css-logical/parsing/inset-block-inline-valid.html
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block-start'] = "auto" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block-end'] = "-10px" should set the property value
@@ -9010,6 +9453,26 @@ PASS css/css-logical/parsing/inset-invalid.html :: e.style['inset'] = "none" sho
 PASS css/css-logical/parsing/inset-invalid.html :: e.style['inset'] = "20%, calc(10px - 0.5em)" should not set the property value
 PASS css/css-logical/parsing/inset-invalid.html :: e.style['inset'] = "10px auto 20px auto 30px" should not set the property value
 FILE css/css-logical/parsing/inset-shorthand.html
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px 4px" should set bottom
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px 4px" should set left
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px 4px" should set right
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px 4px" should set top
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px 4px" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px" should set bottom
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px" should set left
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px" should set right
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px" should set top
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px 3px" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px" should set bottom
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px" should set left
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px" should set right
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px" should set top
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px 2px" should not set unrelated longhands
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px" should set bottom
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px" should set left
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px" should set right
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px" should set top
+PASS css/css-logical/parsing/inset-shorthand.html :: e.style['inset'] = "1px" should not set unrelated longhands
 FILE css/css-logical/parsing/inset-valid.html
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "auto" should set the property value
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "-10px" should set the property value
@@ -9035,6 +9498,18 @@ PASS css/css-logical/parsing/margin-block-inline-invalid.html :: e.style['margin
 PASS css/css-logical/parsing/margin-block-inline-invalid.html :: e.style['margin-block'] = "20%, calc(10px - 0.5em)" should not set the property value
 PASS css/css-logical/parsing/margin-block-inline-invalid.html :: e.style['margin-inline'] = "10px auto 20px" should not set the property value
 FILE css/css-logical/parsing/margin-block-inline-shorthand.html
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "10px" should set margin-block-end
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "10px" should set margin-block-start
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "10px" should not set unrelated longhands
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "20% auto" should set margin-block-end
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "20% auto" should set margin-block-start
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-block'] = "20% auto" should not set unrelated longhands
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "30%" should set margin-inline-end
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "30%" should set margin-inline-start
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "30%" should not set unrelated longhands
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "auto 40px" should set margin-inline-end
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "auto 40px" should set margin-inline-start
+PASS css/css-logical/parsing/margin-block-inline-shorthand.html :: e.style['margin-inline'] = "auto 40px" should not set unrelated longhands
 FILE css/css-logical/parsing/margin-block-inline-valid.html
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block-start'] = "calc(20% + 10px)" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block-start'] = "auto" should set the property value
@@ -9188,6 +9663,18 @@ PASS css/css-logical/parsing/padding-block-inline-invalid.html :: e.style['paddi
 PASS css/css-logical/parsing/padding-block-inline-invalid.html :: e.style['padding-inline'] = "1px 2px 3px" should not set the property value
 PASS css/css-logical/parsing/padding-block-inline-invalid.html :: e.style['padding-inline'] = "-20% calc(20% + 10px)" should not set the property value
 FILE css/css-logical/parsing/padding-block-inline-shorthand.html
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "0% 10px" should set padding-block-end
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "0% 10px" should set padding-block-start
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "0% 10px" should not set unrelated longhands
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "20%" should set padding-block-end
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "20%" should set padding-block-start
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-block'] = "20%" should not set unrelated longhands
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "10px 30%" should set padding-inline-end
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "10px 30%" should set padding-inline-start
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "10px 30%" should not set unrelated longhands
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "0%" should set padding-inline-end
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "0%" should set padding-inline-start
+PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "0%" should not set unrelated longhands
 FILE css/css-logical/parsing/padding-block-inline-valid.html
 PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-block-start'] = "calc(20% + 10px)" should set the property value
 PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-block-end'] = "10px" should set the property value
@@ -10878,6 +11365,21 @@ PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['tran
 PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "one, two, three" should set the property value
 PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "width, all" should set the property value
 FILE css/css-transitions/parsing/transition-shorthand.html
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-behavior
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-delay
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-duration
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-property
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-timing-function
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set transition-behavior
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set transition-delay
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set transition-duration
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set transition-property
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set transition-timing-function
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "cubic-bezier(0, -2, 1, 3) top, 1s -3s" should set transition-behavior
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "cubic-bezier(0, -2, 1, 3) top, 1s -3s" should set transition-delay
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "cubic-bezier(0, -2, 1, 3) top, 1s -3s" should set transition-duration
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "cubic-bezier(0, -2, 1, 3) top, 1s -3s" should set transition-property
+PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "cubic-bezier(0, -2, 1, 3) top, 1s -3s" should set transition-timing-function
 FILE css/css-transitions/parsing/transition-timing-function-computed.html
 PASS css/css-transitions/parsing/transition-timing-function-computed.html :: Property transition-timing-function value 'linear'
 PASS css/css-transitions/parsing/transition-timing-function-computed.html :: Property transition-timing-function value 'ease'
@@ -11122,6 +11624,10 @@ PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] =
 PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "2em" should set the property value
 PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "calc(3rem + 4vw)" should set the property value
 FILE css/css-ui/parsing/outline-shorthand.html
+PASS css/css-ui/parsing/outline-shorthand.html :: e.style['outline'] = "3px ridge blue" should set outline-color
+PASS css/css-ui/parsing/outline-shorthand.html :: e.style['outline'] = "3px ridge blue" should set outline-style
+PASS css/css-ui/parsing/outline-shorthand.html :: e.style['outline'] = "3px ridge blue" should set outline-width
+PASS css/css-ui/parsing/outline-shorthand.html :: e.style['outline'] = "3px ridge blue" should not set unrelated longhands
 FILE css/css-ui/parsing/outline-style-computed.html
 PASS css/css-ui/parsing/outline-style-computed.html :: Property outline-style value 'auto'
 PASS css/css-ui/parsing/outline-style-computed.html :: Property outline-style value 'none'

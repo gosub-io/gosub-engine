@@ -15,6 +15,7 @@
 
 use cow_utils::CowUtils;
 use gosub_css3::matcher::property_definitions::get_css_definitions;
+use gosub_css3::matcher::shorthands::{expand_shorthand, longhands_of};
 use gosub_css3::stylesheet::CssValue;
 use gosub_css3::Css3;
 use gosub_interface::css3::CssOrigin;
@@ -150,6 +151,49 @@ fn split_declarations(attribute: &str) -> Vec<(String, String)> {
     out
 }
 
+/// The longhands `name` stands for: its expansion for a shorthand, itself otherwise.
+fn covered(name: &str) -> Vec<String> {
+    let longhands = longhands_of(name);
+    if longhands.is_empty() {
+        vec![name.to_string()]
+    } else {
+        longhands
+    }
+}
+
+/// The longhand declarations a stored shorthand entry stands for, serialized. `None` for a
+/// longhand, or a shorthand the resolver cannot expand.
+fn expand_entry(name: &str, value: &str) -> Option<Vec<(String, String)>> {
+    let parsed = parse_declaration(name, value)?;
+    let longhands = expand_shorthand(name, &parsed)?;
+    Some(longhands.into_iter().map(|(n, v)| (n, v.to_string())).collect())
+}
+
+/// Replace every shorthand entry whose longhands overlap `name`'s - other than `name` itself -
+/// by those longhand entries, in place.
+///
+/// A block holds longhands (CSSOM §6.1): `border: 1px solid red` is twelve declarations, and
+/// setting `border-top-color` afterwards changes one of them and keeps the other eleven. The
+/// shorthand entry is kept as written until a longhand under it is touched, so that reading
+/// the shorthand back gives the author's serialization; this is the moment it has to give way.
+fn materialise(entries: &mut Vec<(String, String)>, name: &str) {
+    let mine = covered(name);
+    let mut index = 0;
+    while index < entries.len() {
+        let (entry_name, entry_value) = entries[index].clone();
+        let overlaps = entry_name != name && covered(&entry_name).iter().any(|l| mine.contains(l));
+        if overlaps {
+            if let Some(longhands) = expand_entry(&entry_name, &entry_value) {
+                let count = longhands.len();
+                entries.splice(index..=index, longhands);
+                index += count;
+                continue;
+            }
+        }
+        index += 1;
+    }
+}
+
 /// Render a declaration list back into a `style` attribute.
 fn join_declarations(declarations: &[(String, String)]) -> String {
     declarations
@@ -197,6 +241,23 @@ impl GosubCssStyleDeclaration {
         out
     }
 
+    /// The block as the CSSOM sees it: every shorthand entry replaced by the longhands it
+    /// sets. `length`, `item()` and a longhand's `getPropertyValue` read this; the attribute
+    /// itself keeps the shorthand as written.
+    fn expanded(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (name, value) in self.declarations() {
+            let items = expand_entry(&name, &value).unwrap_or_else(|| vec![(name, value)]);
+            for (name, value) in items {
+                match out.iter_mut().find(|(existing, _)| *existing == name) {
+                    Some(slot) => slot.1 = value,
+                    None => out.push((name, value)),
+                }
+            }
+        }
+        out
+    }
+
     fn store(&self, declarations: &[(String, String)]) {
         let mut doc = self.doc.borrow_mut();
         if declarations.is_empty() {
@@ -211,23 +272,30 @@ impl GosubCssStyleDeclaration {
 impl GosubCssStyleDeclaration {
     #[qjs(get)]
     pub fn length(&self) -> usize {
-        self.declarations().len()
+        self.expanded().len()
     }
 
     /// The name at index `index`, or `""` past the end - the CSSOM's answer for an index that
     /// is not there.
     pub fn item(&self, index: usize) -> String {
-        self.declarations()
+        self.expanded()
             .get(index)
             .map(|(name, _)| name.clone())
             .unwrap_or_default()
     }
 
+    /// A shorthand reads back as written when the block still holds it whole; a longhand
+    /// reads back from the expansion. A shorthand whose longhands were set one by one is not
+    /// reassembled - CSSOM asks for that, and it is a serializer per shorthand still to write -
+    /// so it reads back `""`.
     pub fn get_property_value(&self, name: String) -> String {
         let name = normalize_name(&name);
         // Last, not first: a block written from `cssText` can carry the same property twice, and
         // the later declaration is the one that wins.
-        self.declarations()
+        if let Some((_, value)) = self.declarations().into_iter().rfind(|(property, _)| *property == name) {
+            return value;
+        }
+        self.expanded()
             .into_iter()
             .rfind(|(property, _)| *property == name)
             .map(|(_, value)| value)
@@ -256,6 +324,11 @@ impl GosubCssStyleDeclaration {
         // reads back `1px`, and `calc(calc(100px))` reads back `calc(100px)`. Echoing the
         // author's text instead made every round-trip look right and none of them mean anything.
         let stored = parsed.to_string();
+        // A shorthand above this property gives way to its longhands first, and everything this
+        // property stands for below it is dropped: `border` replaces an earlier `border-top`.
+        materialise(&mut declarations, &name);
+        let mine = covered(&name);
+        declarations.retain(|(property, _)| *property == name || !covered(property).iter().all(|l| mine.contains(l)));
         match declarations.iter_mut().find(|(property, _)| *property == name) {
             // Setting a property that is already there keeps its position in the block, which
             // is what `item()` and the iteration order are read against.
@@ -267,11 +340,17 @@ impl GosubCssStyleDeclaration {
 
     pub fn remove_property(&self, name: String) -> String {
         let name = normalize_name(&name);
+        let previous = self.get_property_value(name.clone());
         let mut declarations = self.declarations();
-        let Some(index) = declarations.iter().position(|(property, _)| *property == name) else {
+        // Removing a longhand out of a shorthand keeps the shorthand's other longhands;
+        // removing a shorthand takes everything under it.
+        materialise(&mut declarations, &name);
+        let mine = covered(&name);
+        let before = declarations.len();
+        declarations.retain(|(property, _)| !covered(property).iter().all(|l| mine.contains(l)));
+        if declarations.len() == before {
             return String::new();
-        };
-        let previous = declarations.remove(index).1;
+        }
         self.store(&declarations);
         previous
     }

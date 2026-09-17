@@ -417,9 +417,31 @@ fn the_style_attribute_from_the_markup_is_read_back() {
 fn a_semicolon_inside_a_value_does_not_split_the_block() {
     let value = eval(
         "<div id=target style='background: url(a;b); width: 10px'></div>",
-        "String(document.getElementById('target').style.length)",
+        "const el = document.getElementById('target'); \
+         el.style.getPropertyValue('background-image') + '|' + el.style.getPropertyValue('width');",
     );
-    assert_eq!(value, "2");
+    assert_eq!(value, "url(\"a;b\")|10px");
+}
+
+/// CSSOM §6.1: a block holds longhands. A shorthand is stored as the longhands it sets - so
+/// `length` counts them, a longhand reads back, and removing one keeps the others - while the
+/// shorthand itself still reads back as written for as long as it is whole.
+#[test]
+fn a_shorthand_is_stored_as_its_longhands() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.gap = '10px 20px'; \
+         const a = el.style.length + '|' + el.style.item(0) + '|' + el.style.getPropertyValue('column-gap') + '|' + el.style.gap; \
+         el.style.rowGap = ''; \
+         const b = el.style.length + '|' + el.style.getPropertyValue('column-gap') + '|' + el.style.gap; \
+         el.style.border = '1px solid red'; \
+         el.style.borderTopColor = 'blue'; \
+         const c = el.style.getPropertyValue('border-top-color') + '|' + el.style.getPropertyValue('border-left-color') + '|' + el.style.getPropertyValue('border-top-width') + '|' + el.style.border; \
+         el.style.border = ''; \
+         a + '#' + b + '#' + c + '#' + el.style.length;",
+    );
+    assert_eq!(value, "2|row-gap|20px|10px 20px#1|20px|#blue|red|1px|#1");
 }
 
 #[test]

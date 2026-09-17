@@ -3,7 +3,7 @@ use crate::tokenizer::NumberKind;
 use gosub_interface::css3::CssOrigin;
 use std::collections::hash_map::Entry;
 
-use crate::matcher::property_definitions::{CssDefinitions, PropertyDefinition};
+use crate::matcher::property_definitions::{get_css_definitions, CssDefinitions, PropertyDefinition};
 use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
@@ -607,7 +607,9 @@ impl FixList {
     }
 
     /// The omitted-value defaults of the `flex` shorthand (css-flexbox-1 §7.1.1): `none` is
-    /// `0 0 auto`; otherwise a missing grow or shrink is `1` and a missing basis is `0`.
+    /// `0 0 auto`; otherwise a missing grow or shrink is `1` and a missing basis is `0%` - the
+    /// spec prose says `0`, but every browser serializes the omitted basis as `0%` and the WPT
+    /// shorthand suite asserts exactly that.
     fn reset_flex(&mut self, input: &[CssValue]) {
         let is_none = matches!(input, [CssValue::None])
             || matches!(input, [CssValue::String(s)] if s.eq_ignore_ascii_case("none"));
@@ -623,7 +625,7 @@ impl FixList {
             [
                 ("flex-grow", one()),
                 ("flex-shrink", one()),
-                ("flex-basis", CssValue::Zero),
+                ("flex-basis", CssValue::Percentage(0.0)),
             ]
         };
         for (name, value) in defaults {
@@ -860,6 +862,78 @@ fn font_shorthands(syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
             })
             .collect(),
     })
+}
+
+/// The longhands `property` ultimately sets, in definition order, with nested shorthands
+/// flattened: `border` gives the twelve `border-<side>-<width|style|color>`. A nested shorthand
+/// the resolver cannot expand (`background-position` under `background`) is kept as a leaf, so
+/// what it carries is not lost. Empty for a longhand or an unknown property.
+#[must_use]
+pub fn longhands_of(property: &str) -> Vec<String> {
+    fn walk(definitions: &CssDefinitions, name: &str, depth: usize, out: &mut Vec<String>) {
+        let Some(def) = definitions.find_property(name) else {
+            return;
+        };
+        let expandable = def.is_shorthand() && def.shorthands.is_some() && depth < 8;
+        if !expandable {
+            if depth > 0 {
+                out.push(name.to_string());
+            }
+            return;
+        }
+        for longhand in def.expanded_properties() {
+            walk(definitions, &longhand, depth + 1, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(get_css_definitions(), property, 0, &mut out);
+    out
+}
+
+/// Expand one shorthand declaration into the longhands it sets, each with its value: what the
+/// cascade records for it, the ones the value leaves out at their initial value, in the order
+/// of [`longhands_of`]. `None` when `property` is not a shorthand the resolver can expand, or
+/// when `value` does not match its grammar.
+///
+/// This is the CSSOM's view of a shorthand: `element.style.gap = "10px 20px"` is stored as
+/// `row-gap: 10px; column-gap: 20px`.
+#[must_use]
+pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String, CssValue)>> {
+    let definitions = get_css_definitions();
+    let def = definitions.find_property(property)?;
+    if !def.is_shorthand() || def.shorthands.is_none() {
+        return None;
+    }
+    let input = value.to_slice();
+    let mut fix_list = FixList::new();
+    fix_list.set_info(FixListInfo::new(
+        CssOrigin::Author,
+        false,
+        String::new(),
+        Specificity::new(0, 0, 0),
+        0,
+        0,
+    ));
+    if !def.matches_and_shorthands(input, &mut fix_list) {
+        return None;
+    }
+    fix_list.reset_unmentioned(def, input, definitions);
+    fix_list.resolve_nested(definitions);
+    let recorded: std::collections::HashMap<&str, &CssValue> = fix_list
+        .list
+        .iter()
+        .filter_map(|(name, declared)| declared.last().map(|d| (name.as_str(), &d.value)))
+        .collect();
+    Some(
+        longhands_of(property)
+            .into_iter()
+            .filter_map(|longhand| {
+                recorded
+                    .get(longhand.as_str())
+                    .map(|v| (longhand.clone(), (*v).clone()))
+            })
+            .collect(),
+    )
 }
 
 /// Longhands that share a grammar piece, in the order the spec hands the pieces to them: the
@@ -1509,7 +1583,7 @@ mod tests {
         let single = expand("flex", "1");
         assert_eq!(value_of(&single, "flex-grow"), Some(&one(1.0)));
         assert_eq!(value_of(&single, "flex-shrink"), Some(&one(1.0)));
-        assert_eq!(value_of(&single, "flex-basis"), Some(&CssValue::Zero));
+        assert_eq!(value_of(&single, "flex-basis"), Some(&CssValue::Percentage(0.0)));
 
         let none = expand("flex", "none");
         assert_eq!(value_of(&none, "flex-grow"), Some(&one(0.0)));
