@@ -80,6 +80,14 @@ pangocairo = "0.22.0"
 parking_lot = "0.12.4"
 png = "0.18.1"
 parley = {version = "0.11.0", default-features = false}
+# Pulled in by parley for system font enumeration. Declared here only to turn on
+# `fontconfig-dlopen`, which parley does not forward: without it fontique links
+# libfontconfig at build time, so every build of the engine — including the headless
+# examples and gosub-screenshot — would need a fontconfig development package. With it,
+# libfontconfig.so.1 is loaded at runtime instead, and fontique falls back to an empty
+# font collection when it is absent (gosub_fontmanager registers a bundled Roboto, so
+# text still renders). Cargo unifies this with parley's own fontique dependency.
+fontique = { version = "0.11.1", default-features = false, features = ["fontconfig-dlopen"] }
 pollster = "1.0.1"
 rand = "0.10.1"
 regex = "1.12.3"

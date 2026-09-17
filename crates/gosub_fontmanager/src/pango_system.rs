@@ -32,9 +32,15 @@ const DEFAULT_FONT_FAMILY: &str = "sans";
 /// registered before that font map is first built (the engine registers web fonts right
 /// after the document is set, before the first layout).
 fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> Result<(), FontError> {
-    use fontconfig_sys::{FcConfigAppFontAddFile, FcConfigBuildFonts, FcConfigGetCurrent};
+    use fontconfig_sys::statics::{LIB, LIB_RESULT};
     use std::io::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    // libfontconfig is dlopen'd (see Cargo.toml); on a host without it there is nothing to
+    // register the font with.
+    if LIB_RESULT.is_err() {
+        return Err(FontError::InvalidFont("libfontconfig.so.1 not available".to_string()));
+    }
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -66,13 +72,13 @@ fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> R
     // `c_path` (valid for the call, not retained by fontconfig) and copies what it needs;
     // `FcConfigBuildFonts` rebuilds the font set. No Rust aliasing/lifetime invariants apply.
     let added = unsafe {
-        let config = FcConfigGetCurrent();
+        let config = (LIB.FcConfigGetCurrent)();
         if config.is_null() {
             return Err(FontError::InvalidFont("fontconfig not initialised".to_string()));
         }
-        let added = FcConfigAppFontAddFile(config, c_path.as_ptr().cast::<u8>());
+        let added = (LIB.FcConfigAppFontAddFile)(config, c_path.as_ptr().cast::<u8>());
         if added != 0 {
-            FcConfigBuildFonts(config);
+            (LIB.FcConfigBuildFonts)(config);
         }
         added
     };
@@ -142,10 +148,13 @@ fn fontconfig_match(
     width: c_int,
 ) -> Result<FontconfigMatch, FontError> {
     use fontconfig_sys::constants::{FC_FAMILY, FC_FILE, FC_INDEX, FC_SLANT, FC_WEIGHT, FC_WIDTH};
-    use fontconfig_sys::{
-        FcConfigGetCurrent, FcConfigSubstitute, FcDefaultSubstitute, FcFontMatch, FcMatchPattern, FcPatternAddInteger,
-        FcPatternAddString, FcPatternCreate, FcPatternDestroy, FcPatternGetInteger, FcPatternGetString, FcResultMatch,
-    };
+    use fontconfig_sys::statics::{LIB, LIB_RESULT};
+    use fontconfig_sys::{FcMatchPattern, FcResultMatch};
+
+    // libfontconfig is dlopen'd (see Cargo.toml); without it there is nothing to match against.
+    if LIB_RESULT.is_err() {
+        return Err(FontError::FontNotFound("libfontconfig.so.1 not available".to_string()));
+    }
 
     let c_families: Vec<std::ffi::CString> = families
         .iter()
@@ -160,29 +169,29 @@ fn fontconfig_match(
     // of the matched pattern point into it, so they are copied to owned `String`s *before*
     // `FcPatternDestroy(matched)`. All pointers passed in are valid for the duration of each call.
     unsafe {
-        let config = FcConfigGetCurrent();
+        let config = (LIB.FcConfigGetCurrent)();
         if config.is_null() {
             return Err(FontError::FontNotFound("fontconfig not initialised".to_string()));
         }
-        let pat = FcPatternCreate();
+        let pat = (LIB.FcPatternCreate)();
         if pat.is_null() {
             return Err(FontError::FontNotFound("FcPatternCreate failed".to_string()));
         }
         for fam in &c_families {
-            FcPatternAddString(pat, FC_FAMILY.as_ptr(), fam.as_ptr().cast::<u8>());
+            (LIB.FcPatternAddString)(pat, FC_FAMILY.as_ptr(), fam.as_ptr().cast::<u8>());
         }
-        FcPatternAddInteger(pat, FC_WEIGHT.as_ptr(), weight);
-        FcPatternAddInteger(pat, FC_SLANT.as_ptr(), slant);
-        FcPatternAddInteger(pat, FC_WIDTH.as_ptr(), width);
-        FcConfigSubstitute(config, pat, FcMatchPattern);
-        FcDefaultSubstitute(pat);
+        (LIB.FcPatternAddInteger)(pat, FC_WEIGHT.as_ptr(), weight);
+        (LIB.FcPatternAddInteger)(pat, FC_SLANT.as_ptr(), slant);
+        (LIB.FcPatternAddInteger)(pat, FC_WIDTH.as_ptr(), width);
+        (LIB.FcConfigSubstitute)(config, pat, FcMatchPattern);
+        (LIB.FcDefaultSubstitute)(pat);
 
         let mut result = FcResultMatch;
-        let matched = FcFontMatch(config, pat, &mut result);
-        FcPatternDestroy(pat);
+        let matched = (LIB.FcFontMatch)(config, pat, &mut result);
+        (LIB.FcPatternDestroy)(pat);
         if matched.is_null() || result != FcResultMatch {
             if !matched.is_null() {
-                FcPatternDestroy(matched);
+                (LIB.FcPatternDestroy)(matched);
             }
             return Err(FontError::FontNotFound(families.join(", ")));
         }
@@ -190,11 +199,11 @@ fn fontconfig_match(
         let mut file_ptr: *mut u8 = std::ptr::null_mut();
         let mut family_ptr: *mut u8 = std::ptr::null_mut();
         let mut index: c_int = 0;
-        let file_ok =
-            FcPatternGetString(matched, FC_FILE.as_ptr(), 0, &mut file_ptr) == FcResultMatch && !file_ptr.is_null();
-        let family_ok = FcPatternGetString(matched, FC_FAMILY.as_ptr(), 0, &mut family_ptr) == FcResultMatch
+        let file_ok = (LIB.FcPatternGetString)(matched, FC_FILE.as_ptr(), 0, &mut file_ptr) == FcResultMatch
+            && !file_ptr.is_null();
+        let family_ok = (LIB.FcPatternGetString)(matched, FC_FAMILY.as_ptr(), 0, &mut family_ptr) == FcResultMatch
             && !family_ptr.is_null();
-        let _ = FcPatternGetInteger(matched, FC_INDEX.as_ptr(), 0, &mut index);
+        let _ = (LIB.FcPatternGetInteger)(matched, FC_INDEX.as_ptr(), 0, &mut index);
 
         let out = file_ok.then(|| FontconfigMatch {
             family: if family_ok {
@@ -207,7 +216,7 @@ fn fontconfig_match(
             path: std::ffi::CStr::from_ptr(file_ptr.cast()).to_string_lossy().into_owned(),
             index: index.max(0) as u32,
         });
-        FcPatternDestroy(matched);
+        (LIB.FcPatternDestroy)(matched);
 
         out.ok_or_else(|| FontError::FontNotFound(families.join(", ")))
     }

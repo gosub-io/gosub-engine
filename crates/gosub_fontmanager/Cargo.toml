@@ -11,6 +11,10 @@ gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_inte
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 cow-utils = { workspace = true }
 parley = { workspace = true, default-features = true }
+# Not used directly — `parley::fontique` is what the code imports. This entry exists to
+# enable fontique's `fontconfig-dlopen` feature (see the workspace dependency table), so
+# that building this crate needs no fontconfig development package.
+fontique = { workspace = true }
 cosmic-text = { workspace = true }
 
 # `pango` feature: PangoFontSystem (fontconfig lookup + Pango/HarfBuzz shaping).
@@ -19,7 +23,11 @@ parking_lot = { workspace = true, optional = true }
 gtk4 = { workspace = true, optional = true }
 pangocairo = { workspace = true, optional = true }
 cairo-rs = { workspace = true, optional = true }
-fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", optional = true }
+# `dlopen`: resolve libfontconfig at runtime rather than linking it, so building needs no
+# fontconfig development package. Must stay in step with the `fontconfig-dlopen` feature the
+# workspace turns on for fontique — it is the same crate, and Cargo unifies the two, so the
+# call sites in `pango_system.rs` always go through `fontconfig_sys::statics::LIB`.
+fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", features = ["dlopen"], optional = true }
 
 # `skia` feature: SkiaFontSystem (Skia textlayout measurement/shaping).
 skia-safe = { workspace = true, features = ["textlayout"], optional = true }
