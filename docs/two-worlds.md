@@ -2,7 +2,7 @@
 
 The most confusing architectural fact in this workspace, stated up front: **there are two parallel document/style models.** One is where parsing happens, the other is what the renderer consumes; they are different types in different crates and meet at exactly one adapter. This page explains what each world is, where the seam between them sits, and which code runs when.
 
-> **Layout is no longer part of the split.** This page used to describe *three* duplicated concerns --- document, style, *and* layout --- because `gosub_taffy` implemented the interface-world layout traits and shipped its own `TaffyLayouter` alongside the pipeline's. Both are gone: the crate was removed, and with it the now-unimplemented `gosub_interface::layout` / `HasLayouter` traits. There is exactly one layouter, and it lives in the pipeline.
+> **Layout is no longer part of the split.** This page used to describe *three* duplicated concerns — document, style, *and* layout — because `gosub_taffy` implemented the interface-world layout traits and shipped its own `TaffyLayouter` alongside the pipeline's. Both are gone: the crate was removed, and with it the now-unimplemented `gosub_interface::layout` / `HasLayouter` traits. There is exactly one layouter, and it lives in the pipeline.
 
 ## World 1: the interface world (parsing and styles)
 
@@ -16,17 +16,17 @@ The most confusing architectural fact in this workspace, stated up front: **ther
 
 This is the world where **parsing happens**. When a tab loads a page, the engine parses HTML into `C::Document` and stylesheets into `C::CssSystem` stylesheets. Generic engine code only ever sees the traits.
 
-`gosub_interface` hosts other contracts too --- `FontSystem`, and the `RenderBackend` / `CompositorSink` backend contracts under `render/`. Those are *not* part of this split: they are shared by both sides and live in `gosub_interface` only so a config can name a backend without inverting the dependency direction. See [interface.md](interface.md).
+`gosub_interface` hosts other contracts too — `FontSystem`, and the `RenderBackend` / `CompositorSink` backend contracts under `render/`. Those are *not* part of this split: they are shared by both sides and live in `gosub_interface` only so a config can name a backend without inverting the dependency direction. See [interface.md](interface.md).
 
 ## World 2: the pipeline world (rendering)
 
-`gosub_render_pipeline` --- everything documented under [render-pipeline/](render-pipeline/README.md) --- has its **own, self-contained document model** under `src/common/document/`:
+`gosub_render_pipeline` — everything documented under [render-pipeline/](render-pipeline/README.md) — has its **own, self-contained document model** under `src/common/document/`:
 
 -   its own `Node` / `NodeType` / element data (`node.rs`);
 -   its own style model (`style.rs`): a closed `StyleProperty` enum and `Value` type with interned keywords, per-property metadata (inherited? initial value?), and its own inheritance + `em`/`rem` resolution;
 -   its own inline-style parsing (`inline_style.rs`).
 
-None of these types implement `gosub_interface` traits. The pipeline's style model is small and rendering-oriented (exactly the properties the painter needs, as plain enums), where the css3 world's property maps are fully general. This is what makes the pipeline independently testable --- its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
+None of these types implement `gosub_interface` traits. The pipeline's style model is small and rendering-oriented (exactly the properties the painter needs, as plain enums), where the css3 world's property maps are fully general. This is what makes the pipeline independently testable — its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
 
 The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.rs`'s `TaffyLayouter`, behind the pipeline-local `CanLayout` trait (documented in [render-pipeline/layout.md](render-pipeline/layout.md)), plus its `gosub_lattice` table bridge in `layouter/table.rs`. There is no counterpart in world 1 anymore, so a search for `TaffyLayouter` now has exactly one answer.
 
@@ -34,7 +34,7 @@ The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.r
 
 The two worlds meet in one file: [`common/document/pipeline_doc.rs`](../crates/gosub_render_pipeline/src/common/document/pipeline_doc.rs).
 
-**`PipelineDocument`** is the narrow trait the whole pipeline consumes: tree navigation (`root`/`children`/`parent`), node classification (`node_kind`/`tag_name`), and styles --- `get_own_style(id, prop) -> Option<Value>` plus a provided `get_style` that layers inheritance, initial values, and `em`/`rem` → px resolution on top.
+**`PipelineDocument`** is the narrow trait the whole pipeline consumes: tree navigation (`root`/`children`/`parent`), node classification (`node_kind`/`tag_name`), and styles — `get_own_style(id, prop) -> Option<Value>` plus a provided `get_style` that layers inheritance, initial values, and `em`/`rem` → px resolution on top.
 
 **`GosubDocumentAdapter<C: HasDocument>`** implements that trait over an `Arc<C::Document>` from world 1. It is where all the translation lives:
 
@@ -69,13 +69,13 @@ Everything upstream of that line is world 1; everything downstream is world 2.
 
 | Concept | World 1 | World 2 |
 |---------|---------|---------|
-| Document model | `C::Document` --- the arena DOM | own `Node`/`NodeType` under `common/document/` |
+| Document model | `C::Document` — the arena DOM | own `Node`/`NodeType` under `common/document/` |
 | Style representation | `CssSystem` property maps; general | `StyleProperty`/`Value` enums; closed, render-oriented |
 | Node identity | `gosub_shared::node::NodeId` | same `NodeId`, plus synthetic pseudo-element ids |
 | Layout | *(none)* | `layouter/taffy.rs`, `CanLayout`, `PipelineTableTree` |
 
-Layout is listed only to head off an old assumption: `gosub_interface` has **no** layout contract. `layout.rs` (`Layouter<C>`, `LayoutTree<C>`, `LayoutNode`, `LayoutCache`, `Layout`, `TextLayout`/`HasTextLayout`) and the `HasLayouter` view were removed once `gosub_taffy` --- their only implementor --- went away. Adding or swapping a layouter today means implementing the pipeline's `CanLayout`.
+Layout is listed only to head off an old assumption: `gosub_interface` has **no** layout contract. `layout.rs` (`Layouter<C>`, `LayoutTree<C>`, `LayoutNode`, `LayoutCache`, `Layout`, `TextLayout`/`HasTextLayout`) and the `HasLayouter` view were removed once `gosub_taffy` — their only implementor — went away. Adding or swapping a layouter today means implementing the pipeline's `CanLayout`.
 
 ## Why it is this way (and where it might go)
 
-The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter a closed style enum it can match on exhaustively; the cost is a translation layer on every rebuild and two places to teach about any new CSS property --- `css_property_to_value` in the adapter as well as `StyleProperty` in the pipeline. Collapsing the models further would mean either the pipeline consuming `CssProperty` directly (losing exhaustive matching) or the parse side producing pipeline values (losing generality); the adapter is the deliberate middle.
+The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter a closed style enum it can match on exhaustively; the cost is a translation layer on every rebuild and two places to teach about any new CSS property — `css_property_to_value` in the adapter as well as `StyleProperty` in the pipeline. Collapsing the models further would mean either the pipeline consuming `CssProperty` directly (losing exhaustive matching) or the parse side producing pipeline values (losing generality); the adapter is the deliberate middle.

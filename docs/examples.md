@@ -13,32 +13,35 @@ cd gosub-engine
 cargo build
 ```
 
-**OS packages required for GTK4 and Cairo examples** (Ubuntu / Debian):
+**OS packages required for the GTK4 and Cairo examples** (Ubuntu / Debian):
 
     make gcc g++
     libglib2.0-dev libcairo2-dev libpango1.0-dev
     libgdk-pixbuf-2.0-dev libgraphene-1.0-dev libgtk-4-dev
     libsqlite3-dev
 
-The winit-vello, egui-vello, and gosub-screenshot binaries have no system-library dependencies and build out of the box on Linux, macOS, and Windows.
+**OS packages required for the Skia binaries** — `gosub-screenshot` and the `*-skia` examples
+(Ubuntu / Debian):
+
+    libfontconfig-dev libfreetype-dev
+
+Skia links fontconfig and freetype itself, so these are needed even by `gosub-screenshot`,
+which opens no window.
+
+Everything else builds with no system packages at all: the engine examples below, `gosub-wpt`,
+and the winit-vello and egui-vello binaries, which build out of the box on Linux, macOS and
+Windows.
 
 ## Engine examples (no GUI required)
 
-  ---------------------------------------------------------------------------------------------------------------
-  Command                                   Description
-  ----------------------------------------- ---------------------------------------------------------------------
-  `cargo run --example hello-world`         Single tab --- navigate a URL, stream events to stdout
-
-  `cargo run --example multi-tab`           25 tabs navigating random sites; live progress bars via `indicatif`
-
-  `cargo run --example tutorial -- <url>`   The companion to [`tutorial.md`](tutorial.md)
-
-  `cargo run --example html5-parser`        Parse a document with `gosub_html5` alone and print the DOM tree
-
-  `cargo run --example pipeline-test`       End-to-end smoke test against a local HTTP server
-
-  `cargo run --example metrics-cli`         Timing stats from a running engine; `--watch`, `--json`, `--reset`
-  ---------------------------------------------------------------------------------------------------------------
+| Command | Description |
+|---|---|
+| `cargo run --example hello-world` | Single tab — navigate a URL, stream events to stdout |
+| `cargo run --example multi-tab` | 25 tabs navigating random sites; live progress bars via `indicatif` |
+| `cargo run --example tutorial -- <url>` | The companion to [`tutorial.md`](tutorial.md) |
+| `cargo run --example html5-parser` | Parse a document with `gosub_html5` alone and print the DOM tree |
+| `cargo run --example pipeline-test` | End-to-end smoke test against a local HTTP server |
+| `cargo run --example metrics-cli` | Timing stats from a running engine; `--watch`, `--json`, `--reset` |
 
 ## GUI examples
 
@@ -52,78 +55,50 @@ All GUI examples accept a URL as the first argument, e.g. `-- https://example.c
 
 ### winit (cross-platform, no GTK required)
 
-  --------------------------------------------------------------------------------------------------------
-  Command                                 Renderer                Notes
-  --------------------------------------- ----------------------- ----------------------------------------
-  `cargo run -p example-winit-vello`      Vello / wgpu            Cross-platform --- Metal, DX12, Vulkan
-
-  `cargo run -p example-winit-skia`       Skia CPU                softbuffer presentation
-
-  `cargo run -p example-winit-skia-gpu`   Skia GPU (OpenGL)       OpenGL compositing
-
-  `cargo run -p example-winit-cairo`      Cairo CPU               Linux; needs libcairo
-  --------------------------------------------------------------------------------------------------------
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-winit-vello` | Vello / wgpu | Cross-platform — Metal, DX12, Vulkan |
+| `cargo run -p example-winit-skia` | Skia CPU | softbuffer presentation |
+| `cargo run -p example-winit-skia-gpu` | Skia GPU (OpenGL) | OpenGL compositing |
+| `cargo run -p example-winit-cairo` | Cairo CPU | Linux; needs libcairo |
 
 ### GTK4 (Linux, requires GTK4 system packages)
 
-  ----------------------------------------------------------------------------------------------------
-  Command                                Renderer                   Notes
-  -------------------------------------- -------------------------- ----------------------------------
-  `cargo run -p example-gtk4-cairo`      Cairo CPU                  Pango text rendering
-
-  `cargo run -p example-gtk4-skia`       Skia CPU                   
-
-  `cargo run -p example-gtk4-skia-gpu`   Skia GPU (OpenGL/GLArea)   Hardware-accelerated compositing
-  ----------------------------------------------------------------------------------------------------
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-gtk4-cairo` | Cairo CPU | Pango text rendering |
+| `cargo run -p example-gtk4-skia` | Skia CPU | |
+| `cargo run -p example-gtk4-skia-gpu` | Skia GPU (OpenGL/GLArea) | Hardware-accelerated compositing |
 
 ### egui
 
-  -----------------------------------------------------------------------------------
-  Command                             Renderer                Notes
-  ----------------------------------- ----------------------- -----------------------
-  `cargo run -p example-egui-vello`   Vello / wgpu            Cross-platform
-
-  `cargo run -p example-egui-skia`    Skia CPU                
-
-  `cargo run -p example-egui-cairo`   Cairo CPU               Linux; needs libcairo
-  -----------------------------------------------------------------------------------
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-egui-vello` | Vello / wgpu | Cross-platform |
+| `cargo run -p example-egui-skia` | Skia CPU | |
+| `cargo run -p example-egui-cairo` | Cairo CPU | Linux; needs libcairo |
 
 ## Headless tool
 
-  ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  Command                                              Description
-  ---------------------------------------------------- -----------------------------------------------------------------------------------------------------------------------
-  `cargo run -p gosub-screenshot -- <url> [out.png]`   Render a URL to a full-page PNG without opening a window (CPU Skia, statically linked --- no GPU or system libraries)
-
-  ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Command | Description |
+|---|---|
+| `cargo run -p gosub-screenshot -- <url> [out.png]` | Render a URL to a full-page PNG without opening a window — CPU Skia, no GPU and no window system (it does link fontconfig and freetype) |
 
 See [headless.md](headless.md) for how the tool drives the engine and how to build your own headless integration.
 
 ## Component tools (individual crate testing)
 
-  -------------------------------------------------------------------------------------------
-  Command                               Description
-  ------------------------------------- -----------------------------------------------------
-  `cargo run --bin gosub-parser`        HTML5 parser / tokenizer --- prints a document tree
-
-  `cargo run --bin css3-parser`         CSS3 parser --- prints a CSS tree from a URL
-
-  `cargo run --bin css-check`           Parse a CSS file/URL, warn on every unparsable rule
-
-  `cargo run --bin display-text-tree`   Text-only render of a page
-
-  `cargo run --example config-store`    Config store smoke test (example target, not a bin)
-
-  `cargo run --bin run-js`              Run a JS file (event loop not yet implemented)
-
-  `cargo run --bin html5-parser-test`   html5lib tree-builder test suite
-
-  `cargo run --bin parser-test`         Parser development test runner
-
-  `cargo run -p gosub_lattice --bin     Table layout engine console demos
-  table_console`
-
-  `cargo run -p generate_definitions`   Regenerate the gosub_css3 CSS definition JSON
-  -------------------------------------------------------------------------------------------
+| Command | Description |
+|---|---|
+| `cargo run --bin gosub-parser` | HTML5 parser / tokenizer — prints a document tree |
+| `cargo run --bin css3-parser` | CSS3 parser — prints a CSS tree from a URL |
+| `cargo run --bin css-check` | Parse a CSS file/URL, warn on every unparsable rule |
+| `cargo run --bin display-text-tree` | Text-only render of a page |
+| `cargo run --example config-store` | Config store smoke test (example target, not a bin) |
+| `cargo run --bin run-js` | Run a JS file (event loop not yet implemented) |
+| `cargo run --bin html5-parser-test` | html5lib tree-builder test suite |
+| `cargo run --bin parser-test` | Parser development test runner |
+| `cargo run -p gosub_lattice --bin table_console` | Table layout engine console demos |
+| `cargo run -p generate_definitions` | Regenerate the gosub_css3 CSS definition JSON |
 
 For more detail on the component tools see [`binaries.md`](binaries.md).

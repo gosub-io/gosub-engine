@@ -31,23 +31,21 @@ python3 generate_assets.py   # needs Pillow with WebP support
 produced by the script.
 
 ## Rendering it
-Serve the directory and point the engine at it, e.g.:
-
-```sh
-cargo run --example screenshot_url -p gosub_render_pipeline --features backend_cairo -- \
-  http://localhost:8000/image-test.html 1000 out.png
-```
-
-(`python3 -m http.server` from this directory works as a quick server. Args are
-`<url> [width] [output.png]`.)
-
-For a full-pipeline (GPU/Vello, headless) render instead, use the screenshot binary:
+Serve this directory and point `gosub-screenshot` at it. `python3 -m http.server` from here
+works as a quick server; the arguments are `<url> [output.png] [width]`.
 
 ```sh
 cargo run -p gosub-screenshot -- http://localhost:8000/image-test.html out.png 1000
 ```
 
-Notes on the `screenshot_url` example: it approximates CSS `background-size` as
-centered-`contain` (it does not reproduce `cover` or `repeat`), and the `data:`-URI image
-is not fetched (the example's sync fetcher has no `data:` support), so it falls back to the
-broken-image placeholder.
+That is the default CPU Skia backend. To render the same page through Cairo/Pango instead —
+useful for comparing the two rasterizers against each other:
+
+```sh
+cargo run -p gosub-screenshot --no-default-features --features backend_cairo -- \
+  http://localhost:8000/image-test.html out-cairo.png 1000
+```
+
+See [`docs/headless.md`](../../../docs/headless.md) for how the tool drives the engine, and
+[`docs/render-pipeline/backends.md`](../../../docs/render-pipeline/backends.md) for what
+differs between the backends.

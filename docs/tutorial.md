@@ -72,7 +72,7 @@ let join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 
 `DefaultRenderConfig<_>` names the component set at compile time (backend, font system, compositor); with the `NullBackend` the remaining parameters take their headless defaults. `EngineConfig` holds set-once limits such as `max_zones`; `EngineConfig::builder()` lets you change them.
 
-`NullBackend` skips all pixel rendering - useful for headless scenarios or whenever you just want navigation and events without a visible window. Swap it for `CairoBackend` or `VelloBackend` to get an actual rendered surface --- see [`configuration.md`](configuration.md) for how to wire a real backend into the engine config.
+`NullBackend` skips all pixel rendering - useful for headless scenarios or whenever you just want navigation and events without a visible window. Swap it for `CairoBackend` or `VelloBackend` to get an actual rendered surface — see [`configuration.md`](configuration.md) for how to wire a real backend into the engine config.
 
 Subscribe to events **before** creating any zones or tabs, so you don't miss events emitted during setup:
 
@@ -205,18 +205,11 @@ cargo run --example tutorial -- https://news.ycombinator.com
 
 ## What to try next
 
-  -----------------------------------------------------------------------------------------------
-  Goal                                Where to look
-  ----------------------------------- -----------------------------------------------------------
-  Handle multiple tabs                [`examples/multi-tab.rs`](../examples/multi-tab.rs)
-
-  Render with GTK4 / Cairo            [`examples/gtk4-cairo/`](../examples/gtk4-cairo/)
-
-  Render with wgpu / Vello            [`examples/egui-vello/`](../examples/egui-vello/)
-
-  Parse HTML directly (no engine)     [`examples/html5-parser.rs`](../examples/html5-parser.rs)
-
-  Understand all the crates           [`docs/crates.md`](crates.md)
-
-  Use the component tools             [`docs/binaries.md`](binaries.md)
-  -----------------------------------------------------------------------------------------------
+| Goal | Where to look |
+|---|---|
+| Handle multiple tabs | [`examples/multi-tab.rs`](../examples/multi-tab.rs) |
+| Render with GTK4 / Cairo | [`examples/gtk4-cairo/`](../examples/gtk4-cairo/) |
+| Render with wgpu / Vello | [`examples/egui-vello/`](../examples/egui-vello/) |
+| Parse HTML directly (no engine) | [`examples/html5-parser.rs`](../examples/html5-parser.rs) |
+| Understand all the crates | [`docs/crates.md`](crates.md) |
+| Use the component tools | [`docs/binaries.md`](binaries.md) |

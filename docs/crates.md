@@ -28,13 +28,13 @@ CSS3 tokenizer and parser. Parses stylesheets into a `CssStylesheet` (rules, sel
 
 ### gosub_lattice
 
-CSS table layout engine --- handles the table layout algorithm that Taffy does not cover. See [`lattice.md`](lattice.md) for the algorithm and the `TableTree` adapter contract.
+CSS table layout engine — handles the table layout algorithm that Taffy does not cover. See [`lattice.md`](lattice.md) for the algorithm and the `TableTree` adapter contract.
 
 ### gosub_render_pipeline
 
 The render pipeline. Converts the DOM + CSSOM into a render tree with resolved styles and positions, runs the paint stages, tiles the output, and composites it. Render backends plug in here; this is the crate they implement against.
 
-It also owns the workspace's only layouter --- flexbox / grid / block boxes via the [Taffy](https://github.com/DioxusLabs/taffy) library, plus its own inline-run layout and the `gosub_lattice` table write-back. It works over its own document/style types rather than the `gosub_interface` ones; see [`two-worlds.md`](two-worlds.md) for that split and the adapter that joins it to the parse side.
+It also owns the workspace's only layouter — flexbox / grid / block boxes via the [Taffy](https://github.com/DioxusLabs/taffy) library, plus its own inline-run layout and the `gosub_lattice` table write-back. It works over its own document/style types rather than the `gosub_interface` ones; see [`two-worlds.md`](two-worlds.md) for that split and the adapter that joins it to the parse side.
 
 ### gosub_fontmanager
 
@@ -48,7 +48,7 @@ SVG document support backed by `usvg` and optionally `resvg`.
 
 ## Render backends
 
-Each backend implements the `RenderBackend` trait against `gosub_render_pipeline`. You select one at compile time via the engine config --- see [`configuration.md`](configuration.md).
+Each backend implements the `RenderBackend` trait against `gosub_render_pipeline`. You select one at compile time via the engine config — see [`configuration.md`](configuration.md).
 
 ### gosub_renderer_cairo
 
@@ -84,7 +84,7 @@ The async networking stack: streaming HTTP fetcher with priority queues, infligh
 
 ## JavaScript
 
-See [`javascript.md`](javascript.md) for how these crates stack together. Note: the whole scripting stack is currently **built but not wired** --- no page script is executed yet.
+See [`javascript.md`](javascript.md) for how these crates stack together. Note: the whole scripting stack is currently **built but not wired** — no page script is executed yet.
 
 ### gosub_v8
 
@@ -106,7 +106,7 @@ Implementations of browser Web APIs (console, fetch, DOM, etc.) that are callabl
 
 Test-only DOM bindings over a small JavaScript engine (QuickJS via `rquickjs`), so that
 web-platform-tests can drive the engine's DOM before real scripting lands. Holds no DOM
-logic of its own --- see [`wpt.md`](wpt.md).
+logic of its own — see [`wpt.md`](wpt.md).
 
 ------------------------------------------------------------------------
 
