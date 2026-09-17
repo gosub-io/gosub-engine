@@ -23,7 +23,17 @@ export WPT_ROOT=$PWD
 
 `resources` and `common` are always needed; add whichever test directories you want to run.
 The css suites also pull helper scripts out of `css/support` and `css/reference`, which is why
-those are in the list. For the directories CI gates instead, use
+those are in the list. The property-parsing corpus (`make wpt-css-parsing`) needs the modules
+that carry a `parsing/` directory:
+
+```bash
+git sparse-checkout add css/css-align css/css-animations css/css-backgrounds css/css-box \
+    css/css-color css/css-display css/css-flexbox css/css-fonts css/css-grid css/css-images \
+    css/css-lists css/css-logical css/css-overflow css/css-position css/css-sizing \
+    css/css-tables css/css-text-decor css/css-text css/css-transforms css/css-transitions css/css-ui
+```
+
+For the directories CI gates instead, use
 `resources common dom/nodes dom/events html/dom`.
 
 **2. Run a component.** A directory argument runs every testharness suite underneath it:
@@ -56,6 +66,7 @@ With a checkout in `wpt/` (or `WPT_ROOT` set), these wrap the commands above:
 |---|---|
 | `make wpt` | check the gate against `tests/wpt/expectations.txt` |
 | `make wpt-css` | check the CSS component against `tests/wpt/expectations-css.txt` |
+| `make wpt-css-parsing` | check property parsing (`css/*/parsing`) against `tests/wpt/expectations-css-parsing.txt` |
 | `make wpt-shortlist` | what to work on (`DIR=dom/events` to pick the subtree) |
 | `make wpt-update` | regenerate both baselines after a fix |
 
@@ -204,6 +215,7 @@ Measured at the pinned commit; regenerate rather than trust these.
 |---|---:|---:|---:|
 | `wpt` gate - `dom/events`, `html/dom` | 621 files, 50,310 subtests | 2,348 (4.7%) | 30s |
 | CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5,441 subtests | 343 (6.3%) | 30s |
+| CSS property parsing - `css/*/parsing` | 810 files, 22,832 subtests | 10,372 (45%) | 60s |
 | nightly - every testharness suite | 27,301 files | ~2% | 150s |
 | reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
 
@@ -304,6 +316,20 @@ both refused to treat as text.
 `tests/wpt/expectations-css.txt` is the same format for the CSS parser component
 (`css/css-syntax` and `css/css-values`). It is **not** gated in CI: it exists so the parser's
 progress is measurable and so a contributor can pick a failing subtest and go fix it.
+
+`tests/wpt/expectations-css-parsing.txt` covers the property-parsing corpus: every
+`css/<module>/parsing/` directory, where WPT keeps its `<property>-valid`, `-invalid`,
+`-shorthand` and `-computed` suites. It is the CSS counterpart of the html5lib tests - one
+`test_valid_value` / `test_invalid_value` call per value the validator must accept or reject,
+and `test_shorthand_value` checks shorthand expansion longhand by longhand. Same format, same
+rules, also not gated. `make wpt-update` regenerates it from the files it lists; to take in a
+module added to the checkout later, regenerate once from the directories:
+
+```bash
+ls -d "$WPT_ROOT"/css/*/parsing | sed "s#$WPT_ROOT/##" > /tmp/parsing-dirs
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --tests-from /tmp/parsing-dirs \
+    --write-expectations > tests/wpt/expectations-css-parsing.txt
+```
 
 Regenerating rewrites the whole file, so anything a baseline needs to say about itself lives
 here rather than in a comment at the top of it. For the gated file, that is:

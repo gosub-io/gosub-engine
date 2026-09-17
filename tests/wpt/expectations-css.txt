@@ -2162,7 +2162,6 @@ PASS css/css-values/random-in-if.tentative.html :: Sharing property-scoped rando
 PASS css/css-values/random-in-if.tentative.html :: Sharing property-index-scoped random() in if() style() condition across different elements with different property counts
 FILE css/css-values/random-in-keyframe.html
 FILE css/css-values/random-in-media.tentative.html
-ERROR css/css-values/random-in-media.tentative.html
 FILE css/css-values/random-invalid.tentative.html
 PASS css/css-values/random-invalid.tentative.html :: e.style['width'] = "random()" should not set the property value
 PASS css/css-values/random-invalid.tentative.html :: e.style['width'] = "random( )" should not set the property value
@@ -3600,7 +3599,6 @@ FILE css/css-values/tree-counting/sibling-function-descriptors.tentative.html
 HARNESS css/css-values/tree-counting/sibling-function-descriptors.tentative.html
 FILE css/css-values/tree-counting/sibling-function-invalidation.html
 FILE css/css-values/tree-counting/sibling-function-media-query.tentative.html
-ERROR css/css-values/tree-counting/sibling-function-media-query.tentative.html
 FILE css/css-values/tree-counting/sibling-index-keyframe-font-style-dynamic.html
 FILE css/css-values/tree-counting/sibling-index-keyframe-font-variation-settings-dynamic.html
 FILE css/css-values/tree-counting/sibling-index-keyframe-font-weight-dynamic.html
