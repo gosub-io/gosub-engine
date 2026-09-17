@@ -111,3 +111,17 @@ fn nested_entities_behind_a_quoted_gt_are_refused() {
     let err = decode_on_a_realistic_stack(doc.into_bytes()).expect_err("must be rejected");
     assert!(err.contains("declares its own entities"), "{err}");
 }
+
+/// A `<!--` inside the DOCTYPE's quoted system identifier read as a comment opener and, with no
+/// `-->` to close it, skipped the rest of the document - entity declaration included. A 35 KB
+/// file then aborted the process. Second bypass CodeRabbit found on PR #1229.
+#[test]
+fn a_comment_opener_in_the_system_literal_is_refused() {
+    let deep = "<g>".repeat(5000) + &"</g>".repeat(5000);
+    let doc = format!(
+        "<!DOCTYPE svg SYSTEM \"a<!--b\" [<!ENTITY e \"{deep}\">]>\
+         <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">&e;</svg>"
+    );
+    let err = decode_on_a_realistic_stack(doc.into_bytes()).expect_err("must be rejected");
+    assert!(err.contains("declares its own entities"), "{err}");
+}

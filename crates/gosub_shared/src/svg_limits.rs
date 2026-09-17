@@ -72,11 +72,24 @@ pub fn xml_exceeds_limits(xml: &[u8], max: usize) -> Option<XmlLimit> {
             continue;
         }
 
-        // Reached only outside comments, CDATA and processing instructions, and outside element
-        // tags - those are skipped whole below, quoted attribute values included - so this is a
-        // real declaration rather than the text `<!ENTITY` appearing somewhere harmless.
-        // Matched case-insensitively: XML requires upper case here, and over-matching can only
-        // reject a document the parser would also refuse.
+        // The DOCTYPE is the one place a document declares its own entities, and its literals -
+        // system identifiers, entity values - are quoted strings that may contain anything,
+        // including `>`, `<!--` or `<?`. Scanning through it byte by byte with the rules above
+        // therefore does not work: a `<!--` inside a system identifier reads as a comment opener
+        // and skips the rest of the document, declarations included. Review found that bypass
+        // twice. So the declaration is read as a unit, by a scanner that tracks quotes.
+        if starts_with_ignore_ascii_case(rest, b"<!DOCTYPE") {
+            match scan_doctype(rest) {
+                Some(len) => {
+                    i += len;
+                    continue;
+                }
+                None => return Some(XmlLimit::Entities),
+            }
+        }
+
+        // An entity declaration outside any DOCTYPE is not well-formed and the parser refuses
+        // it, but refusing it here too costs nothing and keeps the check independent of that.
         if starts_with_ignore_ascii_case(rest, b"<!ENTITY") {
             match entity_literal(rest) {
                 // No markup in the replacement text, so it cannot expand into elements.
@@ -96,11 +109,6 @@ pub fn xml_exceeds_limits(xml: &[u8], max: usize) -> Option<XmlLimit> {
             continue;
         }
 
-        // Other declarations are not skipped. Skipping `<!DOCTYPE ...>` would mean finding where
-        // it ends, and its system identifier is a quoted string that may contain `>` - the kind
-        // of parser detail this scan deliberately does not try to know. Scanning through it is
-        // harmless: it holds no element tags.
-
         if !is_name_start(rest.get(1).copied()) {
             // A bare `<` in text - not well-formed, but treating it as text means a real element
             // can never hide behind one.
@@ -116,6 +124,62 @@ pub fn xml_exceeds_limits(xml: &[u8], max: usize) -> Option<XmlLimit> {
             }
         }
         i += len;
+    }
+
+    None
+}
+
+/// Reads the `<!DOCTYPE ...>` declaration starting at `xml[0]`, returning its length if it
+/// declares no entity that expands to markup.
+///
+/// `None` means refuse: either such an entity is declared, or the declaration cannot be read -
+/// unterminated, or a literal that never closes. Nothing here is guessed at; it is the shape
+/// XML gives the declaration. Every literal in a DTD is quoted with `"` or `'`, the internal
+/// subset sits between `[` and `]`, and comments and processing instructions are allowed inside
+/// it (and may themselves hold quotes: `<!-- don't -->`), so they are skipped as units - but only
+/// from outside a literal, never from within one. The declaration ends at the first `>` that is
+/// outside both a literal and the subset.
+fn scan_doctype(xml: &[u8]) -> Option<usize> {
+    let mut i = "<!DOCTYPE".len();
+    let mut quote: Option<u8> = None;
+    let mut in_subset = 0usize;
+
+    while i < xml.len() {
+        let b = xml[i];
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'"' | b'\'' => quote = Some(b),
+            b'[' => in_subset += 1,
+            b']' => in_subset = in_subset.saturating_sub(1),
+            b'>' if in_subset == 0 => return Some(i + 1),
+            b'<' => {
+                let rest = &xml[i..];
+                if let Some(len) = skip_delimited(rest, b"<!--", b"-->").or_else(|| skip_delimited(rest, b"<?", b"?>"))
+                {
+                    // An unterminated one runs to the end of the input, and the loop then falls
+                    // out below as unterminated too.
+                    i += len;
+                    continue;
+                }
+                if starts_with_ignore_ascii_case(rest, b"<!ENTITY") {
+                    match entity_literal(rest) {
+                        Some((false, len)) => {
+                            i += len;
+                            continue;
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
     }
 
     None
@@ -334,6 +398,39 @@ mod tests {
     fn a_doctype_decoy_in_a_comment_does_not_hide_entities() {
         let doc = br#"<!-- <!DOCTYPE decoy> --><!DOCTYPE svg [<!ENTITY e "<g><g/></g>">]><svg>&e;</svg>"#;
         assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Entities));
+    }
+
+    /// A DOCTYPE's system identifier is a quoted literal that may contain anything. Read with the
+    /// document-level rules, a `<!--`, `<![CDATA[` or `<?` inside it opened a region that swallowed
+    /// the rest of the document, entity declaration included. Second bypass CodeRabbit found on
+    /// PR #1229, in the same helper as the first.
+    #[test]
+    fn delimiter_openers_inside_a_system_literal_do_not_hide_entities() {
+        for opener in ["<!--", "<![CDATA[", "<?", ">", "]", "["] {
+            let doc = format!("<!DOCTYPE svg SYSTEM \"a{opener}b\" [<!ENTITY e \"<g><g/></g>\">]><svg>&e;</svg>");
+            assert_eq!(
+                check(doc.as_bytes(), MAX_SVG_NESTING_DEPTH),
+                Some(XmlLimit::Entities),
+                "system literal containing {opener:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dtd_comment_may_hold_a_quote() {
+        // `<!-- don't -->` inside the subset: the apostrophe must not open a literal that
+        // swallows the closing `>` and gets the whole (harmless) document refused.
+        let doc = br#"<!DOCTYPE svg [<!-- don't --><!ENTITY st "fill:red">]><svg><rect style="&st;"/></svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), None);
+    }
+
+    #[test]
+    fn an_unterminated_doctype_is_refused() {
+        assert_eq!(check(b"<!DOCTYPE svg [<!ENTITY e \"x\">", 4), Some(XmlLimit::Entities));
+        assert_eq!(
+            check(b"<!DOCTYPE svg SYSTEM \"never closes", 4),
+            Some(XmlLimit::Entities)
+        );
     }
 
     #[test]

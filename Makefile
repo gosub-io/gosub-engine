@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples wpt wpt-css wpt-shortlist wpt-update
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 fuzz-svg-limits help examples wpt wpt-css wpt-shortlist wpt-update
 
 all: help
 
@@ -143,6 +143,9 @@ fuzz-html5-tokenizer: ## Run html5 tokenizer fuzzer (cargo-fuzz, requires nightl
 
 fuzz-css3: ## Run CSS3 parser fuzzer (cargo-fuzz, requires nightly)
 	cd crates/gosub_css3 && cargo +nightly fuzz run css3_parser -- -dict=fuzz/css3.dict
+
+fuzz-svg-limits: ## Fuzz the SVG nesting scanner against the real XML parser (cargo-fuzz, requires nightly)
+	cd crates/gosub_shared && cargo +nightly fuzz run svg_limits -- -dict=fuzz/xml.dict
 
 help: ## Display available commands
 	echo "Available make commands:"
