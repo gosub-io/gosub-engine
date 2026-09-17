@@ -2,7 +2,9 @@ use ::resvg::usvg;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
 use gosub_shared::node::NodeId;
-use gosub_shared::svg_limits::{xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
+use gosub_shared::svg_limits::{
+    xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_NEEDED, SVG_PARSE_STACK_SIZE,
+};
 use gosub_shared::types::{Error, Result};
 use std::sync::{Arc, OnceLock};
 
@@ -45,19 +47,10 @@ impl SVGDocument {
             None => {}
         }
 
-        // `svg_options()` is built inside the closure: `usvg::Options` holds non-`Send` resolver
-        // closures. Its fontdb is a `OnceLock`-shared `Arc`, so nothing is rescanned.
-        let tree = std::thread::scope(|scope| {
-            let parse = std::thread::Builder::new()
-                .name("svg-parse".into())
-                .stack_size(SVG_PARSE_STACK_SIZE)
-                .spawn_scoped(scope, || usvg::Tree::from_str(svg, &svg_options()))
-                .map_err(|e| Error::Parse(format!("could not spawn SVG parse thread: {e}")))?;
-
-            parse
-                .join()
-                .map_err(|_| Error::Parse("SVG parser panicked".into()))?
-                .map_err(|e| Error::Parse(e.to_string()))
+        // Grow the stack rather than move to a thread; see `gosub_shared::svg_limits`. Only
+        // allocates when the caller has less than `SVG_PARSE_STACK_NEEDED` left.
+        let tree = stacker::maybe_grow(SVG_PARSE_STACK_NEEDED, SVG_PARSE_STACK_SIZE, || {
+            usvg::Tree::from_str(svg, &svg_options()).map_err(|e| Error::Parse(e.to_string()))
         })?;
 
         Ok(Self { tree })

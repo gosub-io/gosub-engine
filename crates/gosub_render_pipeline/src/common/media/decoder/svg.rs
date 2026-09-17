@@ -1,5 +1,7 @@
 use super::{DecodedMedia, ImageDecodeError, MediaDecoder};
-use gosub_shared::svg_limits::{xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
+use gosub_shared::svg_limits::{
+    xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_NEEDED, SVG_PARSE_STACK_SIZE,
+};
 use resvg::usvg;
 use std::sync::{Arc, OnceLock};
 
@@ -98,21 +100,13 @@ fn parse_svg(bytes: &[u8]) -> Result<usvg::Tree, ImageDecodeError> {
 
     let text = std::str::from_utf8(bytes).map_err(|_| ImageDecodeError::Decode("SVG is not valid UTF-8".into()))?;
 
-    // Own thread, so the depth limit above translates into an actual stack budget. Callers
-    // cannot provide one: `<img src=…svg>` decodes on a default-stack fetch thread, an inline
-    // `<svg>` decodes partway down a recursive layout walk on a tokio worker. `svg_options()`
-    // is built inside the closure because `usvg::Options` holds non-`Send` resolver closures;
-    // the fontdb behind it is a `OnceLock`-shared `Arc`, so system fonts are still scanned once.
-    std::thread::scope(|scope| {
-        let parse = std::thread::Builder::new()
-            .name("svg-parse".into())
-            .stack_size(SVG_PARSE_STACK_SIZE)
-            .spawn_scoped(scope, || usvg::Tree::from_str(text, &svg_options()))
-            .map_err(|e| ImageDecodeError::Decode(format!("could not spawn SVG parse thread: {e}")))?;
-
-        parse
-            .join()
-            .map_err(|_| ImageDecodeError::Decode("SVG parser panicked".into()))?
-            .map_err(|e| ImageDecodeError::Decode(e.to_string()))
+    // Grow the stack rather than move to a thread: the depth limit above bounds the number of
+    // frames, and this gives them somewhere to sit without the caller having to provide it.
+    // `<img src=…svg>` decodes on a fetch thread, but an inline `<svg>` decodes partway down a
+    // recursive layout walk on a tokio worker, where the headroom left is anyone's guess. Only
+    // allocates when the remaining stack is under `SVG_PARSE_STACK_NEEDED`, so the common case
+    // - a shallow document with plenty of stack - is a pointer comparison.
+    stacker::maybe_grow(SVG_PARSE_STACK_NEEDED, SVG_PARSE_STACK_SIZE, || {
+        usvg::Tree::from_str(text, &svg_options()).map_err(|e| ImageDecodeError::Decode(e.to_string()))
     })
 }
