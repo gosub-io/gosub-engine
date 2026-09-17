@@ -423,6 +423,23 @@ fn a_semicolon_inside_a_value_does_not_split_the_block() {
     assert_eq!(value, "url(\"a;b\")|10px");
 }
 
+/// `display` serializes in its short form, specified and computed alike, and an absolutely
+/// positioned element computes to the block-level form (css-display-3 §2.7).
+#[test]
+fn display_reads_back_in_its_short_form_and_blockifies_when_positioned() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.display = 'inline flow-root'; \
+         const a = el.style.display + '|' + getComputedStyle(el).display; \
+         el.style.position = 'absolute'; \
+         const b = getComputedStyle(el).display; \
+         el.style.display = 'flow list-item block'; \
+         a + '#' + b + '#' + el.style.display;",
+    );
+    assert_eq!(value, "inline-block|inline-block#block#list-item");
+}
+
 /// CSSOM §6.1: a block holds longhands. A shorthand is stored as the longhands it sets - so
 /// `length` counts them, a longhand reads back, and removing one keeps the others - while the
 /// shorthand itself still reads back as written for as long as it is whole.

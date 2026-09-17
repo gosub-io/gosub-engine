@@ -12,6 +12,7 @@
 use cow_utils::CowUtils;
 use gosub_css3::matcher::property_definitions::get_css_definitions;
 use gosub_css3::matcher::styling::CssProperties;
+use gosub_css3::stylesheet::CssValue;
 use gosub_css3::system::{prop_is_inherit, Css3System};
 use gosub_interface::css3::{CssPropertyMap, CssSystem};
 use gosub_interface::document::Document as _;
@@ -74,6 +75,23 @@ fn chain_maps(doc: &crate::Doc, id: NodeId, pseudo: Option<&str>) -> Vec<CssProp
 /// returns only what was *declared* for an element - `insert_inherited` has no callers - so
 /// inheritance has to happen at lookup, walking back up the chain the cascade was computed over.
 fn value_of(maps: &mut [CssProperties], name: &str) -> Option<String> {
+    // Blockification (css-display-3 §2.7): an absolutely positioned or floated element's
+    // computed `display` is the block-level form of what it specified. Decided before the walk
+    // below, which borrows the maps.
+    let blockify = name == "display" && {
+        let position = value_of(maps, "position").unwrap_or_default();
+        let float = value_of(maps, "float").unwrap_or_default();
+        matches!(position.as_str(), "absolute" | "fixed") || matches!(float.as_str(), "left" | "right")
+    };
+    let finish = |values: Vec<CssValue>| -> String {
+        let values = if blockify {
+            gosub_css3::matcher::property_definitions::blockified_display(values)
+        } else {
+            values
+        };
+        CssValue::from_vec(values).to_string()
+    };
+
     let inherits = prop_is_inherit(name);
 
     for (depth, map) in maps.iter_mut().enumerate().rev() {
@@ -81,8 +99,18 @@ fn value_of(maps: &mut [CssProperties], name: &str) -> Option<String> {
             // `compute_value` is what walks cascaded -> specified -> computed -> used -> actual.
             // A freshly cascaded property has all of those still `None` and is marked dirty, so
             // reading it without this reports "none" for everything.
-            let value = property.compute_value().to_string();
-            if !value.is_empty() && value != "none" {
+            // Serialized in canonical form where the grammar knows one (`block flow` reads as
+            // `block`); a computed value the grammar does not match, such as one already
+            // resolved past the specified syntax, serializes as it is.
+            let computed = property.compute_value().clone();
+            let value = get_css_definitions()
+                .find_property(name)
+                .and_then(|definition| definition.canonical(computed.to_slice()))
+                .map_or_else(|| computed.to_string(), &finish);
+            // A declared value is the answer even when it is `none`: `display: none` is a
+            // value, not an absence. This used to skip any "none" as if nothing had been
+            // declared and report the initial `inline` for it.
+            if !value.is_empty() && !property.declared.is_empty() {
                 return Some(value);
             }
         }
@@ -97,7 +125,7 @@ fn value_of(maps: &mut [CssProperties], name: &str) -> Option<String> {
     let definition = get_css_definitions().find_property(name)?;
     definition
         .has_initial_value()
-        .then(|| definition.initial_value().to_string())
+        .then(|| finish(definition.initial_value().into_vec()))
 }
 
 /// The computed style of one element.

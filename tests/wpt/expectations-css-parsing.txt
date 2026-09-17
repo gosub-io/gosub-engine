@@ -1627,6 +1627,7 @@ PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left']
 PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should set border-left-width
 PASS css/css-backgrounds/parsing/border-shorthand.html :: e.style['border-left'] = "1px dotted red" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-style-computed.html
+PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'none'
 PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'inset outset'
 PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'hidden dotted dashed'
 PASS css/css-backgrounds/parsing/border-style-computed.html :: Property border-style value 'solid double groove ridge'
@@ -6789,26 +6790,74 @@ PASS css/css-display/parsing/display-computed.html :: Property display value 'ta
 PASS css/css-display/parsing/display-computed.html :: Property display value 'table-column'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'table-cell'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'table-caption'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'none'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flex'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline-flex'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'contents'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby-base'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby-text'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flex block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block flex'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'grid block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block grid'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'table block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block table'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'block ruby'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow block list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block flow list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow list-item block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block list-item flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item block flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root block list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block flow-root list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'block list-item flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item block flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root block'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flex inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flex'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'grid inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline grid'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'table inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline table'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline ruby'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby inline'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow inline list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flow list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow list-item inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline list-item flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item inline flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow inline'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root inline list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flow-root list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item inline'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline list-item flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item inline flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flex run-in'
@@ -6821,12 +6870,22 @@ PASS css/css-display/parsing/display-computed.html :: Property display value 'ru
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item run-in'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow run-in list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow list-item run-in'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in list-item flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item run-in flow'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root run-in list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow-root list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in list-item flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item run-in flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root run-in'
+PASS css/css-display/parsing/display-computed.html :: position absolute affects computed display
+PASS css/css-display/parsing/display-computed.html :: position fixed affects computed display
+PASS css/css-display/parsing/display-computed.html :: float left affects computed display
+PASS css/css-display/parsing/display-computed.html :: float right affects computed display
 FILE css/css-display/parsing/display-invalid.html
 PASS css/css-display/parsing/display-invalid.html :: e.style['display'] = "grid inline-grid" should not set the property value
 PASS css/css-display/parsing/display-invalid.html :: e.style['display'] = "none grid" should not set the property value
@@ -6905,22 +6964,69 @@ PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flex" s
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline-flex" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "contents" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby-base" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby-text" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flex block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block flex" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "grid block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block grid" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "table block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block table" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block ruby" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow block list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block flow list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow list-item block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block list-item flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item block flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root block list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block flow-root list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block list-item flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item block flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root block" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flex inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flex" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "grid inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline grid" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "table inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline table" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline ruby" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby inline" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow inline list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flow list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow list-item inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline list-item flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item inline flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow inline" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root inline list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flow-root list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item inline" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline list-item flow-root" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item inline flow-root" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow-root" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flex run-in" should set the property value
@@ -6933,6 +7039,12 @@ PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in 
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item run-in" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow run-in list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow list-item run-in" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in list-item flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item run-in flow" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root run-in list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow-root list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item run-in" should set the property value
@@ -7213,6 +7325,7 @@ PASS css/css-fonts/parsing/font-invalid.html :: e.style['font'] = "petite-caps m
 FILE css/css-fonts/parsing/font-kerning-computed.html
 PASS css/css-fonts/parsing/font-kerning-computed.html :: Property font-kerning value 'auto'
 PASS css/css-fonts/parsing/font-kerning-computed.html :: Property font-kerning value 'normal'
+PASS css/css-fonts/parsing/font-kerning-computed.html :: Property font-kerning value 'none'
 FILE css/css-fonts/parsing/font-kerning-invalid.html
 PASS css/css-fonts/parsing/font-kerning-invalid.html :: e.style['font-kerning'] = "normal auto" should not set the property value
 PASS css/css-fonts/parsing/font-kerning-invalid.html :: e.style['font-kerning'] = "none, auto" should not set the property value
@@ -7229,6 +7342,7 @@ FILE css/css-fonts/parsing/font-language-override-valid.html
 PASS css/css-fonts/parsing/font-language-override-valid.html :: e.style['font-language-override'] = "normal" should set the property value
 FILE css/css-fonts/parsing/font-optical-sizing-computed.html
 PASS css/css-fonts/parsing/font-optical-sizing-computed.html :: Property font-optical-sizing value 'auto'
+PASS css/css-fonts/parsing/font-optical-sizing-computed.html :: Property font-optical-sizing value 'none'
 FILE css/css-fonts/parsing/font-optical-sizing-invalid.html
 PASS css/css-fonts/parsing/font-optical-sizing-invalid.html :: e.style['font-optical-sizing'] = "normal" should not set the property value
 PASS css/css-fonts/parsing/font-optical-sizing-invalid.html :: e.style['font-optical-sizing'] = "auto none" should not set the property value
@@ -7378,6 +7492,7 @@ PASS css/css-fonts/parsing/font-style-valid.html :: e.style['font-style'] = "obl
 PASS css/css-fonts/parsing/font-style-valid.html :: e.style['font-style'] = "oblique calc(-100deg)" should set the property value
 PASS css/css-fonts/parsing/font-style-valid.html :: e.style['font-style'] = "oblique calc(30deg * 2)" should set the property value
 FILE css/css-fonts/parsing/font-synthesis-computed.html
+PASS css/css-fonts/parsing/font-synthesis-computed.html :: Property font-synthesis value 'none'
 PASS css/css-fonts/parsing/font-synthesis-computed.html :: Property font-synthesis value 'weight'
 PASS css/css-fonts/parsing/font-synthesis-computed.html :: Property font-synthesis value 'style'
 PASS css/css-fonts/parsing/font-synthesis-computed.html :: Property font-synthesis value 'small-caps'
@@ -7619,6 +7734,7 @@ PASS css/css-fonts/parsing/font-variant-invalid.html :: e.style['font-variant'] 
 PASS css/css-fonts/parsing/font-variant-invalid.html :: e.style['font-variant'] = "sub super" should not set the property value
 FILE css/css-fonts/parsing/font-variant-ligatures-computed.html
 PASS css/css-fonts/parsing/font-variant-ligatures-computed.html :: Property font-variant-ligatures value 'normal'
+PASS css/css-fonts/parsing/font-variant-ligatures-computed.html :: Property font-variant-ligatures value 'none'
 PASS css/css-fonts/parsing/font-variant-ligatures-computed.html :: Property font-variant-ligatures value 'common-ligatures'
 PASS css/css-fonts/parsing/font-variant-ligatures-computed.html :: Property font-variant-ligatures value 'no-common-ligatures'
 PASS css/css-fonts/parsing/font-variant-ligatures-computed.html :: Property font-variant-ligatures value 'discretionary-ligatures'
@@ -9169,6 +9285,7 @@ PASS css/css-images/parsing/image-function-invalid.html :: e.style['background-c
 FILE css/css-images/parsing/image-function-valid.html
 FILE css/css-images/parsing/image-orientation-computed.html
 PASS css/css-images/parsing/image-orientation-computed.html :: Property image-orientation value 'from-image'
+PASS css/css-images/parsing/image-orientation-computed.html :: Property image-orientation value 'none'
 FILE css/css-images/parsing/image-orientation-invalid.html
 PASS css/css-images/parsing/image-orientation-invalid.html :: e.style['image-orientation'] = "auto" should not set the property value
 PASS css/css-images/parsing/image-orientation-invalid.html :: e.style['image-orientation'] = "0deg from-image" should not set the property value
@@ -9349,6 +9466,7 @@ PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'
 PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should set list-style-type
 PASS css/css-lists/parsing/list-style-shorthand.sub.html :: e.style['list-style'] = "square url(\\"https://{{host}}/\\") inside" should not set unrelated longhands
 FILE css/css-lists/parsing/list-style-type-computed.html
+PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'none'
 PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'disc'
 PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'circle'
 PASS css/css-lists/parsing/list-style-type-computed.html :: Property list-style-type value 'square'
@@ -10590,6 +10708,7 @@ PASS css/css-text-decor/parsing/text-decoration-color-valid.html :: e.style['tex
 PASS css/css-text-decor/parsing/text-decoration-color-valid.html :: e.style['text-decoration-color'] = "red" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-color-valid.html :: e.style['text-decoration-color'] = "rgba(10, 20, 30, 0.4)" should set the property value
 FILE css/css-text-decor/parsing/text-decoration-computed.html
+PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'none'
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'line-through'
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'double overline underline'
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'rgba(10, 20, 30, 0.4) dotted'
@@ -10724,6 +10843,7 @@ PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text
 FILE css/css-text-decor/parsing/text-decoration-shorthand.html
 FILE css/css-text-decor/parsing/text-decoration-skip-ink-computed.html
 PASS css/css-text-decor/parsing/text-decoration-skip-ink-computed.html :: Property text-decoration-skip-ink value 'auto'
+PASS css/css-text-decor/parsing/text-decoration-skip-ink-computed.html :: Property text-decoration-skip-ink value 'none'
 PASS css/css-text-decor/parsing/text-decoration-skip-ink-computed.html :: Property text-decoration-skip-ink value 'all'
 FILE css/css-text-decor/parsing/text-decoration-skip-ink-invalid.html
 PASS css/css-text-decor/parsing/text-decoration-skip-ink-invalid.html :: e.style['text-decoration-skip-ink'] = "edges" should not set the property value
@@ -10893,6 +11013,7 @@ PASS css/css-text/parsing/hyphenate-limit-chars-valid.html :: e.style['hyphenate
 PASS css/css-text/parsing/hyphenate-limit-chars-valid.html :: e.style['hyphenate-limit-chars'] = "auto 2 auto" should set the property value
 PASS css/css-text/parsing/hyphenate-limit-chars-valid.html :: e.style['hyphenate-limit-chars'] = "auto auto 2" should set the property value
 FILE css/css-text/parsing/hyphens-computed.html
+PASS css/css-text/parsing/hyphens-computed.html :: Property hyphens value 'none'
 PASS css/css-text/parsing/hyphens-computed.html :: Property hyphens value 'manual'
 PASS css/css-text/parsing/hyphens-computed.html :: Property hyphens value 'auto'
 FILE css/css-text/parsing/hyphens-invalid.html
@@ -11122,6 +11243,7 @@ PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "ca
 FILE css/css-text/parsing/text-justify-computed-legacy.html
 FILE css/css-text/parsing/text-justify-computed.html
 PASS css/css-text/parsing/text-justify-computed.html :: Property text-justify value 'auto'
+PASS css/css-text/parsing/text-justify-computed.html :: Property text-justify value 'none'
 PASS css/css-text/parsing/text-justify-computed.html :: Property text-justify value 'inter-word'
 PASS css/css-text/parsing/text-justify-computed.html :: Property text-justify value 'inter-character'
 FILE css/css-text/parsing/text-justify-invalid.html
@@ -11851,6 +11973,7 @@ PASS css/css-ui/parsing/caret-color-valid.html :: e.style['caret-color'] = "curr
 FILE css/css-ui/parsing/cursor-computed.html
 PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'auto'
 PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'default'
+PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'none'
 PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'context-menu'
 PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'help'
 PASS css/css-ui/parsing/cursor-computed.html :: Property cursor value 'pointer'
@@ -12082,6 +12205,7 @@ PASS css/css-ui/parsing/user-select-computed-contain.html :: Property user-selec
 FILE css/css-ui/parsing/user-select-computed.html
 PASS css/css-ui/parsing/user-select-computed.html :: Property user-select value 'auto'
 PASS css/css-ui/parsing/user-select-computed.html :: Property user-select value 'text'
+PASS css/css-ui/parsing/user-select-computed.html :: Property user-select value 'none'
 PASS css/css-ui/parsing/user-select-computed.html :: Property user-select value 'all'
 FILE css/css-ui/parsing/user-select-invalid.html
 PASS css/css-ui/parsing/user-select-invalid.html :: e.style['user-select'] = "visible" should not set the property value

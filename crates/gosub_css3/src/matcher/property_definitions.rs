@@ -65,6 +65,90 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
     "zero",
 ];
 
+/// The short form of a `display` value (css-display-3 §2.7): the two-keyword forms serialize
+/// as the single keyword that means the same. `block flow` is `block`, `inline flow-root` is
+/// `inline-block`, `inline flex` is `inline-flex`; in a `list-item` form a `flow` and a
+/// `block` are implied and left out. Anything else is returned as it came.
+fn display_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
+    let words: Vec<&str> = values
+        .iter()
+        .map(|v| match v {
+            CssValue::String(s) => s.as_str(),
+            _ => "",
+        })
+        .collect();
+    if words.iter().any(|w| w.is_empty()) {
+        return values;
+    }
+    let keyword = |s: &str| CssValue::String(s.to_string());
+    let one = |s: &str| vec![keyword(s)];
+
+    if words.contains(&"list-item") {
+        // `<display-outside>? && [ flow | flow-root ]? && list-item`, in grammar order.
+        let kept: Vec<CssValue> = words
+            .iter()
+            .filter(|w| !matches!(**w, "flow" | "block"))
+            .map(|w| keyword(w))
+            .collect();
+        return kept;
+    }
+    match words.as_slice() {
+        ["flow"] => one("block"),
+        [outside, "flow"] => one(outside),
+        ["block", inside @ ("flow-root" | "flex" | "grid" | "table")] => one(inside),
+        ["inline", "flow-root"] => one("inline-block"),
+        ["inline", "flex"] => one("inline-flex"),
+        ["inline", "grid"] => one("inline-grid"),
+        ["inline", "table"] => one("inline-table"),
+        ["inline", "ruby"] => one("ruby"),
+        _ => values,
+    }
+}
+
+/// The `display` an element computes to when it is blockified (css-display-3 §2.7): absolutely
+/// positioned, floated, or the root. An inline-level outer display becomes block-level and the
+/// inner display is kept, in the short form: `inline-block` and `inline` become `block`,
+/// `inline-table` becomes `table`, `inline flex` becomes `flex`. `display` is expected in its
+/// short form already; anything not inline-level comes back unchanged.
+#[must_use]
+pub fn blockified_display(display: Vec<CssValue>) -> Vec<CssValue> {
+    let words: Vec<&str> = display
+        .iter()
+        .map(|v| match v {
+            CssValue::String(s) => s.as_str(),
+            _ => "",
+        })
+        .collect();
+    let keyword = |s: &str| CssValue::String(s.to_string());
+    match words.as_slice() {
+        ["inline" | "inline-block" | "run-in"] => vec![keyword("block")],
+        ["inline-table"] => vec![keyword("table")],
+        ["inline-flex"] => vec![keyword("flex")],
+        ["inline-grid"] => vec![keyword("grid")],
+        // `ruby` is `inline ruby`; blockified it is `block ruby`.
+        ["ruby"] => vec![keyword("block"), keyword("ruby")],
+        // A layout-internal box type has no block-level counterpart and becomes `block`.
+        ["table-row-group"
+        | "table-header-group"
+        | "table-footer-group"
+        | "table-row"
+        | "table-cell"
+        | "table-column-group"
+        | "table-column"
+        | "table-caption"
+        | "ruby-base"
+        | "ruby-text"
+        | "ruby-base-container"
+        | "ruby-text-container"] => vec![keyword("block")],
+        // `inline list-item`, `inline flow-root list-item`, `run-in list-item`: the outer
+        // display becomes block, which the short form leaves implied.
+        [outside, rest @ ..] if matches!(*outside, "inline" | "run-in") && rest.contains(&"list-item") => {
+            rest.iter().map(|w| keyword(w)).collect()
+        }
+        _ => display,
+    }
+}
+
 /// Pushes `range` onto the numeric builtin leaves of `component` that do not already
 /// carry a range. Used to propagate a range written on a value-type reference (e.g.
 /// `<length-percentage [0,∞]>`) into the leaves of its resolved grammar, which have no
@@ -143,10 +227,15 @@ impl PropertyDefinition {
     }
 
     /// The canonical form of `input` for this property, or `None` when it is not a valid value;
-    /// see [`CssSyntaxTree::canonical`].
+    /// see [`CssSyntaxTree::canonical`]. A property whose spec defines a shorter serialization
+    /// than its grammar produces gets it here: `display` (css-display-3 §2.7).
     #[must_use]
     pub fn canonical(&self, input: &[CssValue]) -> Option<Vec<CssValue>> {
-        self.syntax.canonical(input)
+        let values = self.syntax.canonical(input)?;
+        Some(match self.name.as_str() {
+            "display" => display_short_form(values),
+            _ => values,
+        })
     }
 
     /// Matches `input` against this definition and, for a shorthand, records the longhands it
@@ -852,6 +941,38 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
 
 #[cfg(test)]
 mod tests {
+    /// css-display-3 §2.7: the two-keyword `display` forms serialize as their single-keyword
+    /// equivalent, and blockification keeps the inner display in that short form.
+    #[test]
+    fn display_serializes_in_its_short_form_and_blockifies() {
+        use super::{blockified_display, get_css_definitions};
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let values: Vec<CssValue> = css.split(' ').map(|w| CssValue::String(w.to_string())).collect();
+            let def = get_css_definitions().find_property("display").expect("display");
+            CssValue::from_vec(def.canonical(&values).expect("valid")).to_string()
+        };
+        assert_eq!(canonical("flow"), "block");
+        assert_eq!(canonical("flow block"), "block");
+        assert_eq!(canonical("flow-root inline"), "inline-block");
+        assert_eq!(canonical("inline flex"), "inline-flex");
+        assert_eq!(canonical("block ruby"), "block ruby");
+        assert_eq!(canonical("list-item flow block"), "list-item");
+        assert_eq!(canonical("inline flow-root list-item"), "inline flow-root list-item");
+        assert_eq!(canonical("flow run-in list-item"), "run-in list-item");
+
+        let blockified = |css: &str| {
+            let values: Vec<CssValue> = css.split(' ').map(|w| CssValue::String(w.to_string())).collect();
+            CssValue::from_vec(blockified_display(values)).to_string()
+        };
+        assert_eq!(blockified("inline"), "block");
+        assert_eq!(blockified("inline-table"), "table");
+        assert_eq!(blockified("inline-flex"), "flex");
+        assert_eq!(blockified("inline list-item"), "list-item");
+        assert_eq!(blockified("table-row-group"), "block");
+        assert_eq!(blockified("flex"), "flex");
+    }
+
     use super::*;
     use crate::colors::RgbColor;
     use crate::tokenizer::NumberKind;
