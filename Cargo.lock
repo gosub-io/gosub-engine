@@ -3443,6 +3443,7 @@ dependencies = [
  "memchr",
  "parking_lot",
  "rand 0.10.2",
+ "roxmltree 0.21.1",
  "thiserror 2.0.20",
  "uuid",
  "wasm-bindgen-futures",
