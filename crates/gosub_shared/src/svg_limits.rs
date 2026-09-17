@@ -7,17 +7,25 @@
 //! process on a stack overflow (GHSA-c762-mxfh-vwvp).
 //!
 //! [`xml_exceeds_limits`] rejects those documents before the parser sees them.
-//! [`SVG_PARSE_STACK_SIZE`] is the other half: the depth limit only bounds the number of frames,
-//! and callers cannot say how much of their own stack is already spent.
+//! [`SVG_PARSE_STACK_NEEDED`] and [`SVG_PARSE_STACK_SIZE`] are the other half: the depth limit
+//! only bounds the *number* of frames, and callers cannot say how much of their own stack is
+//! already spent - an inline `<svg>` is decoded partway down a recursive layout walk.
 
 /// Maximum element nesting depth accepted in an SVG document.
 ///
-/// The 5887 SVG files in this machine's icon themes nest at most 8 levels deep, so this is not a
-/// limit real content runs into. Unoptimised, the tokenizer spends roughly 15 KiB of stack per
-/// level, which puts 128 levels at ~2 MiB - a quarter of [`SVG_PARSE_STACK_SIZE`].
+/// Real content does not come close: across 21265 SVG files in this machine's icon themes the
+/// deepest nests 8 levels. Unoptimised, the tokenizer spends roughly 15 KiB of stack per level,
+/// which puts 128 levels at [`SVG_PARSE_STACK_NEEDED`].
 pub const MAX_SVG_NESTING_DEPTH: usize = 128;
 
-/// Stack size for the thread an SVG parse runs on.
+/// Stack the parse may need: [`MAX_SVG_NESTING_DEPTH`] levels at ~15 KiB each, unoptimised.
+///
+/// Checked against what is left of the caller's stack before parsing; a fresh segment is
+/// allocated only when less than this remains, so the common case costs one comparison.
+pub const SVG_PARSE_STACK_NEEDED: usize = 2 * 1024 * 1024;
+
+/// Size of the stack segment allocated when [`SVG_PARSE_STACK_NEEDED`] is not left, giving the
+/// parse the same 4x margin a dedicated thread used to.
 pub const SVG_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
 
 /// Why a document must not be handed to the XML parser.
