@@ -1,4 +1,5 @@
 use crate::stylesheet::{CssValue, Specificity};
+use crate::tokenizer::NumberKind;
 use gosub_interface::css3::CssOrigin;
 use std::collections::hash_map::Entry;
 
@@ -386,8 +387,20 @@ impl FixList {
     /// the reset lands on the real longhands. One whose initial value the definitions give only
     /// as prose (`font-family` is "depends on user agent") is left alone; it cannot be reset to
     /// anything, and nothing an author writes leaves it out anyway.
-    pub fn reset_unmentioned(&mut self, shorthand: &PropertyDefinition, definitions: &CssDefinitions) {
+    pub fn reset_unmentioned(
+        &mut self,
+        shorthand: &PropertyDefinition,
+        input: &[CssValue],
+        definitions: &CssDefinitions,
+    ) {
         if !shorthand.is_shorthand() {
+            return;
+        }
+        // `flex` is the one common shorthand whose omitted values are not the longhand initials
+        // (css-flexbox-1 §7.1.1): a lone `flex: 1` means `1 1 0`, not `1 1 auto`, and the
+        // difference is whether three `flex: 1` columns come out equal or sized by their content.
+        if shorthand.name() == "flex" {
+            self.reset_flex(input);
             return;
         }
         // A shorthand whose grammar the resolver cannot map records nothing at all - `background`
@@ -422,7 +435,7 @@ impl FixList {
                 continue;
             };
             if def.is_shorthand() {
-                self.reset_unmentioned(def, definitions);
+                self.reset_unmentioned(def, &[], definitions);
                 continue;
             }
             match &def.initial_value {
@@ -469,6 +482,33 @@ impl FixList {
                 // a cross-tree comparison at all.
                 shadow_depth: u16::MAX,
                 order: 0,
+            }
+        }
+    }
+
+    /// The omitted-value defaults of the `flex` shorthand (css-flexbox-1 §7.1.1): `none` is
+    /// `0 0 auto`; otherwise a missing grow or shrink is `1` and a missing basis is `0`.
+    fn reset_flex(&mut self, input: &[CssValue]) {
+        let is_none = matches!(input, [CssValue::None])
+            || matches!(input, [CssValue::String(s)] if s.eq_ignore_ascii_case("none"));
+        let one = || CssValue::Number(1.0, NumberKind::Integer);
+        let zero = || CssValue::Number(0.0, NumberKind::Integer);
+        let defaults: [(&str, CssValue); 3] = if is_none {
+            [
+                ("flex-grow", zero()),
+                ("flex-shrink", zero()),
+                ("flex-basis", CssValue::String("auto".to_string())),
+            ]
+        } else {
+            [
+                ("flex-grow", one()),
+                ("flex-shrink", one()),
+                ("flex-basis", CssValue::Zero),
+            ]
+        };
+        for (name, value) in defaults {
+            if is_none || !self.touched.iter().any(|t| t == name) {
+                self.insert(name.to_string(), value);
             }
         }
     }
@@ -530,7 +570,7 @@ impl FixList {
             ));
 
             if prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list) {
-                fix_list.reset_unmentioned(prop, definitions);
+                fix_list.reset_unmentioned(prop, decl.value.to_slice(), definitions);
             }
         }
 
@@ -571,13 +611,19 @@ impl FixList {
 
 impl CompleteStep<'_> {
     pub fn complete(mut self, value: Vec<CssValue>) {
+        // The step is complete either way, so the snapshot is not restored. But an optional
+        // piece that matched nothing (`<'flex-shrink'>?` in `flex: 1`) has not set its
+        // longhand: recording it as a `None` value here made `flex-shrink` look mentioned, and
+        // the reset then left it at `none` instead of the `1` the shorthand's defaults give it.
+        self.completed = true;
+        if value.is_empty() {
+            return;
+        }
         let val = CssValue::from_vec(value);
 
         for name in self.name.clone() {
             self.list.insert(name.to_string(), val.clone());
         }
-
-        self.completed = true;
     }
 }
 
@@ -947,7 +993,7 @@ mod tests {
             def.matches_and_shorthands(&values, &mut fix_list),
             "{prop}: {decl} should match"
         );
-        fix_list.reset_unmentioned(def, definitions);
+        fix_list.reset_unmentioned(def, &values, definitions);
         fix_list.resolve_nested(definitions);
         fix_list
             .list
@@ -1012,6 +1058,33 @@ mod tests {
             value_of(&square, "list-style-type"),
             Some(&CssValue::String("square".into()))
         );
+    }
+
+    /// `flex` fills its omitted values from its own table (css-flexbox-1 §7.1.1), not from the
+    /// longhand initials: `flex: 1` is `1 1 0`, which is what makes equal columns equal.
+    #[test]
+    fn flex_fills_its_own_defaults_not_the_initials() {
+        let one = |n: f64| CssValue::Number(n, crate::tokenizer::NumberKind::Integer);
+
+        let single = expand("flex", "1");
+        assert_eq!(value_of(&single, "flex-grow"), Some(&one(1.0)));
+        assert_eq!(value_of(&single, "flex-shrink"), Some(&one(1.0)));
+        assert_eq!(value_of(&single, "flex-basis"), Some(&CssValue::Zero));
+
+        let none = expand("flex", "none");
+        assert_eq!(value_of(&none, "flex-grow"), Some(&one(0.0)));
+        assert_eq!(value_of(&none, "flex-shrink"), Some(&one(0.0)));
+        assert_eq!(value_of(&none, "flex-basis"), Some(&CssValue::String("auto".into())));
+
+        let auto = expand("flex", "auto");
+        assert_eq!(value_of(&auto, "flex-grow"), Some(&one(1.0)));
+        assert_eq!(value_of(&auto, "flex-shrink"), Some(&one(1.0)));
+        assert_eq!(value_of(&auto, "flex-basis"), Some(&CssValue::String("auto".into())));
+
+        let two = expand("flex", "2 30%");
+        assert_eq!(value_of(&two, "flex-grow"), Some(&one(2.0)));
+        assert_eq!(value_of(&two, "flex-shrink"), Some(&one(1.0)));
+        assert_eq!(value_of(&two, "flex-basis"), Some(&CssValue::Percentage(30.0)));
     }
 
     /// The resolver cannot follow `background`'s grammar and records nothing for it. Resetting

@@ -371,7 +371,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     }
                     // A shorthand sets every one of its longhands; the ones it left out are
                     // reset to their initial value.
-                    fix_list.reset_unmentioned(definition, definitions);
+                    fix_list.reset_unmentioned(definition, match_value, definitions);
 
                     let value = if let CssValue::List(mut values) = value {
                         match values.pop() {
