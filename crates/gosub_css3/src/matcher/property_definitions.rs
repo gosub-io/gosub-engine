@@ -142,6 +142,13 @@ impl PropertyDefinition {
         self.syntax.matches(input)
     }
 
+    /// The canonical form of `input` for this property, or `None` when it is not a valid value;
+    /// see [`CssSyntaxTree::canonical`].
+    #[must_use]
+    pub fn canonical(&self, input: &[CssValue]) -> Option<Vec<CssValue>> {
+        self.syntax.canonical(input)
+    }
+
     /// Matches `input` against this definition and, for a shorthand, records the longhands it
     /// expands to in `fix_list`.
     ///

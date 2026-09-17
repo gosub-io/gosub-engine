@@ -189,6 +189,7 @@ PASS css/css-align/parsing/column-gap-invalid.html :: e.style['column-gap'] = "-
 PASS css/css-align/parsing/column-gap-invalid.html :: e.style['column-gap'] = "-10%" should not set the property value
 FILE css/css-align/parsing/column-gap-valid.html
 PASS css/css-align/parsing/column-gap-valid.html :: e.style['column-gap'] = "normal" should set the property value
+PASS css/css-align/parsing/column-gap-valid.html :: e.style['column-gap'] = "0" should set the property value
 PASS css/css-align/parsing/column-gap-valid.html :: e.style['column-gap'] = "1px" should set the property value
 PASS css/css-align/parsing/column-gap-valid.html :: e.style['column-gap'] = "calc(2em + 3ex)" should set the property value
 PASS css/css-align/parsing/column-gap-valid.html :: e.style['column-gap'] = "4%" should set the property value
@@ -241,6 +242,7 @@ PASS css/css-align/parsing/grid-column-gap-invalid.html :: e.style['grid-column-
 PASS css/css-align/parsing/grid-column-gap-invalid.html :: e.style['grid-column-gap'] = "-10%" should not set the property value
 FILE css/css-align/parsing/grid-column-gap-valid.html
 PASS css/css-align/parsing/grid-column-gap-valid.html :: e.style['grid-column-gap'] = "normal" should set the property value
+PASS css/css-align/parsing/grid-column-gap-valid.html :: e.style['grid-column-gap'] = "0" should set the property value
 PASS css/css-align/parsing/grid-column-gap-valid.html :: e.style['grid-column-gap'] = "1px" should set the property value
 PASS css/css-align/parsing/grid-column-gap-valid.html :: e.style['grid-column-gap'] = "calc(2em + 3ex)" should set the property value
 PASS css/css-align/parsing/grid-column-gap-valid.html :: e.style['grid-column-gap'] = "4%" should set the property value
@@ -293,6 +295,7 @@ PASS css/css-align/parsing/grid-row-gap-valid.html :: e.style['grid-row-gap'] = 
 PASS css/css-align/parsing/grid-row-gap-valid.html :: e.style['grid-row-gap'] = "10px" should set the property value
 PASS css/css-align/parsing/grid-row-gap-valid.html :: e.style['grid-row-gap'] = "20%" should set the property value
 PASS css/css-align/parsing/grid-row-gap-valid.html :: e.style['grid-row-gap'] = "calc(20% + 10px)" should set the property value
+PASS css/css-align/parsing/grid-row-gap-valid.html :: e.style['grid-row-gap'] = "0" should set the property value
 FILE css/css-align/parsing/justify-content-computed.html
 PASS css/css-align/parsing/justify-content-computed.html :: Property justify-content value 'normal'
 PASS css/css-align/parsing/justify-content-computed.html :: Property justify-content value 'space-between'
@@ -395,6 +398,9 @@ PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] 
 PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "right" should set the property value
 PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "safe left" should set the property value
 PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "legacy" should set the property value
+PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "left legacy" should set the property value
+PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "right legacy" should set the property value
+PASS css/css-align/parsing/justify-items-valid.html :: e.style['justify-items'] = "center legacy" should set the property value
 FILE css/css-align/parsing/justify-self-computed.html
 PASS css/css-align/parsing/justify-self-computed.html :: Property justify-self value 'auto'
 PASS css/css-align/parsing/justify-self-computed.html :: Property justify-self value 'normal'
@@ -538,6 +544,7 @@ PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] 
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should set justify-items
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should not set unrelated longhands
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "stretch right legacy" should set align-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "stretch right legacy" should set justify-items
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "stretch right legacy" should not set unrelated longhands
 FILE css/css-align/parsing/place-items-valid.html
 PASS css/css-align/parsing/place-items-valid.html :: e.style['place-items'] = "normal" should set the property value
@@ -613,6 +620,7 @@ PASS css/css-align/parsing/row-gap-valid.html :: e.style['row-gap'] = "normal" s
 PASS css/css-align/parsing/row-gap-valid.html :: e.style['row-gap'] = "10px" should set the property value
 PASS css/css-align/parsing/row-gap-valid.html :: e.style['row-gap'] = "20%" should set the property value
 PASS css/css-align/parsing/row-gap-valid.html :: e.style['row-gap'] = "calc(20% + 10px)" should set the property value
+PASS css/css-align/parsing/row-gap-valid.html :: e.style['row-gap'] = "0" should set the property value
 FILE css/css-animations/parsing/animation-composition-computed.tentative.html
 PASS css/css-animations/parsing/animation-composition-computed.tentative.html :: Property animation-composition value 'replace, add, accumulate'
 FILE css/css-animations/parsing/animation-composition-invalid.tentative.html
@@ -702,6 +710,7 @@ PASS css/css-animations/parsing/animation-iteration-count-valid.html :: e.style[
 PASS css/css-animations/parsing/animation-iteration-count-valid.html :: e.style['animation-iteration-count'] = "0, infinite, 3" should set the property value
 FILE css/css-animations/parsing/animation-name-computed.html
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'none'
+PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'NONE'
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'foo'
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'Both'
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'ease-in'
@@ -714,6 +723,7 @@ PASS css/css-animations/parsing/animation-name-invalid.html :: e.style['animatio
 PASS css/css-animations/parsing/animation-name-invalid.html :: e.style['animation-name'] = "\\"\\"" should not set the property value
 FILE css/css-animations/parsing/animation-name-valid.html
 PASS css/css-animations/parsing/animation-name-valid.html :: e.style['animation-name'] = "none" should set the property value
+PASS css/css-animations/parsing/animation-name-valid.html :: e.style['animation-name'] = "NONE" should set the property value
 PASS css/css-animations/parsing/animation-name-valid.html :: e.style['animation-name'] = "foo" should set the property value
 PASS css/css-animations/parsing/animation-name-valid.html :: e.style['animation-name'] = "Both" should set the property value
 PASS css/css-animations/parsing/animation-name-valid.html :: e.style['animation-name'] = "ease-in" should set the property value
@@ -736,7 +746,9 @@ FILE css/css-animations/parsing/animation-range-end-computed.html
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value 'initial'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value 'normal'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value 'cover 0%'
+PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value 'COVER 0%'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value 'cover 120%'
+PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value '0'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value '120%'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value '0%'
 PASS css/css-animations/parsing/animation-range-end-computed.html :: Property animation-range-end value '100%'
@@ -777,6 +789,7 @@ PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['anima
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "cover 0%" should set the property value
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "cover 120%" should set the property value
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "cover 42%" should set the property value
+PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "0" should set the property value
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "120%" should set the property value
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "120px" should set the property value
 PASS css/css-animations/parsing/animation-range-end-valid.html :: e.style['animation-range-end'] = "cover -42%" should set the property value
@@ -909,8 +922,10 @@ PASS css/css-animations/parsing/animation-range-start-computed.html :: Property 
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'normal'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'cover 0px'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'cover 100%'
+PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'COVER 100%'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'cover 120%'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value 'cover 42%'
+PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value '0'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value '120%'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value '0%'
 PASS css/css-animations/parsing/animation-range-start-computed.html :: Property animation-range-start value '100%'
@@ -948,6 +963,7 @@ PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['ani
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "cover 100%" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "cover 120%" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "cover 42%" should set the property value
+PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "0" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "120%" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "120px" should set the property value
 PASS css/css-animations/parsing/animation-range-start-valid.html :: e.style['animation-range-start'] = "cover -42%" should set the property value
@@ -1008,6 +1024,8 @@ PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "
 PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "paused" should set the property value
 PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "none" should set the property value
 PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "anim" should set the property value
+PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "anim paused both reverse 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set the property value
+PASS css/css-animations/parsing/animation-valid.html :: e.style['animation'] = "anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)" should set the property value
 FILE css/css-animations/parsing/keyframe-selectors.html
 FILE css/css-animations/parsing/keyframes-allowed-properties.html
 FILE css/css-animations/parsing/keyframes-name-invalid.html
@@ -1058,6 +1076,7 @@ PASS css/css-backgrounds/parsing/background-color-invalid.html :: e.style['backg
 PASS css/css-backgrounds/parsing/background-color-invalid.html :: e.style['background-color'] = "black, white" should not set the property value
 FILE css/css-backgrounds/parsing/background-color-valid.html
 PASS css/css-backgrounds/parsing/background-color-valid.html :: e.style['background-color'] = "currentcolor" should set the property value
+PASS css/css-backgrounds/parsing/background-color-valid.html :: e.style['background-color'] = "currentColor" should set the property value
 PASS css/css-backgrounds/parsing/background-color-valid.html :: e.style['background-color'] = "red" should set the property value
 PASS css/css-backgrounds/parsing/background-color-valid.html :: e.style['background-color'] = "#00FF00" should set the property value
 PASS css/css-backgrounds/parsing/background-color-valid.html :: e.style['background-color'] = "rgb(0, 0, 255)" should set the property value
@@ -1174,6 +1193,8 @@ PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['back
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center center" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center 6px" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center left" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center right 7%" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center bottom" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "center top 8px" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "left" should set the property value
@@ -1185,6 +1206,12 @@ PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['back
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "left bottom" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "right top 14%" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "bottom" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "top 15px center" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "bottom 16% left" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "top 17px right 18px" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "bottom center" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "top left" should set the property value
+PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "bottom right 19%" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "20% 0%" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "0% 0%" should set the property value
 PASS css/css-backgrounds/parsing/background-position-valid.html :: e.style['background-position'] = "0%" should set the property value
@@ -1269,6 +1296,7 @@ PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property bac
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'no-repeat'
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'repeat space'
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'round no-repeat'
+PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'repeat repeat'
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'repeat-x, repeat-y, repeat'
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'repeat-x' multiple base values
 PASS css/css-backgrounds/parsing/background-repeat-computed.html :: Property background-repeat value 'repeat-x, repeat-y' multiple base values
@@ -1288,6 +1316,7 @@ FILE css/css-backgrounds/parsing/background-size-computed.html
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value '1px auto'
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value '2% 3%'
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value 'auto'
+PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value 'auto auto'
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value 'auto 4%'
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value 'contain'
 PASS css/css-backgrounds/parsing/background-size-computed.html :: Property background-size value 'cover'
@@ -1303,6 +1332,7 @@ FILE css/css-backgrounds/parsing/background-size-valid.html
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "1px auto" should set the property value
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "2% 3%" should set the property value
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "auto" should set the property value
+PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "auto auto" should set the property value
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "auto 4%" should set the property value
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "contain" should set the property value
 PASS css/css-backgrounds/parsing/background-size-valid.html :: e.style['background-size'] = "cover" should set the property value
@@ -1321,6 +1351,8 @@ PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] 
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-image
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-origin
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-position
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-repeat
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-size
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should not set unrelated longhands
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-attachment
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-clip
@@ -1356,6 +1388,7 @@ PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-
 PASS css/css-backgrounds/parsing/border-color-shorthand.html :: e.style['border-color'] = "red yellow green blue" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-color-valid.html
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-color'] = "currentcolor" should set the property value
+PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-color'] = "currentColor" should set the property value
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-color'] = "red yellow green blue" should set the property value
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-top-color'] = "red" should set the property value
 PASS css/css-backgrounds/parsing/border-color-valid.html :: e.style['border-right-color'] = "yellow" should set the property value
@@ -1403,6 +1436,7 @@ PASS css/css-backgrounds/parsing/border-image-repeat-invalid.html :: e.style['bo
 PASS css/css-backgrounds/parsing/border-image-repeat-invalid.html :: e.style['border-image-repeat'] = "stretch repeat round" should not set the property value
 FILE css/css-backgrounds/parsing/border-image-repeat-valid.html
 PASS css/css-backgrounds/parsing/border-image-repeat-valid.html :: e.style['border-image-repeat'] = "stretch" should set the property value
+PASS css/css-backgrounds/parsing/border-image-repeat-valid.html :: e.style['border-image-repeat'] = "space space" should set the property value
 PASS css/css-backgrounds/parsing/border-image-repeat-valid.html :: e.style['border-image-repeat'] = "repeat round" should set the property value
 FILE css/css-backgrounds/parsing/border-image-shorthand.sub.html
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should set border-image-outset
@@ -1413,16 +1447,19 @@ PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['bor
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "none" should not set unrelated longhands
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-outset
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-slice
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-source
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should set border-image-width
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") 1 2 3 4 fill" should not set unrelated longhands
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-outset
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-slice
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-source
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should set border-image-width
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "url(\\"http://{{host}}/\\") fill 1 2% 3 4%" should not set unrelated longhands
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-outset
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-repeat
+PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-slice
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-source
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should set border-image-width
 PASS css/css-backgrounds/parsing/border-image-shorthand.sub.html :: e.style['border-image'] = "1 2% 3 4% / 5% / 6" should not set unrelated longhands
@@ -1443,6 +1480,7 @@ FILE css/css-backgrounds/parsing/border-image-slice-valid.html
 PASS css/css-backgrounds/parsing/border-image-slice-valid.html :: e.style['border-image-slice'] = "1" should set the property value
 PASS css/css-backgrounds/parsing/border-image-slice-valid.html :: e.style['border-image-slice'] = "1 2% 3 4%" should set the property value
 PASS css/css-backgrounds/parsing/border-image-slice-valid.html :: e.style['border-image-slice'] = "1 2% 3 4% fill" should set the property value
+PASS css/css-backgrounds/parsing/border-image-slice-valid.html :: e.style['border-image-slice'] = "fill 1 2% 3 4%" should set the property value
 FILE css/css-backgrounds/parsing/border-image-source-computed.sub.html
 PASS css/css-backgrounds/parsing/border-image-source-computed.sub.html :: Property border-image-source value 'none'
 PASS css/css-backgrounds/parsing/border-image-source-computed.sub.html :: Property border-image-source value 'url("http://{{host}}/")'
@@ -1466,9 +1504,11 @@ PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-imag
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "none 1 / 1 / 0 stretch" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "url(\\"http://www.example.com/\\") 1 2% 3 4%" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "url(\\"http://www.example.com/\\") 1 2% 3 4% fill" should set the property value
+PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "url(\\"http://www.example.com/\\") fill 1 2% 3 4%" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 / 1px" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 2% 3 4% / 2%" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 2% 3 4% fill / 3" should set the property value
+PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "fill 1 2% 3 4% / auto" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 / / 1px" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 2% 3 4% / / 2" should set the property value
 PASS css/css-backgrounds/parsing/border-image-valid.html :: e.style['border-image'] = "1 / 1px / 1px" should set the property value
@@ -1508,8 +1548,11 @@ PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 2% 3px 4%'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '5em / 1px 2% 3px 4%'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 2% 3px 4% / 5em'
+PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 1px 1px 2% / 1px 2% 1px 2%'
+PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 1px 1px 1px / 1px 1px 2% 1px'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 1px 2% 2%'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 2% 1px 1px'
+PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-radius value '1px 2% 2% 2% / 1px 2% 3px 2%'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-top-left-radius value 'calc(-0.5em + 10px)'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-top-right-radius value '20%'
 PASS css/css-backgrounds/parsing/border-radius-computed.html :: Property border-bottom-right-radius value 'calc(0.5em + 10px) 40%'
@@ -1542,8 +1585,11 @@ PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-rad
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 2px 3em / 1px 2px 3%" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 2% / 2px 3em 4px 5em" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 2% 3px 4% / 5em" should set the property value
+PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 1px 1px 2% / 1px 2% 1px 2%" should set the property value
+PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 1px 1px 1px / 1px 1px 2% 1px" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 1px 2% 2%" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 2% 1px 1px" should set the property value
+PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-radius'] = "1px 2% 2% 2% / 1px 2% 3px 2%" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-top-left-radius'] = "10px" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-top-right-radius'] = "20%" should set the property value
 PASS css/css-backgrounds/parsing/border-radius-valid.html :: e.style['border-bottom-right-radius'] = "30px 40%" should set the property value
@@ -1623,6 +1669,7 @@ PASS css/css-backgrounds/parsing/border-style-valid.html :: e.style['border-bott
 PASS css/css-backgrounds/parsing/border-style-valid.html :: e.style['border-left-style'] = "ridge" should set the property value
 FILE css/css-backgrounds/parsing/border-valid.html
 PASS css/css-backgrounds/parsing/border-valid.html :: e.style['border'] = "1px dotted red" should set the property value
+PASS css/css-backgrounds/parsing/border-valid.html :: e.style['border'] = "green double thin" should set the property value
 PASS css/css-backgrounds/parsing/border-valid.html :: e.style['border-top'] = "thin" should set the property value
 PASS css/css-backgrounds/parsing/border-valid.html :: e.style['border-right'] = "double" should set the property value
 PASS css/css-backgrounds/parsing/border-valid.html :: e.style['border-bottom'] = "green" should set the property value
@@ -1715,10 +1762,39 @@ FILE css/css-backgrounds/parsing/box-shadow-valid.html
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "none" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "1px 2px" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "red 1px 2px 3px -4px inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 1px 2px red" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "1px -2px inset, red -3px 4px" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 1px -2px, -3px 4px red" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px 4px green" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green -4px 4px" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "-4px 4px 0 green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green -4px 4px 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "-4px 4px 0 0 green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green -4px 4px 0 0" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 0 inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px 0 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px green inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px inset green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset green 4px -4px" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green inset 4px -4px" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green 4px -4px inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset green 4px -4px 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green inset 4px -4px 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 green inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 inset green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green 4px -4px 0 inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px 0 green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset green 4px -4px 0 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green inset 4px -4px 0 0" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 0 green inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "4px -4px 0 0 inset green" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "green 4px -4px 0 0 inset" should set the property value
+PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "inset 4px -4px 0 0 green" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "1px 1px calc(-1px)" should set the property value
 PASS css/css-backgrounds/parsing/box-shadow-valid.html :: e.style['box-shadow'] = "1px 1px calc(1em - 2px)" should set the property value
 FILE css/css-backgrounds/parsing/webkit-border-radius-valid.html
@@ -6722,16 +6798,35 @@ PASS css/css-display/parsing/display-computed.html :: Property display value 'ru
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby-base'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby-text'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'block ruby'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby block'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root inline list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'inline flow-root list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'inline list-item flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item inline flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root inline'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flex run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flex'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'grid run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in grid'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'table run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in table'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in ruby'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'ruby run-in'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item run-in'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root run-in list-item'
 PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in flow-root list-item'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'flow-root list-item run-in'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'run-in list-item flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item run-in flow-root'
+PASS css/css-display/parsing/display-computed.html :: Property display value 'list-item flow-root run-in'
 FILE css/css-display/parsing/display-invalid.html
 PASS css/css-display/parsing/display-invalid.html :: e.style['display'] = "grid inline-grid" should not set the property value
 PASS css/css-display/parsing/display-invalid.html :: e.style['display'] = "none grid" should not set the property value
@@ -6815,16 +6910,35 @@ PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby" s
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby-base" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby-text" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "block ruby" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby block" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root inline list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline flow-root list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "inline list-item flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item inline flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root inline" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flex run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flex" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "grid run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in grid" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "table run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in table" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in ruby" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "ruby run-in" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item run-in" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root run-in list-item" should set the property value
 PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in flow-root list-item" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "flow-root list-item run-in" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "run-in list-item flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item run-in flow-root" should set the property value
+PASS css/css-display/parsing/display-valid.html :: e.style['display'] = "list-item flow-root run-in" should set the property value
 FILE css/css-display/parsing/tentative/display-computed.html
 FILE css/css-display/parsing/tentative/display-valid.html
 FILE css/css-flexbox/parsing/flex-basis-computed.html
@@ -6885,6 +6999,7 @@ PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = 
 PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "wrap row-reverse" should set flex-wrap
 PASS css/css-flexbox/parsing/flex-flow-shorthand.html :: e.style['flex-flow'] = "wrap row-reverse" should not set unrelated longhands
 FILE css/css-flexbox/parsing/flex-flow-valid.html
+PASS css/css-flexbox/parsing/flex-flow-valid.html :: e.style['flex-flow'] = "wrap row-reverse" should set the property value
 PASS css/css-flexbox/parsing/flex-flow-valid.html :: e.style['flex-flow'] = "wrap" should set the property value
 FILE css/css-flexbox/parsing/flex-grow-computed.html
 PASS css/css-flexbox/parsing/flex-grow-computed.html :: Property flex-grow value '1'
@@ -6964,10 +7079,12 @@ PASS css/css-flexbox/parsing/flex-shrink-valid.html :: e.style['flex-shrink'] = 
 PASS css/css-flexbox/parsing/flex-shrink-valid.html :: e.style['flex-shrink'] = ".0" should set the property value
 FILE css/css-flexbox/parsing/flex-valid.html
 PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "4 5 6px" should set the property value
+PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "6px 4 5" should set the property value
 PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "1 1 10em" should set the property value
 PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "1 1 calc(10em)" should set the property value
 PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "1 1 calc(-10em)" should set the property value
 PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "calc(1) calc(2 + 1) calc(3px)" should set the property value
+PASS css/css-flexbox/parsing/flex-valid.html :: e.style['flex'] = "calc(-1) calc(-1) 0" should set the property value
 FILE css/css-flexbox/parsing/flex-wrap-computed.html
 PASS css/css-flexbox/parsing/flex-wrap-computed.html :: Property flex-wrap value 'nowrap'
 PASS css/css-flexbox/parsing/flex-wrap-computed.html :: Property flex-wrap value 'wrap'
@@ -7003,11 +7120,43 @@ PASS css/css-fonts/parsing/font-computed.html :: Property font value 'xx-small s
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic small-caps xx-small sans-serif'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic small-caps 100 ultra-condensed calc(30% - 40px)/calc(120% + 1.2em) sans-serif'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic small-caps extra-condensed xx-small cursive'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic small-caps semi-condensed 900 xx-large/1.2 monospace'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic bold larger/calc(120% + 1.2em) Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic bold small-caps xx-small fantasy'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic lighter small-caps expanded xx-large/1.2 Menu'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic 100 extra-expanded larger/calc(120% + 1.2em) Non-Generic Example Family Name'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic extra-expanded small-caps larger/calc(120% + 1.2em) serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'italic semi-condensed bold small-caps xx-small Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps italic smaller monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps italic bolder semi-expanded larger/calc(120% + 1.2em) monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps italic expanded smaller Menu'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps 100 calc(30% - 40px)/calc(120% + 1.2em) sans-serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps 100 italic smaller Non-Generic Example Family Name'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps bolder condensed calc(30% - 40px)/calc(120% + 1.2em) cursive'
 PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps expanded xx-large/1.2 Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps condensed italic calc(30% - 40px)/calc(120% + 1.2em) fantasy'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps expanded bolder xx-large/1.2 Non-Generic Example Family Name'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'small-caps ultra-expanded 100 italic smaller sans-serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value '100 italic xx-small serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'bold italic small-caps ultra-condensed calc(30% - 40px)/calc(120% + 1.2em) serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'bolder italic extra-condensed xx-small sans-serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value '100 italic semi-condensed small-caps xx-large/1.2 fantasy'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value '900 small-caps larger/calc(120% + 1.2em) monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value '900 small-caps italic xx-small cursive'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'bolder small-caps italic expanded xx-large/1.2 monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'lighter small-caps extra-expanded larger/calc(120% + 1.2em) Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'bold extra-expanded italic larger/calc(120% + 1.2em) Non-Generic Example Family Name'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'bold semi-condensed small-caps italic xx-small monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'ultra-expanded italic smaller fantasy'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'extra-expanded italic small-caps 900 larger/calc(120% + 1.2em) fantasy'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'ultra-expanded italic bold smaller monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'condensed small-caps calc(30% - 40px)/calc(120% + 1.2em) serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'ultra-expanded small-caps italic smaller Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'condensed small-caps bold calc(30% - 40px)/calc(120% + 1.2em) sans-serif'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'expanded 100 xx-large/1.2 monospace'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'condensed 100 italic calc(30% - 40px)/calc(120% + 1.2em) cursive'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'expanded bolder small-caps xx-large/1.2 Menu'
+PASS css/css-fonts/parsing/font-computed.html :: Property font value 'ultra-expanded 100 small-caps italic smaller serif'
 FILE css/css-fonts/parsing/font-face-metric-overrides.html
 HARNESS css/css-fonts/parsing/font-face-metric-overrides.html
 FILE css/css-fonts/parsing/font-face-size-adjust.html
@@ -7282,6 +7431,15 @@ PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'
 PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "style" should set the property value
 PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "small-caps" should set the property value
 PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "position" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "style weight" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "small-caps weight" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "small-caps style" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "style weight small-caps" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "style small-caps weight " should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "small-caps style weight " should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "position style" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "position weight style" should set the property value
+PASS css/css-fonts/parsing/font-synthesis-valid.html :: e.style['font-synthesis'] = "position weight small-caps style" should set the property value
 FILE css/css-fonts/parsing/font-synthesis-weight-invalid.html
 PASS css/css-fonts/parsing/font-synthesis-weight-invalid.html :: e.style['font-synthesis-weight'] = "normal" should not set the property value
 PASS css/css-fonts/parsing/font-synthesis-weight-invalid.html :: e.style['font-synthesis-weight'] = "auto none" should not set the property value
@@ -7299,13 +7457,51 @@ PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "xx-small serif"
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique small-caps xx-small sans-serif" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "italic small-caps 100 ultra-condensed calc(30% - 40px)/calc(120% + 1.2em) sans-serif" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique small-caps extra-condensed xx-small cursive" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique small-caps semi-condensed 900 xx-large/1.2 monospace" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "italic bold larger/calc(120% + 1.2em) Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique bold small-caps xx-small fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique lighter small-caps expanded xx-large/1.2 Menu" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "italic 100 extra-expanded larger/calc(120% + 1.2em) FB Armada" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique extra-condensed 20%/1.2 cursive" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "italic extra-expanded small-caps larger/calc(120% + 1.2em) serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique extra-condensed 100 20%/1.2 fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "oblique semi-condensed bold small-caps xx-small Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps oblique smaller monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps italic bolder semi-expanded larger/calc(120% + 1.2em) monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps oblique expanded smaller Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps oblique ultra-expanded lighter 20%/1.2 serif" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps 100 calc(30% - 40px)/calc(120% + 1.2em) sans-serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps 100 oblique smaller FB Armada" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps bold oblique extra-condensed 20%/1.2 sans-serif" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps bolder condensed calc(30% - 40px)/calc(120% + 1.2em) cursive" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps expanded xx-large/1.2 Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps condensed italic calc(30% - 40px)/calc(120% + 1.2em) fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps expanded bolder xx-large/1.2 FB Armada" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "small-caps ultra-expanded 100 oblique smaller sans-serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "100 oblique xx-small serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bold italic small-caps ultra-condensed calc(30% - 40px)/calc(120% + 1.2em) serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bolder oblique extra-condensed xx-small sans-serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "100 oblique semi-condensed small-caps xx-large/1.2 fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "900 small-caps larger/calc(120% + 1.2em) monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "900 small-caps oblique xx-small cursive" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bolder small-caps oblique expanded xx-large/1.2 monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "lighter small-caps extra-expanded larger/calc(120% + 1.2em) Menu" should set the property value
 PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bold extra-condensed 20%/1.2 sans-serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bold extra-expanded italic larger/calc(120% + 1.2em) FB Armada" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "100 extra-condensed small-caps 20%/1.2 cursive" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "bold semi-condensed small-caps oblique xx-small monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "ultra-expanded oblique smaller fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "extra-expanded italic small-caps 900 larger/calc(120% + 1.2em) fantasy" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "ultra-expanded oblique bold smaller monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "extra-condensed oblique lighter small-caps 20%/1.2 FB Armada" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "condensed small-caps calc(30% - 40px)/calc(120% + 1.2em) serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "ultra-expanded small-caps oblique smaller Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "extra-condensed small-caps oblique 900 20%/1.2 serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "condensed small-caps bold calc(30% - 40px)/calc(120% + 1.2em) sans-serif" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "expanded 100 xx-large/1.2 monospace" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "condensed 100 italic calc(30% - 40px)/calc(120% + 1.2em) cursive" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "expanded bolder small-caps xx-large/1.2 Menu" should set the property value
+PASS css/css-fonts/parsing/font-valid.html :: e.style['font'] = "ultra-expanded 100 small-caps oblique smaller serif" should set the property value
 FILE css/css-fonts/parsing/font-variant-alternates-invalid.html
 PASS css/css-fonts/parsing/font-variant-alternates-invalid.html :: e.style['font-variant-alternates'] = "swash(several,different,aliases)" should not set the property value
 PASS css/css-fonts/parsing/font-variant-alternates-invalid.html :: e.style['font-variant-alternates'] = "stylistic(more,than,one)" should not set the property value
@@ -7380,6 +7576,7 @@ PASS css/css-fonts/parsing/font-variant-east-asian-valid.html :: e.style['font-v
 PASS css/css-fonts/parsing/font-variant-east-asian-valid.html :: e.style['font-variant-east-asian'] = "proportional-width" should set the property value
 PASS css/css-fonts/parsing/font-variant-east-asian-valid.html :: e.style['font-variant-east-asian'] = "ruby" should set the property value
 PASS css/css-fonts/parsing/font-variant-east-asian-valid.html :: e.style['font-variant-east-asian'] = "jis78 proportional-width" should set the property value
+PASS css/css-fonts/parsing/font-variant-east-asian-valid.html :: e.style['font-variant-east-asian'] = "ruby full-width simplified" should set the property value
 FILE css/css-fonts/parsing/font-variant-emoji-computed.html
 PASS css/css-fonts/parsing/font-variant-emoji-computed.html :: Property font-variant-emoji value 'normal'
 PASS css/css-fonts/parsing/font-variant-emoji-computed.html :: Property font-variant-emoji value 'text'
@@ -7519,6 +7716,7 @@ PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = 
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "ornaments(flowing)" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "annotation(flowing)" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "stylistic(flowing) historical-forms styleset(flowing) character-variant(flowing) swash(flowing) ornaments(flowing) annotation(flowing)" should set the property value
+PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "annotation(flowing) ornaments(flowing) swash(flowing) character-variant(flowing) styleset(flowing) historical-forms stylistic(flowing)" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "lining-nums" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "oldstyle-nums" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "proportional-nums" should set the property value
@@ -7539,6 +7737,7 @@ PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = 
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "sub" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "super" should set the property value
 PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "common-ligatures discretionary-ligatures historical-ligatures contextual small-caps stylistic(flowing) lining-nums proportional-nums diagonal-fractions ordinal slashed-zero jis78 full-width ruby sub" should set the property value
+PASS css/css-fonts/parsing/font-variant-valid.html :: e.style['font-variant'] = "super proportional-width jis83 stacked-fractions tabular-nums oldstyle-nums historical-forms all-small-caps no-contextual no-historical-ligatures no-discretionary-ligatures no-common-ligatures" should set the property value
 FILE css/css-fonts/parsing/font-variation-settings-computed.html
 PASS css/css-fonts/parsing/font-variation-settings-computed.html :: Property font-variation-settings value 'normal'
 FILE css/css-fonts/parsing/font-variation-settings-invalid.html
@@ -7702,7 +7901,9 @@ PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "span 1 two / four 3 span" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-area-valid.html
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "auto" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "AuTo" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row'] = "auto" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-end'] = "AuTo" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "--a" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row'] = "-zπ" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-start'] = "AZ" should set the property value
@@ -7710,15 +7911,23 @@ PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] =
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-end'] = "_9" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "1" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "+90 -a-" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row'] = "az 2" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column'] = "9" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column'] = "-19 zA" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column'] = "-A0 33" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-start'] = "-19" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-start'] = "9 -Z_" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] = "+90" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] = "Z -44" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-end'] = "1 -πA" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-end'] = "π_ +5" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "span 2 i" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "i 2 SpAn" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row'] = "span 2" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column'] = "i SpAn" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-start'] = "span i" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] = "SpAn i 2" should set the property value
+PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-row-end'] = "2 i span" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] = "span calc(-2)" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-column-start'] = "span min(-1, 6)" should set the property value
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "auto / i" should set the property value
@@ -7807,6 +8016,7 @@ FILE css/css-grid/parsing/grid-auto-flow-computed.html
 PASS css/css-grid/parsing/grid-auto-flow-computed.html :: Property grid-auto-flow value 'row'
 PASS css/css-grid/parsing/grid-auto-flow-computed.html :: Property grid-auto-flow value 'column'
 PASS css/css-grid/parsing/grid-auto-flow-computed.html :: Property grid-auto-flow value 'column dense'
+PASS css/css-grid/parsing/grid-auto-flow-computed.html :: Property grid-auto-flow value 'dense column'
 PASS css/css-grid/parsing/grid-auto-flow-computed.html :: Property grid-auto-flow value 'dense'
 FILE css/css-grid/parsing/grid-auto-flow-invalid.html
 PASS css/css-grid/parsing/grid-auto-flow-invalid.html :: e.style['grid-auto-flow'] = "auto" should not set the property value
@@ -7817,6 +8027,7 @@ PASS css/css-grid/parsing/grid-auto-flow-valid.html :: e.style['grid-auto-flow']
 PASS css/css-grid/parsing/grid-auto-flow-valid.html :: e.style['grid-auto-flow'] = "column" should set the property value
 PASS css/css-grid/parsing/grid-auto-flow-valid.html :: e.style['grid-auto-flow'] = "dense" should set the property value
 PASS css/css-grid/parsing/grid-auto-flow-valid.html :: e.style['grid-auto-flow'] = "column dense" should set the property value
+PASS css/css-grid/parsing/grid-auto-flow-valid.html :: e.style['grid-auto-flow'] = "dense column" should set the property value
 FILE css/css-grid/parsing/grid-auto-rows-computed.html
 PASS css/css-grid/parsing/grid-auto-rows-computed.html :: Property grid-auto-rows value '1px'
 PASS css/css-grid/parsing/grid-auto-rows-computed.html :: Property grid-auto-rows value 'calc(10px + 0.5em)'
@@ -8126,6 +8337,7 @@ PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "none" 
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "auto / auto" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "100px / auto-flow dense 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "auto-flow dense 1fr / 100px" should set the property value
+PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "100px / dense auto-flow 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "100px / auto-flow 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "auto-flow 1fr / 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "none / auto-flow 100px" should set the property value
@@ -8989,17 +9201,11 @@ PASS css/css-images/parsing/image-resolution-invalid.html :: e.style['image-reso
 PASS css/css-images/parsing/image-resolution-invalid.html :: e.style['image-resolution'] = "from-image snap 4dppx" should not set the property value
 FILE css/css-images/parsing/image-resolution-valid.html
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "1dpi" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "2dpcm from-image" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "3dppx from-image snap" should set the property value
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "4dpi snap" should set the property value
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "from-image" should set the property value
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "from-image 5dpcm" should set the property value
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "from-image 6dppx snap" should set the property value
 PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "from-image snap" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "snap 7.5dpi" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "snap -8dpcm from-image" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "snap from-image" should set the property value
-PASS css/css-images/parsing/image-resolution-valid.html :: e.style['image-resolution'] = "snap from-image 0dppx" should set the property value
 FILE css/css-images/parsing/object-fit-computed.html
 FILE css/css-images/parsing/object-fit-invalid.html
 PASS css/css-images/parsing/object-fit-invalid.html :: e.style['object-fit'] = "auto" should not set the property value
@@ -9034,11 +9240,15 @@ PASS css/css-images/parsing/object-position-valid.html :: e.style['object-positi
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "-20% -30px" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "30px center" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "40px top" should set the property value
+PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "bottom 10% right 20%" should set the property value
+PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "bottom right" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "center 50px" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "center bottom" should set the property value
+PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "center left" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "left bottom" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "left center" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "right 40%" should set the property value
+PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "top center" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "center" should set the property value
 PASS css/css-images/parsing/object-position-valid.html :: e.style['object-position'] = "center center" should set the property value
 FILE css/css-lists/parsing/content-invalid.html
@@ -9186,8 +9396,11 @@ FILE css/css-lists/parsing/list-style-valid.html
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "none" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "inside" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "inside none" should set the property value
+PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "none inside" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "url(\\"https://example.com/\\")" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square" should set the property value
+PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square url(\\"https://example.com/\\") inside" should set the property value
+PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square linear-gradient(red,blue) inside" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "outside outside" should set the property value
 FILE css/css-logical/parsing/block-size-computed.html
 PASS css/css-logical/parsing/block-size-computed.html :: Property block-size value '10px'
@@ -9215,6 +9428,7 @@ FILE css/css-logical/parsing/border-block-color-computed.html
 PASS css/css-logical/parsing/border-block-color-computed.html :: Property border-block-start-color value 'rgb(2, 3, 4)'
 PASS css/css-logical/parsing/border-block-color-computed.html :: Property border-block-end-color value 'rgb(34, 51, 68)'
 PASS css/css-logical/parsing/border-block-color-computed.html :: Property border-block-color value 'rgb(34, 51, 68)'
+PASS css/css-logical/parsing/border-block-color-computed.html :: Property border-block-color value 'rgb(2, 3, 4) rgb(2, 3, 4)'
 FILE css/css-logical/parsing/border-block-color-invalid.html
 PASS css/css-logical/parsing/border-block-color-invalid.html :: e.style['border-block-start-color'] = "red green" should not set the property value
 PASS css/css-logical/parsing/border-block-color-invalid.html :: e.style['border-block-end-color'] = "red, green" should not set the property value
@@ -9227,6 +9441,7 @@ PASS css/css-logical/parsing/border-block-color-valid.html :: e.style['border-bl
 PASS css/css-logical/parsing/border-block-color-valid.html :: e.style['border-block-end-color'] = "transparent" should set the property value
 PASS css/css-logical/parsing/border-block-color-valid.html :: e.style['border-block-color'] = "#234" should set the property value
 PASS css/css-logical/parsing/border-block-color-valid.html :: e.style['border-block-color'] = "transparent rgb(2, 3, 4)" should set the property value
+PASS css/css-logical/parsing/border-block-color-valid.html :: e.style['border-block-color'] = "rgb(2, 3, 4) rgb(2, 3, 4)" should set the property value
 FILE css/css-logical/parsing/border-block-style-computed.html
 PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-start-style value 'dotted'
 PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-start-style value 'groove'
@@ -9240,6 +9455,7 @@ PASS css/css-logical/parsing/border-block-style-computed.html :: Property border
 PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-end-style value 'ridge'
 PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-style value 'dotted'
 PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-style value 'double groove'
+PASS css/css-logical/parsing/border-block-style-computed.html :: Property border-block-style value 'hidden hidden'
 FILE css/css-logical/parsing/border-block-style-invalid.html
 PASS css/css-logical/parsing/border-block-style-invalid.html :: e.style['border-block-start-style'] = "auto" should not set the property value
 PASS css/css-logical/parsing/border-block-style-invalid.html :: e.style['border-block-start-style'] = "hidden, outset" should not set the property value
@@ -9260,9 +9476,11 @@ PASS css/css-logical/parsing/border-block-style-valid.html :: e.style['border-bl
 PASS css/css-logical/parsing/border-block-style-valid.html :: e.style['border-block-end-style'] = "ridge" should set the property value
 PASS css/css-logical/parsing/border-block-style-valid.html :: e.style['border-block-style'] = "dotted" should set the property value
 PASS css/css-logical/parsing/border-block-style-valid.html :: e.style['border-block-style'] = "double groove" should set the property value
+PASS css/css-logical/parsing/border-block-style-valid.html :: e.style['border-block-style'] = "hidden hidden" should set the property value
 FILE css/css-logical/parsing/border-block-valid.html
 PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block'] = "1px dotted red" should set the property value
 PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block'] = "double" should set the property value
+PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block-start'] = "green double thin" should set the property value
 PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block-start'] = "green" should set the property value
 PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block-end'] = "thin" should set the property value
 PASS css/css-logical/parsing/border-block-valid.html :: e.style['border-block-end'] = "calc(10px - 0.5em) dotted red" should set the property value
@@ -9276,6 +9494,7 @@ PASS css/css-logical/parsing/border-block-width-computed.html :: Property border
 PASS css/css-logical/parsing/border-block-width-computed.html :: Property border-block-end-width value 'thick'
 PASS css/css-logical/parsing/border-block-width-computed.html :: Property border-block-width value '10px'
 PASS css/css-logical/parsing/border-block-width-computed.html :: Property border-block-width value '10px 20px'
+PASS css/css-logical/parsing/border-block-width-computed.html :: Property border-block-width value '10px 10px'
 FILE css/css-logical/parsing/border-block-width-invalid.html
 PASS css/css-logical/parsing/border-block-width-invalid.html :: e.style['border-block-start-width'] = "-20px" should not set the property value
 PASS css/css-logical/parsing/border-block-width-invalid.html :: e.style['border-block-start-width'] = "auto" should not set the property value
@@ -9289,14 +9508,17 @@ PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-bl
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-start-width'] = "calc(10px + 0.5em)" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-start-width'] = "thick" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-start-width'] = "thin" should set the property value
+PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-end-width'] = "0" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-end-width'] = "calc(10px - 0.5em)" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-end-width'] = "medium" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-width'] = "10px" should set the property value
 PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-width'] = "medium calc(10px + 0.5em)" should set the property value
+PASS css/css-logical/parsing/border-block-width-valid.html :: e.style['border-block-width'] = "10px 10px" should set the property value
 FILE css/css-logical/parsing/border-inline-color-computed.html
 PASS css/css-logical/parsing/border-inline-color-computed.html :: Property border-inline-start-color value 'rgb(2, 3, 4)'
 PASS css/css-logical/parsing/border-inline-color-computed.html :: Property border-inline-end-color value 'rgb(34, 51, 68)'
 PASS css/css-logical/parsing/border-inline-color-computed.html :: Property border-inline-color value 'rgb(34, 51, 68)'
+PASS css/css-logical/parsing/border-inline-color-computed.html :: Property border-inline-color value 'rgb(2, 3, 4) rgb(2, 3, 4)'
 FILE css/css-logical/parsing/border-inline-color-invalid.html
 PASS css/css-logical/parsing/border-inline-color-invalid.html :: e.style['border-inline-start-color'] = "red green" should not set the property value
 PASS css/css-logical/parsing/border-inline-color-invalid.html :: e.style['border-inline-end-color'] = "red, green" should not set the property value
@@ -9309,6 +9531,7 @@ PASS css/css-logical/parsing/border-inline-color-valid.html :: e.style['border-i
 PASS css/css-logical/parsing/border-inline-color-valid.html :: e.style['border-inline-end-color'] = "transparent" should set the property value
 PASS css/css-logical/parsing/border-inline-color-valid.html :: e.style['border-inline-color'] = "#234" should set the property value
 PASS css/css-logical/parsing/border-inline-color-valid.html :: e.style['border-inline-color'] = "transparent rgb(2, 3, 4)" should set the property value
+PASS css/css-logical/parsing/border-inline-color-valid.html :: e.style['border-inline-color'] = "rgb(2, 3, 4) rgb(2, 3, 4)" should set the property value
 FILE css/css-logical/parsing/border-inline-style-computed.html
 PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-start-style value 'dotted'
 PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-start-style value 'groove'
@@ -9322,6 +9545,7 @@ PASS css/css-logical/parsing/border-inline-style-computed.html :: Property borde
 PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-end-style value 'ridge'
 PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-style value 'dotted'
 PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-style value 'double groove'
+PASS css/css-logical/parsing/border-inline-style-computed.html :: Property border-inline-style value 'hidden hidden'
 FILE css/css-logical/parsing/border-inline-style-invalid.html
 PASS css/css-logical/parsing/border-inline-style-invalid.html :: e.style['border-inline-start-style'] = "auto" should not set the property value
 PASS css/css-logical/parsing/border-inline-style-invalid.html :: e.style['border-inline-start-style'] = "hidden, outset" should not set the property value
@@ -9342,9 +9566,11 @@ PASS css/css-logical/parsing/border-inline-style-valid.html :: e.style['border-i
 PASS css/css-logical/parsing/border-inline-style-valid.html :: e.style['border-inline-end-style'] = "ridge" should set the property value
 PASS css/css-logical/parsing/border-inline-style-valid.html :: e.style['border-inline-style'] = "dotted" should set the property value
 PASS css/css-logical/parsing/border-inline-style-valid.html :: e.style['border-inline-style'] = "double groove" should set the property value
+PASS css/css-logical/parsing/border-inline-style-valid.html :: e.style['border-inline-style'] = "hidden hidden" should set the property value
 FILE css/css-logical/parsing/border-inline-valid.html
 PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline'] = "1px dotted red" should set the property value
 PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline'] = "double" should set the property value
+PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline-start'] = "green double thin" should set the property value
 PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline-start'] = "green" should set the property value
 PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline-end'] = "thin" should set the property value
 PASS css/css-logical/parsing/border-inline-valid.html :: e.style['border-inline-end'] = "calc(10px - 0.5em) dotted red" should set the property value
@@ -9358,6 +9584,7 @@ PASS css/css-logical/parsing/border-inline-width-computed.html :: Property borde
 PASS css/css-logical/parsing/border-inline-width-computed.html :: Property border-inline-end-width value 'thick'
 PASS css/css-logical/parsing/border-inline-width-computed.html :: Property border-inline-width value '10px'
 PASS css/css-logical/parsing/border-inline-width-computed.html :: Property border-inline-width value '10px 20px'
+PASS css/css-logical/parsing/border-inline-width-computed.html :: Property border-inline-width value '10px 10px'
 FILE css/css-logical/parsing/border-inline-width-invalid.html
 PASS css/css-logical/parsing/border-inline-width-invalid.html :: e.style['border-inline-start-width'] = "-20px" should not set the property value
 PASS css/css-logical/parsing/border-inline-width-invalid.html :: e.style['border-inline-start-width'] = "auto" should not set the property value
@@ -9371,10 +9598,12 @@ PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-i
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-start-width'] = "calc(10px + 0.5em)" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-start-width'] = "thick" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-start-width'] = "thin" should set the property value
+PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-end-width'] = "0" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-end-width'] = "calc(10px - 0.5em)" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-end-width'] = "medium" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-width'] = "10px" should set the property value
 PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-width'] = "medium calc(10px + 0.5em)" should set the property value
+PASS css/css-logical/parsing/border-inline-width-valid.html :: e.style['border-inline-width'] = "10px 10px" should set the property value
 FILE css/css-logical/parsing/inline-size-computed.html
 PASS css/css-logical/parsing/inline-size-computed.html :: Property inline-size value '10px'
 PASS css/css-logical/parsing/inline-size-computed.html :: Property inline-size value 'calc(0.5em + 10px)'
@@ -9405,6 +9634,7 @@ PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-block value 'auto'
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-block value '-10px'
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-block value 'calc(10px - 0.5em) -20%'
+PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-block value 'auto auto'
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-inline value '-20%'
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-inline value 'calc(10px - 0.5em)'
 PASS css/css-logical/parsing/inset-block-inline-computed.html :: Property inset-inline value '-10px auto'
@@ -9438,6 +9668,7 @@ PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-inl
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block'] = "auto" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block'] = "-10px" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block'] = "calc(10px - 0.5em) -20%" should set the property value
+PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-block'] = "auto auto" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-inline'] = "-20%" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-inline'] = "calc(10px - 0.5em)" should set the property value
 PASS css/css-logical/parsing/inset-block-inline-valid.html :: e.style['inset-inline'] = "-10px auto" should set the property value
@@ -9446,8 +9677,11 @@ FILE css/css-logical/parsing/inset-computed.html
 PASS css/css-logical/parsing/inset-computed.html :: Property inset value 'auto'
 PASS css/css-logical/parsing/inset-computed.html :: Property inset value '-10px'
 PASS css/css-logical/parsing/inset-computed.html :: Property inset value 'calc(10px - 0.5em) -20%'
+PASS css/css-logical/parsing/inset-computed.html :: Property inset value 'auto auto'
 PASS css/css-logical/parsing/inset-computed.html :: Property inset value '10px calc(10px - 0.5em) -30px'
+PASS css/css-logical/parsing/inset-computed.html :: Property inset value 'auto auto auto'
 PASS css/css-logical/parsing/inset-computed.html :: Property inset value '10px 20px auto -30px'
+PASS css/css-logical/parsing/inset-computed.html :: Property inset value 'auto auto auto auto'
 FILE css/css-logical/parsing/inset-invalid.html
 PASS css/css-logical/parsing/inset-invalid.html :: e.style['inset'] = "none" should not set the property value
 PASS css/css-logical/parsing/inset-invalid.html :: e.style['inset'] = "20%, calc(10px - 0.5em)" should not set the property value
@@ -9477,8 +9711,11 @@ FILE css/css-logical/parsing/inset-valid.html
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "auto" should set the property value
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "-10px" should set the property value
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "calc(-0.5em + 10px) -20%" should set the property value
+PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "auto auto" should set the property value
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "10px calc(-0.5em + 10px) -30px" should set the property value
+PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "auto auto auto" should set the property value
 PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "10px calc(-0.5em + 10px) auto -30px" should set the property value
+PASS css/css-logical/parsing/inset-valid.html :: e.style['inset'] = "auto auto auto auto" should set the property value
 FILE css/css-logical/parsing/margin-block-inline-computed.html
 PASS css/css-logical/parsing/margin-block-inline-computed.html :: Property margin-block-start value '10px'
 PASS css/css-logical/parsing/margin-block-inline-computed.html :: Property margin-inline-start value '30px'
@@ -9519,6 +9756,7 @@ PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-i
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block'] = "auto" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block'] = "-10px" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block'] = "calc(2em + 3ex) -20%" should set the property value
+PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block'] = "auto auto" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-block'] = "-20% calc(20% + 10px)" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-inline'] = "20%" should set the property value
 PASS css/css-logical/parsing/margin-block-inline-valid.html :: e.style['margin-inline'] = "calc(2em + 3ex)" should set the property value
@@ -9676,6 +9914,7 @@ PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['pad
 PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "0%" should set padding-inline-start
 PASS css/css-logical/parsing/padding-block-inline-shorthand.html :: e.style['padding-inline'] = "0%" should not set unrelated longhands
 FILE css/css-logical/parsing/padding-block-inline-valid.html
+PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-block-start'] = "0" should set the property value
 PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-block-start'] = "calc(20% + 10px)" should set the property value
 PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-block-end'] = "10px" should set the property value
 PASS css/css-logical/parsing/padding-block-inline-valid.html :: e.style['padding-inline-start'] = "20%" should set the property value
@@ -9733,8 +9972,10 @@ PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property ove
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value '10px'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'content-box'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'content-box 10px'
+PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value '10px content-box'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'border-box'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'border-box 10px'
+PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value '10px border-box'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'calc(100px - 50px)'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'calc(100px - 100px)'
 PASS css/css-overflow/parsing/overflow-clip-margin-computed.html :: Property overflow-clip-margin value 'calc(0.5em + 100px)'
@@ -9743,8 +9984,10 @@ FILE css/css-overflow/parsing/overflow-clip-margin.html
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "10px" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "content-box" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "content-box 10px" should set the property value
+PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "10px content-box" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "border-box" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "border-box 10px" should set the property value
+PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "10px border-box" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100px - 50px)" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(100px - 100px)" should set the property value
 PASS css/css-overflow/parsing/overflow-clip-margin.html :: e.style['overflow-clip-margin'] = "calc(0.5em - 100px)" should set the property value
@@ -9758,8 +10001,10 @@ PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'scroll'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'auto'
+PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'auto auto'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'auto clip'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip auto'
+PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip clip'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip hidden'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip scroll'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'clip visible'
@@ -9767,6 +10012,7 @@ PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'scroll auto'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'scroll clip'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'visible clip'
+PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow value 'visible visible'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow-x value 'scroll'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow-x value 'hidden'
 PASS css/css-overflow/parsing/overflow-computed.html :: Property overflow-x value 'visible'
@@ -9791,8 +10037,11 @@ PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "hidd
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "clip" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "scroll" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "auto" should set the property value
+PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "visible visible" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "hidden visible" should set the property value
+PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "clip clip" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "scroll auto" should set the property value
+PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow'] = "auto auto" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow-x'] = "visible" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow-x'] = "scroll" should set the property value
 PASS css/css-overflow/parsing/overflow-valid.html :: e.style['overflow-y'] = "clip" should set the property value
@@ -9892,6 +10141,7 @@ FILE css/css-overflow/parsing/scrollbar-gutter-valid.html
 PASS css/css-overflow/parsing/scrollbar-gutter-valid.html :: e.style['scrollbar-gutter'] = "auto" should set the property value
 PASS css/css-overflow/parsing/scrollbar-gutter-valid.html :: e.style['scrollbar-gutter'] = "stable" should set the property value
 PASS css/css-overflow/parsing/scrollbar-gutter-valid.html :: e.style['scrollbar-gutter'] = "stable both-edges" should set the property value
+PASS css/css-overflow/parsing/scrollbar-gutter-valid.html :: e.style['scrollbar-gutter'] = "both-edges stable" should set the property value
 FILE css/css-overflow/parsing/text-overflow-computed.html
 PASS css/css-overflow/parsing/text-overflow-computed.html :: Property text-overflow value 'clip'
 PASS css/css-overflow/parsing/text-overflow-computed.html :: Property text-overflow value 'ellipsis'
@@ -9977,44 +10227,54 @@ PASS css/css-position/parsing/inset-invalid.html :: e.style['inset-inline'] = "1
 PASS css/css-position/parsing/inset-invalid.html :: e.style['inset-inline'] = "inherit auto" should not set the property value
 PASS css/css-position/parsing/inset-invalid.html :: e.style['inset-inline'] = "inherit inherit" should not set the property value
 FILE css/css-position/parsing/inset-valid.html
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-start'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block-end'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-start'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline-end'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "auto auto" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "100px 100px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "10% -5px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-block'] = "1rem calc(0px)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "0" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "auto" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "10%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "1rem" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "-10px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "-20%" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "calc(2em + 3ex)" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "auto auto" should set the property value
+PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "100px 100px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "10% -5px" should set the property value
 PASS css/css-position/parsing/inset-valid.html :: e.style['inset-inline'] = "1rem calc(0px)" should set the property value
 FILE css/css-position/parsing/left-computed.html
@@ -10117,6 +10377,7 @@ FILE css/css-sizing/parsing/height-valid.html
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "auto" should set the property value
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "0" should set the property value
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "10%" should set the property value
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/height-valid.html :: e.style['height'] = "calc(10% - 0.5em)" should set the property value
@@ -10145,6 +10406,7 @@ FILE css/css-sizing/parsing/max-height-valid.html
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "none" should set the property value
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "0" should set the property value
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "10%" should set the property value
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/max-height-valid.html :: e.style['max-height'] = "calc(10% - 0.5em)" should set the property value
@@ -10173,6 +10435,7 @@ FILE css/css-sizing/parsing/max-width-valid.html
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "none" should set the property value
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "0" should set the property value
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "10%" should set the property value
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/max-width-valid.html :: e.style['max-width'] = "calc(10% - 0.5em)" should set the property value
@@ -10207,6 +10470,7 @@ FILE css/css-sizing/parsing/min-height-valid.html
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "auto" should set the property value
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "0" should set the property value
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "10%" should set the property value
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/min-height-valid.html :: e.style['min-height'] = "calc(10% - 0.5em)" should set the property value
@@ -10241,6 +10505,7 @@ FILE css/css-sizing/parsing/min-width-valid.html
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "auto" should set the property value
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "0" should set the property value
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "10%" should set the property value
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/min-width-valid.html :: e.style['min-width'] = "calc(10% - 0.5em)" should set the property value
@@ -10256,6 +10521,7 @@ FILE css/css-sizing/parsing/width-valid.html
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "auto" should set the property value
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "min-content" should set the property value
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "max-content" should set the property value
+PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "0" should set the property value
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "10%" should set the property value
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "0.5em" should set the property value
 PASS css/css-sizing/parsing/width-valid.html :: e.style['width'] = "calc(10% - 0.5em)" should set the property value
@@ -10273,6 +10539,7 @@ PASS css/css-tables/parsing/border-collapse-valid.html :: e.style['border-collap
 PASS css/css-tables/parsing/border-collapse-valid.html :: e.style['border-collapse'] = "collapse" should set the property value
 FILE css/css-tables/parsing/border-spacing-computed.html
 PASS css/css-tables/parsing/border-spacing-computed.html :: Property border-spacing value '10px 20px'
+PASS css/css-tables/parsing/border-spacing-computed.html :: Property border-spacing value '0'
 FILE css/css-tables/parsing/border-spacing-invalid.html
 PASS css/css-tables/parsing/border-spacing-invalid.html :: e.style['border-spacing'] = "10%" should not set the property value
 PASS css/css-tables/parsing/border-spacing-invalid.html :: e.style['border-spacing'] = "-20px" should not set the property value
@@ -10324,6 +10591,8 @@ PASS css/css-text-decor/parsing/text-decoration-color-valid.html :: e.style['tex
 PASS css/css-text-decor/parsing/text-decoration-color-valid.html :: e.style['text-decoration-color'] = "rgba(10, 20, 30, 0.4)" should set the property value
 FILE css/css-text-decor/parsing/text-decoration-computed.html
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'line-through'
+PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'double overline underline'
+PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'rgba(10, 20, 30, 0.4) dotted'
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'underline dashed rgb(0, 255, 0)'
 PASS css/css-text-decor/parsing/text-decoration-computed.html :: Property text-decoration value 'underline overline line-through blink'
 FILE css/css-text-decor/parsing/text-decoration-inset-computed.html
@@ -10340,12 +10609,16 @@ PASS css/css-text-decor/parsing/text-decoration-inset-invalid.html :: e.style['t
 PASS css/css-text-decor/parsing/text-decoration-inset-invalid.html :: e.style['text-decoration-inset'] = "45deg" should not set the property value
 FILE css/css-text-decor/parsing/text-decoration-inset-valid.html
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "0px" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "0" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "0px 0px" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "0.5em" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "-1em" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "-1ch -1ch" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "1px 2px" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "1ch -1ch" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "calc(1em / 4) calc(-1ch)" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "auto" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-inset-valid.html :: e.style['text-decoration-inset'] = "calc(10% - 1em) 0" should set the property value
 FILE css/css-text-decor/parsing/text-decoration-invalid.html
 PASS css/css-text-decor/parsing/text-decoration-invalid.html :: e.style['text-decoration'] = "double overline underline dotted" should not set the property value
 PASS css/css-text-decor/parsing/text-decoration-invalid.html :: e.style['text-decoration'] = "red line-through green" should not set the property value
@@ -10389,16 +10662,65 @@ PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through overline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink overline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink line-through" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline overline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline line-through overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline underline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline line-through underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through underline overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through overline underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline overline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline blink overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline underline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline blink underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink underline overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink overline underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline line-through blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline blink line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through underline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through blink underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink underline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink line-through underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline line-through blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline blink line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through overline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through blink overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink overline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink line-through overline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline overline line-through blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline overline blink line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline line-through overline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline line-through blink overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline blink overline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "underline blink line-through overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline underline line-through blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline underline blink line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline line-through underline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline line-through blink underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline blink underline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "overline blink line-through underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through underline overline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through underline blink overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through overline underline blink" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through overline blink underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through blink underline overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "line-through blink overline underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink underline overline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink underline line-through overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink overline underline line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink overline line-through underline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink line-through underline overline" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-line-valid.html :: e.style['text-decoration-line'] = "blink line-through overline underline" should set the property value
 FILE css/css-text-decor/parsing/text-decoration-shorthand.html
 FILE css/css-text-decor/parsing/text-decoration-skip-ink-computed.html
 PASS css/css-text-decor/parsing/text-decoration-skip-ink-computed.html :: Property text-decoration-skip-ink value 'auto'
@@ -10461,9 +10783,11 @@ PASS css/css-text-decor/parsing/text-decoration-style-valid.html :: e.style['tex
 FILE css/css-text-decor/parsing/text-decoration-valid.html
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "none" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "line-through" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "double overline underline" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "underline overline line-through red" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "underline overline line-through blink" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "underline overline line-through blink red" should set the property value
+PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "rgba(10, 20, 30, 0.4) dotted" should set the property value
 PASS css/css-text-decor/parsing/text-decoration-valid.html :: e.style['text-decoration'] = "underline dashed green" should set the property value
 FILE css/css-text-decor/parsing/text-emphasis-computed.html
 FILE css/css-text-decor/parsing/text-emphasis-position-computed.html
@@ -10512,6 +10836,7 @@ PASS css/css-text-decor/parsing/text-underline-position-valid.html :: e.style['t
 PASS css/css-text-decor/parsing/text-underline-position-valid.html :: e.style['text-underline-position'] = "left" should set the property value
 PASS css/css-text-decor/parsing/text-underline-position-valid.html :: e.style['text-underline-position'] = "right" should set the property value
 PASS css/css-text-decor/parsing/text-underline-position-valid.html :: e.style['text-underline-position'] = "under left" should set the property value
+PASS css/css-text-decor/parsing/text-underline-position-valid.html :: e.style['text-underline-position'] = "right under" should set the property value
 FILE css/css-text/parsing/hanging-punctuation-invalid.html
 PASS css/css-text/parsing/hanging-punctuation-invalid.html :: e.style['hanging-punctuation'] = "none first" should not set the property value
 PASS css/css-text/parsing/hanging-punctuation-invalid.html :: e.style['hanging-punctuation'] = "last none" should not set the property value
@@ -10532,16 +10857,8 @@ PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-pun
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "last" should set the property value
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "first force-end" should set the property value
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "first last" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "allow-end first" should set the property value
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "force-end last" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "last first" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "last allow-end" should set the property value
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "first allow-end last" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "first last force-end" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "force-end first last" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "allow-end last first" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "last first force-end" should set the property value
-PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "last allow-end first" should set the property value
 PASS css/css-text/parsing/hanging-punctuation-valid.html :: e.style['hanging-punctuation'] = "first allow-end" should set the property value
 FILE css/css-text/parsing/hyphenate-character-computed.html
 PASS css/css-text/parsing/hyphenate-character-computed.html :: Property hyphenate-character value 'auto'
@@ -10605,6 +10922,7 @@ PASS css/css-text/parsing/letter-spacing-invalid.html :: e.style['letter-spacing
 PASS css/css-text/parsing/letter-spacing-invalid.html :: e.style['letter-spacing'] = "10% 10px" should not set the property value
 FILE css/css-text/parsing/letter-spacing-valid.html
 PASS css/css-text/parsing/letter-spacing-valid.html :: e.style['letter-spacing'] = "normal" should set the property value
+PASS css/css-text/parsing/letter-spacing-valid.html :: e.style['letter-spacing'] = "0" should set the property value
 PASS css/css-text/parsing/letter-spacing-valid.html :: e.style['letter-spacing'] = "-10px" should set the property value
 PASS css/css-text/parsing/letter-spacing-valid.html :: e.style['letter-spacing'] = "20px" should set the property value
 PASS css/css-text/parsing/letter-spacing-valid.html :: e.style['letter-spacing'] = "calc(2em + 3ex)" should set the property value
@@ -10777,6 +11095,7 @@ PASS css/css-text/parsing/text-indent-computed.html :: Property text-indent valu
 PASS css/css-text/parsing/text-indent-computed.html :: Property text-indent value '10px hanging'
 PASS css/css-text/parsing/text-indent-computed.html :: Property text-indent value '20% each-line'
 PASS css/css-text/parsing/text-indent-computed.html :: Property text-indent value 'calc(50% + 60px) hanging each-line'
+PASS css/css-text/parsing/text-indent-computed.html :: Property text-indent value 'each-line hanging calc(10px + 0.5em)'
 FILE css/css-text/parsing/text-indent-invalid.html
 PASS css/css-text/parsing/text-indent-invalid.html :: e.style['text-indent'] = "auto" should not set the property value
 PASS css/css-text/parsing/text-indent-invalid.html :: e.style['text-indent'] = "hanging" should not set the property value
@@ -10795,6 +11114,11 @@ PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "-4
 PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "10px hanging" should set the property value
 PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "20% each-line" should set the property value
 PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "calc(2em + 3ex) hanging each-line" should set the property value
+PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "hanging calc(50% + 60px)" should set the property value
+PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "each-line 10px" should set the property value
+PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "hanging 20% each-line" should set the property value
+PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "each-line hanging calc(2em + 3ex)" should set the property value
+PASS css/css-text/parsing/text-indent-valid.html :: e.style['text-indent'] = "calc(50% + 60px) each-line hanging" should set the property value
 FILE css/css-text/parsing/text-justify-computed-legacy.html
 FILE css/css-text/parsing/text-justify-computed.html
 PASS css/css-text/parsing/text-justify-computed.html :: Property text-justify value 'auto'
@@ -10883,7 +11207,15 @@ PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform']
 PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "capitalize full-width" should set the property value
 PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "uppercase full-size-kana" should set the property value
 PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-width full-size-kana" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-width lowercase" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-size-kana capitalize" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-size-kana full-width" should set the property value
 PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "capitalize full-width full-size-kana" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-width full-size-kana uppercase" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-size-kana lowercase full-width" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "lowercase full-size-kana full-width" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-width uppercase full-size-kana" should set the property value
+PASS css/css-text/parsing/text-transform-valid.html :: e.style['text-transform'] = "full-size-kana full-width capitalize" should set the property value
 FILE css/css-text/parsing/text-wrap-computed.html
 PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'wrap'
 PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'nowrap'
@@ -10891,6 +11223,8 @@ PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'b
 PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'stable'
 PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'nowrap balance'
 PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'nowrap stable'
+PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'balance nowrap'
+PASS css/css-text/parsing/text-wrap-computed.html :: Property text-wrap value 'stable nowrap'
 FILE css/css-text/parsing/text-wrap-invalid.html
 PASS css/css-text/parsing/text-wrap-invalid.html :: e.style['text-wrap'] = "normal" should not set the property value
 PASS css/css-text/parsing/text-wrap-invalid.html :: e.style['text-wrap'] = "none" should not set the property value
@@ -10933,9 +11267,11 @@ PASS css/css-text/parsing/text-wrap-mode-valid.html :: e.style['text-wrap-mode']
 FILE css/css-text/parsing/text-wrap-pretty.html
 PASS css/css-text/parsing/text-wrap-pretty.html :: e.style['text-wrap'] = "pretty" should set the property value
 PASS css/css-text/parsing/text-wrap-pretty.html :: e.style['text-wrap'] = "nowrap pretty" should set the property value
+PASS css/css-text/parsing/text-wrap-pretty.html :: e.style['text-wrap'] = "pretty nowrap" should set the property value
 PASS css/css-text/parsing/text-wrap-pretty.html :: e.style['text-wrap-style'] = "pretty" should set the property value
 PASS css/css-text/parsing/text-wrap-pretty.html :: Property text-wrap value 'pretty'
 PASS css/css-text/parsing/text-wrap-pretty.html :: Property text-wrap value 'nowrap pretty'
+PASS css/css-text/parsing/text-wrap-pretty.html :: Property text-wrap value 'pretty nowrap'
 PASS css/css-text/parsing/text-wrap-pretty.html :: Property text-wrap-style value 'pretty'
 FILE css/css-text/parsing/text-wrap-style-computed.html
 PASS css/css-text/parsing/text-wrap-style-computed.html :: Property text-wrap-style value 'auto'
@@ -10970,6 +11306,8 @@ PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "balanc
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "stable" should set the property value
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "nowrap balance" should set the property value
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "nowrap stable" should set the property value
+PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "balance nowrap" should set the property value
+PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "stable nowrap" should set the property value
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "initial" should set the property value
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "inherit" should set the property value
 PASS css/css-text/parsing/text-wrap-valid.html :: e.style['text-wrap'] = "unset" should set the property value
@@ -11062,6 +11400,7 @@ PASS css/css-text/parsing/word-space-transform-invalid.html :: e.style['word-spa
 PASS css/css-text/parsing/word-space-transform-invalid.html :: e.style['word-space-transform'] = "none auto-phrase" should not set the property value
 FILE css/css-text/parsing/word-space-transform-valid.html
 FILE css/css-text/parsing/word-spacing-computed.html
+PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '0'
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '10px'
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value '-20px'
 PASS css/css-text/parsing/word-spacing-computed.html :: Property word-spacing value 'calc(10px - 0.5em)'
@@ -11071,6 +11410,7 @@ PASS css/css-text/parsing/word-spacing-invalid.html :: e.style['word-spacing'] =
 PASS css/css-text/parsing/word-spacing-invalid.html :: e.style['word-spacing'] = "10% 10px" should not set the property value
 FILE css/css-text/parsing/word-spacing-valid.html
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "normal" should set the property value
+PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "0" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "10px" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "-20px" should set the property value
 PASS css/css-text/parsing/word-spacing-valid.html :: e.style['word-spacing'] = "calc(2em + 3ex)" should set the property value
@@ -11118,20 +11458,27 @@ FILE css/css-transforms/parsing/perspective-origin-valid.html
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "20% 30px" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "30px center" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "40px top" should set the property value
+PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "bottom 10% right 20%" should set the property value
+PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "bottom right" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "center 50px" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "center bottom" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "center center" should set the property value
+PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "center left" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "left bottom" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "left center" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "right 40%" should set the property value
 PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "right 30% top 60px" should set the property value
+PASS css/css-transforms/parsing/perspective-origin-valid.html :: e.style['perspective-origin'] = "top center" should set the property value
 FILE css/css-transforms/parsing/rotate-parsing-computed.html
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value 'none'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '0deg'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '100 200 300 400grad'
+PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '400grad 100 200 300'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '0 0 0 400grad'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value 'x 400grad'
+PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '400grad x'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value 'y 400grad'
+PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '400grad y'
 PASS css/css-transforms/parsing/rotate-parsing-computed.html :: Property rotate value '400grad'
 FILE css/css-transforms/parsing/rotate-parsing-invalid.html
 PASS css/css-transforms/parsing/rotate-parsing-invalid.html :: e.style['rotate'] = "100px" should not set the property value
@@ -11147,9 +11494,12 @@ FILE css/css-transforms/parsing/rotate-parsing-valid.html
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "none" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "0deg" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "100 200 300 400grad" should set the property value
+PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "400grad 100 200 300" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "0 0 0 400grad" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "x 400grad" should set the property value
+PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "400grad x" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "y 400grad" should set the property value
+PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "400grad y" should set the property value
 PASS css/css-transforms/parsing/rotate-parsing-valid.html :: e.style['rotate'] = "400grad" should set the property value
 FILE css/css-transforms/parsing/scale-parsing-computed.html
 PASS css/css-transforms/parsing/scale-parsing-computed.html :: Property scale value 'none'
@@ -11247,6 +11597,9 @@ PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transfor
 PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "center top" should set the property value
 PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "right -4%" should set the property value
 PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "-1px bottom 5px" should set the property value
+PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "center left 6px" should set the property value
+PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "top center" should set the property value
+PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "bottom right 7px" should set the property value
 PASS css/css-transforms/parsing/transform-origin-valid.html :: e.style['transform-origin'] = "-1px -2px -3px" should set the property value
 FILE css/css-transforms/parsing/transform-valid.html
 PASS css/css-transforms/parsing/transform-valid.html :: e.style['transform'] = "none" should set the property value
@@ -11284,6 +11637,7 @@ PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property tran
 PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property translate value '100% 0% 200px'
 PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property translate value '0% 0% 100px'
 PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property translate value '0em 0em 100px'
+PASS css/css-transforms/parsing/translate-parsing-computed.html :: Property translate value '0'
 FILE css/css-transforms/parsing/translate-parsing-invalid.html
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100deg" should not set the property value
 PASS css/css-transforms/parsing/translate-parsing-invalid.html :: e.style['translate'] = "100px 200px 300%" should not set the property value
@@ -11306,6 +11660,7 @@ PASS css/css-transforms/parsing/translate-parsing-valid.html :: e.style['transla
 PASS css/css-transforms/parsing/translate-parsing-valid.html :: e.style['translate'] = "0% 0% 100px" should set the property value
 PASS css/css-transforms/parsing/translate-parsing-valid.html :: e.style['translate'] = "0em 0em 100px" should set the property value
 PASS css/css-transforms/parsing/translate-parsing-valid.html :: e.style['translate'] = "calc(10% + 10px) calc(20% + 20px) calc(30em + 30px)" should set the property value
+PASS css/css-transforms/parsing/translate-parsing-valid.html :: e.style['translate'] = "0" should set the property value
 FILE css/css-transforms/parsing/webkit-perspective-invalid.tentative.html
 PASS css/css-transforms/parsing/webkit-perspective-invalid.tentative.html :: e.style['-webkit-perspective'] = "calc(1000)" should not set the property value
 PASS css/css-transforms/parsing/webkit-perspective-invalid.tentative.html :: e.style['-webkit-perspective'] = "calc(25)" should not set the property value
@@ -11364,6 +11719,7 @@ PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['tran
 PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "one-two-three" should set the property value
 PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "one, two, three" should set the property value
 PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "width, all" should set the property value
+PASS css/css-transitions/parsing/transition-property-valid.html :: e.style['transition-property'] = "ALL, INVALID, SYNTAX, SRC" should set the property value
 FILE css/css-transitions/parsing/transition-shorthand.html
 PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-behavior
 PASS css/css-transitions/parsing/transition-shorthand.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set transition-delay
@@ -11441,6 +11797,8 @@ PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] 
 PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "1s -3s" should set the property value
 PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "none" should set the property value
 PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "top" should set the property value
+PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "1s -3s cubic-bezier(0, -2, 1, 3) top" should set the property value
+PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "1s -3s, cubic-bezier(0, -2, 1, 3) top" should set the property value
 PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "all" should set the property value
 PASS css/css-transitions/parsing/transition-valid.html :: e.style['transition'] = "initial" should set the property value
 FILE css/css-ui/parsing/box-sizing-computed.html
@@ -11457,7 +11815,12 @@ FILE css/css-ui/parsing/box-sizing-valid.html
 PASS css/css-ui/parsing/box-sizing-valid.html :: e.style['box-sizing'] = "content-box" should set the property value
 PASS css/css-ui/parsing/box-sizing-valid.html :: e.style['box-sizing'] = "border-box" should set the property value
 FILE css/css-ui/parsing/canonical-order-outline-sub-properties-001.html
+PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: invert solid 6px
+PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: invert 4px dotted
+PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: dashed 5px invert
+PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: solid invert 6px
 PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: 4px dotted invert
+PASS css/css-ui/parsing/canonical-order-outline-sub-properties-001.html :: testing outline: 5px invert dashed
 FILE css/css-ui/parsing/caret-color-computed.html
 FILE css/css-ui/parsing/caret-color-invalid.html
 PASS css/css-ui/parsing/caret-color-invalid.html :: e.style['caret-color'] = "none" should not set the property value
@@ -11620,6 +11983,7 @@ PASS css/css-ui/parsing/outline-offset-invalid.html :: e.style['outline-offset']
 PASS css/css-ui/parsing/outline-offset-invalid.html :: e.style['outline-offset'] = "inset 3px" should not set the property value
 PASS css/css-ui/parsing/outline-offset-invalid.html :: e.style['outline-offset'] = "3px inset" should not set the property value
 FILE css/css-ui/parsing/outline-offset-valid.html
+PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "0" should set the property value
 PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "1px" should set the property value
 PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "2em" should set the property value
 PASS css/css-ui/parsing/outline-offset-valid.html :: e.style['outline-offset'] = "calc(3rem + 4vw)" should set the property value
@@ -11666,12 +12030,12 @@ PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "groove" shou
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "ridge" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "inset" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "outset" should set the property value
+PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "0" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "1px" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "calc(2em + 3ex)" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "thin" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "medium" should set the property value
 PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "thick" should set the property value
-PASS css/css-ui/parsing/outline-valid.html :: e.style['outline'] = "dashed thin" should set the property value
 FILE css/css-ui/parsing/outline-width-computed.html
 PASS css/css-ui/parsing/outline-width-computed.html :: Property outline-width value '10px'
 PASS css/css-ui/parsing/outline-width-computed.html :: Property outline-width value '0.5em'
@@ -11682,6 +12046,7 @@ PASS css/css-ui/parsing/outline-width-invalid.html :: e.style['outline-width'] =
 PASS css/css-ui/parsing/outline-width-invalid.html :: e.style['outline-width'] = "1%" should not set the property value
 PASS css/css-ui/parsing/outline-width-invalid.html :: e.style['outline-width'] = "thin medium thick medium thin" should not set the property value
 FILE css/css-ui/parsing/outline-width-valid.html
+PASS css/css-ui/parsing/outline-width-valid.html :: e.style['outline-width'] = "0" should set the property value
 PASS css/css-ui/parsing/outline-width-valid.html :: e.style['outline-width'] = "1px" should set the property value
 PASS css/css-ui/parsing/outline-width-valid.html :: e.style['outline-width'] = "2em" should set the property value
 PASS css/css-ui/parsing/outline-width-valid.html :: e.style['outline-width'] = "calc(2em + 3ex)" should set the property value

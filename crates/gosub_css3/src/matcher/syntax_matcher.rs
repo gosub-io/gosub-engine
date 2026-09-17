@@ -4,6 +4,7 @@ use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
 use crate::tokenizer::NumberKind;
+use cow_utils::CowUtils;
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -61,6 +62,26 @@ impl CssSyntaxTree {
 
         let res = match_component(input, &self.components[0], None);
         res.matched && res.remainder.is_empty()
+    }
+
+    /// The values `input` matched as, in the grammar's canonical form, or `None` when it does
+    /// not match. This is what a specified value serializes as (CSSOM §6.7.2): keywords in the
+    /// grammar's spelling, a bare zero with the unit it matched as, `||` operands in grammar
+    /// order, box repetitions in their shortest form. A CSS-wide keyword, or a value still
+    /// holding a `var()`, is returned as it came: there is no grammar to read it against yet.
+    pub fn canonical(&self, input: &[CssValue]) -> Option<Vec<CssValue>> {
+        if self.components.is_empty() {
+            return None;
+        }
+        if is_css_wide_keyword(input) || contains_substitution(input) || is_vendor_prefixed_keyword(input) {
+            return Some(input.to_vec());
+        }
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
+        let res = match_component(input, &self.components[0], None);
+        (res.matched && res.remainder.is_empty()).then_some(res.matched_values)
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], resolver: ShorthandResolver) -> bool {
@@ -145,7 +166,7 @@ fn match_component_inner<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    let mut repetitions: Vec<Vec<CssValue>> = vec![];
 
     // Loop through the input values and try to match them against the component. It's possible
     // that we need to loop multiple times in case we have a multiplier that allows this. ie: 'foo*' or 'foo{1,3}'
@@ -179,7 +200,10 @@ fn match_component_inner<'a>(
             multiplier_count += 1;
 
             let remainder = res.remainder;
-            matched_values.append(&mut res.matched_values.clone());
+            // Every repetition's values are kept. This used to return the last repetition's
+            // result alone once the multiplier was satisfied, so `margin: 1px 2px 3px 4px`
+            // reported `4px` as what it matched.
+            repetitions.push(res.matched_values);
 
             // Check if we fulfilled the multiplier for this component
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -196,12 +220,20 @@ fn match_component_inner<'a>(
 
                     // No more input to check, so we can just return this match
                     if input.is_empty() {
-                        return res;
+                        return MatchResult {
+                            remainder,
+                            matched: true,
+                            matched_values: collapse_repetitions(component, repetitions),
+                        };
                     }
                 }
                 Fulfillment::Fulfilled => {
                     // no more values are allowed.
-                    return res;
+                    return MatchResult {
+                        remainder,
+                        matched: true,
+                        matched_values: collapse_repetitions(component, repetitions),
+                    };
                 }
                 Fulfillment::NotFulfilled => {
                     // The multiplier is not fulfilled.
@@ -219,7 +251,7 @@ fn match_component_inner<'a>(
                 Fulfillment::FulfilledButMoreAllowed => MatchResult {
                     remainder: input,
                     matched: true,
-                    matched_values,
+                    matched_values: collapse_repetitions(component, repetitions),
                 },
                 Fulfillment::NotFulfilled => no_match(raw_input),
             };
@@ -259,11 +291,19 @@ fn match_component<'a>(
         }
 
         if !inner_result.matched {
-            // Not matched, so break the loop
+            // Not matched, so break the loop. A comma was consumed ahead of this item; it is
+            // not part of what matched.
+            if matches!(matched_values.last(), Some(CssValue::Comma)) {
+                matched_values.pop();
+            }
             break;
         }
 
         csv_cnt += 1;
+        // The separator is part of the matched value: `20s, 10s` serializes with its comma.
+        if csv_cnt > 1 {
+            matched_values.push(CssValue::Comma);
+        }
         matched_values.append(&mut inner_result.matched_values.clone());
 
         input = inner_result.remainder;
@@ -339,7 +379,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return first_match(input);
             }
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
-                return first_match(input);
+                // Keywords are ASCII case-insensitive and serialize in lowercase (CSSOM
+                // §6.7.2); the grammar itself spells a few in mixed case (`currentColor`).
+                return matched_as(input, CssValue::String(keyword.cow_to_ascii_lowercase().into_owned()));
             }
             _ => {}
         },
@@ -392,7 +434,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                 }
                 "angle" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "deg".to_string()))
+                    }
                     CssValue::Unit(n, u)
                         if range.contains(*n)
                             && (u.eq_ignore_ascii_case("deg")
@@ -405,12 +449,16 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     _ => {}
                 },
                 "length" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "px".to_string()))
+                    }
                     CssValue::Unit(n, u) if is_length_unit(u) && range.contains(*n) => return first_match(input),
                     _ => {}
                 },
                 "time" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "s".to_string()))
+                    }
                     CssValue::Unit(n, u)
                         if (u.eq_ignore_ascii_case("s") || u.eq_ignore_ascii_case("ms")) && range.contains(*n) =>
                     {
@@ -420,7 +468,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 },
                 // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
                 "flex" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "fr".to_string()))
+                    }
                     CssValue::Unit(n, u) if u.eq_ignore_ascii_case("fr") && range.contains(*n) => {
                         return first_match(input)
                     }
@@ -720,12 +770,23 @@ fn match_group_exactly_one<'a>(
         return no_match(input);
     }
 
+    // The alternative that consumes the most wins. Between alternatives that consume the same,
+    // the one that reports the value as written wins over one that rewrote it: a bare `0`
+    // against `<length> | <number>` matches both, and it is a number, which serializes as `0`,
+    // not the length's `0px`. A change of case alone is not a rewrite: `NONE` against
+    // `none | <custom-ident>` is the keyword, spelled `none`, and not an ident called `NONE`.
     let mut winner = 0;
     let mut shortest_remainder_len = usize::MAX;
-    for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
-        if remainder.len() < shortest_remainder_len {
+    let mut winner_as_written = false;
+    for (idx, (_, values, remainder)) in components_matched.iter().enumerate() {
+        let consumed = input.len() - remainder.len();
+        let as_written = same_ignoring_case(values, &input[..consumed.min(input.len())]);
+        let better = remainder.len() < shortest_remainder_len
+            || (remainder.len() == shortest_remainder_len && as_written && !winner_as_written);
+        if better {
             shortest_remainder_len = remainder.len();
             winner = idx;
+            winner_as_written = as_written;
         }
     }
     let (winner_c_idx, winner_values, winner_remainder) = &components_matched[winner];
@@ -775,7 +836,9 @@ fn match_group_at_least_one_any_order<'a>(
     });
 
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched = vec![];
 
     let mut pos = 0;
@@ -805,7 +868,7 @@ fn match_group_at_least_one_any_order<'a>(
 
             let res = match_component(input, component, resolver);
             if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
+                per_component[c_idx] = res.matched_values.clone();
                 components_matched.push(c_idx);
 
                 input = res.remainder;
@@ -835,7 +898,7 @@ fn match_group_at_least_one_any_order<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -846,7 +909,9 @@ fn at_least_one_any_order_pass<'a>(
     order: &[usize],
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -862,7 +927,7 @@ fn at_least_one_any_order_pass<'a>(
 
         let res = match_component(input, &components[c_idx], None);
         if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
+            per_component[c_idx] = res.matched_values.clone();
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -878,7 +943,7 @@ fn at_least_one_any_order_pass<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -907,7 +972,9 @@ fn match_group_all_any_order<'a>(
     });
 
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched = vec![];
 
     let mut pos = 0;
@@ -947,7 +1014,7 @@ fn match_group_all_any_order<'a>(
                 Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
             );
             if res.matched && (consumed || !optional) {
-                matched_values.append(&mut res.matched_values.clone());
+                per_component[c_idx] = res.matched_values.clone();
                 components_matched.push(c_idx);
 
                 input = res.remainder;
@@ -987,7 +1054,7 @@ fn match_group_all_any_order<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -1048,7 +1115,9 @@ fn all_any_order_pass<'a>(
     order: &[usize],
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -1072,7 +1141,7 @@ fn all_any_order_pass<'a>(
             Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
         );
         if res.matched && (consumed || !optional) {
-            matched_values.append(&mut res.matched_values.clone());
+            per_component[c_idx] = res.matched_values.clone();
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -1095,7 +1164,7 @@ fn all_any_order_pass<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -1303,10 +1372,98 @@ fn first_match(input: &[CssValue]) -> MatchResult<'_> {
     }
 }
 
+/// Whether two value lists are the same apart from the ASCII case of their keywords.
+fn same_ignoring_case(a: &[CssValue], b: &[CssValue]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| match (x, y) {
+            (CssValue::String(x), CssValue::String(y)) => x.eq_ignore_ascii_case(y),
+            _ => x == y,
+        })
+}
+
+/// The first element matched, reported as `value` rather than as written: the canonical form
+/// the grammar leaf knows for it (a keyword in the grammar's spelling, a bare `0` matched as a
+/// length as `0px`). What the CSSOM serializes is these matched values, not the author's text.
+fn matched_as(input: &[CssValue], value: CssValue) -> MatchResult<'_> {
+    MatchResult {
+        remainder: input.get(1..).unwrap_or(&[]),
+        matched: true,
+        matched_values: vec![value],
+    }
+}
+
+/// The matched values of a component that repeats `{1,2}` or `{1,4}`, in the shortest form
+/// that means the same (CSSOM "serialize a CSS value" for the box shorthands): `1px 1px` is
+/// `1px`, `1px 2px 1px 2px` is `1px 2px`, `1px 2px 3px 2px` is `1px 2px 3px`. Only when every
+/// repetition matched exactly one value; anything else is returned as it was.
+fn collapse_repetitions(component: &SyntaxComponent, reps: Vec<Vec<CssValue>>) -> Vec<CssValue> {
+    let box_like = component.get_multipliers().iter().any(|m| {
+        matches!(
+            m,
+            SyntaxComponentMultiplier::Between(1, 2) | SyntaxComponentMultiplier::Between(1, 4)
+        )
+    });
+    if !box_like || reps.is_empty() || reps.iter().any(|r| r.len() != 1) {
+        return reps.into_iter().flatten().collect();
+    }
+    let mut values: Vec<CssValue> = reps.into_iter().map(|mut r| r.remove(0)).collect();
+    if values.len() == 4 && values[3] == values[1] {
+        values.pop();
+    }
+    if values.len() == 3 && values[2] == values[0] {
+        values.pop();
+    }
+    if values.len() == 2 && values[1] == values[0] {
+        values.pop();
+    }
+    values
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
+
+    /// The canonical form of a specified value (CSSOM §6.7.2), as the grammar leaves report it.
+    #[test]
+    fn canonical_values_follow_the_grammar() {
+        use crate::matcher::property_definitions::get_css_definitions;
+        let canonical = |property: &str, css: &str| -> String {
+            let value = crate::stylesheet::CssValue::parse_str(css)
+                .ok()
+                .map(|v| v.into_vec())
+                .unwrap_or_default();
+            let values = match crate::Css3::parse_str(
+                &format!("x {{ {property}: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            ) {
+                Ok(sheet) => sheet.rules[0].declarations()[0].value.to_slice().to_vec(),
+                Err(_) => value,
+            };
+            let def = get_css_definitions().find_property(property).expect("defined");
+            def.canonical(&values)
+                .map(CssValue::from_vec)
+                .expect("valid")
+                .to_string()
+        };
+        // Keywords in the grammar's spelling, lowercase.
+        assert_eq!(canonical("animation-name", "NONE"), "none");
+        assert_eq!(canonical("color", "currentColor"), "currentcolor");
+        // A bare zero takes the unit it matched as - and stays `0` where a number would do.
+        assert_eq!(canonical("column-gap", "0"), "0px");
+        assert_eq!(canonical("border-image-width", "0"), "0");
+        // `||` operands in grammar order, box repetitions in their shortest form.
+        assert_eq!(
+            canonical("text-decoration-line", "overline underline"),
+            "underline overline"
+        );
+        assert_eq!(canonical("margin", "1px 1px"), "1px");
+        assert_eq!(canonical("margin", "1px 2px 1px 2px"), "1px 2px");
+        // Comma lists keep their commas.
+        assert_eq!(canonical("animation-delay", "20s, 10s"), "20s, 10s");
+    }
     use crate::matcher::property_definitions::{get_css_definitions, PropertyDefinition};
     use crate::matcher::syntax::CssSyntax;
 

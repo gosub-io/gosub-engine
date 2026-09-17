@@ -75,10 +75,13 @@ fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
     if name.starts_with("--") {
         return Some(declaration.value.clone());
     }
+    // The canonical form, not the parse: `getPropertyValue` serializes the value (CSSOM §6.7.2),
+    // and the grammar is what knows that `NONE` is `none`, that `0` matched as a length is
+    // `0px`, and that `overline underline` lists underline first.
     let definition = get_css_definitions().find_property(&name.cow_to_ascii_lowercase())?;
     definition
-        .matches(declaration.value.to_slice())
-        .then(|| declaration.value.clone())
+        .canonical(declaration.value.to_slice())
+        .map(CssValue::from_vec)
 }
 
 /// Split a `style` attribute into its declarations, as text.
