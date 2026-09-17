@@ -105,6 +105,50 @@ fn display_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
     }
 }
 
+/// The short form of a `font` value (css-fonts-4 §3.9, CSSOM): the optional style, variant,
+/// weight and width pieces are left out when they are `normal`, and so is a `/ normal`
+/// line-height. The pieces arrive in grammar order already - style, variant, weight, width,
+/// size, line-height, family - which is the canonical order.
+fn font_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
+    let is_normal = |v: &CssValue| matches!(v, CssValue::String(s) if s.eq_ignore_ascii_case("normal"));
+    let is_slash = |v: &CssValue| matches!(v, CssValue::String(s) if s == "/");
+    let is_size = |v: &CssValue| match v {
+        CssValue::Unit(..) | CssValue::Percentage(_) | CssValue::Zero | CssValue::Function(..) => true,
+        CssValue::String(s) => matches!(
+            s.as_str(),
+            "xx-small"
+                | "x-small"
+                | "small"
+                | "medium"
+                | "large"
+                | "x-large"
+                | "xx-large"
+                | "xxx-large"
+                | "larger"
+                | "smaller"
+        ),
+        _ => false,
+    };
+    // A system font (`font: menu`) is one keyword and has no pieces to drop.
+    let Some(size) = values.iter().position(is_size) else {
+        return values;
+    };
+    let mut out: Vec<CssValue> = values[..size].iter().filter(|v| !is_normal(v)).cloned().collect();
+    out.push(values[size].clone());
+    let mut rest = &values[size + 1..];
+    if let [slash, line_height, after @ ..] = rest {
+        if is_slash(slash) {
+            if !is_normal(line_height) {
+                out.push(slash.clone());
+                out.push(line_height.clone());
+            }
+            rest = after;
+        }
+    }
+    out.extend(rest.iter().cloned());
+    out
+}
+
 /// The `display` an element computes to when it is blockified (css-display-3 §2.7): absolutely
 /// positioned, floated, or the root. An inline-level outer display becomes block-level and the
 /// inner display is kept, in the short form: `inline-block` and `inline` become `block`,
@@ -234,6 +278,7 @@ impl PropertyDefinition {
         let values = self.syntax.canonical(input)?;
         Some(match self.name.as_str() {
             "display" => display_short_form(values),
+            "font" => font_short_form(values),
             _ => values,
         })
     }
@@ -941,6 +986,36 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
 
 #[cfg(test)]
 mod tests {
+    /// css-fonts-4 §3.9: the `font` shorthand serializes without its `normal` pieces and without
+    /// a `/ normal` line-height, in grammar order.
+    #[test]
+    fn font_serializes_in_its_short_form() {
+        use super::get_css_definitions;
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let sheet = crate::Css3::parse_str(
+                &format!("x {{ font: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            )
+            .expect("parse");
+            let values = sheet.rules[0].declarations()[0].value.to_slice().to_vec();
+            let def = get_css_definitions().find_property("font").expect("font");
+            CssValue::from_vec(def.canonical(&values).expect("valid")).to_string()
+        };
+        assert_eq!(canonical("normal medium/normal sans-serif"), "medium sans-serif");
+        assert_eq!(
+            canonical("900 italic normal medium/normal sans-serif"),
+            "italic 900 medium sans-serif"
+        );
+        assert_eq!(
+            canonical("small-caps bolder normal italic xx-large/1.2 monospace"),
+            "italic small-caps bolder xx-large / 1.2 monospace"
+        );
+        assert_eq!(canonical("menu"), "menu");
+    }
+
     /// css-display-3 §2.7: the two-keyword `display` forms serialize as their single-keyword
     /// equivalent, and blockification keeps the inner display in that short form.
     #[test]
