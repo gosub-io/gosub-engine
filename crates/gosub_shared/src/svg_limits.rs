@@ -6,7 +6,7 @@
 //! pass the tokenizer never reaches. A few kilobytes of `<g><g><g>...` will therefore abort the
 //! process on a stack overflow (GHSA-c762-mxfh-vwvp).
 //!
-//! [`xml_nesting_depth_exceeds`] rejects those documents before the parser sees them.
+//! [`xml_exceeds_limits`] rejects those documents before the parser sees them.
 //! [`SVG_PARSE_STACK_SIZE`] is the other half: the depth limit only bounds the number of frames,
 //! and callers cannot say how much of their own stack is already spent.
 
@@ -20,26 +20,30 @@ pub const MAX_SVG_NESTING_DEPTH: usize = 128;
 /// Stack size for the thread an SVG parse runs on.
 pub const SVG_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
 
-/// Levels of general-entity expansion roxmltree performs (`LoopDetector::inc_depth`).
-///
-/// Entity replacement text is re-parsed as markup, so `<!ENTITY e "<g><g>...">` contributes its
-/// nesting wherever `&e;` appears, and entities referencing entities multiply that. The scan below
-/// sees each declaration once, so a document carrying an internal subset gets its budget divided
-/// by this to stay an upper bound.
-const ENTITY_NESTING_LIMIT: usize = 10;
+/// Why a document must not be handed to the XML parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XmlLimit {
+    /// Nests elements deeper than the limit.
+    Depth,
+    /// Declares an entity whose replacement text contains markup. That text is re-parsed as
+    /// markup, so `<!ENTITY e "<g><g>...">` contributes nesting wherever `&e;` appears, and
+    /// entities referencing entities multiply it up to ten times over (roxmltree's
+    /// `LoopDetector::inc_depth`). Bounding that from outside means deciding what the parser
+    /// will do with a DTD, which is its job and not reliably ours, so these are refused.
+    ///
+    /// Entities holding no markup are left alone: they cannot expand into elements, so they
+    /// cannot add depth. That distinction is not academic - Illustrator's SVG export declares
+    /// entities for style strings (`<!ENTITY st0 "fill-rule:nonzero;...">`), and one such icon
+    /// turned up in the 21265-file corpus this was checked against.
+    Entities,
+}
 
-/// Whether `xml` nests elements deeper than `max`.
+/// Whether `xml` must be kept away from the parser, and why.
 ///
-/// Answers the depth question only, and answers it high: anything the scan cannot account for is
-/// counted as nesting rather than skipped, so a document it accepts really is within `max`.
-/// Malformed input may be rejected, which the parser would have done anyway.
-pub fn xml_nesting_depth_exceeds(xml: &[u8], max: usize) -> bool {
-    let limit = if has_internal_dtd_subset(xml) {
-        max / ENTITY_NESTING_LIMIT
-    } else {
-        max
-    };
-
+/// A scanner, not a validator: it answers high. Anything it cannot account for counts as nesting
+/// rather than being skipped, so a document it accepts really is within `max`. Malformed input
+/// may be rejected, which the parser would have done anyway.
+pub fn xml_exceeds_limits(xml: &[u8], max: usize) -> Option<XmlLimit> {
     let mut depth: usize = 0;
     let mut i = 0;
 
@@ -60,6 +64,23 @@ pub fn xml_nesting_depth_exceeds(xml: &[u8], max: usize) -> bool {
             continue;
         }
 
+        // Reached only outside comments, CDATA and processing instructions, and outside element
+        // tags - those are skipped whole below, quoted attribute values included - so this is a
+        // real declaration rather than the text `<!ENTITY` appearing somewhere harmless.
+        // Matched case-insensitively: XML requires upper case here, and over-matching can only
+        // reject a document the parser would also refuse.
+        if starts_with_ignore_ascii_case(rest, b"<!ENTITY") {
+            match entity_literal(rest) {
+                // No markup in the replacement text, so it cannot expand into elements.
+                Some((false, len)) => {
+                    i += len;
+                    continue;
+                }
+                // Markup, or a declaration this scan cannot read - refuse either way.
+                _ => return Some(XmlLimit::Entities),
+            }
+        }
+
         if rest.starts_with(b"</") {
             // Saturating, so a stray close tag cannot wrap the counter round to a huge depth.
             depth = depth.saturating_sub(1);
@@ -67,8 +88,10 @@ pub fn xml_nesting_depth_exceeds(xml: &[u8], max: usize) -> bool {
             continue;
         }
 
-        // Declarations are not skipped: markup inside `<!ENTITY name "...">` is markup the parser
-        // will expand, so counting it where it is declared is what keeps this an upper bound.
+        // Other declarations are not skipped. Skipping `<!DOCTYPE ...>` would mean finding where
+        // it ends, and its system identifier is a quoted string that may contain `>` - the kind
+        // of parser detail this scan deliberately does not try to know. Scanning through it is
+        // harmless: it holds no element tags.
 
         if !is_name_start(rest.get(1).copied()) {
             // A bare `<` in text - not well-formed, but treating it as text means a real element
@@ -80,24 +103,48 @@ pub fn xml_nesting_depth_exceeds(xml: &[u8], max: usize) -> bool {
         let (len, self_closing) = tag_end(rest, 1);
         if !self_closing {
             depth += 1;
-            if depth > limit {
-                return true;
+            if depth > max {
+                return Some(XmlLimit::Depth);
             }
         }
         i += len;
     }
 
-    false
+    None
 }
 
-/// Whether the DOCTYPE carries an internal subset (`<!DOCTYPE svg [ ... ]>`), the only place a
-/// document can declare its own entities.
-fn has_internal_dtd_subset(xml: &[u8]) -> bool {
-    let Some(start) = find(xml, b"<!DOCTYPE") else {
-        return false;
-    };
-    // The subset opens before the DOCTYPE's own `>`.
-    xml[start..].iter().take_while(|&&b| b != b'>').any(|&b| b == b'[')
+/// The quoted replacement text of the `<!ENTITY ...>` declaration starting at `xml[0]`: whether
+/// it contains markup, and the length through the closing quote.
+///
+/// `None` when no literal can be found, which includes a malformed or unterminated declaration.
+/// Callers refuse in that case rather than guess. An external entity (`<!ENTITY e SYSTEM "x.dtd">`)
+/// yields its system identifier, which holds no markup and is never fetched by roxmltree anyway.
+fn entity_literal(xml: &[u8]) -> Option<(bool, usize)> {
+    let mut i = "<!ENTITY".len();
+    while i < xml.len() && xml[i] != b'"' && xml[i] != b'\'' {
+        // The declaration ended before any literal appeared.
+        if xml[i] == b'>' {
+            return None;
+        }
+        i += 1;
+    }
+    let quote = *xml.get(i)?;
+    i += 1;
+    let start = i;
+    while i < xml.len() && xml[i] != quote {
+        i += 1;
+    }
+    if i >= xml.len() {
+        return None;
+    }
+    // A character reference such as `&#60;` is text once expanded, not a tag, so a literal `<`
+    // is the only thing that can open an element.
+    Some((xml[start..i].contains(&b'<'), i + 1))
+}
+
+/// ASCII-case-insensitive `starts_with`.
+fn starts_with_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.len() >= needle.len() && haystack[..needle.len()].eq_ignore_ascii_case(needle)
 }
 
 /// If `xml` opens with `open`, the length through the matching `close`; the whole remaining length
@@ -163,37 +210,41 @@ mod tests {
         s.into_bytes()
     }
 
+    fn check(xml: &[u8], max: usize) -> Option<XmlLimit> {
+        xml_exceeds_limits(xml, max)
+    }
+
     #[test]
     fn depth_counts_from_the_root() {
         // <svg> plus 8 <g> is 9 levels; the <rect/> self-closes and adds none.
-        assert!(!xml_nesting_depth_exceeds(&nested(8), 9));
-        assert!(xml_nesting_depth_exceeds(&nested(8), 8));
+        assert_eq!(check(&nested(8), 9), None);
+        assert_eq!(check(&nested(8), 8), Some(XmlLimit::Depth));
     }
 
     #[test]
     fn default_limit_accepts_real_svg_and_rejects_the_poc() {
-        assert!(!xml_nesting_depth_exceeds(&nested(8), MAX_SVG_NESTING_DEPTH));
+        assert_eq!(check(&nested(8), MAX_SVG_NESTING_DEPTH), None);
         // 136 was the shallowest document that overflowed a 2 MiB stack unoptimised; the proof of
         // concept nests 2000.
-        assert!(xml_nesting_depth_exceeds(&nested(136), MAX_SVG_NESTING_DEPTH));
-        assert!(xml_nesting_depth_exceeds(&nested(2000), MAX_SVG_NESTING_DEPTH));
+        assert_eq!(check(&nested(136), MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Depth));
+        assert_eq!(check(&nested(2000), MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Depth));
     }
 
     #[test]
     fn self_closing_tags_do_not_nest() {
         let doc = format!("<svg>{}</svg>", "<rect/>".repeat(500));
-        assert!(!xml_nesting_depth_exceeds(doc.as_bytes(), 4));
+        assert_eq!(check(doc.as_bytes(), 4), None);
 
         // A trailing `/` inside a quoted value is not a self-close: <svg><a> is 2 levels.
         let doc = br#"<svg><a href="x/"><g/></a></svg>"#;
-        assert!(!xml_nesting_depth_exceeds(doc, 2));
-        assert!(xml_nesting_depth_exceeds(doc, 1));
+        assert_eq!(check(doc, 2), None);
+        assert_eq!(check(doc, 1), Some(XmlLimit::Depth));
     }
 
     #[test]
     fn markup_in_attribute_values_is_not_nesting() {
         let doc = br#"<svg><desc title="a &gt; b <g><g><g>"><rect/></desc></svg>"#;
-        assert!(!xml_nesting_depth_exceeds(doc, 3));
+        assert_eq!(check(doc, 3), None);
     }
 
     #[test]
@@ -203,55 +254,97 @@ mod tests {
             format!("<?xml version=\"1.0\"?><svg><!-- {inner} --><rect/></svg>"),
             format!("<svg><![CDATA[{inner}]]><rect/></svg>"),
         ] {
-            assert!(!xml_nesting_depth_exceeds(doc.as_bytes(), 4), "{doc:.60}");
+            assert_eq!(check(doc.as_bytes(), 4), None, "{doc:.60}");
         }
     }
 
     #[test]
     fn unterminated_comment_ends_the_scan() {
-        assert!(!xml_nesting_depth_exceeds(b"<svg><!-- <g><g><g>", 1));
+        assert_eq!(check(b"<svg><!-- <g><g><g>", 1), None);
     }
 
     #[test]
     fn stray_less_than_is_text() {
-        assert!(!xml_nesting_depth_exceeds(b"<svg>a < b</svg>", 1));
+        assert_eq!(check(b"<svg>a < b</svg>", 1), None);
     }
 
     #[test]
     fn stray_close_tags_do_not_underflow() {
-        assert!(!xml_nesting_depth_exceeds(b"</g></g><svg><g/></svg>", 1));
+        assert_eq!(check(b"</g></g><svg><g/></svg>", 1), None);
     }
 
     #[test]
-    fn doctype_without_a_subset_keeps_the_full_budget() {
+    fn a_doctype_without_entities_is_fine() {
+        // External DTDs are what real SVG carries, and roxmltree does not fetch them.
         let mut doc = br#"<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">"#.to_vec();
         doc.extend_from_slice(&nested(20));
-        assert!(!xml_nesting_depth_exceeds(&doc, MAX_SVG_NESTING_DEPTH));
+        assert_eq!(check(&doc, MAX_SVG_NESTING_DEPTH), None);
     }
 
     #[test]
-    fn entity_declarations_are_counted() {
-        // Expands to a document thousands of levels deep although nothing at the top level nests.
-        // The `<g>`s sit in a quoted value, which an element tag would have treated as opaque.
-        let bomb = format!(
-            "<!DOCTYPE svg [<!ENTITY deep \"{}{}\">]><svg>&deep;</svg>",
-            "<g>".repeat(5000),
-            "</g>".repeat(5000),
+    fn entities_holding_markup_are_refused() {
+        let doc = br#"<!DOCTYPE svg [<!ENTITY e "<g><g/></g>">]><svg>&e;</svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Entities));
+    }
+
+    #[test]
+    fn entities_holding_no_markup_are_allowed() {
+        // What Illustrator's SVG export emits: style strings, referenced as `style="&st0;"`.
+        // These cannot expand into elements, so they cannot add depth.
+        let doc = br#"<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG//EN" "svg.dtd" [
+            <!ENTITY st0 "fill-rule:nonzero;stroke:#FFFFFF;stroke-width:6.6871;">
+            <!ENTITY st1 "fill-rule:evenodd;clip-rule:evenodd;">
+        ]><svg><path style="&st0;"/></svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), None);
+    }
+
+    #[test]
+    fn a_malformed_entity_declaration_is_refused() {
+        // No readable literal, so the scan cannot tell what it expands to.
+        assert_eq!(
+            check(br#"<!DOCTYPE svg [<!ENTITY e>]><svg/>"#, 4),
+            Some(XmlLimit::Entities)
         );
-        assert!(xml_nesting_depth_exceeds(bomb.as_bytes(), MAX_SVG_NESTING_DEPTH));
+        assert_eq!(
+            check(br#"<!DOCTYPE svg [<!ENTITY e "unterminated"#, 4),
+            Some(XmlLimit::Entities)
+        );
+    }
+
+    /// The internal subset used to be located by scanning from `<!DOCTYPE` to the first `>`, which
+    /// a `>` inside the quoted system identifier cut short - so the subset went unseen and the
+    /// entity bomb behind it got the full depth budget. Found by CodeRabbit on PR #1229.
+    #[test]
+    fn a_quoted_gt_in_the_system_id_does_not_hide_entities() {
+        let doc = br#"<!DOCTYPE svg SYSTEM "a>b.dtd" [<!ENTITY e "<g><g/></g>">]><svg>&e;</svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Entities));
+    }
+
+    /// The same scan locked onto the first `<!DOCTYPE` in the byte stream, so a decoy inside a
+    /// comment hid the real declaration behind it. Also from that review.
+    #[test]
+    fn a_doctype_decoy_in_a_comment_does_not_hide_entities() {
+        let doc = br#"<!-- <!DOCTYPE decoy> --><!DOCTYPE svg [<!ENTITY e "<g><g/></g>">]><svg>&e;</svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Entities));
     }
 
     #[test]
-    fn an_internal_subset_shrinks_the_budget() {
-        let shallow = format!("<!DOCTYPE svg [<!ENTITY e \"x\">]>{}", ascii(&nested(8)));
-        assert!(!xml_nesting_depth_exceeds(shallow.as_bytes(), MAX_SVG_NESTING_DEPTH));
-
-        // 20 levels is fine on its own, but not against a tenth of the budget.
-        let deeper = format!("<!DOCTYPE svg [<!ENTITY e \"x\">]>{}", ascii(&nested(20)));
-        assert!(xml_nesting_depth_exceeds(deeper.as_bytes(), MAX_SVG_NESTING_DEPTH));
+    fn lower_case_entity_declarations_are_refused_too() {
+        // XML requires upper case, so this is malformed either way - but over-matching here costs
+        // nothing and means the check does not depend on the parser being strict about it.
+        let doc = br#"<!DOCTYPE svg [<!entity e "<g><g/></g>">]><svg>&e;</svg>"#;
+        assert_eq!(check(doc, MAX_SVG_NESTING_DEPTH), Some(XmlLimit::Entities));
     }
 
-    fn ascii(bytes: &[u8]) -> String {
-        String::from_utf8_lossy(bytes).into_owned()
+    #[test]
+    fn the_text_entity_somewhere_harmless_is_not_a_declaration() {
+        // Both of these are valid SVG that merely mentions the word, and neither declares
+        // anything. Comments and quoted attribute values are skipped whole.
+        assert_eq!(
+            check(br#"<svg><!-- <!ENTITY e "<g><g/></g>"> --><rect/></svg>"#, 4),
+            None
+        );
+        assert_eq!(check(br#"<svg><desc title="<!ENTITY e '<g/>'>"/></svg>"#, 4), None);
+        assert_eq!(check(br#"<svg><![CDATA[<!ENTITY e "<g><g/></g>">]]></svg>"#, 4), None);
     }
 }

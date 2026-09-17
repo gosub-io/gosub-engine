@@ -1,5 +1,5 @@
 use super::{DecodedMedia, ImageDecodeError, MediaDecoder};
-use gosub_shared::svg_limits::{xml_nesting_depth_exceeds, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
+use gosub_shared::svg_limits::{xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
 use resvg::usvg;
 use std::sync::{Arc, OnceLock};
 
@@ -82,10 +82,18 @@ fn parse_svg(bytes: &[u8]) -> Result<usvg::Tree, ImageDecodeError> {
     };
 
     // Has to happen before `from_str`: the recursion it bounds is inside the parser.
-    if xml_nesting_depth_exceeds(bytes, MAX_SVG_NESTING_DEPTH) {
-        return Err(ImageDecodeError::Decode(format!(
-            "SVG nests elements deeper than the {MAX_SVG_NESTING_DEPTH} level limit"
-        )));
+    match xml_exceeds_limits(bytes, MAX_SVG_NESTING_DEPTH) {
+        Some(XmlLimit::Depth) => {
+            return Err(ImageDecodeError::Decode(format!(
+                "SVG nests elements deeper than the {MAX_SVG_NESTING_DEPTH} level limit"
+            )))
+        }
+        Some(XmlLimit::Entities) => {
+            return Err(ImageDecodeError::Decode(
+                "SVG declares its own entities, which can expand to unbounded nesting".into(),
+            ))
+        }
+        None => {}
     }
 
     let text = std::str::from_utf8(bytes).map_err(|_| ImageDecodeError::Decode("SVG is not valid UTF-8".into()))?;
