@@ -212,7 +212,7 @@ into strict mode: most suites were dying on their first sloppy-mode line and rep
 at all. The rate fell from 8.9% to 4.7% because what was being measured before was the handful
 of suites that happened to survive, not the corpus.
 
-The CSS component's 5.8% is close to a floor rather than a measurement of the parser: 156 of
+The CSS component's 6.3% is close to a floor rather than a measurement of the parser: 156 of
 its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
 canonical serialization the engine does not produce. Where the parser is actually reached the
 numbers are much higher - `calc-size` at 32%, `urls` at 31%, `position` at 25%.

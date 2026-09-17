@@ -32,6 +32,12 @@ The winit-vello, egui-vello, and gosub-screenshot binaries have no system-librar
   `cargo run --example multi-tab`           25 tabs navigating random sites; live progress bars via `indicatif`
 
   `cargo run --example tutorial -- <url>`   The companion to [`tutorial.md`](tutorial.md)
+
+  `cargo run --example html5-parser`        Parse a document with `gosub_html5` alone and print the DOM tree
+
+  `cargo run --example pipeline-test`       End-to-end smoke test against a local HTTP server
+
+  `cargo run --example metrics-cli`         Timing stats from a running engine; `--watch`, `--json`, `--reset`
   ---------------------------------------------------------------------------------------------------------------
 
 ## GUI examples

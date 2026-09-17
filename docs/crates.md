@@ -62,6 +62,12 @@ Skia render backend (CPU or GPU). Used by the `*-skia` and `*-skia-gpu` examples
 
 Vello / wgpu render backend (GPU). Generic over a `WgpuContextProvider`. Used by the `winit-vello` and `egui-vello` examples.
 
+### gosub_winit
+
+winit + wgpu window presentation glue for the Vello backend: creates the surface, hands the
+`WgpuContextProvider` to `gosub_renderer_vello`, and presents each frame. Used by the
+`winit-vello` example.
+
 ### gosub_renderer_dynamic
 
 Runtime-selectable backend that bundles Cairo, Skia, and Vello behind a single `RenderBackend`, chosen at runtime via feature flags rather than at the type level.

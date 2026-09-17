@@ -44,8 +44,19 @@ The engine is under active development. What works today:
 - **Multi-zone / multi-tab model** — zones isolate cookies and storage; tabs are controlled via `TabCommand`
 - **Async networking** — streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation
 - **Event-driven UA interface** — `EngineEvent` (navigation, resource, redraw) flows out; `TabCommand` / `EngineCommand` flow in
-- **HTML5 and CSS3 parsing** — spec-compliant parsers for both
-- **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia, Vello (wgpu)
+- **HTML5 and CSS3 parsing** — spec-compliant parsers for both, including shadow DOM (parsing, flat-tree traversal, CSS scoping)
+- **Resource pipeline** — parser-driven sub-resource discovery; stylesheets, images, web fonts and data URLs all fetched through one fetcher, with hierarchical cancellation
+- **Layout and paint** — block, inline, flex and grid via Taffy, floats, absolute and fixed positioning, and CSS tables via `gosub_lattice`
+- **Form controls** — text editing, and colour / date / time pickers opened by the embedder through `EngineEvent::PickerRequested`
+- **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia (CPU / GPU), Vello (wgpu)
+- **Conformance measurement** — a gated web-platform-tests run in CI, plus a reftest runner; see [docs/wpt.md](docs/wpt.md) for where the numbers stand
+
+**[`docs/status.md`](docs/status.md) is the detailed version of this list** — per component,
+what works and what does not, with the numbers.
+
+Not there yet: scripting is not wired into the engine. The V8 and web-API crates exist and
+build, but no page runs JavaScript — see [docs/javascript.md](docs/javascript.md). WPT drives
+the DOM through a separate test-only QuickJS binding (`gosub_domjs`).
 
 
 ## Documentation
@@ -64,6 +75,7 @@ ones worth reading first.
 
 **Reference**
 
+- [What the engine can do today](docs/status.md) — per-component capability and gaps
 - [Crates](docs/crates.md) — the workspace crate layout, and where to find anything
 - [Component tools](docs/binaries.md) — the standalone `cargo run --bin …` tools
 
@@ -73,6 +85,11 @@ ones worth reading first.
   that joins them. Read this before diving into either.
 - [Interface trait families](docs/interface.md) — `ModuleConfiguration` and the `Has*` traits
   that wire the workspace together
+- [Module configuration](docs/moduleconfig.md) — the same picture from an embedder's side:
+  what `DefaultRenderConfig` wires for you and how to go fully custom
+- [Zones and tabs](docs/zones-and-tabs.md) — zones as isolated profiles, tabs as independent
+  worker tasks, and the command/event flow between them
+- [Resource pipelines](docs/resource-pipeline.md) — how fetched bytes become typed assets
 - [CSS internals](docs/css.md) — `gosub_css3` from text to computed value
 - [HTML5 parsing](docs/html5.md) — tokenizer, tree builder, arena DOM
 - [Render pipeline](docs/render-pipeline/README.md)

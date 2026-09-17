@@ -19,11 +19,16 @@ descriptions say what they should cover so we can decide what to write next.
 
 ## Architecture
 
+- [What the engine can do today](status.md) — per-component capability: what each
+  part does, what it does not do yet, and the measured numbers behind both.
+
 - [Crates overview](crates.md) — one section per workspace crate and how they depend on
   each other. Start here to find where something lives.
 - [The two worlds](two-worlds.md) — why there are two parallel document/style models (the
   `gosub_interface` world where parsing happens and the pipeline's own types), and the
   `GosubDocumentAdapter` seam that joins them. Read this before diving into either.
+- [Module configuration](moduleconfig.md) — the embedder's view of the same thing: what
+  `DefaultRenderConfig` picks for you, and how to name every component yourself.
 - [Interface trait families](interface.md) — `gosub_interface` as the dependency-inversion
   crate: `ModuleConfiguration` and the `Has*` view traits, the per-component contracts,
   and the deliberate type-erasure escape hatches.
