@@ -2,7 +2,7 @@ use ::resvg::usvg;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
 use gosub_shared::node::NodeId;
-use gosub_shared::svg_limits::{xml_nesting_depth_exceeds, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
+use gosub_shared::svg_limits::{xml_exceeds_limits, XmlLimit, MAX_SVG_NESTING_DEPTH, SVG_PARSE_STACK_SIZE};
 use gosub_shared::types::{Error, Result};
 use std::sync::{Arc, OnceLock};
 
@@ -30,11 +30,19 @@ impl SVGDocument {
     /// See [`gosub_shared::svg_limits`] for why both are needed.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(svg: &str) -> Result<Self> {
-        if xml_nesting_depth_exceeds(svg.as_bytes(), MAX_SVG_NESTING_DEPTH) {
-            return Err(Error::Parse(format!(
-                "SVG nests elements deeper than the {MAX_SVG_NESTING_DEPTH} level limit"
-            ))
-            .into());
+        match xml_exceeds_limits(svg.as_bytes(), MAX_SVG_NESTING_DEPTH) {
+            Some(XmlLimit::Depth) => {
+                return Err(Error::Parse(format!(
+                    "SVG nests elements deeper than the {MAX_SVG_NESTING_DEPTH} level limit"
+                ))
+                .into())
+            }
+            Some(XmlLimit::Entities) => {
+                return Err(
+                    Error::Parse("SVG declares its own entities, which can expand to unbounded nesting".into()).into(),
+                )
+            }
+            None => {}
         }
 
         // `svg_options()` is built inside the closure: `usvg::Options` holds non-`Send` resolver

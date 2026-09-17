@@ -74,5 +74,40 @@ fn entity_expansion_is_checked() {
         "</g>".repeat(5000),
     );
     let err = decode_on_a_realistic_stack(bomb.into_bytes()).expect_err("must be rejected");
-    assert!(err.contains("deeper than"), "{err}");
+    assert!(err.contains("declares its own entities"), "{err}");
+}
+
+/// Nested entities, each wrapping `PER` more `<g>` around the last, so every declaration stays
+/// shallow while the expansion is `LEVELS * PER` deep. Hiding the internal subset behind a `>`
+/// in the quoted system identifier used to win this the full depth budget, and a 7 KB file then
+/// aborted the process on the parse thread. Found by CodeRabbit on PR #1229.
+#[test]
+fn nested_entities_behind_a_quoted_gt_are_refused() {
+    const LEVELS: usize = 10;
+    const PER: usize = 100;
+
+    let mut doc = String::from("<!DOCTYPE svg SYSTEM \"a>b.dtd\" [\n");
+    doc.push_str(&format!(
+        "<!ENTITY e0 \"{}{}\">\n",
+        "<g>".repeat(PER),
+        "</g>".repeat(PER)
+    ));
+    for i in 1..LEVELS {
+        doc.push_str(&format!(
+            "<!ENTITY e{i} \"{}&e{prev};{}\">\n",
+            "<g>".repeat(PER),
+            "</g>".repeat(PER),
+            i = i,
+            prev = i - 1
+        ));
+    }
+    doc.push_str("]>\n");
+    doc.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">&e{};</svg>",
+        LEVELS - 1
+    ));
+
+    assert!(doc.len() < 10_000, "fixture should stay small: {} bytes", doc.len());
+    let err = decode_on_a_realistic_stack(doc.into_bytes()).expect_err("must be rejected");
+    assert!(err.contains("declares its own entities"), "{err}");
 }
