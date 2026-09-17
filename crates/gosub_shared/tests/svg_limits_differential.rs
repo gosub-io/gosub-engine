@@ -84,6 +84,22 @@ fn cases() -> Vec<(&'static str, String)> {
             format!("<!DOCTYPE svg [<!ENTITY e \"{deep}\">]><svg>&e;</svg>"),
         ),
         (
+            "comment opener inside the system literal",
+            format!("<!DOCTYPE svg SYSTEM \"a<!--b\" [<!ENTITY e \"{deep}\">]><svg>&e;</svg>"),
+        ),
+        (
+            "cdata opener inside the system literal",
+            format!("<!DOCTYPE svg SYSTEM \"a<![CDATA[b\" [<!ENTITY e \"{deep}\">]><svg>&e;</svg>"),
+        ),
+        (
+            "pi opener inside the system literal",
+            format!("<!DOCTYPE svg SYSTEM \"a<?b\" [<!ENTITY e \"{deep}\">]><svg>&e;</svg>"),
+        ),
+        (
+            "apostrophe in a dtd comment",
+            "<!DOCTYPE svg [<!-- don't --><!ENTITY e \"fill:red\">]><svg><rect style=\"&e;\"/></svg>".to_string(),
+        ),
+        (
             "entity declared without markup",
             "<!DOCTYPE svg [<!ENTITY e \"fill:red\">]><svg><rect style=\"&e;\"/></svg>".to_string(),
         ),

@@ -233,7 +233,7 @@ const MAX_CONTROL_CHARS: usize = 1000;
 /// Not Blink's 512: our layout frames are much larger unoptimised, and the limit has to hold on
 /// the smallest stack an embedder might run us on. Raising it much further needs an iterative
 /// walk here plus a layout thread of our own - taffy's recursion is not ours to change.
-const MAX_LAYOUT_DEPTH: usize = 128;
+pub(crate) const MAX_LAYOUT_DEPTH: usize = 128;
 
 /// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
 /// Accepts a bare integer/float or a trailing `px`; ignores `%` and other units.

@@ -1306,13 +1306,26 @@ mod rendertree_from_engine {
             .join()
             .expect("layout must not abort the process");
 
-        // The element at the limit becomes a leaf, so the tree holds the levels above it and
-        // nothing below.
-        assert!(
-            laid_out.arena.len() < DEPTH,
-            "expected the subtree past the cap to be dropped, got {} boxes for {DEPTH} levels",
+        // The element at the limit becomes a leaf, so the tree holds exactly the levels above it
+        // and nothing below. Checking the depth actually reached, not just that the tree is
+        // smaller than the document, is what separates "capped" from "layout gave up early".
+        let depth_of = |mut id| {
+            let mut d = 0;
+            while let Some(node) = laid_out.arena.get(&id) {
+                let Some(parent) = node.parent else { break };
+                d += 1;
+                id = parent;
+            }
+            d
+        };
+        let deepest = laid_out.arena.keys().map(|id| depth_of(*id)).max().unwrap_or(0);
+        assert_eq!(
+            deepest,
+            crate::layouter::taffy::MAX_LAYOUT_DEPTH,
+            "expected the layout tree to reach exactly the cap; {} boxes in total",
             laid_out.arena.len()
         );
+        assert!(laid_out.arena.len() < DEPTH, "the subtree past the cap must be dropped");
     }
 
     #[test]
