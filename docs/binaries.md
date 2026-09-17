@@ -29,7 +29,7 @@ multi-tab, tutorial, config-store, …); see [examples.md](examples.md).
 
 # Component tool reference
 
-These binaries each exercise a single crate in isolation --- the HTML5 parser, CSS3 parser, etc. They are useful for development and debugging but are not the primary way to drive the engine.
+These binaries each exercise a single crate in isolation — the HTML5 parser, CSS3 parser, etc. They are useful for development and debugging but are not the primary way to drive the engine.
 
 To see the full `GosubEngine` stack in action (multi-zone/tab model, async networking, event bus), run the engine examples instead:
 
@@ -57,8 +57,12 @@ Parsed https://example.com/style.css: 12 rule(s).
 
 Parse a CSS stylesheet and print the parse tree (or any errors encountered). `--match-values` additionally checks each declaration value against the property's grammar; `--tokenizer` dumps raw tokens instead of parsing.
 
+This one takes a *URL*, not a path: a bare relative path is rejected, and a `file://` URL must
+be absolute, because what follows `//` is parsed as the host. (`css-check`, above, is more
+forgiving and does accept a plain path.)
+
 ```bash
-$ cargo run -r --bin css3-parser file://tests/data/css3-data/test.css
+$ cargo run -r --bin css3-parser "file://$PWD/tests/data/css3-data/test.css"
 
 Running css3 parser of (54.00 B) took 0 ms.
 [Stylesheet (1 rules)]
@@ -99,7 +103,7 @@ decode.css           |        1 |      613µs |      613µs |      613µs |     
 
 ## display-text-tree
 
-Fetch a URL and print a plain-text representation --- all text nodes from the parsed document, with no layout or styling applied. Useful for a quick sanity check on what the parser sees.
+Fetch a URL and print a plain-text representation — all text nodes from the parsed document, with no layout or styling applied. Useful for a quick sanity check on what the parser sees.
 
 ```bash
 $ cargo run -r --bin display-text-tree https://gosub.io
