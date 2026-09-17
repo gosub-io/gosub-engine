@@ -33,14 +33,14 @@ installed first — see [`docs/examples.md`](docs/examples.md) for the list. If 
 one of the parsers you do not need any of that, and can stay on a much faster loop:
 
 ```bash
-cargo test -p gosub_css3 -p gosub_html5    # ~470 tests, no system dependencies
+cargo test -p gosub_css3 -p gosub_html5    # ~530 tests, no system dependencies
 ```
 
 ### Running Tests and Formatter
 In the root directory, run `make test` to run all unit tests and the format checker. If there are issues with formatting, you should see a `git diff`-like output in the terminal. Please resolve these formatting issues prior to pushing any code! This is validated in our CI when creating a pull request.
 
 ### Fix Formatting
-In the root directory, run `make format` to have clippy automatically fix some of the formatting issues.
+In the root directory, run `make fix` to have rustfmt and clippy automatically fix some of the formatting issues.
 
 ### Running Benchmarks
 In the root directory, run `make bench` to run the benchmarks.
