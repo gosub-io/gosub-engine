@@ -15,9 +15,28 @@ use gtk4::prelude::{FontExt, FontFamilyExt};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::ffi::c_int;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
+
+/// `@font-face` family name (lowercased) → the family name fontconfig actually registered the
+/// face under, taken from the font's own `name` table.
+///
+/// An `@font-face` rule's `font-family` descriptor names the font for the rest of the document
+/// regardless of what the file calls itself, but `FcConfigAppFontAddFile` can only add a file
+/// under its built-in name. This map is the translation between the two, applied on every
+/// lookup. It is process-global for the same reason the faces themselves are added to the
+/// process-global fontconfig config: the font system the engine registers through and the one
+/// the rasterizer resolves through need not be the same instance.
+static WEBFONT_ALIASES: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The real fontconfig family for a CSS family name, if an `@font-face` registered one under it.
+fn webfont_alias(css_family: &str) -> Option<String> {
+    WEBFONT_ALIASES
+        .lock()
+        .get(css_family.cow_to_ascii_lowercase().as_ref())
+        .cloned()
+}
 
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
 ///
@@ -90,12 +109,63 @@ fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> R
         )));
     }
 
-    log::debug!(
-        "Registered web font '{}' via fontconfig ({})",
-        family_override.unwrap_or("<unnamed>"),
-        path.display()
-    );
+    // fontconfig added the file under the family in its own `name` table, which is usually not
+    // the name the `@font-face` rule gave it. Record the translation so lookups for the CSS
+    // name find this face (see `WEBFONT_ALIASES`).
+    if let Some(css_family) = family_override {
+        match family_name_of_font_file(&c_path) {
+            Some(real) if !real.eq_ignore_ascii_case(css_family) => {
+                WEBFONT_ALIASES
+                    .lock()
+                    .insert(css_family.cow_to_ascii_lowercase().into_owned(), real.clone());
+                log::debug!(
+                    "Registered web font '{css_family}' via fontconfig as '{real}' ({})",
+                    path.display()
+                );
+            }
+            // Same name either way, so no alias is needed.
+            _ => log::debug!("Registered web font '{css_family}' via fontconfig ({})", path.display()),
+        }
+        return Ok(());
+    }
+
+    log::debug!("Registered web font '<unnamed>' via fontconfig ({})", path.display());
     Ok(())
+}
+
+/// The family name in a font file's own `name` table, as fontconfig reads it.
+///
+/// Must be called with `fontconfig_lock` held.
+fn family_name_of_font_file(c_path: &std::ffi::CStr) -> Option<String> {
+    use fontconfig_sys::constants::FC_FAMILY;
+    use fontconfig_sys::statics::{LIB, LIB_RESULT};
+    use fontconfig_sys::FcResultMatch;
+
+    if LIB_RESULT.is_err() {
+        return None;
+    }
+
+    #[allow(unsafe_code)] // fontconfig has no safe Rust binding for querying a font file
+    // SAFETY: `FcFreeTypeQuery` reads the NUL-terminated path (valid for the call) and returns
+    // an owned pattern, or null. The family string points into that pattern, so it is copied to
+    // an owned `String` before `FcPatternDestroy` frees it.
+    unsafe {
+        let mut count: c_int = 0;
+        let pat = (LIB.FcFreeTypeQuery)(c_path.as_ptr().cast::<u8>(), 0, std::ptr::null_mut(), &mut count);
+        if pat.is_null() {
+            return None;
+        }
+        let mut family_ptr: *mut u8 = std::ptr::null_mut();
+        let family = ((LIB.FcPatternGetString)(pat, FC_FAMILY.as_ptr(), 0, &mut family_ptr) == FcResultMatch
+            && !family_ptr.is_null())
+        .then(|| {
+            std::ffi::CStr::from_ptr(family_ptr.cast())
+                .to_string_lossy()
+                .into_owned()
+        });
+        (LIB.FcPatternDestroy)(pat);
+        family
+    }
 }
 
 // fontconfig font matching (the lookup half of `resolve`)
@@ -313,6 +383,13 @@ impl PangoFontSystem {
                 continue;
             }
 
+            // A name an `@font-face` claimed resolves to the face registered for it. Checked
+            // before the generic mapping and before `available_fonts`, because the CSS name is
+            // the author's and need not exist in the font map under that spelling.
+            if let Some(alias) = webfont_alias(&font_name) {
+                return alias;
+            }
+
             // Generic CSS families resolve through Pango/fontconfig aliases ("serif",
             // "sans", "monospace") and never appear in `list_families()`, so map them
             // explicitly. Without this the generic at the end of a list (e.g. the `serif`
@@ -342,19 +419,25 @@ impl PangoFontSystem {
     /// Map a CSS family list onto the names fontconfig understands: `system-ui` becomes the
     /// GSettings-resolved desktop font (or is skipped when unknown), CSS generics become their
     /// fontconfig aliases, concrete names pass through. Never returns an empty list.
-    fn fc_family_names<'a>(&'a self, families: &[&'a str]) -> Vec<&'a str> {
-        let mut out = Vec::new();
+    fn fc_family_names(&self, families: &[&str]) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
         for name in families {
             if name.eq_ignore_ascii_case("system-ui") {
                 if let Some(ref system_font) = self.system_ui_font {
-                    out.push(system_font.as_str());
+                    out.push(system_font.clone());
                 }
                 continue;
             }
-            out.push(pango_generic_family(name).unwrap_or(name));
+            // A name an `@font-face` claimed resolves to the face registered for it, before
+            // any generic-family mapping - the CSS name is the author's, not fontconfig's.
+            if let Some(alias) = webfont_alias(name) {
+                out.push(alias);
+                continue;
+            }
+            out.push(pango_generic_family(name).unwrap_or(name).to_string());
         }
         if out.is_empty() {
-            out.push(DEFAULT_FONT_FAMILY);
+            out.push(DEFAULT_FONT_FAMILY.to_string());
         }
         out
     }
@@ -591,6 +674,7 @@ impl FontSystem for PangoFontSystem {
 
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let names = self.fc_family_names(query.families);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let matched = fontconfig_match(
             &names,
             to_fc_weight(query.weight.0),
@@ -741,6 +825,38 @@ mod tests {
     fn registers_font_via_fontconfig() {
         let res = register_font_via_fontconfig(gosub_shared::ROBOTO_FONT, Some("Gosub Roboto Test"));
         assert!(res.is_ok(), "fontconfig registration failed: {res:?}");
+    }
+
+    /// An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+    /// document, but `FcConfigAppFontAddFile` can only add a file under the family in its own
+    /// `name` table - so the CSS name has to be aliased onto the real one. Without the alias a
+    /// lookup for the CSS name misses every time and fontconfig substitutes the default face.
+    #[test]
+    fn font_face_family_name_aliases_onto_the_registered_face() {
+        let mut fs = PangoFontSystem::new();
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Pango Alias Test"))
+            .expect("registering the bundled font must succeed");
+
+        // The bundled file calls itself "Roboto"; the CSS called it something else.
+        assert_eq!(
+            webfont_alias("Gosub Pango Alias Test").as_deref(),
+            Some("Roboto"),
+            "the CSS family must alias onto the font's own family name"
+        );
+        assert_eq!(
+            webfont_alias("gosub pango alias TEST").as_deref(),
+            Some("Roboto"),
+            "CSS family names are matched case-insensitively"
+        );
+
+        let resolved = fs
+            .resolve(&FontQuery::new(&["Gosub Pango Alias Test"]))
+            .expect("the @font-face family must resolve");
+        assert_eq!(
+            resolved.family, "Roboto",
+            "must resolve to the registered face, not a fontconfig substitute"
+        );
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry file bytes");
     }
 
     /// `find_available_font` takes `fontconfig_lock`, and `build_layout` holds it for the whole

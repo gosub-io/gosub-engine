@@ -269,10 +269,16 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
             .map(|tf| tf.family_name());
 
         let resolves_to_real = |name: &str| -> bool {
-            if let Some(tf) = web.as_ref().and_then(|w| w.match_family_style(name, normal)) {
-                if tf.family_name().eq_ignore_ascii_case(name) {
-                    return true;
-                }
+            // The web provider holds only the faces we registered, each under the family name
+            // its `@font-face` rule gave it, so any match here is genuine. It is deliberately
+            // *not* checked against `tf.family_name()`: that reports the font file's own name
+            // ("Roboto"), not the CSS name it was registered as ("MyFace"), so comparing the
+            // two dropped every web font whose file disagrees with its `@font-face` family -
+            // which is nearly all of them. Dropped from the list, the trailing generic won and
+            // the web font never rendered, except in the single-family case that the
+            // "nothing survived" fallback below happened to rescue.
+            if web.as_ref().and_then(|w| w.match_family_style(name, normal)).is_some() {
+                return true;
             }
             match fm.match_family_style(name, normal) {
                 Some(tf) => {
@@ -621,6 +627,29 @@ mod tests {
             "measure ({w} x {h}) must agree with shape ({} x {})",
             shaped.width,
             shaped.height
+        );
+    }
+
+    /// A registered `@font-face` family must survive `resolve_family_list` when the CSS names a
+    /// fallback after it - which is how `font-family` is nearly always written. The face is
+    /// registered under the name its `@font-face` rule gave it, not the one inside the file, so
+    /// the pruning must not judge it by the font's own family name: doing so dropped the web
+    /// font from the list and let the trailing generic render instead.
+    #[test]
+    fn a_registered_web_font_survives_pruning_ahead_of_its_fallback() {
+        let mut fs = SkiaFontSystem;
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Skia Alias Test"))
+            .expect("bundled Roboto must register");
+
+        let resolved = resolve_family_list("\"Gosub Skia Alias Test\", serif");
+        assert_eq!(
+            resolved.first().map(String::as_str),
+            Some("Gosub Skia Alias Test"),
+            "the web font must stay first in the list, ahead of the fallback: {resolved:?}"
+        );
+        assert!(
+            resolved.len() > 1,
+            "the fallback generic must still be kept: {resolved:?}"
         );
     }
 

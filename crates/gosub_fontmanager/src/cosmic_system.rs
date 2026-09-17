@@ -111,9 +111,29 @@ impl CosmicFontSystem {
 }
 
 impl FontSystem for CosmicFontSystem {
-    fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
-        // fontdb derives the family name from the font's own `name` table; overrides unsupported.
-        self.inner.db_mut().load_font_data(data);
+    fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
+        let db = self.inner.db_mut();
+        let ids = db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+        if ids.is_empty() {
+            return Err(FontError::InvalidFont(
+                family_override
+                    .map(|f| format!("no usable face in font data for '{f}'"))
+                    .unwrap_or_else(|| "no usable face in font data".to_string()),
+            ));
+        }
+
+        // fontdb names each face from the font's own `name` table, but an `@font-face` rule's
+        // `font-family` descriptor is what the rest of the document will ask for. Re-file each
+        // loaded face under that name, or `font-family: "MyFace"` never matches it.
+        if let Some(family) = family_override {
+            for id in ids {
+                let Some(mut info) = db.face(id).cloned() else { continue };
+                info.families = vec![(family.to_string(), fontdb::Language::English_UnitedStates)];
+                db.remove_face(id);
+                // `push_face_info` assigns the new id itself; the old one is gone.
+                db.push_face_info(info);
+            }
+        }
         Ok(())
     }
 
@@ -323,6 +343,29 @@ mod tests {
         let families = fs.families();
         assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
         assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
+
+    /// An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+    /// document, whatever the file's own `name` table says - so the registered face has to be
+    /// filed under the CSS name, not fontdb's reading of the font.
+    #[test]
+    fn font_face_family_name_overrides_the_files_own_name() {
+        let mut fs = CosmicFontSystem::new();
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Cosmic Alias Test"))
+            .expect("registering the bundled font must succeed");
+
+        assert!(
+            fs.families().iter().any(|f| f == "Gosub Cosmic Alias Test"),
+            "the @font-face family must be listed under the CSS name"
+        );
+
+        // `resolve` echoes the queried name back in `family` and appends a bundled-Roboto
+        // fallback, so neither it nor the returned bytes can tell a real match from a
+        // fallback here - the `families()` check above is what actually discriminates.
+        let resolved = fs
+            .resolve(&FontQuery::new(&["Gosub Cosmic Alias Test"]))
+            .expect("the @font-face family must resolve");
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
     }
 
     #[test]

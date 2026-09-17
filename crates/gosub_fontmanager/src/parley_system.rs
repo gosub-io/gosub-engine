@@ -4,7 +4,7 @@ use gosub_interface::font_system::{
     FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
     TextAlign, TextStyle,
 };
-use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
+use parley::fontique::{Attributes, FontInfoOverride, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
 
@@ -65,10 +65,23 @@ impl ParleyFontSystem {
 }
 
 impl FontSystem for ParleyFontSystem {
-    fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
-        // fontique derives the family name from the font's own `name` table;
-        // custom name overrides are not yet supported here.
-        self.font_cx.collection.register_fonts(data.into(), None);
+    fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
+        // An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+        // document, whatever the file's own `name` table says - so it has to override the name
+        // fontique would otherwise derive, or `font-family: "MyFace"` never matches the face
+        // that was just registered for it.
+        let info_override = family_override.map(|family_name| FontInfoOverride {
+            family_name: Some(family_name),
+            ..Default::default()
+        });
+        let registered = self.font_cx.collection.register_fonts(data.into(), info_override);
+        if registered.is_empty() {
+            return Err(FontError::InvalidFont(
+                family_override
+                    .map(|f| format!("no usable face in font data for '{f}'"))
+                    .unwrap_or_else(|| "no usable face in font data".to_string()),
+            ));
+        }
         Ok(())
     }
 
@@ -394,6 +407,32 @@ mod tests {
         let families = fs.families();
         assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
         assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
+
+    /// An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+    /// document, whatever the file's own `name` table says. Registering the bundled Roboto
+    /// under a different name must make *that* name resolve - otherwise every
+    /// `@font-face { font-family: "MyFace"; src: url(...) }` silently falls back, because
+    /// almost no font file calls itself what the CSS calls it.
+    #[test]
+    fn font_face_family_name_overrides_the_files_own_name() {
+        let mut fs = ParleyFontSystem::new();
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Parley Alias Test"))
+            .expect("registering the bundled font must succeed");
+
+        assert!(
+            fs.families().iter().any(|f| f == "Gosub Parley Alias Test"),
+            "the @font-face family must be listed under the CSS name"
+        );
+
+        let resolved = fs
+            .resolve(&FontQuery::new(&["Gosub Parley Alias Test"]))
+            .expect("the @font-face family must resolve");
+        assert_eq!(
+            resolved.family, "Gosub Parley Alias Test",
+            "must resolve to the registered face, not a fallback"
+        );
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
     }
 
     #[test]
