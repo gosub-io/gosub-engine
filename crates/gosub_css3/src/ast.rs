@@ -73,6 +73,49 @@ fn is_legacy_pseudo_element(name: &str) -> bool {
         || name.eq_ignore_ascii_case("first-letter")
 }
 
+/// Whether the `[`/`]` in `nodes` pair up into line-name lists whose every entry is an
+/// identifier css-grid allows (css-grid-2 §7.2: any `<custom-ident>` except `span` and `auto`;
+/// a `<custom-ident>` itself excludes the CSS-wide keywords and `default`). Function arguments
+/// are checked the same way, each as its own list.
+fn line_names_are_valid(nodes: &[CssNode]) -> bool {
+    let mut open = false;
+    for node in nodes {
+        match &node.node_type {
+            NodeType::Operator { value, .. } if value == "[" => {
+                if open {
+                    return false;
+                }
+                open = true;
+            }
+            NodeType::Operator { value, .. } if value == "]" => {
+                if !open {
+                    return false;
+                }
+                open = false;
+            }
+            NodeType::Ident { value } if open => {
+                let excluded = [
+                    "span",
+                    "auto",
+                    "default",
+                    "initial",
+                    "inherit",
+                    "unset",
+                    "revert",
+                    "revert-layer",
+                ];
+                if excluded.iter().any(|k| value.eq_ignore_ascii_case(k)) {
+                    return false;
+                }
+            }
+            _ if open => return false,
+            NodeType::Function { arguments, .. } if !line_names_are_valid(arguments) => return false,
+            _ => {}
+        }
+    }
+    !open
+}
+
 /// Whether every math expression in this value node spaces its `+` and `-` the way
 /// css-values-4 §10.1 requires: whitespace on *both* sides.
 ///
@@ -312,6 +355,11 @@ fn collect_rule(
             // `margin: 1px`, which is not what the author wrote and not what the cascade
             // should see.
             if value.iter().any(|node| !math_spacing_is_valid(node, false)) {
+                continue;
+            }
+            // Likewise a bracketed line-name list that is not one: brackets that do not pair
+            // up (`random-item(auto, ])`), or a name css-grid excludes (`[auto]`, `[span]`).
+            if !line_names_are_valid(&value) {
                 continue;
             }
 

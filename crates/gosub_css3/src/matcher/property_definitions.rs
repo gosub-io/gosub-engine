@@ -986,6 +986,40 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
 
 #[cfg(test)]
 mod tests {
+    /// A grid track list with line names (`[a] 1px [b c]`) is valid and serializes without
+    /// spaces inside the brackets. The value parser used to reject `[` outright.
+    #[test]
+    fn grid_line_names_parse_and_serialize() {
+        use super::get_css_definitions;
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let sheet = crate::Css3::parse_str(
+                &format!("x {{ grid-template-columns: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            )
+            .expect("parse");
+            // An invalid declaration is dropped at conversion, before the grammar sees it.
+            let declaration = sheet
+                .rules
+                .first()
+                .and_then(|rule| rule.declarations().first().cloned())?;
+            let values = declaration.value.to_slice().to_vec();
+            let def = get_css_definitions()
+                .find_property("grid-template-columns")
+                .expect("defined");
+            def.canonical(&values).map(|v| CssValue::from_vec(v).to_string())
+        };
+        assert_eq!(canonical("[a] 1px [b c] 2px").as_deref(), Some("[a] 1px [b c] 2px"));
+        assert_eq!(canonical("[] 150px [] 1fr []").as_deref(), Some("[] 150px [] 1fr []"));
+        assert_eq!(
+            canonical("repeat(auto-fit, [three] minmax(max-content, 6em) [four])").as_deref(),
+            Some("repeat(auto-fit, [three] minmax(max-content, 6em) [four])")
+        );
+        assert_eq!(canonical("[a"), None, "an unclosed bracket is not a track list");
+    }
+
     /// css-fonts-4 §3.9: the `font` shorthand serializes without its `normal` pieces and without
     /// a `/ normal` line-height, in grammar order.
     #[test]

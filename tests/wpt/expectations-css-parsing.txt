@@ -690,6 +690,9 @@ PASS css/css-animations/parsing/animation-fill-mode-valid.html :: e.style['anima
 PASS css/css-animations/parsing/animation-fill-mode-valid.html :: e.style['animation-fill-mode'] = "both" should set the property value
 PASS css/css-animations/parsing/animation-fill-mode-valid.html :: e.style['animation-fill-mode'] = "none, forwards, backwards, both" should set the property value
 FILE css/css-animations/parsing/animation-invalid.html
+PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "1s 2s 3s" should not set the property value
+PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "-1s -2s" should not set the property value
+PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "1 2" should not set the property value
 PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "reverse alternate alternate-reverse anim" should not set the property value
 PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "both backwards forwards anim" should not set the property value
 PASS css/css-animations/parsing/animation-invalid.html :: e.style['animation'] = "paused running paused anim" should not set the property value
@@ -719,6 +722,7 @@ PASS css/css-animations/parsing/animation-name-computed.html :: Property animati
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value 'first, second, third'
 PASS css/css-animations/parsing/animation-name-computed.html :: Property animation-name value '"something"'
 FILE css/css-animations/parsing/animation-name-invalid.html
+PASS css/css-animations/parsing/animation-name-invalid.html :: e.style['animation-name'] = "12" should not set the property value
 PASS css/css-animations/parsing/animation-name-invalid.html :: e.style['animation-name'] = "one two" should not set the property value
 PASS css/css-animations/parsing/animation-name-invalid.html :: e.style['animation-name'] = "\\"\\"" should not set the property value
 FILE css/css-animations/parsing/animation-name-valid.html
@@ -7519,6 +7523,7 @@ PASS css/css-fonts/parsing/font-family-computed.html :: Property font-family val
 FILE css/css-fonts/parsing/font-family-invalid.html
 PASS css/css-fonts/parsing/font-family-invalid.html :: e.style['font-family'] = "Red/Black, sans-serif" should not set the property value
 PASS css/css-fonts/parsing/font-family-invalid.html :: e.style['font-family'] = "Ahem!, sans-serif" should not set the property value
+PASS css/css-fonts/parsing/font-family-invalid.html :: e.style['font-family'] = "#POUND, sans-serif" should not set the property value
 PASS css/css-fonts/parsing/font-family-invalid.html :: e.style['font-family'] = "Hawaii 5-0, sans-serif" should not set the property value
 FILE css/css-fonts/parsing/font-family-valid.html
 PASS css/css-fonts/parsing/font-family-valid.html :: e.style['font-family'] = "serif, sans-serif, cursive, fantasy, monospace, system-ui" should set the property value
@@ -8852,14 +8857,18 @@ PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-shorthand-invalid.html
-PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "none []" should not set the property value
+PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "10px" should not set the property value
+PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "20%" should not set the property value
+PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "5fr" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[a]" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[a] 10px" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[a] 10px []" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[]" should not set the property value
+PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "10px \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[] 10px \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "10px [] \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "[] [] \\"a\\"" should not set the property value
+PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "\\"a\\" 10px 10px" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "\\"a\\" [a] 10px" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "\\"a\\" [a] 10px [a]" should not set the property value
 PASS css/css-grid/parsing/grid-shorthand-invalid.html :: e.style['grid'] = "\\"a\\" [a] [a] 10px" should not set the property value
@@ -8933,6 +8942,9 @@ PASS css/css-grid/parsing/grid-shorthand-serialization.html :: e.style.cssText =
 FILE css/css-grid/parsing/grid-shorthand-valid.html
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "none" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "auto / auto" should set the property value
+PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "none / [a] 0px" should set the property value
+PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "[a] 10px / auto" should set the property value
+PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "[a] 10px / none" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "100px / auto-flow dense 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "auto-flow dense 1fr / 100px" should set the property value
 PASS css/css-grid/parsing/grid-shorthand-valid.html :: e.style['grid'] = "100px / dense auto-flow 100px" should set the property value
@@ -8956,15 +8968,46 @@ FILE css/css-grid/parsing/grid-template-columns-computed-implicit-track.html
 FILE css/css-grid/parsing/grid-template-columns-computed-nogrid.html
 PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value 'none'
 PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] 2px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px [b]'
 PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px repeat(1, 2px) 3px'
 PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px repeat(auto-fill, 2px) 3px'
 PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px repeat(auto-fit, 2px) 3px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(1, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(2, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(auto-fill, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(auto-fit, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(1, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(auto-fill, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '1px [a] repeat(auto-fit, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px repeat(1, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px repeat(auto-fill, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px 4px [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px repeat(auto-fill, 2px [b] 3px) [d] 4px'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px repeat(auto-fit, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(1, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(auto-fill, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(auto-fit, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1em repeat(1, 2em [b] 3em) 4em [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1em repeat(auto-fill, 2em [b] 3em) 4em [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1em repeat(auto-fit, 2em [b] 3em) 4em [d]'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value 'repeat(1, 2px [a] 3px) [b] repeat(auto-fill, [c] 200% [d]) [e] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] repeat(auto-fill, [b] 200% [c]) repeat(1, 2px [d] 3px) [e] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value 'repeat(1, [a] 2px [b] 3px) [b] repeat(auto-fill, [c] 200% [d]) [e] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] repeat(auto-fill, [b] 200% [c]) repeat(1, 2px [d] 3px [e]) [f] 300%'
+PASS css/css-grid/parsing/grid-template-columns-computed-nogrid.html :: Property grid-template-columns value '[a] 1px [b c] repeat(auto-fill, [d] 200% [e f]) [g] 2px repeat(1, 3px [d e] 4px [e f]) [g] 300% [h]'
 FILE css/css-grid/parsing/grid-template-columns-computed-withcontent.html
 PASS css/css-grid/parsing/grid-template-columns-computed-withcontent.html :: Property grid-template-columns value 'calc(-0.5em + 10px)'
 PASS css/css-grid/parsing/grid-template-columns-computed-withcontent.html :: Property grid-template-columns value 'calc(0.5em + 10px)'
 FILE css/css-grid/parsing/grid-template-columns-computed.html
 PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value 'none'
 PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value '1px'
+PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value '1px [a]'
+PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value '1px [a] 2px'
+PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value '[a] 1px'
+PASS css/css-grid/parsing/grid-template-columns-computed.html :: Property grid-template-columns value '[a] 1px [b]'
 FILE css/css-grid/parsing/grid-template-columns-intrinsic-auto-repeat-computed-implicit-track.tentative.html
 FILE css/css-grid/parsing/grid-template-columns-intrinsic-auto-repeat-computed-nogrid.tentative.html
 FILE css/css-grid/parsing/grid-template-columns-intrinsic-auto-repeat-computed-withcontent.tentative.html
@@ -9037,9 +9080,15 @@ PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-temp
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "fit-content(calc(-0.5em + 10px))" should set the property value
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "fit-content(calc(0.5em + 10px))" should set the property value
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "fit-content(calc(30% + 40vw))" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(1, [one two] 20%)" should set the property value
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(2, minmax(10px, auto))" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(2, fit-content(20%) [three four] 30px 40px [five six])" should set the property value
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "min-content repeat(5, minmax(10px, auto))" should set the property value
 PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(auto-fill, 10px)" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(auto-fit, [one] 20%)" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(auto-fill, minmax(30px, 5fr) [two])" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "repeat(auto-fit, [three] minmax(max-content, 6em) [four])" should set the property value
+PASS css/css-grid/parsing/grid-template-columns-valid.html :: e.style['grid-template-columns'] = "[one] repeat(2, minmax(10px, auto)) [two] 30px [three] repeat(auto-fill, 10px) 40px [four five] repeat(2, minmax(10px, auto)) [six]" should set the property value
 FILE css/css-grid/parsing/grid-template-important.html
 FILE css/css-grid/parsing/grid-template-node-not-connected.html
 FILE css/css-grid/parsing/grid-template-repeat-auto-computed-withcontent-001.html
@@ -9048,15 +9097,38 @@ FILE css/css-grid/parsing/grid-template-rows-computed-implicit-track.html
 FILE css/css-grid/parsing/grid-template-rows-computed-nogrid.html
 PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value 'none'
 PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] 2px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1px [b]'
 PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px repeat(1, 2px) 3px'
 PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px repeat(auto-fill, 2px) 3px'
 PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px repeat(auto-fit, 2px) 3px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(1, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(auto-fill, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(auto-fit, 2px 3px) [b] 4px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(1, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(auto-fill, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '1px [a] repeat(auto-fit, [b] 2px [c]) [d] 3px'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1px repeat(1, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1px repeat(auto-fill, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1px repeat(auto-fit, 2px [b] 3px) 4px [d]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(1, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(auto-fill, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '100% [a] repeat(auto-fit, [b] 200% [c]) [d] 300%'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1em repeat(1, 2em [b] 3em) 4em [d]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1em repeat(auto-fill, 2em [b] 3em) 4em [d]'
+PASS css/css-grid/parsing/grid-template-rows-computed-nogrid.html :: Property grid-template-rows value '[a] 1em repeat(auto-fit, 2em [b] 3em) 4em [d]'
 FILE css/css-grid/parsing/grid-template-rows-computed-withcontent.html
 PASS css/css-grid/parsing/grid-template-rows-computed-withcontent.html :: Property grid-template-rows value 'calc(-0.5em + 10px)'
 PASS css/css-grid/parsing/grid-template-rows-computed-withcontent.html :: Property grid-template-rows value 'calc(0.5em + 10px)'
 FILE css/css-grid/parsing/grid-template-rows-computed.html
 PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value 'none'
 PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value '1px'
+PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value '1px [a]'
+PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value '1px [a] 2px'
+PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value '[a] 1px'
+PASS css/css-grid/parsing/grid-template-rows-computed.html :: Property grid-template-rows value '[a] 1px [b]'
 FILE css/css-grid/parsing/grid-template-rows-intrinsic-auto-repeat-computed-implicit-track.tentative.html
 FILE css/css-grid/parsing/grid-template-rows-intrinsic-auto-repeat-computed-nogrid.tentative.html
 FILE css/css-grid/parsing/grid-template-rows-intrinsic-auto-repeat-computed-withcontent.tentative.html
@@ -9129,13 +9201,21 @@ PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-templat
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "fit-content(calc(-0.5em + 10px))" should set the property value
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "fit-content(calc(0.5em + 10px))" should set the property value
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "fit-content(calc(30% + 40vw))" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(1, [one two] 20%)" should set the property value
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(2, minmax(10px, auto))" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(2, fit-content(20%) [three four] 30px 40px [five six])" should set the property value
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "min-content repeat(5, minmax(10px, auto))" should set the property value
 PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(auto-fill, 10px)" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(auto-fit, [one] 20%)" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(auto-fill, minmax(30px, 5fr) [two])" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "repeat(auto-fit, [three] minmax(max-content, 6em) [four])" should set the property value
+PASS css/css-grid/parsing/grid-template-rows-valid.html :: e.style['grid-template-rows'] = "[one] repeat(2, minmax(10px, auto)) [two] 30px [three] repeat(auto-fill, 10px) 40px [four five] repeat(2, minmax(10px, auto)) [six]" should set the property value
 FILE css/css-grid/parsing/grid-template-shorthand-areas-valid.html
 FILE css/css-grid/parsing/grid-template-shorthand-composition.html
 FILE css/css-grid/parsing/grid-template-shorthand-invalid.html
-PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "none []" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "10px" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "20%" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "5fr" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[a]" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[a] 10px" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[a] repeat(2, 10px)" should not set the property value
@@ -9146,6 +9226,10 @@ PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[a] repeat(auto-fill, 10px) []" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[a] repeat(auto-fit, 10px) []" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[]" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "10px \\"a\\"" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "repeat(2, 10px) \\"a\\"" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "repeat(auto-fill, 10px) \\"a\\"" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "repeat(auto-fit, 10px) \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[] 10px \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[] repeat(2, 10px) \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[] repeat(auto-fill, 10px) \\"a\\"" should not set the property value
@@ -9155,6 +9239,13 @@ PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "repeat(auto-fill, 10px) [] \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "repeat(auto-fit, 10px) [] \\"a\\"" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "[] [] \\"a\\"" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" 10px 10px" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" repeat(2, 10px) 10px" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" 10px repeat(2, 10px)" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" repeat(auto-fill, 10px) 10px" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" 10px repeat(auto-fill, 10px)" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" repeat(auto-fit, 10px) 10px" should not set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" 10px repeat(auto-fit, 10px)" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" [a] 10px" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" [a] repeat(2, 10px)" should not set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-template'] = "\\"a\\" [a] repeat(auto-fill, 10px)" should not set the property value
@@ -9187,6 +9278,9 @@ PASS css/css-grid/parsing/grid-template-shorthand-invalid.html :: e.style['grid-
 FILE css/css-grid/parsing/grid-template-shorthand-valid.html
 PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "none" should set the property value
 PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "auto / auto" should set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "none / [a] 0px" should set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "[a] 10px / auto" should set the property value
+PASS css/css-grid/parsing/grid-template-shorthand-valid.html :: e.style['grid-template'] = "[a] 10px / none" should set the property value
 FILE css/css-grid/parsing/grid-template-shorthand.html
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should set grid-template-areas
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "none" should set grid-template-columns
@@ -9196,7 +9290,10 @@ PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "10px / 20%" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "fit-content(calc(-0.5em + 10px)) / fit-content(calc(0.5em + 10px))" should set grid-template-areas
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "fit-content(calc(-0.5em + 10px)) / fit-content(calc(0.5em + 10px))" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "[header-top] \\"a a a\\"     [header-bottom]  [main-top] \\"b b b\\" 1fr [main-bottom]           / auto 1fr auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = "  \\"a a a\\"  \\"b b b\\" 1fr/ auto 1fr auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = " [] \\"a a a\\"     [] [] \\"b b b\\" 1fr []  / [] auto 1fr [] auto []" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-template-shorthand.html :: e.style['grid-template'] = " [] \\"a a a\\"     [] [] \\"b b b\\" 1fr [] \\"c c c\\" / [] auto 1fr [] auto []" should not set unrelated longhands
 FILE css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "linear-gradient(red calc(50% + 30deg), blue)" should not set the property value
 PASS css/css-images/parsing/conic-gradient-calc-angle-percentage-invalid.html :: e.style['background-image'] = "radial-gradient(red calc(50% + 30deg), blue)" should not set the property value
@@ -9998,6 +10095,7 @@ PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "ins
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "inside none" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "none inside" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "url(\\"https://example.com/\\")" should set the property value
+PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "none url(\\"https://example.com/\\")" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square url(\\"https://example.com/\\") inside" should set the property value
 PASS css/css-lists/parsing/list-style-valid.html :: e.style['list-style'] = "square linear-gradient(red,blue) inside" should set the property value
@@ -11467,6 +11565,7 @@ PASS css/css-text/parsing/hyphenate-character-computed.html :: Property hyphenat
 FILE css/css-text/parsing/hyphenate-character-invalid.html
 PASS css/css-text/parsing/hyphenate-character-invalid.html :: e.style['hyphenate-character'] = "auto auto" should not set the property value
 PASS css/css-text/parsing/hyphenate-character-invalid.html :: e.style['hyphenate-character'] = "\\"-\\" \\"=\\"" should not set the property value
+PASS css/css-text/parsing/hyphenate-character-invalid.html :: e.style['hyphenate-character'] = "1400" should not set the property value
 FILE css/css-text/parsing/hyphenate-character-valid.html
 PASS css/css-text/parsing/hyphenate-character-valid.html :: e.style['hyphenate-character'] = "auto" should set the property value
 FILE css/css-text/parsing/hyphenate-limit-chars-computed.html

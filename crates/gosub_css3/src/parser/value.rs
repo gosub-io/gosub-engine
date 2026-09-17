@@ -76,10 +76,12 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Comma, t.location);
                 Ok(Some(node))
             }
-            TokenType::LBracket => Err(CssError::with_location(
-                "Unexpected token [",
-                self.tokenizer.current_location(),
-            )),
+            // A bracketed block is grid's line-name list, `[a b]`. Its brackets are kept as
+            // operator values, the way `/` is, so that `'[' <custom-ident>* ']'` in the grammar
+            // matches them one by one. This used to be an error, which made every track list
+            // with a line name an invalid declaration.
+            TokenType::LBracket => Ok(Some(Node::new(NodeType::operator("["), t.location))),
+            TokenType::RBracket => Ok(Some(Node::new(NodeType::operator("]"), t.location))),
             TokenType::QuotedString(value) => {
                 let node = Node::new(NodeType::String { value }, t.location);
                 Ok(Some(node))

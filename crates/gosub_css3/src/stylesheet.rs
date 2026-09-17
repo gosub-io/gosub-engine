@@ -834,7 +834,9 @@ impl Display for CssValue {
                 // where one belongs - after a comma, or between two arguments written side by
                 // side as in `translate(1px 2px)` - and never before a comma.
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 && !matches!(arg, CssValue::Comma) {
+                    let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
+                    let after_open = i > 0 && bracket(&args[i - 1], "[");
+                    if i > 0 && !matches!(arg, CssValue::Comma) && !after_open && !bracket(arg, "]") {
                         write!(f, " ")?;
                     }
                     write!(f, "{arg}")?;
@@ -849,8 +851,11 @@ impl Display for CssValue {
             // debug rendering that reached anything reading a computed value as text; the CSS is
             // the values themselves, separated the way they were written.
             CssValue::List(v) => {
+                let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
                 for (i, value) in v.iter().enumerate() {
-                    if i > 0 && !matches!(value, CssValue::Comma) {
+                    // No space inside a line-name list: `[a b]`, `[]`.
+                    let after_open = i > 0 && bracket(&v[i - 1], "[");
+                    if i > 0 && !matches!(value, CssValue::Comma) && !after_open && !bracket(value, "]") {
                         write!(f, " ")?;
                     }
                     write!(f, "{value}")?;

@@ -633,8 +633,33 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
                 // the transition-property name. Slashes are separators, not idents.
                 "custom-ident" | "ident" => match value {
-                    CssValue::String(s) if s != "/" => return first_match(input),
+                    // The brackets of a line-name list are structure, not identifiers, or the
+                    // `<custom-ident>*` inside `[ ... ]` would swallow its own closing bracket.
+                    CssValue::String(s) if s != "/" && s != "[" && s != "]" => return first_match(input),
                     _ => {}
+                },
+                // A quoted string and a bare identifier both arrive as `CssValue::String`, so
+                // `<string>` cannot yet tell `"a"` from `a`; it can at least refuse the
+                // structural tokens, or `grid-template: [a] 10px` matched its `<string>` piece
+                // against the `[`.
+                "string" => match value {
+                    CssValue::String(s) if s == "/" || s == "[" || s == "]" => return no_match(input),
+                    // An identifier is accepted: a quoted string and a bare identifier both
+                    // arrive as `CssValue::String`, so `<string>` cannot tell them apart yet.
+                    CssValue::String(_) => return first_match(input),
+                    // A function this engine does not implement (`random-item()`) is accepted
+                    // as it always was, so an unsupported feature reads as "cannot tell" rather
+                    // than "invalid". A function known to be something else is not a string.
+                    CssValue::Function(name, _)
+                        if !is_math_function(name)
+                            && !["repeat", "minmax", "fit-content", "url", "src"]
+                                .iter()
+                                .any(|f| name.eq_ignore_ascii_case(f)) =>
+                    {
+                        return first_match(input)
+                    }
+                    // A number, a length, a colour: not a string.
+                    _ => return no_match(input),
                 },
                 "dashed-ident" => match value {
                     CssValue::String(s) if s.starts_with("--") => return first_match(input),
