@@ -1,4 +1,3 @@
-use crate::colors::RgbColor;
 use crate::functions::attr::resolve_attr;
 use crate::functions::var::resolve_var;
 use crate::matcher::index::ElementKeys;
@@ -386,27 +385,6 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         value
                     };
 
-                    // Also emit the color as a `background-color` longhand: the consumer
-                    // reads the longhand key first, so a UA `background-color: ButtonFace`
-                    // would otherwise beat an author `background: #c22`. No color = reset
-                    // to transparent.
-                    if declaration.property == "background" {
-                        let color_value =
-                            find_background_color(&value).unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
-                        add_property_to_map(
-                            &mut css_map_entry,
-                            sheet,
-                            specificity,
-                            &CssDeclaration {
-                                property: "background-color".to_string(),
-                                value: color_value,
-                                important: declaration.important,
-                            },
-                            depth,
-                            order,
-                        );
-                    }
-
                     add_property_to_map(
                         &mut css_map_entry,
                         sheet,
@@ -702,19 +680,6 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
             .text_value(id)
             .is_some_and(|v| v.chars().all(|c: char| c.is_ascii_whitespace())),
         _ => false,
-    }
-}
-
-/// Recursively find the first color inside a (possibly nested/list) CSS value. Used to emit
-/// the `background-color` longhand of a `background` shorthand. The `currentColor` keyword is
-/// a valid color too; it is preserved as a string and resolved to the element's `color` later
-/// in the render bridge.
-fn find_background_color(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Color(_) => Some(value.clone()),
-        CssValue::String(s) if s.eq_ignore_ascii_case("currentcolor") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_color),
-        _ => None,
     }
 }
 

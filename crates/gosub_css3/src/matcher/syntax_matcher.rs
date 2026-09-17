@@ -283,6 +283,9 @@ fn match_component<'a>(
 
         // Remove the comma, and continue matching
         input.clone_from(&&input[1..input.len()]);
+        if let Some(resolver) = shorthand_resolver.as_mut() {
+            resolver.layer_separator();
+        }
 
         if input.is_empty() {
             // We have a comma at the end of the input. This is not allowed.
@@ -765,14 +768,25 @@ fn match_group_at_least_one_any_order<'a>(
         });
     }
 
+    // The order that matches without the resolver is the order to replay with it: the
+    // completions have side effects, so they run for the winning assignment only.
+    let order = best_any_order(components.len(), |order| {
+        at_least_one_any_order_pass(raw_input, components, order)
+    });
+
     let mut input = raw_input;
     let mut matched_values = vec![];
     let mut components_matched = vec![];
 
-    let mut c_idx = 0;
-    while c_idx < components.len() {
+    let mut pos = 0;
+    while pos < order.len() {
         if input.is_empty() {
             break;
+        }
+        let c_idx = order[pos];
+        if components_matched.contains(&c_idx) {
+            pos += 1;
+            continue;
         }
 
         if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
@@ -797,20 +811,14 @@ fn match_group_at_least_one_any_order<'a>(
                 input = res.remainder;
 
                 // Found a match, so loop around for new matches
-                c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos = 0;
 
                 if let Some(complete) = complete {
                     complete.complete(res.matched_values);
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
-                c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos += 1;
             }
         } else {
             // No resolver: `at_least_one_any_order_pass` handles that case and this function is
@@ -892,14 +900,25 @@ fn match_group_all_any_order<'a>(
         });
     }
 
+    // The order that matches without the resolver is the order to replay with it: the
+    // completions have side effects, so they run for the winning assignment only.
+    let order = best_any_order(components.len(), |order| {
+        all_any_order_pass(raw_input, components, order)
+    });
+
     let mut input = raw_input;
     let mut matched_values = vec![];
     let mut components_matched = vec![];
 
-    let mut c_idx = 0;
-    while c_idx < components.len() {
+    let mut pos = 0;
+    while pos < order.len() {
         if input.is_empty() {
             break;
+        }
+        let c_idx = order[pos];
+        if components_matched.contains(&c_idx) {
+            pos += 1;
+            continue;
         }
 
         if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
@@ -934,20 +953,14 @@ fn match_group_all_any_order<'a>(
                 input = res.remainder;
 
                 // Found a match, so loop around for new matches
-                c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos = 0;
 
                 if let Some(complete) = complete {
                     complete.complete(res.matched_values);
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
-                c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos += 1;
             }
         } else {
             // No resolver: `all_any_order_pass` handles that case and this function is never
@@ -976,6 +989,28 @@ fn match_group_all_any_order<'a>(
         matched: true,
         matched_values,
     }
+}
+
+/// The operand order whose attempt does best, by the same measure as
+/// [`best_any_order_attempt`]; the plain order when nothing matches.
+fn best_any_order<'a>(component_count: usize, attempt: impl Fn(&[usize]) -> MatchResult<'a>) -> Vec<usize> {
+    let mut best: Option<(Vec<usize>, usize)> = None;
+    for offset in 0..component_count.max(1) {
+        let order: Vec<usize> = (0..component_count)
+            .map(|i| (i + offset) % component_count.max(1))
+            .collect();
+        let res = attempt(&order);
+        if !res.matched {
+            continue;
+        }
+        if res.remainder.is_empty() {
+            return order;
+        }
+        if best.as_ref().is_none_or(|(_, len)| res.remainder.len() < *len) {
+            best = Some((order, res.remainder.len()));
+        }
+    }
+    best.map_or_else(|| (0..component_count).collect(), |(order, _)| order)
 }
 
 /// Runs `attempt` once per rotation of the operand priority order and returns the best

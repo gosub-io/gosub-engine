@@ -5,6 +5,7 @@ use std::collections::hash_map::Entry;
 
 use crate::matcher::property_definitions::{CssDefinitions, PropertyDefinition};
 use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
+use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 
@@ -102,6 +103,9 @@ pub struct Shorthands {
     multiplier: Multiplier,
     shorthands: Vec<Shorthand>,
     name: String,
+    /// The shorthand is a comma-separated list of layers (`background`, `transition`,
+    /// `animation`): every longhand collects one value per layer.
+    layered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +116,13 @@ pub struct FixList {
     /// [`FixList::reset_unmentioned`] can tell which of a shorthand's longhands it left out.
     /// Cleared by [`FixList::set_info`], which every expansion calls first.
     touched: Vec<String>,
+    /// Set while a layered shorthand is being expanded: values go to `layer_values` instead
+    /// of `list`, and [`FixList::reset_unmentioned`] assembles the comma lists at the end.
+    layered: bool,
+    /// The layer the values now being recorded belong to, counted from 0.
+    layer: usize,
+    /// `(layer, longhand, value)` recorded so far for a layered shorthand.
+    layer_values: Vec<(usize, String, CssValue)>,
 
     current_info: Option<FixListInfo>,
 }
@@ -164,6 +175,10 @@ pub struct ShorthandResolver<'a> {
     pub multiplier: Multiplier,
     fix_list: &'a mut FixList,
     shorthands: Vec<ResolveShorthand<'a>>,
+    /// How many grammar levels below the shorthand's root this resolver sits.
+    depth: usize,
+    /// Whether the shorthand is a list of layers; see [`Shorthands::layered`].
+    layered: bool,
 }
 
 pub fn copy_resolver<'a>(res: &'a mut Option<ShorthandResolver>) -> Option<ShorthandResolver<'a>> {
@@ -180,6 +195,8 @@ pub fn copy_resolver<'a>(res: &'a mut Option<ShorthandResolver>) -> Option<Short
                 })
                 .collect(),
             name: resolver.name,
+            depth: resolver.depth,
+            layered: resolver.layered,
         })
     } else {
         None
@@ -211,11 +228,14 @@ impl Drop for CompleteStep<'_> {
 
 impl Shorthands {
     pub fn get_resolver<'a>(&'a self, fix_list: &'a mut FixList) -> ShorthandResolver<'a> {
+        fix_list.layered = self.layered;
         ShorthandResolver {
             multiplier: self.multiplier,
             fix_list,
             shorthands: self.shorthands.iter().map(Shorthand::resolver).collect(),
             name: &self.name,
+            depth: 0,
+            layered: self.layered,
         }
     }
 }
@@ -318,7 +338,18 @@ impl<'a> ShorthandResolver<'a> {
             fix_list: self.fix_list,
             shorthands,
             name: self.name,
+            depth: self.depth + 1,
+            layered: self.layered,
         }))
+    }
+
+    /// The matcher consumed a comma of a `#` list. At the root of a layered shorthand
+    /// (`transition: a 1s, b 2s`) that comma separates two layers; anywhere deeper it is a
+    /// list inside one value (`font-family: a, b` inside `font`) and means nothing here.
+    pub fn layer_separator(&mut self) {
+        if self.layered && self.depth == 0 {
+            self.fix_list.next_layer();
+        }
     }
 
     #[must_use]
@@ -365,6 +396,9 @@ impl FixList {
             list: Vec::new(),
             multipliers: Vec::new(),
             touched: Vec::new(),
+            layered: false,
+            layer: 0,
+            layer_values: Vec::new(),
             current_info: None,
         }
     }
@@ -373,6 +407,88 @@ impl FixList {
     pub fn set_info(&mut self, info: FixListInfo) {
         self.current_info = Some(info);
         self.touched.clear();
+        self.layered = false;
+        self.layer = 0;
+        self.layer_values.clear();
+    }
+
+    /// Start the next layer of a layered shorthand.
+    pub fn next_layer(&mut self) {
+        self.layer += 1;
+    }
+
+    /// The value layer `layer` recorded for `name`, if any.
+    fn layer_value(&self, layer: usize, name: &str) -> Option<&CssValue> {
+        self.layer_values
+            .iter()
+            .find(|(l, n, _)| *l == layer && n == name)
+            .map(|(_, _, v)| v)
+    }
+
+    /// Build the longhands of a layered shorthand from the per-layer values and record them.
+    ///
+    /// A longhand that is itself a list (`background-image: <bg-image>#`) gets one value per
+    /// layer, the layer's own or the initial value where the layer left it out, joined by
+    /// commas. One that is not (`background-color`) takes the last layer that set it, or the
+    /// initial value. The list form of a single layer is the value itself.
+    fn assemble_layers(&mut self, shorthand: &PropertyDefinition, definitions: &CssDefinitions) {
+        let layers = self.layer + 1;
+        // One box in a background layer sets both origin and clip (css-backgrounds-3 §2.10.1);
+        // the grammar hands it to origin.
+        for (origin, clip) in [("background-origin", "background-clip"), ("mask-origin", "mask-clip")] {
+            for layer in 0..layers {
+                if let (Some(value), None) = (self.layer_value(layer, origin).cloned(), self.layer_value(layer, clip)) {
+                    self.layer_values.push((layer, clip.to_string(), value));
+                }
+            }
+        }
+
+        let mut assembled: Vec<(String, CssValue)> = Vec::new();
+        for name in shorthand.expanded_properties() {
+            let Some(def) = definitions.find_property(&name) else {
+                continue;
+            };
+            let is_list = def.syntax().components.first().is_some_and(takes_comma_list);
+            let value = if is_list {
+                let mut items = Vec::with_capacity(layers * 2);
+                for layer in 0..layers {
+                    let item = self
+                        .layer_value(layer, &name)
+                        .cloned()
+                        .or_else(|| def.initial_value.clone());
+                    let Some(item) = item else {
+                        log::debug!(
+                            "{}: layer {layer} leaves {name} unset and it has no initial value",
+                            shorthand.name()
+                        );
+                        items.clear();
+                        break;
+                    };
+                    if !items.is_empty() {
+                        items.push(CssValue::Comma);
+                    }
+                    items.push(item);
+                }
+                if items.is_empty() {
+                    continue;
+                }
+                CssValue::from_vec(items)
+            } else {
+                let last = (0..layers)
+                    .rev()
+                    .find_map(|layer| self.layer_value(layer, &name).cloned());
+                match last.or_else(|| def.initial_value.clone()) {
+                    Some(value) => value,
+                    None => continue,
+                }
+            };
+            assembled.push((name, value));
+        }
+
+        self.layered = false;
+        for (name, value) in assembled {
+            self.insert(name, value);
+        }
     }
 
     /// Give every longhand of `shorthand` that the declaration did not set its initial value.
@@ -409,6 +525,10 @@ impl FixList {
         // gave (`background: #c22` would end as `background-color: transparent`), so an expansion
         // that set nothing is left alone: the consumer reads the stored shorthand instead.
         if self.touched.is_empty() {
+            return;
+        }
+        if self.layered {
+            self.assemble_layers(shorthand, definitions);
             return;
         }
         // css-lists-3 §3.5: a `none` in `list-style` means both `list-style-image: none` and
@@ -514,10 +634,19 @@ impl FixList {
     }
 
     pub fn insert(&mut self, name: String, value: CssValue) {
-        let value = self.get_declaration(value);
         if !self.touched.contains(&name) {
             self.touched.push(name.clone());
         }
+        if self.layered {
+            let layer = self.layer;
+            if let Some(slot) = self.layer_values.iter_mut().find(|(l, n, _)| *l == layer && *n == name) {
+                slot.2 = value;
+            } else {
+                self.layer_values.push((layer, name, value));
+            }
+            return;
+        }
+        let value = self.get_declaration(value);
 
         for (k, v) in &mut self.list {
             if *k == name {
@@ -616,6 +745,12 @@ impl CompleteStep<'_> {
         // longhand: recording it as a `None` value here made `flex-shrink` look mentioned, and
         // the reset then left it at `none` instead of the `1` the shorthand's defaults give it.
         self.completed = true;
+        // The layer-separating comma of `[ <layer> , ]* <final-layer>` is mapped to the empty
+        // name: matching it starts the next layer rather than recording a value.
+        if self.name.iter().any(|name| name.is_empty()) {
+            self.list.next_layer();
+            return;
+        }
         if value.is_empty() {
             return;
         }
@@ -716,6 +851,7 @@ fn font_shorthands(syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
     Some(Shorthands {
         multiplier: Multiplier::None,
         name: name.to_string(),
+        layered: false,
         shorthands: paths
             .iter()
             .map(|(prop, path)| Shorthand {
@@ -726,7 +862,282 @@ fn font_shorthands(syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
     })
 }
 
+/// Longhands that share a grammar piece, in the order the spec hands the pieces to them: the
+/// first `<time>` of a transition is its duration and the second its delay
+/// (css-transitions-1 §2.5), the first `<visual-box>` of a background layer is the origin and
+/// the second the clip (css-backgrounds-3 §2.10.1).
+const SHARED_PIECES: &[(&str, &[&str])] = &[
+    ("transition", &["transition-duration", "transition-delay"]),
+    ("animation", &["animation-duration", "animation-delay"]),
+    ("background", &["background-origin", "background-clip"]),
+    ("mask", &["mask-origin", "mask-clip"]),
+];
+
+/// Whether two grammar nodes have the same shape, multipliers and ranges aside.
+///
+/// This is what makes `<bg-image>` in a background layer the piece for `background-image`,
+/// whose own grammar is `<bg-image>#`, and `<time [0s,∞]>#` (duration) claim a plain `<time>`.
+fn same_shape(a: &SyntaxComponent, b: &SyntaxComponent) -> bool {
+    use SyntaxComponent as C;
+    match (a, b) {
+        (
+            C::Definition {
+                datatype: x,
+                quoted: qx,
+                ..
+            },
+            C::Definition {
+                datatype: y,
+                quoted: qy,
+                ..
+            },
+        ) => x == y && qx == qy,
+        (C::Builtin { datatype: x, .. }, C::Builtin { datatype: y, .. }) => x == y,
+        (C::GenericKeyword { keyword: x, .. }, C::GenericKeyword { keyword: y, .. }) => x == y,
+        (C::Literal { literal: x, .. }, C::Literal { literal: y, .. }) => x == y,
+        (C::Value { value: x, .. }, C::Value { value: y, .. }) => x == y,
+        (C::Unit { unit: x, .. }, C::Unit { unit: y, .. }) => x == y,
+        (
+            C::Function {
+                name: x, arguments: ax, ..
+            },
+            C::Function {
+                name: y, arguments: ay, ..
+            },
+        ) => {
+            x == y
+                && match (ax, ay) {
+                    (Some(a), Some(b)) => same_shape(a, b),
+                    (None, None) => true,
+                    _ => false,
+                }
+        }
+        (C::Inherit { .. }, C::Inherit { .. })
+        | (C::Initial { .. }, C::Initial { .. })
+        | (C::Unset { .. }, C::Unset { .. }) => true,
+        (
+            C::Group {
+                components: x,
+                combinator: cx,
+                ..
+            },
+            C::Group {
+                components: y,
+                combinator: cy,
+                ..
+            },
+        ) => cx == cy && x.len() == y.len() && x.iter().zip(y).all(|(a, b)| same_shape(a, b)),
+        _ => false,
+    }
+}
+
+/// Whether a longhand's grammar is a comma-separated list: `<bg-image>#`, or an alternation
+/// with a list arm, `none | <single-transition-property>#`.
+fn takes_comma_list(root: &SyntaxComponent) -> bool {
+    let is_list = |c: &SyntaxComponent| {
+        c.get_multipliers()
+            .iter()
+            .any(|m| matches!(m, SyntaxComponentMultiplier::CommaSeparatedRepeat(..)))
+    };
+    if is_list(root) {
+        return true;
+    }
+    matches!(root, SyntaxComponent::Group { components, combinator: GroupCombinators::ExactlyOne, .. } if components.iter().any(is_list))
+}
+
+/// State of one [`CssDefinitions::search_shape`] walk.
+struct ShapeSearch<'a> {
+    /// Each longhand with its own grammar, as one node.
+    roots: &'a [(String, SyntaxComponent)],
+    /// The shared-piece group of this shorthand, if any, and how many pieces it has taken.
+    shared: &'a [&'a str],
+    shared_taken: usize,
+    /// A piece several longhands claim with no spec order to settle it: the map is unusable.
+    ambiguous: bool,
+    /// A value-bearing leaf no longhand claims (`auto-flow` in `grid`): the grammar sets
+    /// something the map cannot place, so a partial map would reset what the author wrote.
+    unclaimed: bool,
+    /// Value types being descended into, against cycles.
+    stack: Vec<String>,
+    out: Vec<Shorthand>,
+}
+
 impl CssDefinitions {
+    /// Map `computed`'s longhands onto the pieces of `syntax` by shape; see [`same_shape`].
+    ///
+    /// The walk descends into value types (`<bg-layer>`). Resolution places a type's
+    /// components under a wrapper group at the reference's position, so a path composed here
+    /// is exactly the path the matcher walks through the resolved tree. A claimed piece is not
+    /// descended into: the `<color>` inside a gradient must not be mistaken for
+    /// `background-color`.
+    /// Returns the pieces found and whether they account for every value the grammar can
+    /// carry - the second is what makes a map that misses a longhand still safe to use.
+    fn map_by_shape(&self, computed: &[String], syntax: &CssSyntaxTree, name: &str) -> (Vec<Shorthand>, bool) {
+        let roots: Vec<(String, SyntaxComponent)> = computed
+            .iter()
+            .filter_map(|longhand| {
+                let def = self.properties.get(longhand)?;
+                let root = match def.syntax.components.as_slice() {
+                    [single] => single.clone(),
+                    many => SyntaxComponent::Group {
+                        components: many.to_vec(),
+                        combinator: Juxtaposition,
+                        multipliers: vec![],
+                    },
+                };
+                Some((longhand.clone(), root))
+            })
+            .collect();
+        let shared: &[&str] = SHARED_PIECES
+            .iter()
+            .find(|(shorthand, _)| *shorthand == name)
+            .map_or(&[], |(_, members)| members);
+        let mut search = ShapeSearch {
+            roots: &roots,
+            shared,
+            shared_taken: 0,
+            ambiguous: false,
+            unclaimed: false,
+            stack: Vec::new(),
+            out: Vec::new(),
+        };
+        // The root itself is never a piece; its children are, at path `[i]`.
+        if let Some(root) = syntax.components.first() {
+            self.search_children(root, &[], &mut search);
+        }
+        if search.ambiguous {
+            // `grid-area: <grid-line> [ / <grid-line> ]{0,3}`: four longhands with the same
+            // grammar, told apart by position and by rules the grammar does not carry. A
+            // partial map would reset what it cannot place, which is worse than no map.
+            return (Vec::new(), false);
+        }
+        (search.out, !search.unclaimed)
+    }
+
+    fn search_children(&self, node: &SyntaxComponent, path: &[usize], search: &mut ShapeSearch) {
+        match node {
+            SyntaxComponent::Group { components, .. } => {
+                for (i, child) in components.iter().enumerate() {
+                    let mut child_path = path.to_vec();
+                    child_path.push(i);
+                    self.search_shape(child, child_path, search);
+                }
+            }
+            SyntaxComponent::Definition {
+                datatype,
+                quoted: false,
+                ..
+            } => {
+                if search.stack.len() >= 8 || search.stack.contains(datatype) {
+                    return;
+                }
+                let Some(def) = self.syntax.get(datatype) else {
+                    return;
+                };
+                search.stack.push(datatype.clone());
+                for (i, child) in def.syntax.components.iter().enumerate() {
+                    let mut child_path = path.to_vec();
+                    child_path.push(i);
+                    self.search_shape(child, child_path, search);
+                }
+                search.stack.pop();
+            }
+            // A quoted reference no longhand is named after (`<'grid-template'>` in `grid`,
+            // itself a shorthand), or a value type the table does not define: a value lives
+            // here that nothing places.
+            SyntaxComponent::Definition { .. } | SyntaxComponent::Builtin { .. } => search.unclaimed = true,
+            SyntaxComponent::GenericKeyword { .. }
+            | SyntaxComponent::Function { .. }
+            | SyntaxComponent::Value { .. }
+            | SyntaxComponent::Unit { .. } => search.unclaimed = true,
+            // Separators and the CSS-wide keywords carry no value of their own.
+            SyntaxComponent::Literal { .. }
+            | SyntaxComponent::Inherit { .. }
+            | SyntaxComponent::Initial { .. }
+            | SyntaxComponent::Unset { .. } => {}
+        }
+    }
+
+    fn search_shape(&self, node: &SyntaxComponent, path: Vec<usize>, search: &mut ShapeSearch) {
+        if !search.shared.is_empty()
+            && search
+                .roots
+                .iter()
+                .any(|(longhand, root)| search.shared.contains(&longhand.as_str()) && same_shape(node, root))
+        {
+            let member = search.shared[search.shared_taken % search.shared.len()];
+            search.shared_taken += 1;
+            search.out.push(Shorthand {
+                name: member.to_string(),
+                components: path,
+            });
+            return;
+        }
+
+        let claimants: Vec<&str> = search
+            .roots
+            .iter()
+            .filter(|(longhand, root)| {
+                matches!(node, SyntaxComponent::Definition { datatype, quoted: true, .. } if datatype == longhand)
+                    || same_shape(node, root)
+            })
+            .map(|(longhand, _)| longhand.as_str())
+            .collect();
+        match claimants.as_slice() {
+            [] => self.search_children(node, &path, search),
+            [one] => search.out.push(Shorthand {
+                name: (*one).to_string(),
+                components: path,
+            }),
+            many => {
+                log::debug!("shorthand piece at {path:?} is claimed by {many:?}; the map is abandoned");
+                search.ambiguous = true;
+            }
+        }
+    }
+
+    /// Whether `syntax` is a list of layers and, for the `[ <layer> , ]* <final-layer>` shape,
+    /// the path of the comma that separates them.
+    fn layer_shape(syntax: &CssSyntaxTree) -> (bool, Option<Vec<usize>>) {
+        let Some(root) = syntax.components.first() else {
+            return (false, None);
+        };
+        if root
+            .get_multipliers()
+            .iter()
+            .any(|m| matches!(m, SyntaxComponentMultiplier::CommaSeparatedRepeat(..)))
+        {
+            return (true, None);
+        }
+        if let SyntaxComponent::Group {
+            components,
+            combinator: GroupCombinators::Juxtaposition,
+            ..
+        } = root
+        {
+            if let Some(SyntaxComponent::Group {
+                components: repeated,
+                multipliers,
+                ..
+            }) = components.first()
+            {
+                let repeats = multipliers.iter().any(|m| {
+                    matches!(
+                        m,
+                        SyntaxComponentMultiplier::ZeroOrMore | SyntaxComponentMultiplier::OneOrMore
+                    )
+                });
+                let comma = repeated
+                    .iter()
+                    .position(|c| matches!(c, SyntaxComponent::Literal { literal, .. } if literal == ","));
+                if let (true, Some(comma)) = (repeats, comma) {
+                    return (true, Some(vec![0, comma]));
+                }
+            }
+        }
+        (false, None)
+    }
+
     pub fn index_shorthands(&mut self) {
         let mut shorthands = Vec::new();
 
@@ -792,6 +1203,7 @@ impl CssDefinitions {
                             multiplier,
                             shorthands,
                             name: name.to_string(),
+                            layered: false,
                         });
                     }
 
@@ -836,10 +1248,36 @@ impl CssDefinitions {
                             multiplier: Multiplier::QuadMulti,
                             shorthands,
                             name: name.to_string(),
+                            layered: false,
                         });
                     }
                 }
             }
+        }
+
+        // Pieces mapped by shape, which subsumes the property-reference search below and also
+        // reaches the type-named pieces of a layer (`<bg-image>` in `background`).
+        let (by_shape, complete) = self.map_by_shape(computed, syntax, name);
+        let (layered, comma_path) = Self::layer_shape(syntax);
+        let mapped: std::collections::HashSet<&str> = by_shape.iter().map(|s| s.name.as_str()).collect();
+        let full = !by_shape.is_empty() && computed.iter().all(|l| mapped.contains(l.as_str()));
+        // A partial map is still a map when the grammar has no piece left over: the longhands
+        // it misses cannot be set by this shorthand at all and are reset like any the
+        // declaration left out. `text-decoration` lists four longhands and names three.
+        if full || (!by_shape.is_empty() && complete) {
+            let mut shorthands = by_shape;
+            if let Some(comma_path) = comma_path {
+                shorthands.push(Shorthand {
+                    name: String::new(),
+                    components: comma_path,
+                });
+            }
+            return Some(Shorthands {
+                multiplier: Multiplier::None,
+                shorthands,
+                name: name.to_string(),
+                layered,
+            });
         }
 
         let mut found_props = Vec::with_capacity(computed.len());
@@ -854,6 +1292,7 @@ impl CssDefinitions {
                 multiplier: Multiplier::None,
                 shorthands: found_props,
                 name: name.to_string(),
+                layered: false,
             });
         }
 
@@ -875,6 +1314,7 @@ impl CssDefinitions {
                     multiplier: Multiplier::None,
                     shorthands,
                     name: name.to_string(),
+                    layered: false,
                 });
             }
         }
@@ -1087,12 +1527,164 @@ mod tests {
         assert_eq!(value_of(&two, "flex-basis"), Some(&CssValue::Percentage(30.0)));
     }
 
-    /// The resolver cannot follow `background`'s grammar and records nothing for it. Resetting
-    /// its longhands from that would turn `background: #c22` into `background-color:
-    /// transparent`, so a shorthand that expanded to nothing is left alone.
+    /// `background` is a list of layers named by value type, which the map reaches through
+    /// `<bg-layer>`. Each longhand gets one value per layer, the initial value where a layer
+    /// leaves it out, and one `<visual-box>` sets both origin and clip.
+    #[test]
+    fn background_expands_layer_by_layer() {
+        let one = expand("background", "url(x.png) no-repeat center / cover fixed padding-box");
+        let url = |name: &str| CssValue::Function("url".into(), vec![CssValue::String(name.into())]);
+        assert_eq!(value_of(&one, "background-image"), Some(&url("x.png")));
+        assert_eq!(
+            value_of(&one, "background-repeat"),
+            Some(&CssValue::String("no-repeat".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-position"),
+            Some(&CssValue::String("center".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-size"),
+            Some(&CssValue::String("cover".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-attachment"),
+            Some(&CssValue::String("fixed".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-origin"),
+            Some(&CssValue::String("padding-box".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-clip"),
+            Some(&CssValue::String("padding-box".into()))
+        );
+        assert_eq!(
+            value_of(&one, "background-color"),
+            Some(&CssValue::String("transparent".into())),
+            "no colour in the value resets background-color"
+        );
+
+        let two = expand("background", "url(a.png) no-repeat, url(b.png) #123");
+        assert_eq!(
+            value_of(&two, "background-image"),
+            Some(&CssValue::List(vec![url("a.png"), CssValue::Comma, url("b.png")]))
+        );
+        assert_eq!(
+            value_of(&two, "background-repeat"),
+            Some(&CssValue::List(vec![
+                CssValue::String("no-repeat".into()),
+                CssValue::Comma,
+                CssValue::String("repeat".into()),
+            ])),
+            "the second layer's repeat is the initial value"
+        );
+        assert!(
+            matches!(value_of(&two, "background-color"), Some(CssValue::Color(_))),
+            "the colour of the final layer is the background-color"
+        );
+    }
+
+    /// `transition` is `<single-transition>#`: two `<time>` pieces that the spec assigns as
+    /// duration then delay, and a `||` group whose operand order must not change which
+    /// keyword `ease` goes to.
+    #[test]
+    fn transition_expands_with_duration_before_delay() {
+        let one = expand("transition", "ease all 300ms");
+        assert_eq!(
+            value_of(&one, "transition-property"),
+            Some(&CssValue::String("all".into()))
+        );
+        assert_eq!(
+            value_of(&one, "transition-timing-function"),
+            Some(&CssValue::String("ease".into()))
+        );
+        assert_eq!(
+            value_of(&one, "transition-duration"),
+            Some(&CssValue::Unit(300.0, "ms".into()))
+        );
+        assert_eq!(
+            value_of(&one, "transition-delay"),
+            Some(&CssValue::Unit(0.0, "s".into()))
+        );
+
+        let two = expand("transition", "opacity .3s ease-in .1s, transform 1s");
+        assert_eq!(
+            value_of(&two, "transition-property"),
+            Some(&CssValue::List(vec![
+                CssValue::String("opacity".into()),
+                CssValue::Comma,
+                CssValue::String("transform".into()),
+            ]))
+        );
+        assert_eq!(
+            value_of(&two, "transition-delay"),
+            Some(&CssValue::List(vec![
+                CssValue::Unit(0.1, "s".into()),
+                CssValue::Comma,
+                CssValue::Unit(0.0, "s".into()),
+            ]))
+        );
+        assert_eq!(
+            value_of(&two, "transition-timing-function"),
+            Some(&CssValue::List(vec![
+                CssValue::String("ease-in".into()),
+                CssValue::Comma,
+                CssValue::String("ease".into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn animation_and_text_decoration_expand() {
+        let animation = expand("animation", "slide 1s ease-in 2s infinite");
+        assert_eq!(
+            value_of(&animation, "animation-name"),
+            Some(&CssValue::String("slide".into()))
+        );
+        assert_eq!(
+            value_of(&animation, "animation-duration"),
+            Some(&CssValue::Unit(1.0, "s".into()))
+        );
+        assert_eq!(
+            value_of(&animation, "animation-delay"),
+            Some(&CssValue::Unit(2.0, "s".into()))
+        );
+        assert_eq!(
+            value_of(&animation, "animation-iteration-count"),
+            Some(&CssValue::String("infinite".into()))
+        );
+        assert!(
+            matches!(value_of(&animation, "animation-fill-mode"), Some(CssValue::None)),
+            "fill-mode is reset to its initial `none`"
+        );
+
+        // Three of its four longhands are in the grammar; the fourth is reset.
+        let decoration = expand("text-decoration", "underline red");
+        assert_eq!(
+            value_of(&decoration, "text-decoration-line"),
+            Some(&CssValue::String("underline".into()))
+        );
+        assert_eq!(
+            value_of(&decoration, "text-decoration-color"),
+            Some(&CssValue::String("red".into()))
+        );
+        assert_eq!(
+            value_of(&decoration, "text-decoration-style"),
+            Some(&CssValue::String("solid".into()))
+        );
+        assert_eq!(
+            value_of(&decoration, "text-decoration-thickness"),
+            Some(&CssValue::String("auto".into()))
+        );
+    }
+
+    /// A shorthand the resolver has no map for records nothing, and is then left alone rather
+    /// than reset from nothing. `grid-area` is one: its four longhands share one grammar and
+    /// are told apart by position, which the map does not carry.
     #[test]
     fn a_shorthand_the_resolver_cannot_expand_is_not_reset() {
-        assert!(expand("background", "#c22").is_empty());
+        assert!(expand("grid-area", "1 / 2").is_empty());
     }
 
     /// A declaration that fails as a whole must leave nothing behind. The resolver records a
@@ -1235,6 +1827,9 @@ mod tests {
                     "margin-right".to_string(),
                     "margin-top".to_string(),
                 ],
+                layered: false,
+                layer: 0,
+                layer_values: vec![],
                 current_info: None
             }
         );
@@ -1261,6 +1856,9 @@ mod tests {
                     "margin-right".to_string(),
                     "margin-top".to_string(),
                 ],
+                layered: false,
+                layer: 0,
+                layer_values: vec![],
                 current_info: None
             }
         );
@@ -1286,6 +1884,9 @@ mod tests {
                     "margin-right".to_string(),
                     "margin-top".to_string(),
                 ],
+                layered: false,
+                layer: 0,
+                layer_values: vec![],
                 current_info: None
             }
         );
@@ -1312,6 +1913,9 @@ mod tests {
                     "margin-right".to_string(),
                     "margin-top".to_string(),
                 ],
+                layered: false,
+                layer: 0,
+                layer_values: vec![],
                 current_info: None
             }
         );

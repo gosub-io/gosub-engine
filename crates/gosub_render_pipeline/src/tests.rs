@@ -152,6 +152,43 @@ mod rendertree_from_engine {
         );
     }
 
+    /// `background` expands like any other shorthand now: the colour and the image come out
+    /// as longhands, and a `background` without a colour resets an earlier `background-color`.
+    #[test]
+    fn background_shorthand_sets_and_resets_its_longhands() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{StyleProperty, Value};
+
+        let html = r#"<html><head><style>
+          #c { background: #c22 }
+          #r { background-color: red; background: url(x.png) }
+        </style></head>
+        <body><div id="c">c</div><div id="r">r</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let c = find_node_by_id_attr(&adapter.doc, root, "c").expect("#c");
+        let colour = adapter.get_style(c, &StyleProperty::BackgroundColor);
+        assert!(
+            matches!(colour, Value::Color(204, 34, 34, _)),
+            "background colour: {colour:?}"
+        );
+
+        let r = find_node_by_id_attr(&adapter.doc, root, "r").expect("#r");
+        let colour = adapter.get_style(r, &StyleProperty::BackgroundColor);
+        assert!(
+            matches!(colour, Value::Color(_, _, _, 0)),
+            "a background without a colour resets background-color to transparent: {colour:?}"
+        );
+        let image = adapter.get_style(r, &StyleProperty::BackgroundImage);
+        assert!(
+            matches!(&image, Value::Keyword(_)),
+            "background image via the longhand: {image:?}"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
