@@ -51,7 +51,12 @@ fn chain_maps(doc: &crate::Doc, id: NodeId, pseudo: Option<&str>) -> Vec<CssProp
         // The previous map is passed along because custom properties are scoped through it;
         // ordinary inheritance is not applied here (see `value_of`).
         let previous = maps.last();
-        if let Some(map) = Css3System::properties_from_node::<DomConfig>(doc, node, sheets, previous) {
+        if let Some(mut map) = Css3System::properties_from_node::<DomConfig>(doc, node, sheets, previous) {
+            // Resolve this map before the next element inherits from it: what a child inherits
+            // is its parent's *computed* value, and the cascade reads it straight off the map.
+            for (_, property) in map.iter_mut() {
+                property.compute_value();
+            }
             maps.push(map);
         }
     }

@@ -8496,17 +8496,56 @@ PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-area'] = "auto
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "33 -A0 auto" should not set the property value
 PASS css/css-grid/parsing/grid-area-invalid.html :: e.style['grid-row'] = "auto i 2 j span 3 k" should not set the property value
 FILE css/css-grid/parsing/grid-area-shorthand.html
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "auto" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "auto" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "auto" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "auto" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "--a" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "--a" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "--a" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "--a" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "--a" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c / d" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c / d" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c / d" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c / d" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "a / b / c / d" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "+90 -a- / 2 i span" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "+90 -a- / 2 i span" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "+90 -a- / 2 i span" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "+90 -a- / 2 i span" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "+90 -a- / 2 i span" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "1 / 2 / 3 / 4" should set grid-column-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "1 / 2 / 3 / 4" should set grid-column-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "1 / 2 / 3 / 4" should set grid-row-end
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "1 / 2 / 3 / 4" should set grid-row-start
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-area'] = "1 / 2 / 3 / 4" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "one / 2" should set grid-row-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "one / 2" should set grid-row-start
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "one / 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "1 two / four 3" should set grid-row-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "1 two / four 3" should set grid-row-start
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-row'] = "1 two / four 3" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "5 span" should set grid-column-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "5 span" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "1 / two" should set grid-column-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "1 / two" should set grid-column-start
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "1 / two" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "span 1 two / four 3 span" should set grid-column-end
 PASS css/css-grid/parsing/grid-area-shorthand.html :: e.style['grid-column'] = "span 1 two / four 3 span" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-area-valid.html
 PASS css/css-grid/parsing/grid-area-valid.html :: e.style['grid-area'] = "auto" should set the property value
@@ -8745,43 +8784,52 @@ PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property gr
 PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property grid-column value 'span first'
 PASS css/css-grid/parsing/grid-column-shortest-serialization.html :: Property grid-column value 'span 2 first'
 FILE css/css-grid/parsing/grid-column-shorthand.html
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10 / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10 / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10 / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10 / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "-10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "3 last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first / auto" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first / auto" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "span 2 first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last / last" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last / last" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last / last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last" should set grid-column-end
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last" should set grid-column-start
 PASS css/css-grid/parsing/grid-column-shorthand.html :: e.style['grid-column'] = "last" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-columns-rows-get-set-multiple.html
@@ -8823,43 +8871,52 @@ PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-
 PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-row value 'span first'
 PASS css/css-grid/parsing/grid-row-shortest-serialization.html :: Property grid-row value 'span 2 first'
 FILE css/css-grid/parsing/grid-row-shorthand.html
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "auto" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10 / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10 / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10 / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10 / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "-10" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "3 last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first / auto" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first / auto" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first / auto" should not set unrelated longhands
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "span 2 first" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last / last" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last / last" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last / last" should not set unrelated longhands
+PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should set grid-row-end
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should set grid-row-start
 PASS css/css-grid/parsing/grid-row-shorthand.html :: e.style['grid-row'] = "last" should not set unrelated longhands
 FILE css/css-grid/parsing/grid-shorthand-invalid.html
@@ -10657,6 +10714,7 @@ PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] =
 PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] = "none no-ellipsis" should not set the property value
 PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] = "3 none" should not set the property value
 PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] = "3 ellipsis auto" should not set the property value
+PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] = "-webkit-legacy" should not set the property value
 PASS css/css-overflow/parsing/line-clamp-invalid.html :: e.style['line-clamp'] = "0 -webkit-legacy" should not set the property value
 FILE css/css-overflow/parsing/line-clamp-valid.html
 PASS css/css-overflow/parsing/line-clamp-valid.html :: e.style['line-clamp'] = "none" should set the property value
@@ -10768,6 +10826,9 @@ FILE css/css-overflow/parsing/scroll-buttons-invalid.html
 FILE css/css-overflow/parsing/scroll-buttons-valid.html
 FILE css/css-overflow/parsing/scroll-markers-computed.html
 PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'initial'
+PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'inherit'
+PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'unset'
+PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'revert'
 PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'none'
 PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'before'
 PASS css/css-overflow/parsing/scroll-markers-computed.html :: Property scroll-marker-group value 'after'
@@ -10798,6 +10859,9 @@ PASS css/css-overflow/parsing/scroll-markers-valid.html :: e.style['scroll-marke
 PASS css/css-overflow/parsing/scroll-markers-valid.html :: e.style['scroll-marker-group'] = "after" should set the property value
 FILE css/css-overflow/parsing/scroll-target-group-computed.html
 PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'initial'
+PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'inherit'
+PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'unset'
+PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'revert'
 PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'none'
 PASS css/css-overflow/parsing/scroll-target-group-computed.html :: Property scroll-target-group value 'auto'
 PASS css/css-overflow/parsing/scroll-target-group-computed.html :: The scroll-target-group property shows up in CSSStyleDeclaration.cssText
@@ -12662,6 +12726,7 @@ FILE css/css-ui/parsing/interactivity-computed.html
 PASS css/css-ui/parsing/interactivity-computed.html :: Property interactivity value 'auto'
 PASS css/css-ui/parsing/interactivity-computed.html :: Property interactivity value 'inert'
 PASS css/css-ui/parsing/interactivity-computed.html :: Property interactivity has initial value auto
+PASS css/css-ui/parsing/interactivity-computed.html :: Property interactivity inherits
 FILE css/css-ui/parsing/interactivity.html
 PASS css/css-ui/parsing/interactivity.html :: e.style['interactivity'] = "auto" should set the property value
 PASS css/css-ui/parsing/interactivity.html :: e.style['interactivity'] = "inert" should set the property value

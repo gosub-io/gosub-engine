@@ -1069,7 +1069,7 @@
   },
   {
     "name": "<mask-layer>",
-    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <geometry-box> || [ <geometry-box> | no-clip ] || <compositing-operator> || <masking-mode>"
+    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <coord-box> || [ <coord-box> | no-clip ] || <compositing-operator> || <masking-mode>"
   },
   {
     "name": "<mask-position>",

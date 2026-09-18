@@ -2482,7 +2482,7 @@
   },
   {
     "name": "column-rule",
-    "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
+    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
     "computed": [
       "column-rule-width",
       "column-rule-style",

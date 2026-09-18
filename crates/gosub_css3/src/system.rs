@@ -21,26 +21,6 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
-/// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
-/// the unprefixed form. E.g. "-webkit-match-parent" → "match-parent".
-fn strip_vendor_prefix(s: &str) -> &str {
-    for prefix in &["-webkit-", "-moz-", "-ms-", "-o-"] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return rest;
-        }
-    }
-    s
-}
-
-/// Recursively normalize vendor-prefixed string values to their standard form.
-fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
-    match value {
-        CssValue::String(s) => CssValue::String(strip_vendor_prefix(&s).to_string()),
-        CssValue::List(values) => CssValue::List(values.into_iter().map(normalize_vendor_prefixes).collect()),
-        other => other,
-    }
-}
-
 /// Specificity of the `style` attribute: above any selector.
 const INLINE_SPECIFICITY: Specificity = Specificity::new(u32::MAX, 0, 0);
 
@@ -312,9 +292,6 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 continue;
             }
             let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
-            // Normalize vendor-prefixed values (-webkit-X → X) so they match
-            // against the standard keyword definitions.
-            let value = normalize_vendor_prefixes(value);
 
             // `content` carries arbitrary tokens (strings, `attr()`, counters,
             // quotes) that the property-syntax matcher cannot validate - notably the
@@ -436,9 +413,54 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
+    inherit_from_parent(&mut css_map_entry, inherited);
+
     resolve_font_size_basis(&mut css_map_entry, inherited);
 
     Some(css_map_entry)
+}
+
+/// Carry the parent's computed values down for every property that inherits.
+///
+/// An element that declares nothing for an inherited property computes to its parent's computed
+/// value (css-cascade-4 §4.4), and the value is written into this element's map rather than
+/// looked up later for two reasons. It is what `inherit` and `unset` resolve against, and
+/// without it those keywords could only see a parent that happened to declare the property
+/// itself - `body { color: red }` with a plain `<div>` between would leave `color: inherit` on
+/// the element below computing to black. And because every element's map then holds the
+/// inherited state in full, one level of lookup is all any element ever needs.
+///
+/// A property the element declares itself is left alone; only `inherited` is filled in, since
+/// that is what `inherit` names even when there is a cascaded value to override it.
+fn inherit_from_parent(map: &mut CssProperties, inherited: Option<&CssProperties>) {
+    let Some(parent) = inherited else {
+        return;
+    };
+    for (name, parent_property) in &parent.properties {
+        // The parent's computed value is the inherited value. A parent map that was never
+        // computed has nothing to give, and the property falls back to its initial value.
+        if matches!(parent_property.computed, CssValue::None) {
+            continue;
+        }
+        // A property that inherits gets an entry here whether or not this element mentions it,
+        // so the value keeps travelling down. One that does not inherit gets the value recorded
+        // only where the element already has an entry: nothing is inherited by default, but
+        // `inherit` names the parent's value for *any* property, `width` included.
+        let property = if prop_is_inherit(name) {
+            Some(
+                map.properties
+                    .entry(name.clone())
+                    .or_insert_with(|| CssProperty::new(name)),
+            )
+        } else {
+            map.properties.get_mut(name)
+        };
+        let Some(property) = property else {
+            continue;
+        };
+        property.inherited = parent_property.computed.clone();
+        property.mark_dirty();
+    }
 }
 
 /// Work out what an `em` and a `rem` mean on this element, and tell every property.

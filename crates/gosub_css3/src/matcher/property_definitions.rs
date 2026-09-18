@@ -293,7 +293,17 @@ impl PropertyDefinition {
     /// rejected, and they reached the element as if the author had written them.
     pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
         let Some(shorthands) = &self.shorthands else {
-            return self.syntax.matches(input);
+            if !self.syntax.matches(input) {
+                return false;
+            }
+            // No shape map, which for a shorthand means its longhands cannot be told apart by
+            // grammar alone. The spec still says exactly what each value means, so the ones
+            // that are placed by position are expanded from those rules instead of being left
+            // to set nothing.
+            if self.is_shorthand() {
+                crate::matcher::shorthands::expand_by_hand(self.name(), input, fix_list);
+            }
+            return true;
         };
 
         let before = fix_list.clone();
@@ -1610,9 +1620,12 @@ mod tests {
         assert!(!ok("width", "-webkit-banana(1)"));
     }
 
-    /// POLICY: a lone vendor-prefixed keyword is accepted for every property (cascade
-    /// fallbacks like `display: -webkit-box; display: flex`). Vendor keywords inside
-    /// larger values and unprefixed legacy keywords stay rejected.
+    /// A prefixed keyword is matched against the grammar like any other value, and this
+    /// engine implements none of them, so every one is invalid (css-syntax-3 §9). That is what
+    /// makes the `display: -webkit-box; display: flex` fallback idiom work: the prefixed
+    /// declaration is dropped and the standard one before or after it stands. Prefixed *math*
+    /// functions stay accepted, since the prefix there names a function this engine does
+    /// evaluate.
     #[test]
     fn test_vendor_prefixed_values() {
         let defs = get_css_definitions();
@@ -1623,18 +1636,21 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
+        // The Compatibility Standard's four `display` aliases resolve to the value they name
+        // when the stylesheet is built, so they reach the grammar as `flex`/`inline-flex`.
         assert!(ok("display", "-webkit-box"));
-        assert!(ok("display", "-moz-box"));
-        assert!(ok("position", "-webkit-sticky"));
-        assert!(ok("cursor", "-webkit-grab"));
-        assert!(ok("width", "-webkit-fit-content"));
-        assert!(ok("width", "-moz-fit-content"));
-        // Unprefixed legacy keywords are NOT covered by the policy.
+        assert!(ok("display", "-webkit-inline-flex"));
+        // Nothing else prefixed is supported, on `display` or anywhere else.
+        assert!(!ok("display", "-moz-box"));
+        assert!(!ok("position", "-webkit-sticky"));
+        assert!(!ok("cursor", "-webkit-grab"));
+        assert!(!ok("width", "-webkit-fit-content"));
+        assert!(!ok("width", "-moz-fit-content"));
         assert!(!ok("display", "box"));
-        // A lone dash or non-keyword stays rejected.
         assert!(!ok("display", "-webkit-"));
-        // The policy covers only a single bare identifier, not compound values.
         assert!(!ok("margin", "-webkit-foo 10px"));
+        // A grammar that does list a prefixed keyword still matches it.
+        assert!(ok("-moz-appearance", "button"));
     }
 
     /// `clip` accepts both rect() forms: the legacy comma-separated CSS2 shape (MDN's

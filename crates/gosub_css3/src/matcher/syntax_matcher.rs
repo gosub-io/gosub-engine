@@ -49,9 +49,8 @@ impl CssSyntaxTree {
         // appear in no property grammar, so accept them here at the top level. A value that
         // contains a substitution function (var()/env()) is likewise deferred: its grammar
         // cannot be checked until substitution, so it is valid at parse time for any
-        // property. A lone vendor-prefixed keyword is accepted by policy (see
-        // is_vendor_prefixed_keyword).
-        if is_css_wide_keyword(input) || contains_substitution(input) || is_vendor_prefixed_keyword(input) {
+        // property.
+        if is_css_wide_keyword(input) || contains_substitution(input) {
             return true;
         }
 
@@ -73,7 +72,7 @@ impl CssSyntaxTree {
         if self.components.is_empty() {
             return None;
         }
-        if is_css_wide_keyword(input) || contains_substitution(input) || is_vendor_prefixed_keyword(input) {
+        if is_css_wide_keyword(input) || contains_substitution(input) {
             return Some(input.to_vec());
         }
         assert!(
@@ -89,7 +88,7 @@ impl CssSyntaxTree {
             return false;
         }
 
-        if is_css_wide_keyword(input) || contains_substitution(input) || is_vendor_prefixed_keyword(input) {
+        if is_css_wide_keyword(input) || contains_substitution(input) {
             return true;
         }
 
@@ -121,14 +120,16 @@ fn is_css_wide_keyword(input: &[CssValue]) -> bool {
     }
 }
 
-/// POLICY: a lone vendor-prefixed keyword (`display: -webkit-box`, `position:
-/// -webkit-sticky`, `cursor: -moz-grab`, …) is accepted for every property. Real-world
-/// CSS ships these as cascade fallbacks before the standard value; each browser accepts
-/// its own vendor's values, and rejecting them all would drop widely-deployed
-/// declarations. Accepting keeps cascade behavior identical (a later standard value
-/// still wins) without maintaining a per-value alias table. Only a single bare
-/// identifier is covered - vendor keywords inside larger values stay strict, and
-/// unprefixed legacy values (`display: box`) stay rejected, as in real browsers.
+/// The vendor prefixes a keyword can carry, used to recognise a prefixed *math function*
+/// (`-webkit-calc(...)`), which is the same function under another name.
+///
+/// Prefixed keyword *values* get no such treatment: a value is matched against the property's
+/// grammar like any other, so one is accepted only where a grammar lists it. This engine
+/// implements almost none of them, and a value a UA does not support makes the declaration
+/// invalid (css-syntax-3 §9) - which is what lets the cascade fall back to the standard
+/// declaration beside it, the reason pages write the prefixed form at all. The exception is the
+/// handful of `display` keywords the Compatibility Standard requires, resolved to the value
+/// they alias when the stylesheet is built.
 const VENDOR_PREFIXES: [&str; 6] = ["-webkit-", "-moz-", "-ms-", "-o-", "-khtml-", "-apple-"];
 
 /// Returns the remainder of `s` after a known vendor prefix, or None.
@@ -136,13 +137,6 @@ fn strip_vendor_prefix(s: &str) -> Option<&str> {
     VENDOR_PREFIXES.iter().find_map(|p| {
         (s.len() > p.len() && s.get(..p.len()).is_some_and(|head| head.eq_ignore_ascii_case(p))).then(|| &s[p.len()..])
     })
-}
-
-fn is_vendor_prefixed_keyword(input: &[CssValue]) -> bool {
-    let [CssValue::String(s)] = input else {
-        return false;
-    };
-    strip_vendor_prefix(s).is_some()
 }
 
 /// Returns true when any value in the tree is a substitution function (`var()` or

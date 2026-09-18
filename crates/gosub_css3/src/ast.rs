@@ -384,6 +384,11 @@ fn collect_rule(
                 None => CssValue::List(css_values),
             };
 
+            // The four prefixed `display` keywords the Compatibility Standard requires are
+            // the standard values they alias. Resolved here so that every reader of a
+            // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
+            let value = resolve_display_alias(&property, value);
+
             rule.declarations.push(CssDeclaration {
                 property,
                 value,
@@ -393,6 +398,41 @@ fn collect_rule(
     }
 
     Ok(Some(rule))
+}
+
+/// The prefixed `display` values the Compatibility Standard requires every engine to support,
+/// and the standard value each one means.
+///
+/// This is the whole of the vendor-prefixed *value* support: a prefixed keyword any other
+/// property is given is a value this engine does not implement, so the declaration is invalid
+/// and the cascade falls back to the standard declaration beside it.
+///
+/// This used to be a blanket rule that stripped a known prefix from every string value of every
+/// declaration. That accepted things no engine supports (`cursor: -webkit-grab` became `grab`)
+/// and, worse, rewrote author-chosen names that merely start with a dash - an
+/// `animation-name: -webkit-spin` ran a different animation than the one the page defined.
+const DISPLAY_ALIASES: [(&str, &str); 4] = [
+    ("-webkit-box", "flex"),
+    ("-webkit-inline-box", "inline-flex"),
+    ("-webkit-flex", "flex"),
+    ("-webkit-inline-flex", "inline-flex"),
+];
+
+/// Resolve a prefixed `display` keyword to the value it aliases, leaving everything else alone.
+pub(crate) fn resolve_display_alias(property: &str, value: CssValue) -> CssValue {
+    if !property.eq_ignore_ascii_case("display") {
+        return value;
+    }
+    let CssValue::String(keyword) = &value else {
+        return value;
+    };
+    match DISPLAY_ALIASES
+        .iter()
+        .find(|(alias, _)| keyword.eq_ignore_ascii_case(alias))
+    {
+        Some((_, standard)) => CssValue::String((*standard).to_string()),
+        None => value,
+    }
 }
 
 /// Build an [`ImportRule`] from an `@import` prelude ([`NodeType::ImportList`]).
@@ -686,6 +726,28 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
 
 #[cfg(test)]
 mod tests {
+
+    /// The Compatibility Standard requires the four prefixed `display` keywords, and they mean
+    /// the standard value they alias. Everything else prefixed is a value this engine does not
+    /// implement, so it is left alone here and the grammar rejects it - it must not be quietly
+    /// rewritten into the unprefixed keyword, which is what a blanket prefix-stripping rule did:
+    /// it turned `animation-name: -webkit-spin` into a reference to a different animation.
+    #[test]
+    fn only_the_compat_display_keywords_are_aliased() {
+        use crate::stylesheet::CssValue;
+        let sheet = crate::Css3::parse_str(
+            "a { display: -webkit-flex } b { display: -webkit-box } c { cursor: -webkit-grab } d { animation-name: -webkit-spin }",
+            gosub_shared::config::ParserConfig { ignore_errors: true, ..Default::default() },
+            gosub_interface::css3::CssOrigin::Author,
+            "",
+        )
+        .expect("parses");
+        let value_of = |rule: usize| sheet.rules[rule].declarations()[0].value.clone();
+        assert_eq!(value_of(0), CssValue::String("flex".into()));
+        assert_eq!(value_of(1), CssValue::String("flex".into()));
+        assert_eq!(value_of(2), CssValue::String("-webkit-grab".into()));
+        assert_eq!(value_of(3), CssValue::String("-webkit-spin".into()));
+    }
     use super::*;
     use crate::media_query::MediaEnvironment;
     use crate::stylesheet::Specificity;

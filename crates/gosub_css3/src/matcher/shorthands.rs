@@ -864,6 +864,13 @@ fn font_shorthands(syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
     })
 }
 
+/// Whether `def` is a shorthand this crate can expand into longhands: one with a shape map, or
+/// one of the few whose longhands are placed by position instead ([`PLACED_BY_POSITION`]).
+#[must_use]
+pub(crate) fn is_expandable_shorthand(def: &PropertyDefinition) -> bool {
+    def.is_shorthand() && (def.shorthands.is_some() || PLACED_BY_POSITION.contains(&def.name()))
+}
+
 /// The longhands `property` ultimately sets, in definition order, with nested shorthands
 /// flattened: `border` gives the twelve `border-<side>-<width|style|color>`. A nested shorthand
 /// the resolver cannot expand (`background-position` under `background`) is kept as a leaf, so
@@ -874,7 +881,7 @@ pub fn longhands_of(property: &str) -> Vec<String> {
         let Some(def) = definitions.find_property(name) else {
             return;
         };
-        let expandable = def.is_shorthand() && def.shorthands.is_some() && depth < 8;
+        let expandable = is_expandable_shorthand(def) && depth < 8;
         if !expandable {
             if depth > 0 {
                 out.push(name.to_string());
@@ -901,7 +908,7 @@ pub fn longhands_of(property: &str) -> Vec<String> {
 pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String, CssValue)>> {
     let definitions = get_css_definitions();
     let def = definitions.find_property(property)?;
-    if !def.is_shorthand() || def.shorthands.is_none() {
+    if !is_expandable_shorthand(def) {
         return None;
     }
     let input = value.to_slice();
@@ -924,6 +931,12 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
         .iter()
         .filter_map(|(name, declared)| declared.last().map(|d| (name.as_str(), &d.value)))
         .collect();
+    // Nothing recorded means this shorthand has neither a shape map nor positional rules, so
+    // the CSSOM keeps the declaration as written rather than reporting that it sets no
+    // longhands at all.
+    if recorded.is_empty() {
+        return None;
+    }
     Some(
         longhands_of(property)
             .into_iter()
@@ -934,6 +947,116 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
             })
             .collect(),
     )
+}
+
+/// The shorthands whose longhands are placed by position rather than by what they accept, and
+/// so are expanded from the spec's own rules in [`expand_by_hand`] instead of from a shape map.
+///
+/// [`CssDefinitions::resolve_shorthands`] stops before its fallbacks for these. Left to them,
+/// `grid-row` picked up a map that handed `grid-row-end` the `/` along with the line after it.
+pub(crate) const PLACED_BY_POSITION: &[&str] = &["grid-row", "grid-column", "grid-area"];
+
+/// The shorthands whose longhands cannot be told apart by grammar shape, and so are expanded
+/// from the spec's own positional rules instead.
+///
+/// [`CssDefinitions::map_by_shape`] pairs a piece of a shorthand's grammar with the longhand
+/// whose whole grammar has the same shape. That works whenever each longhand accepts something
+/// the others do not, which is most of them - but not when several longhands share one grammar
+/// and are told apart by *where* they sit. All four of `grid-area`'s longhands are a
+/// `<grid-line>`; which one a value means is decided by how many values there are and which
+/// side of the slash they are on. No shape can say that, so the map comes back ambiguous and
+/// the shorthand used to expand to nothing at all - leaving `grid-row-start: 3; grid-area: 1 /
+/// 2` with the 3 still in place.
+pub(crate) fn expand_by_hand(name: &str, input: &[CssValue], fix_list: &mut FixList) {
+    match name {
+        "grid-row" => grid_line_pair(input, "grid-row-start", "grid-row-end", fix_list),
+        "grid-column" => grid_line_pair(input, "grid-column-start", "grid-column-end", fix_list),
+        "grid-area" => grid_area(input, fix_list),
+        _ => {}
+    }
+}
+
+/// Whether a `<grid-line>` is a lone `<custom-ident>`, which is what decides an omitted end
+/// line (css-grid-2 §8.3): `grid-row: foo` spans from `foo` to `foo`, `grid-row: 1` from line 1
+/// to `auto`. `auto` and `span` are keywords of the grammar, not names.
+fn is_line_name(part: &[CssValue]) -> bool {
+    matches!(part, [CssValue::String(name)] if !name.eq_ignore_ascii_case("auto") && !name.eq_ignore_ascii_case("span"))
+}
+
+/// Split a value on the `/` that separates the lines of a grid placement shorthand.
+fn split_on_solidus(input: &[CssValue]) -> Vec<&[CssValue]> {
+    let mut parts = Vec::with_capacity(4);
+    let mut rest = input;
+    while let Some(at) = rest
+        .iter()
+        .position(|value| matches!(value, CssValue::String(s) if s == "/"))
+    {
+        parts.push(&rest[..at]);
+        rest = &rest[at + 1..];
+    }
+    parts.push(rest);
+    parts
+}
+
+fn part_value(part: &[CssValue]) -> CssValue {
+    match part {
+        [single] => single.clone(),
+        many => CssValue::List(many.to_vec()),
+    }
+}
+
+/// The line a placement shorthand leaves out: the start line when that is a name, `auto`
+/// otherwise.
+fn omitted_line(start: &[CssValue]) -> CssValue {
+    if is_line_name(start) {
+        part_value(start)
+    } else {
+        CssValue::String("auto".to_string())
+    }
+}
+
+/// `grid-row` and `grid-column`: `<grid-line> [ / <grid-line> ]?` (css-grid-2 §8.3).
+fn grid_line_pair(input: &[CssValue], start_name: &str, end_name: &str, fix_list: &mut FixList) {
+    let parts = split_on_solidus(input);
+    let Some(start) = parts.first().filter(|part| !part.is_empty()) else {
+        return;
+    };
+    fix_list.insert(start_name.to_string(), part_value(start));
+    let end = match parts.get(1).filter(|part| !part.is_empty()) {
+        Some(end) => part_value(end),
+        None => omitted_line(start),
+    };
+    fix_list.insert(end_name.to_string(), end);
+}
+
+/// `grid-area`: `<grid-line> [ / <grid-line> ]{0,3}` (css-grid-2 §8.4). The values are
+/// row-start, column-start, row-end, column-end in that order, and each one left out copies the
+/// line it pairs with when that is a name, or falls back to `auto`.
+fn grid_area(input: &[CssValue], fix_list: &mut FixList) {
+    let parts = split_on_solidus(input);
+    let Some(row_start) = parts.first().filter(|part| !part.is_empty()) else {
+        return;
+    };
+    let column_start = parts.get(1).filter(|part| !part.is_empty());
+    let row_end = parts.get(2).filter(|part| !part.is_empty());
+    let column_end = parts.get(3).filter(|part| !part.is_empty());
+
+    let column_start_value = column_start.map_or_else(|| omitted_line(row_start), |part| part_value(part));
+    let row_end_value = row_end.map_or_else(|| omitted_line(row_start), |part| part_value(part));
+    // The column end pairs with the column start, which may itself have been copied from the
+    // row start - `grid-area: foo` is `foo` on all four sides.
+    let column_end_value = column_end.map_or_else(
+        || match column_start {
+            Some(part) => omitted_line(part),
+            None => omitted_line(row_start),
+        },
+        |part| part_value(part),
+    );
+
+    fix_list.insert("grid-row-start".to_string(), part_value(row_start));
+    fix_list.insert("grid-column-start".to_string(), column_start_value);
+    fix_list.insert("grid-row-end".to_string(), row_end_value);
+    fix_list.insert("grid-column-end".to_string(), column_end_value);
 }
 
 /// Longhands that share a grammar piece, in the order the spec hands the pieces to them: the
@@ -1246,6 +1369,12 @@ impl CssDefinitions {
             return font_shorthands(syntax, name);
         }
 
+        // Placed by position, not by grammar: no map can describe them, and the fallbacks below
+        // produce a wrong one rather than none. `expand_by_hand` handles these.
+        if PLACED_BY_POSITION.contains(&name) {
+            return None;
+        }
+
         let mut shorthands: Vec<Shorthand> = Vec::with_capacity(computed.len());
 
         if let Some(component) = syntax.components.first() {
@@ -1423,6 +1552,7 @@ mod tests {
     use crate::matcher::property_definitions::get_css_definitions;
     use crate::matcher::shorthands::CssValue;
     use crate::matcher::shorthands::FixList;
+    use crate::tokenizer::NumberKind;
 
     macro_rules! str {
         ($s:expr) => {
@@ -1753,12 +1883,170 @@ mod tests {
         );
     }
 
+    /// css-multicol-1 §3.2: `column-rule` is width, style and colour, like `border`. Upstream
+    /// types it with the css-gaps-1 `<gap-rule-list>`, whose shape matches none of its
+    /// longhands, so nothing expanded and `column-rule` never reset them.
+    #[test]
+    fn column_rule_expands_like_border() {
+        let expanded = expand("column-rule", "2px dashed red");
+        assert_eq!(
+            value_of(&expanded, "column-rule-width"),
+            Some(&CssValue::Unit(2.0, "px".to_string()))
+        );
+        assert_eq!(
+            value_of(&expanded, "column-rule-style"),
+            Some(&CssValue::String("dashed".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "column-rule-color").map(ToString::to_string),
+            Some("red".to_string())
+        );
+    }
+
+    /// A `column-rule` that omits a component resets it to its initial value, as every
+    /// shorthand does.
+    #[test]
+    fn column_rule_resets_what_it_omits() {
+        let expanded = expand("column-rule", "dotted");
+        assert_eq!(
+            value_of(&expanded, "column-rule-style"),
+            Some(&CssValue::String("dotted".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "column-rule-width"),
+            Some(&CssValue::String("medium".into()))
+        );
+    }
+
+    /// css-masking-1 §5: `mask` is a layered shorthand like `background`. Its layer grammar
+    /// names the box type `<geometry-box>` while the longhands take `<coord-box>`, two spellings
+    /// of the same set from different drafts, and the shape mapper matched neither.
+    #[test]
+    fn mask_expands_layer_by_layer() {
+        let expanded = expand("mask", "url(a.png) luminance, url(b.png)");
+        // Both layers contribute an image, so the longhand is a two-item comma list.
+        let images = value_of(&expanded, "mask-image").expect("mask-image is set");
+        assert!(
+            matches!(images, CssValue::List(items) if items.iter().filter(|v| matches!(v, CssValue::Comma)).count() == 1),
+            "mask-image should be a two-layer list, got {images:?}"
+        );
+        // The second layer says nothing about the mode, so it takes the initial value.
+        assert_eq!(
+            value_of(&expanded, "mask-mode"),
+            Some(&CssValue::List(vec![
+                CssValue::String("luminance".into()),
+                CssValue::Comma,
+                CssValue::String("match-source".into()),
+            ]))
+        );
+    }
+
+    /// One box keyword in a mask layer sets both origin and clip, the rule `background` already
+    /// follows (css-masking-1 §5.1).
+    #[test]
+    fn a_mask_box_sets_both_origin_and_clip() {
+        let expanded = expand("mask", "url(a.png) padding-box");
+        assert_eq!(
+            value_of(&expanded, "mask-origin"),
+            Some(&CssValue::String("padding-box".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "mask-clip"),
+            Some(&CssValue::String("padding-box".into()))
+        );
+    }
+
+    /// css-grid-2 §8.4: `grid-area`'s four longhands are all `<grid-line>`, so the shape mapper
+    /// cannot tell them apart and the shorthand used to expand to nothing. They are placed by
+    /// position instead.
+    #[test]
+    fn grid_area_places_its_lines_by_position() {
+        let expanded = expand("grid-area", "1 / 2 / 3 / 4");
+        for (name, line) in [
+            ("grid-row-start", 1.0),
+            ("grid-column-start", 2.0),
+            ("grid-row-end", 3.0),
+            ("grid-column-end", 4.0),
+        ] {
+            assert_eq!(
+                value_of(&expanded, name),
+                Some(&CssValue::Number(line, NumberKind::Integer)),
+                "{name}"
+            );
+        }
+    }
+
+    /// An omitted line copies the one it pairs with when that is a name, and is `auto`
+    /// otherwise. `grid-area: foo` names all four sides.
+    #[test]
+    fn an_omitted_grid_line_copies_a_name_but_not_a_number() {
+        let named = expand("grid-area", "foo");
+        for name in ["grid-row-start", "grid-column-start", "grid-row-end", "grid-column-end"] {
+            assert_eq!(value_of(&named, name), Some(&CssValue::String("foo".into())), "{name}");
+        }
+
+        let numbered = expand("grid-area", "1");
+        assert_eq!(
+            value_of(&numbered, "grid-row-start"),
+            Some(&CssValue::Number(1.0, NumberKind::Integer))
+        );
+        for name in ["grid-column-start", "grid-row-end", "grid-column-end"] {
+            assert_eq!(
+                value_of(&numbered, name),
+                Some(&CssValue::String("auto".into())),
+                "{name}"
+            );
+        }
+    }
+
+    /// `grid-row` and `grid-column` are the two-line form of the same rule (css-grid-2 §8.3).
+    #[test]
+    fn grid_row_and_column_place_a_start_and_an_end() {
+        let row = expand("grid-row", "span 2 / 4");
+        assert_eq!(
+            value_of(&row, "grid-row-start"),
+            Some(&CssValue::List(vec![
+                CssValue::String("span".into()),
+                CssValue::Number(2.0, NumberKind::Integer)
+            ]))
+        );
+        assert_eq!(
+            value_of(&row, "grid-row-end"),
+            Some(&CssValue::Number(4.0, NumberKind::Integer))
+        );
+
+        let column = expand("grid-column", "3");
+        assert_eq!(
+            value_of(&column, "grid-column-start"),
+            Some(&CssValue::Number(3.0, NumberKind::Integer))
+        );
+        assert_eq!(
+            value_of(&column, "grid-column-end"),
+            Some(&CssValue::String("auto".into()))
+        );
+    }
+
+    /// The point of expanding at all: a shorthand overrides a longhand that came before it.
+    #[test]
+    fn grid_area_overrides_an_earlier_longhand() {
+        let expanded = expand("grid-area", "1 / 2");
+        assert_eq!(
+            value_of(&expanded, "grid-row-start"),
+            Some(&CssValue::Number(1.0, NumberKind::Integer))
+        );
+        assert_eq!(
+            value_of(&expanded, "grid-row-end"),
+            Some(&CssValue::String("auto".into()))
+        );
+    }
+
     /// A shorthand the resolver has no map for records nothing, and is then left alone rather
-    /// than reset from nothing. `grid-area` is one: its four longhands share one grammar and
-    /// are told apart by position, which the map does not carry.
+    /// than reset from nothing - resetting longhands it never set would erase what the author
+    /// wrote. `grid` is one: its grammar mixes references to other shorthands with keywords
+    /// (`auto-flow`) that set a longhand without having its shape.
     #[test]
     fn a_shorthand_the_resolver_cannot_expand_is_not_reset() {
-        assert!(expand("grid-area", "1 / 2").is_empty());
+        assert!(expand("grid", "auto-flow / 1fr").is_empty());
     }
 
     /// A declaration that fails as a whole must leave nothing behind. The resolver records a

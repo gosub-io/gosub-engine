@@ -646,6 +646,45 @@ impl Ord for DeclarationProperty {
     }
 }
 
+/// The CSS-wide keywords, which are valid for every property and mean something about the
+/// cascade rather than about the property (css-cascade-4 §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CssWide {
+    Inherit,
+    Initial,
+    Unset,
+    Revert,
+}
+
+/// Which CSS-wide keyword `value` is, if any. The parser lowers all of them to a string, so the
+/// dedicated variants are only what a caller that builds values directly produces.
+#[must_use]
+pub fn css_wide_keyword(value: &CssValue) -> Option<CssWide> {
+    match value {
+        CssValue::Inherit => Some(CssWide::Inherit),
+        CssValue::Initial => Some(CssWide::Initial),
+        CssValue::String(keyword) => {
+            for (name, kind) in [
+                ("inherit", CssWide::Inherit),
+                ("initial", CssWide::Initial),
+                ("unset", CssWide::Unset),
+                ("revert", CssWide::Revert),
+                ("revert-layer", CssWide::Revert),
+            ] {
+                if keyword.eq_ignore_ascii_case(name) {
+                    return Some(kind);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn is_revert(value: &CssValue) -> bool {
+    css_wide_keyword(value) == Some(CssWide::Revert)
+}
+
 /// A value entry contains all values for a single property for a single node. It contains the declared values, and
 /// all the computed values.
 #[derive(Debug, Clone)]
@@ -780,11 +819,55 @@ impl CssProperty {
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
-        self.declared.iter().max().map(|v| v.value.clone())
+        let winner = self.declared.iter().max()?;
+        // `revert` is not a value: it says to take the value this property would have had if
+        // the origin the winning declaration came from had said nothing at all (css-cascade-4
+        // §7.2). So drop that whole origin and cascade again. Without layers `revert-layer`
+        // asks the same question, since the layer it rolls back past is the only one there is.
+        if is_revert(&winner.value) {
+            let origin = winner.origin;
+            return self
+                .declared
+                .iter()
+                .filter(|declaration| declaration.origin != origin)
+                .max()
+                .map(|declaration| declaration.value.clone());
+        }
+        Some(winner.value.clone())
     }
 
+    /// The specified value: the cascaded value, or what the property falls back to when nothing
+    /// in the cascade set it (css-cascade-4 §4.3).
+    ///
+    /// This is where `inherit` and `unset` resolve. Both name the inherited value - `unset` only
+    /// for a property that inherits, and the initial value otherwise - and `inherited` holds it
+    /// when a parent map was passed in. A consumer that walks the tree itself sees the keyword
+    /// travel on, and resolves it against the ancestor it has; what must not happen is for it to
+    /// reach a value converter, which reads a keyword it does not know as "nothing declared".
     fn find_specified_value(&self) -> CssValue {
-        self.cascaded.as_ref().unwrap_or(&self.inherited).clone()
+        let Some(cascaded) = self.cascaded.as_ref() else {
+            return self.inherited.clone();
+        };
+        match css_wide_keyword(cascaded) {
+            Some(CssWide::Inherit) => self.inherited.clone(),
+            // `unset` is `inherit` on a property that inherits and `initial` on one that does
+            // not, which is the same thing as having no cascaded value at all.
+            Some(CssWide::Unset) => {
+                if self.property_inherits() {
+                    self.inherited.clone()
+                } else {
+                    CssValue::Initial
+                }
+            }
+            _ => cascaded.clone(),
+        }
+    }
+
+    /// Whether this property inherits by default, which is what `unset` turns on.
+    fn property_inherits(&self) -> bool {
+        get_css_definitions()
+            .find_property(&self.name)
+            .is_some_and(|definition| definition.inherited())
     }
 
     fn find_computed_value(&self) -> CssValue {
