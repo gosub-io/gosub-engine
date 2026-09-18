@@ -2101,9 +2101,12 @@ impl TaffyLayouter {
                 };
 
                 // `letter-spacing` arrives already resolved to px (em resolved against font-size in
-                // `get_style`); `normal` (a keyword) means no extra spacing.
+                // `get_style`); `normal` (a keyword) means no extra spacing. A percentage stays a
+                // percentage through the computed stage (css-text-4 §8.2: it is a used-value
+                // resolution) and refers to the font size, so it is settled here.
                 let letter_spacing = match doc.get_style(dom_node.node_id, &StyleProperty::LetterSpacing) {
-                    Value::Unit(px, Unit::Px) => px as f64,
+                    Value::Unit(px, Unit::Px) => f64::from(px),
+                    Value::Unit(pct, Unit::Percent) => font_size * f64::from(pct) / 100.0,
                     _ => 0.0,
                 };
 

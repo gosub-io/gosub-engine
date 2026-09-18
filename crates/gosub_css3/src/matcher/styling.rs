@@ -451,7 +451,11 @@ fn match_selector_part<C: HasDocument>(
 
                 let mut ancestor = doc.parent(current_id);
                 while let Some(id) = ancestor {
-                    if match_selector_parts::<C>(doc, id, rest, pseudo, scope) {
+                    // Only an element can match a selector; the document node at the top of
+                    // the chain must not satisfy `*`.
+                    if doc.node_type(id) == NodeType::ElementNode
+                        && match_selector_parts::<C>(doc, id, rest, pseudo, scope)
+                    {
                         return true;
                     }
                     ancestor = doc.parent(id);
@@ -519,6 +523,11 @@ fn match_selector_part<C: HasDocument>(
                 for child_id in children {
                     if child_id == current_id {
                         break;
+                    }
+                    // Text and comment siblings are not candidates: `*` matches an element, and
+                    // `* ~ .target` must not be satisfied by the whitespace before `.target`.
+                    if doc.node_type(child_id) != NodeType::ElementNode {
+                        continue;
                     }
 
                     if match_selector_parts::<C>(doc, child_id, rest, pseudo, scope) {
@@ -716,9 +725,11 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
             if let Some(reduced) = calc::evaluate_call(name, &args, &units, true) {
                 return reduced;
             }
-            // `resolve_math` still covers the units the evaluator leaves symbolic, since it
-            // reduces everything through `unit_to_px` rather than comparing like with like.
-            crate::functions::math::resolve_math(name, &args).unwrap_or(CssValue::Function(name.clone(), args))
+            // What the evaluator cannot reduce here has a unit nothing can resolve yet - `ch`,
+            // `lh`, a container unit - or a percentage. It stays as written. It used to fall to
+            // `resolve_math`, which reduces through `unit_to_px`, and that treats an unknown
+            // unit as px: `min(1ch, 2px)` came out as `1px`.
+            CssValue::Function(name.clone(), args)
         }
         other => other.clone(),
     }
@@ -838,6 +849,19 @@ impl CssProperty {
     /// (`opacity` and its kin) the clamp is meant to apply to every value - `opacity: 1.5`
     /// computes to `1`.
     fn clamp_to_range(&self, computed: CssValue) -> CssValue {
+        let defs = get_css_definitions();
+        let Some(def) = defs.find_property(&self.name) else {
+            return computed;
+        };
+        // A property whose computed value is a number clipped to [0,1] takes a percentage as
+        // that fraction: `opacity: 50%` computes to `0.5` (css-color-4 §3.2). Converted before
+        // the range is applied, or the `50` would be clamped against `[0,1]` and come out `1%`.
+        let computed = match computed {
+            CssValue::Percentage(pct) if def.percentage_is_number() => {
+                CssValue::Number(pct / 100.0, NumberKind::Number)
+            }
+            other => other,
+        };
         // Only a single number has a magnitude to clamp. A list is several values, and the range
         // belongs to whichever grammar arm each one matched - which is not recorded.
         let magnitude = match &computed {
@@ -846,10 +870,6 @@ impl CssProperty {
             _ => return computed,
         };
 
-        let defs = get_css_definitions();
-        let Some(def) = defs.find_property(&self.name) else {
-            return computed;
-        };
         // A shorthand's own value is never what gets computed - it is expanded into longhands
         // first - and the range it reports is whatever range its longhands' grammars happened to
         // mention, which belongs to those longhands rather than to the shorthand.
@@ -1243,6 +1263,25 @@ mod tests {
     }
 
     /// Compute one declared value for `name`, the way the cascade would.
+    /// css-color-4 §3.2: a percentage `opacity` is the same fraction as the number. The clamp
+    /// used to read the `50` of `50%` against `[0,1]` and answer `1%`.
+    #[test]
+    fn a_percentage_opacity_computes_to_the_fraction() {
+        assert_eq!(
+            computed_for("opacity", CssValue::Percentage(50.0)),
+            CssValue::Number(0.5, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Percentage(150.0)),
+            CssValue::Number(1.0, NumberKind::Number)
+        );
+        // A percentage on a property whose range is in its own units is left as one.
+        assert_eq!(
+            computed_for("width", CssValue::Percentage(50.0)),
+            CssValue::Percentage(50.0)
+        );
+    }
+
     fn computed_for(name: &str, value: CssValue) -> CssValue {
         let mut prop = CssProperty::new(name);
         prop.declared.push(DeclarationProperty {

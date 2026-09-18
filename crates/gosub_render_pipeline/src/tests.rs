@@ -189,6 +189,40 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A sibling combinator walks elements only: `* ~ .target` is not satisfied by the
+    /// whitespace text node before `.target`, and `* .target` not by the document node.
+    #[test]
+    fn combinators_skip_non_element_nodes() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = "<html><head><style>* ~ .target { width: 200px; display: block }</style></head>\
+                    <body><div>\n  <p class=\"target\">x</p></div></body></html>";
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target")
+            .or_else(|| {
+                fn by_class(
+                    doc: &DocumentImpl<Config>,
+                    node: gosub_shared::node::NodeId,
+                ) -> Option<gosub_shared::node::NodeId> {
+                    if doc.attributes(node).and_then(|a| a.get("class").cloned()).as_deref() == Some("target") {
+                        return Some(node);
+                    }
+                    doc.children(node).iter().find_map(|&c| by_class(doc, c))
+                }
+                by_class(&adapter.doc, root)
+            })
+            .expect("p.target");
+        let width = adapter.get_style(target, &StyleProperty::Width);
+        assert!(
+            !matches!(width, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "no element precedes .target, so `* ~ .target` must not match, got {width:?}"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

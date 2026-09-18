@@ -686,6 +686,7 @@ PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 * -4)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(2 / 4)
 PASS css/css-values/calc-numbers.html :: testing opacity: calc(2 / 4) * 1px
+PASS css/css-values/calc-numbers.html :: testing opacity: calc(90%)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(1 + 1px)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(1 + 100%)
 PASS css/css-values/calc-numbers.html :: testing tab-size: calc(100%)

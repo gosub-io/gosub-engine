@@ -310,6 +310,16 @@ impl PropertyDefinition {
         self.computed.len() > 1
     }
 
+    /// Whether a percentage specified for this property computes to a plain number: the
+    /// properties whose computed value is "the specified number, clamped to [0,1]" (`opacity`
+    /// and its kin) take `50%` as `0.5`.
+    #[must_use]
+    pub fn percentage_is_number(&self) -> bool {
+        self.computed
+            .iter()
+            .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
+    }
+
     /// The range a computed value for this property has to lie in, if it has one.
     ///
     /// css-values-4 §10.12: a math function is *not* range-checked when it is parsed, because

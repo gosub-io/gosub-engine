@@ -66,7 +66,7 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 2] = [
     // them. Without them `background-image: conic-gradient(...)` matches no
     // arm of `<image>` and the declaration is dropped.
     (
-        "gradient",
+        "<gradient>",
         "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()>          | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>",
     ),
 ];

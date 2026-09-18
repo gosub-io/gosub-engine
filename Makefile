@@ -124,8 +124,13 @@ wpt-css: ## Check the CSS parser component against tests/wpt/expectations-css.tx
 # its `<property>-valid`, `-invalid`, `-shorthand` and `-computed` tests - the CSS counterpart of
 # the html5lib tests. Needs the modules listed in tests/wpt/expectations-css-parsing.txt in the
 # checkout; the two named here are the check that it was widened at all.
+# Every directory the parsing baseline reads, derived from its FILE records: a checkout that
+# has some of them passes a guard on a fixed pair and then turns the missing ones into ERROR
+# records - and regenerating from that would drop their passes from the baseline.
+CSS_PARSING_DIRS := $(shell grep '^FILE ' tests/wpt/expectations-css-parsing.txt | sed 's/^FILE //' | xargs -n1 dirname | sort -u)
+
 wpt-css-parsing: ## Check property parsing (css/*/parsing) against tests/wpt/expectations-css-parsing.txt
-	$(call require_wpt,css/css-backgrounds/parsing css/css-transitions/parsing css/support)
+	$(call require_wpt,$(CSS_PARSING_DIRS) css/support)
 	source test-utils.sh ;\
 	run_section "WPT CSS parsing" cargo run --release -p gosub-wpt -- \
 		"$(WPT_ROOT)" --all --expect tests/wpt/expectations-css-parsing.txt
@@ -135,7 +140,7 @@ wpt-shortlist: ## List the WPT suites worth picking up (DIR=... to pick the subt
 	cargo run --release --quiet -p gosub-wpt -- "$(WPT_ROOT)" $(or $(DIR),css/css-values) --shortlist
 
 wpt-update: ## Regenerate the WPT baselines after a fix, for committing alongside it
-	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support css/css-backgrounds/parsing)
+	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support $(CSS_PARSING_DIRS))
 	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
 		--tests-from <(grep '^FILE ' tests/wpt/expectations.txt | sed 's/^FILE //') \
 		--write-expectations > tests/wpt/expectations.txt.new

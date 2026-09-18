@@ -1,5 +1,5 @@
 use crate::node::{Node, NodeType};
-use crate::tokenizer::{Number, TokenType};
+use crate::tokenizer::{Number, NumberKind, TokenType};
 use crate::Css3;
 use gosub_shared::errors::{CssError, CssResult};
 
@@ -84,7 +84,9 @@ impl Css3<'_> {
                 self.consume_delim('+')?;
                 false
             }
-            TokenType::Number(_, _) => false,
+            // An+B takes integers only: `1.0` and `1e0` are numbers, not integers, and
+            // `:nth-child(1.0)` is invalid.
+            TokenType::Number(_, NumberKind::Integer) => false,
             _ => {
                 return Err(CssError::with_location(
                     format!(
@@ -185,7 +187,7 @@ impl Css3<'_> {
 
         let t = self.tokenizer.consume();
         match t.token_type {
-            TokenType::Number(_, _) => {
+            TokenType::Number(_, NumberKind::Integer) => {
                 self.tokenizer.reconsume(t);
                 b = self.consume_any_number()?.to_string();
             }
@@ -243,6 +245,17 @@ mod test {
 
             assert_eq!(result.node_type, $expected);
         };
+    }
+
+    /// An+B takes integers only (css-syntax-3 §9): `1.0` and `1e0` are numbers, so
+    /// `:nth-child(1.0)` and `:nth-child(2n+1.5)` are invalid.
+    #[test]
+    fn anplusb_rejects_non_integer_numbers() {
+        for input in ["1.0", "1e0", "2n+1.5"] {
+            let mut stream = ByteStream::from_str(input, Encoding::UTF8);
+            let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
+            assert!(parser.parse_anplusb().is_err(), "{input} must not parse as An+B");
+        }
     }
 
     #[test]
