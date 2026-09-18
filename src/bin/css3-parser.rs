@@ -188,10 +188,10 @@ fn print_stylesheet(sheet: &CssStylesheet) {
     println!("[Stylesheet ({} rules)]", sheet.rules.len());
     for rule in &sheet.rules {
         println!("  [Rule]");
-        let selector_count: usize = rule.selectors.iter().map(|s| s.parts.len()).sum();
+        let selector_count: usize = rule.selectors.iter().map(|s| s.parts().len()).sum();
         println!("    [SelectorList ({selector_count})]");
         for selector in &rule.selectors {
-            for parts in &selector.parts {
+            for parts in selector.parts() {
                 println!("      [Selector]");
                 for part in parts {
                     match part {

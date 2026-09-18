@@ -314,7 +314,7 @@ impl CssValue {
                 value.insert(0, '#');
                 Ok(CssValue::Color(RgbColor::from(value.as_str())))
             }
-            crate::node::NodeType::Operator(_) => Ok(CssValue::None),
+            crate::node::NodeType::Operator { .. } => Ok(CssValue::None),
             crate::node::NodeType::Calc { .. } => {
                 Ok(CssValue::Function("calc".to_string(), vec![]))
             }

@@ -76,7 +76,8 @@ jobs:
         run: |
           git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
           cd "$RUNNER_TEMP/wpt"
-          git sparse-checkout set resources common dom/nodes dom/events html/dom
+          # html/resources holds common.js, which html/dom/elements/name-content-attribute-and-property.html loads.
+          git sparse-checkout set resources common dom/nodes dom/events html/dom html/resources
           git checkout "$(cat "$GITHUB_WORKSPACE/tests/wpt/wpt-commit.txt")"
       - name: Run the WPT suites
         run: cargo nextest run --locked --release -p gosub-wpt --test wpt_conformance --no-capture

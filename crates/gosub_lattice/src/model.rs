@@ -15,7 +15,7 @@ pub struct TableModel<N> {
     pub sizing: TableSizing,
     pub border_collapse: BorderCollapse,
     /// `border-spacing` horizontal and vertical values in pixels.
-    pub border_spacing: (f32, f32),
+    pub border_spacing: (f64, f64),
 }
 
 pub struct ColGroup<N> {
@@ -89,14 +89,20 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             }
             // Bare row directly inside the table -> anonymous tbody
             TableRole::Row => {
-                let group = anon_body_group(&mut model.row_groups);
-                group.rows.push(build_row(tree, child));
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    group.rows.push(build_row(tree, child));
+                }
             }
             // Bare cell directly inside the table -> anonymous row inside anonymous tbody
             TableRole::Cell => {
-                let group = anon_body_group(&mut model.row_groups);
-                let row = anon_row(&mut group.rows);
-                row.cells.push(build_source_cell(tree, child));
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    ensure_anon_row(&mut group.rows);
+                    if let Some(row) = group.rows.last_mut() {
+                        row.cells.push(build_source_cell(tree, child));
+                    }
+                }
             }
             // Content that is not part of the table structure: CSS 2.1 §17.2.1 wraps each
             // consecutive run of it in one anonymous cell, inside an anonymous row and body
@@ -113,16 +119,20 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             // box. Representing the whole run needs either a synthetic node id, which the
             // `TableTree` contract has no way to mint, or a cell that carries several nodes.
             TableRole::Other => {
-                let group = anon_body_group(&mut model.row_groups);
-                let row = anon_row(&mut group.rows);
-                if in_anonymous_run {
-                    continue;
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    ensure_anon_row(&mut group.rows);
+                    if in_anonymous_run {
+                        continue;
+                    }
+                    if let Some(row) = group.rows.last_mut() {
+                        row.cells.push(SourceCell {
+                            node: child,
+                            colspan: 1,
+                            rowspan: 1,
+                        });
+                    }
                 }
-                row.cells.push(SourceCell {
-                    node: child,
-                    colspan: 1,
-                    rowspan: 1,
-                });
                 in_anonymous_run = true;
                 continue;
             }
@@ -157,8 +167,10 @@ fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeI
             TableRole::Row => group.rows.push(build_row(tree, child)),
             // Cell directly inside row group -> anonymous row
             TableRole::Cell => {
-                let row = anon_row(&mut group.rows);
-                row.cells.push(build_source_cell(tree, child));
+                ensure_anon_row(&mut group.rows);
+                if let Some(row) = group.rows.last_mut() {
+                    row.cells.push(build_source_cell(tree, child));
+                }
             }
             _ => {}
         }
@@ -186,29 +198,28 @@ fn build_source_cell<T: TableTree>(tree: &T, node: T::NodeId) -> SourceCell<T::N
     SourceCell { node, colspan, rowspan }
 }
 
-/// Returns the last anonymous body group, creating one if needed.
-fn anon_body_group<N>(groups: &mut Vec<RowGroup<N>>) -> &mut RowGroup<N> {
-    if groups.last().map(|g| g.node.is_none()).unwrap_or(false) {
-        groups.last_mut().unwrap_or_else(|| unreachable!())
-    } else {
+/// Makes the last group an anonymous body group, starting one if it is not.
+///
+/// These used to *return* the group, which meant fetching it back out of the vector after
+/// pushing it and answering the `Option` that comes back with an `unreachable!()` - four of
+/// them across two functions. Ensuring and then reading are separate steps now, so the caller
+/// does the read it was going to do anyway and there is nothing left to assert.
+fn ensure_anon_body_group<N>(groups: &mut Vec<RowGroup<N>>) {
+    if !groups.last().is_some_and(|group| group.node.is_none()) {
         groups.push(RowGroup {
             node: None,
             rows: Vec::new(),
         });
-        groups.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
-/// Returns the last anonymous row in `rows`, creating one if needed.
-fn anon_row<N>(rows: &mut Vec<TableRow<N>>) -> &mut TableRow<N> {
-    if rows.last().map(|r| r.node.is_none()).unwrap_or(false) {
-        rows.last_mut().unwrap_or_else(|| unreachable!())
-    } else {
+/// Makes the last row in `rows` an anonymous row, starting one if it is not.
+fn ensure_anon_row<N>(rows: &mut Vec<TableRow<N>>) {
+    if !rows.last().is_some_and(|row| row.node.is_none()) {
         rows.push(TableRow {
             node: None,
             cells: Vec::new(),
         });
-        rows.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
@@ -228,7 +239,7 @@ fn parse_border_collapse<T: TableTree>(tree: &T, node: T::NodeId) -> BorderColla
     }
 }
 
-fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f32, f32) {
+fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f64, f64) {
     let x = tree.css_length(node, CssProp::BorderSpacingX).px_or(2.0);
     let y = tree.css_length(node, CssProp::BorderSpacingY).px_or(2.0);
     (x, y)

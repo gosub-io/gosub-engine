@@ -20,9 +20,6 @@ mod functions;
 pub mod imports;
 pub mod matcher;
 pub mod media_query;
-// The as_* accessors panic by contract when called on the wrong node type;
-// callers are expected to check the matching is_* predicate first.
-#[allow(clippy::panic)]
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
@@ -138,6 +135,26 @@ impl<'stream> Css3<'stream> {
     }
 }
 
+/// Parse the body of a `calc()` from text into the values it is made of.
+///
+/// This is the one way to get from CSS text to a math expression, and it goes through the real
+/// tokenizer and the real `calc()` token parser - there is no second lexer to disagree with them.
+/// Tests use it so they can be written against the text an author types while still exercising
+/// the path a stylesheet takes.
+///
+/// `None` when the body holds something that is not a math token at all.
+#[cfg(test)]
+pub(crate) fn parse_calc_body(text: &str) -> Option<Vec<stylesheet::CssValue>> {
+    let mut stream = ByteStream::from_str(text, Encoding::UTF8);
+    let mut parser = Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "calc");
+    let tokens = parser.parse_calc_tokens().ok()?;
+
+    tokens
+        .into_iter()
+        .map(|token| stylesheet::CssValue::parse_ast_node(token).ok())
+        .collect()
+}
+
 /// Loads the default user agent stylesheet
 #[must_use]
 pub fn load_default_useragent_stylesheet() -> CssStylesheet {
@@ -151,8 +168,14 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     };
 
     let css_data = include_str!("../resources/useragent.css");
-    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by every parser test
-    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
+    // A compiled-in sheet that will not parse is a bug in this repository, not in any page - but
+    // it used to be an `expect`, so that bug reached a user as a browser that would not start. An
+    // empty user-agent sheet renders every page unstyled, which is bad and visible and
+    // recoverable; the error says why.
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).unwrap_or_else(|e| {
+        log::error!("Could not parse the built-in user-agent stylesheet, continuing without it: {e:?}");
+        CssStylesheet::empty(CssOrigin::UserAgent, url)
+    })
 }
 
 /// The rules the HTML spec adds for documents in quirks mode; attached after the default sheet.

@@ -79,7 +79,7 @@ impl Css3<'_> {
                 self.tokenizer.reconsume(t);
                 self.parse_anplusb()?
             }
-            TokenType::Number(value) => Node::new(NodeType::Number { value }, loc),
+            TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, loc),
             _ => {
                 return Err(CssError::with_location(
                     format!("Unexpected token {:?}", self.tokenizer.lookahead(0)).as_str(),

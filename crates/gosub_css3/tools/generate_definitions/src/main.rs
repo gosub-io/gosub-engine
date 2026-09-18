@@ -52,7 +52,7 @@ const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
 /// Pins value definitions that multiple specs define differently, so the
 /// choice is explicit instead of an artifact of decode order (first spec
 /// wins).
-const VALUE_SYNTAX_PATCHES: [(&str, &str); 1] = [
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 2] = [
     // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
     // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
     // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
@@ -60,6 +60,14 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 1] = [
     (
         "rect()",
         "rect( [ <length-percentage> | auto ]{4} [ round <'border-radius'> ]? )",
+    ),
+    // Upstream `<gradient>` stops at the css-images-3 set and omits the conic
+    // forms, though both are defined in the same data and css-images-4 lists
+    // them. Without them `background-image: conic-gradient(...)` matches no
+    // arm of `<image>` and the declaration is dropped.
+    (
+        "<gradient>",
+        "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()>          | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>",
     ),
 ];
 

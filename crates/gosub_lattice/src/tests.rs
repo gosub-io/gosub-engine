@@ -14,7 +14,7 @@ mod layout_tests {
     use crate::mock::{cell, MockTable};
     use crate::types::TableRole;
 
-    fn approx(a: f32, b: f32) -> bool {
+    fn approx(a: f64, b: f64) -> bool {
         (a - b).abs() < 0.01
     }
 
@@ -839,7 +839,7 @@ mod layout_tests {
             inner: MockTree,
             inner_root: u32,
             host_cell: u32,
-            inner_size: Option<(f32, f32)>,
+            inner_size: Option<(f64, f64)>,
         }
 
         impl TableTree for NestedTree {
@@ -860,11 +860,11 @@ mod layout_tests {
             fn set_layout(&mut self, id: u32, layout: CellLayout) {
                 self.outer.set_layout(id, layout);
             }
-            fn cell_intrinsic_widths(&mut self, id: u32) -> (f32, f32) {
+            fn cell_intrinsic_widths(&mut self, id: u32) -> (f64, f64) {
                 self.outer.cell_intrinsic_widths(id)
             }
 
-            fn layout_cell(&mut self, id: u32, available_width: f32) -> f32 {
+            fn layout_cell(&mut self, id: u32, available_width: f64) -> f64 {
                 if id == self.host_cell {
                     let (w, h) = compute_table_layout(&mut self.inner, self.inner_root, available_width, None)
                         .expect("inner layout");

@@ -50,6 +50,9 @@ mod select_ui;
 mod text_ui;
 
 #[cfg(test)]
+// Same waiver as `mod tests` at the bottom of this file: `clippy.toml` exempts the other panics in
+// tests, but there is no `allow-unreachable-in-tests` to match.
+#[allow(clippy::unreachable)]
 mod forms_tests;
 
 /// A picker input the user activated: the embedder should open its picker over it.
@@ -2356,6 +2359,10 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 }
 
 #[cfg(test)]
+// `clippy.toml` exempts `unwrap`, `expect` and `panic` in tests centrally, but clippy has no
+// `allow-unreachable-in-tests` to match, so the one lint that cannot be waived there is waived
+// here. Test code asserting an invariant it set up itself is the case those options exist for.
+#[allow(clippy::unreachable)]
 mod tests {
     use super::parse_clear_color;
 

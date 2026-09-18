@@ -9,8 +9,11 @@ pub mod document;
 pub mod errors;
 pub mod node;
 pub mod parser;
-// Test-fixture harness for the WHATWG html5lib test suites; panicking on a
-// malformed fixture is the desired behavior there, as in any test code.
+// Test-fixture harness for the WHATWG html5lib test suites, and the one exemption in this crate
+// that is meant to stay: a harness that swallows a malformed fixture makes tests pass for the
+// wrong reason, so panicking on one is the behaviour we want. Every consumer is a test, a bench
+// or a `#[cfg(test)]` module - nothing on a parsing path reaches it - though only this comment
+// says so. Gating the module on a `testing` feature would have the compiler say it instead.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod testing;
 pub mod tokenizer;

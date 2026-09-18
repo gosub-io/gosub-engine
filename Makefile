@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples wpt wpt-css wpt-shortlist wpt-update
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help examples wpt wpt-css wpt-css-parsing wpt-shortlist wpt-update
 
 all: help
 
@@ -109,7 +109,7 @@ endef
 # dom/nodes is not read directly: three gate suites pull support scripts out of it and become
 # ERROR records without it. See docs/wpt.md.
 wpt: ## Check the WPT gate against tests/wpt/expectations.txt (needs a checkout)
-	$(call require_wpt,dom/events html/dom dom/nodes)
+	$(call require_wpt,dom/events html/dom dom/nodes html/resources)
 	source test-utils.sh ;\
 	run_section "WPT gate" cargo run --release -p gosub-wpt -- \
 		"$(WPT_ROOT)" --all --expect tests/wpt/expectations.txt
@@ -120,12 +120,27 @@ wpt-css: ## Check the CSS parser component against tests/wpt/expectations-css.tx
 	run_section "WPT CSS component" cargo run --release -p gosub-wpt -- \
 		"$(WPT_ROOT)" --all --expect tests/wpt/expectations-css.txt
 
+# The property parsing corpus: every css/<module>/parsing directory, which is where WPT keeps
+# its `<property>-valid`, `-invalid`, `-shorthand` and `-computed` tests - the CSS counterpart of
+# the html5lib tests. Needs the modules listed in tests/wpt/expectations-css-parsing.txt in the
+# checkout; the two named here are the check that it was widened at all.
+# Every directory the parsing baseline reads, derived from its FILE records: a checkout that
+# has some of them passes a guard on a fixed pair and then turns the missing ones into ERROR
+# records - and regenerating from that would drop their passes from the baseline.
+CSS_PARSING_DIRS := $(shell grep '^FILE ' tests/wpt/expectations-css-parsing.txt | sed 's/^FILE //' | xargs -n1 dirname | sort -u)
+
+wpt-css-parsing: ## Check property parsing (css/*/parsing) against tests/wpt/expectations-css-parsing.txt
+	$(call require_wpt,$(CSS_PARSING_DIRS) css/support)
+	source test-utils.sh ;\
+	run_section "WPT CSS parsing" cargo run --release -p gosub-wpt -- \
+		"$(WPT_ROOT)" --all --expect tests/wpt/expectations-css-parsing.txt
+
 wpt-shortlist: ## List the WPT suites worth picking up (DIR=... to pick the subtree)
 	$(call require_wpt,$(or $(DIR),css/css-values))
 	cargo run --release --quiet -p gosub-wpt -- "$(WPT_ROOT)" $(or $(DIR),css/css-values) --shortlist
 
-wpt-update: ## Regenerate both WPT baselines after a fix, for committing alongside it
-	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support)
+wpt-update: ## Regenerate the WPT baselines after a fix, for committing alongside it
+	$(call require_wpt,dom/events html/dom dom/nodes html/resources css/css-syntax css/css-values css/support $(CSS_PARSING_DIRS))
 	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
 		--tests-from <(grep '^FILE ' tests/wpt/expectations.txt | sed 's/^FILE //') \
 		--write-expectations > tests/wpt/expectations.txt.new
@@ -133,6 +148,10 @@ wpt-update: ## Regenerate both WPT baselines after a fix, for committing alongsi
 	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" css/css-syntax css/css-values \
 		--write-expectations > tests/wpt/expectations-css.txt.new
 	mv tests/wpt/expectations-css.txt.new tests/wpt/expectations-css.txt
+	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
+		--tests-from <(grep '^FILE ' tests/wpt/expectations-css-parsing.txt | sed 's/^FILE //') \
+		--write-expectations > tests/wpt/expectations-css-parsing.txt.new
+	mv tests/wpt/expectations-css-parsing.txt.new tests/wpt/expectations-css-parsing.txt
 	echo "Baselines regenerated. Review the diff and commit it with the fix."
 
 fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)

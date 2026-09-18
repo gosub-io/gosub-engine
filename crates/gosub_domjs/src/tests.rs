@@ -296,6 +296,101 @@ fn an_idl_name_reaches_its_css_property() {
 }
 
 #[test]
+fn a_declaration_reads_back_serialized_not_as_it_was_written() {
+    // The block used to store the author's text verbatim, so every round-trip looked right and
+    // none of them meant anything - `1PX` came back `1PX`. CSSOM defines `getPropertyValue` as
+    // serializing the *value*, so the normalisation happens when the declaration is accepted.
+    let cases = [
+        // A hex colour is not a serialization; the legacy `rgb()` form is.
+        ("color", "#ff0000", "rgb(255, 0, 0)"),
+        // A named colour is a keyword, and stays one.
+        ("color", "red", "red"),
+        ("width", "1PX", "1px"),
+        // `calc()` is simplified as far as it goes without an element to measure against.
+        ("width", "calc(calc(100px))", "calc(100px)"),
+        ("width", "calc(1in + 1px)", "calc(97px)"),
+        // A percentage has no containing block here, so two terms survive - in the order
+        // css-values-4 asks for, percentage before dimension.
+        ("width", "calc(50px + 40%)", "calc(40% + 50px)"),
+    ];
+
+    for (property, input, expected) in cases {
+        let value = eval(
+            "<div id=target></div>",
+            &format!(
+                "const el = document.getElementById('target'); \
+                 el.style.setProperty('{property}', '{input}'); \
+                 el.style.getPropertyValue('{property}');"
+            ),
+        );
+        assert_eq!(value, expected, "{property}: {input}");
+    }
+}
+
+#[test]
+fn a_computed_length_is_in_canonical_units() {
+    // A computed value is canonical: `12cm` and a `round()` that arrives at the same length have
+    // to come out the same, and they did not while only `em` and `rem` were converted here.
+    let cases = [
+        ("width", "12cm", "453.5433px"),
+        ("width", "round(10cm, 6cm)", "453.5433px"),
+        ("width", "1in", "96px"),
+        ("width", "12pt", "16px"),
+        // Units with nothing to resolve against travel on as written.
+        ("width", "10ch", "10ch"),
+    ];
+
+    for (property, input, expected) in cases {
+        let value = eval(
+            "<div id=target></div>",
+            &format!(
+                "const el = document.getElementById('target'); \
+                 el.style.setProperty('{property}', '{input}'); \
+                 getComputedStyle(el)['{property}'];"
+            ),
+        );
+        assert_eq!(value, expected, "{property}: {input}");
+    }
+}
+
+#[test]
+fn a_computed_value_sees_the_style_attribute() {
+    // The cascade read only custom properties out of the `style` attribute - the render pipeline
+    // layered the ordinary declarations on afterwards, outside the cascade - so `getComputedStyle`
+    // could not see a single thing set through `element.style`. That is what wpt's
+    // `test_computed_value` does before every assertion it makes.
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.width = 'calc(2em + 10px)'; \
+         el.style.fontSize = '20px'; \
+         getComputedStyle(el).width;",
+    );
+    assert_eq!(value, "50px");
+}
+
+#[test]
+fn the_style_attribute_outranks_a_stylesheet_rule() {
+    let value = eval(
+        "<style>#target { color: red }</style><div id=target style='color: blue'></div>",
+        "getComputedStyle(document.getElementById('target')).color;",
+    );
+    assert_eq!(value, "blue");
+}
+
+#[test]
+fn an_inline_shorthand_reaches_the_computed_longhands() {
+    // Inline declarations go through the same path as a stylesheet rule, so a shorthand written
+    // in the attribute expands the way one in a rule does.
+    let value = eval(
+        "<div id=target style='margin: 1px 2px'></div>",
+        "const s = getComputedStyle(document.getElementById('target')); \
+         s.marginTop + '|' + s.marginRight + '|' + s.marginBottom + '|' + s.marginLeft;",
+    );
+    assert_eq!(value, "1px|2px|1px|2px");
+}
+
+#[test]
 fn assigning_the_empty_string_removes_the_declaration() {
     // wpt's helpers clear a property this way before setting the value under test, so an
     // assignment that did nothing here would let the previous value be read back as a pass.
@@ -322,9 +417,48 @@ fn the_style_attribute_from_the_markup_is_read_back() {
 fn a_semicolon_inside_a_value_does_not_split_the_block() {
     let value = eval(
         "<div id=target style='background: url(a;b); width: 10px'></div>",
-        "String(document.getElementById('target').style.length)",
+        "const el = document.getElementById('target'); \
+         el.style.getPropertyValue('background-image') + '|' + el.style.getPropertyValue('width');",
     );
-    assert_eq!(value, "2");
+    assert_eq!(value, "url(\"a;b\")|10px");
+}
+
+/// `display` serializes in its short form, specified and computed alike, and an absolutely
+/// positioned element computes to the block-level form (css-display-3 §2.7).
+#[test]
+fn display_reads_back_in_its_short_form_and_blockifies_when_positioned() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.display = 'inline flow-root'; \
+         const a = el.style.display + '|' + getComputedStyle(el).display; \
+         el.style.position = 'absolute'; \
+         const b = getComputedStyle(el).display; \
+         el.style.display = 'flow list-item block'; \
+         a + '#' + b + '#' + el.style.display;",
+    );
+    assert_eq!(value, "inline-block|inline-block#block#list-item");
+}
+
+/// CSSOM §6.1: a block holds longhands. A shorthand is stored as the longhands it sets - so
+/// `length` counts them, a longhand reads back, and removing one keeps the others - while the
+/// shorthand itself still reads back as written for as long as it is whole.
+#[test]
+fn a_shorthand_is_stored_as_its_longhands() {
+    let value = eval(
+        "<div id=target></div>",
+        "const el = document.getElementById('target'); \
+         el.style.gap = '10px 20px'; \
+         const a = el.style.length + '|' + el.style.item(0) + '|' + el.style.getPropertyValue('column-gap') + '|' + el.style.gap; \
+         el.style.rowGap = ''; \
+         const b = el.style.length + '|' + el.style.getPropertyValue('column-gap') + '|' + el.style.gap; \
+         el.style.border = '1px solid red'; \
+         el.style.borderTopColor = 'blue'; \
+         const c = el.style.getPropertyValue('border-top-color') + '|' + el.style.getPropertyValue('border-left-color') + '|' + el.style.getPropertyValue('border-top-width') + '|' + el.style.border; \
+         el.style.border = ''; \
+         a + '#' + b + '#' + c + '#' + el.style.length;",
+    );
+    assert_eq!(value, "2|row-gap|20px|10px 20px#1|20px|#blue|red|1px|#1");
 }
 
 #[test]

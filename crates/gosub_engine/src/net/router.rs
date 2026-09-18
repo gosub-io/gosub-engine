@@ -78,7 +78,13 @@ fn json_scalar_html(v: &serde_json::Value) -> String {
         serde_json::Value::String(s) => {
             format!("<span style=\"color:{JSON_STR_COLOR}\">\"{}\"</span>", html_escape(s))
         }
-        _ => unreachable!("containers handled by json_lines"),
+        // Arrays and objects are rendered by `json_lines`, which never hands one to this
+        // function. Showing the value rather than asserting that means a devtools panel
+        // shows something odd instead of taking the process with it.
+        other => format!(
+            "<span style=\"color:{JSON_LIT_COLOR}\">{}</span>",
+            html_escape(&other.to_string())
+        ),
     }
 }
 

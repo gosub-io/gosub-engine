@@ -12,9 +12,11 @@ use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
+use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
 use crate::system::Css3System;
+use crate::tokenizer::NumberKind;
 
 // Matches a complete selector (all parts) against the given node(id).
 //
@@ -33,7 +35,7 @@ pub(crate) fn match_selector<C: HasDocument>(
 ) -> (bool, Specificity) {
     // A selector list (`a, b`) matches with the highest specificity of its matching parts.
     let mut best: Option<Specificity> = None;
-    for part in &selector.parts {
+    for (part, specificity) in selector.complex() {
         // When matching a pseudo-element, the selector must explicitly target it.
         if let Some(target) = pseudo {
             if !part
@@ -52,7 +54,6 @@ pub(crate) fn match_selector<C: HasDocument>(
         }
 
         if match_compound::<C>(document, node_id, part, pseudo, scope) {
-            let specificity = Specificity::from(part.as_slice());
             best = Some(best.map_or(specificity, |b| b.max(specificity)));
         }
     }
@@ -428,27 +429,38 @@ fn match_selector_part<C: HasDocument>(
         CssSelectorPart::PseudoElement(name) => pseudo.is_some_and(|target| pseudo_eq(name, target)),
         CssSelectorPart::Combinator(combinator) => match combinator {
             Combinator::Descendant => {
-                let Some(mut parent_id) = doc.parent(current_id) else {
+                // Every ancestor is a candidate, and the *whole* rest of the selector has to
+                // match from it - not merely the one part to the left of this combinator.
+                //
+                // Testing a single part and committing to the first ancestor that matched it
+                // made `.a > .b .c` miss
+                // `<div class=a><div class=b><div class=b><p class=c>`: from the `.c` it found
+                // the inner `.b`, committed, then required *that* one's parent to be `.a`.
+                // It is not, so matching gave up rather than climbing to the outer `.b` - which
+                // does satisfy the selector. Recursing on the remainder is what lets it climb.
+                let rest = *parts;
+                if rest.is_empty() {
+                    // A selector that begins with a combinator. Nothing to match to the left of
+                    // it, and an empty remainder trivially "matches", so refuse it explicitly.
                     return false;
-                };
+                }
+                // This arm consumes the remainder itself, so the caller's loop has nothing left
+                // to walk and stops on whatever we answer.
+                *parts = &[];
+                *next_id = None;
 
-                let Some(last) = consume(parts) else {
-                    return false;
-                };
-
-                loop {
-                    *next_id = Some(parent_id);
-
-                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo, scope) {
+                let mut ancestor = doc.parent(current_id);
+                while let Some(id) = ancestor {
+                    // Only an element can match a selector; the document node at the top of
+                    // the chain must not satisfy `*`.
+                    if doc.node_type(id) == NodeType::ElementNode
+                        && match_selector_parts::<C>(doc, id, rest, pseudo, scope)
+                    {
                         return true;
                     }
-
-                    let Some(p) = doc.parent(parent_id) else {
-                        return false;
-                    };
-
-                    parent_id = p;
+                    ancestor = doc.parent(id);
                 }
+                false
             }
             Combinator::Child => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -492,22 +504,33 @@ fn match_selector_part<C: HasDocument>(
                 match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo, scope)
             }
             Combinator::SubsequentSibling => {
+                // Same as the descendant case, over preceding siblings rather than ancestors:
+                // several of them may match the part on the left, and only some of those may
+                // satisfy what lies further left still.
                 let Some(parent_id) = doc.parent(current_id) else {
                     return false;
                 };
 
                 let children: Vec<NodeId> = doc.children(parent_id).to_vec();
 
-                let Some(last) = consume(parts) else {
+                let rest = *parts;
+                if rest.is_empty() {
                     return false;
-                };
+                }
+                *parts = &[];
+                *next_id = None;
 
                 for child_id in children {
                     if child_id == current_id {
                         break;
                     }
+                    // Text and comment siblings are not candidates: `*` matches an element, and
+                    // `* ~ .target` must not be satisfied by the whitespace before `.target`.
+                    if doc.node_type(child_id) != NodeType::ElementNode {
+                        continue;
+                    }
 
-                    if match_selector_part::<C>(last, child_id, doc, next_id, parts, pseudo, scope) {
+                    if match_selector_parts::<C>(doc, child_id, rest, pseudo, scope) {
                         return true;
                     }
                 }
@@ -643,6 +666,73 @@ pub struct CssProperty {
     // Actual value used in the rendering (after rounding, clipping etc.)
     pub actual: CssValue,
     pub inherited: CssValue,
+    /// The px value an `em` in this property resolves against.
+    ///
+    /// For every property but `font-size` that is the element's *own* computed font-size; for
+    /// `font-size` itself it is the parent's, since `font-size: 2em` doubles what it inherits
+    /// rather than itself. Set by the cascade, which is the only place that knows either.
+    pub font_size_basis: f32,
+    /// The px value a `rem` in this property resolves against: the root element's computed
+    /// `font-size`, the same for every property on every element in the document.
+    ///
+    /// The root's own `font-size` is the exception - it is what defines a `rem`, so `rem` inside
+    /// it refers to the initial font-size instead of to the value being declared.
+    pub root_font_size_basis: f32,
+}
+
+/// The initial `font-size`, and so the `rem` basis until the root element declares otherwise.
+pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+/// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
+///
+/// This is what makes a *computed* value computed. css-values says `em` and `rem` resolve at
+/// computed-value time and that a math function is simplified there, so a consumer downstream
+/// never sees either - `width: calc(2em + 10px)` on a 20px element leaves here as `50px`.
+///
+/// What survives is what genuinely cannot be decided yet: a percentage, which needs a containing
+/// block, and the units nothing has a value for (`ch`, `lh`, the container-query units).
+fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
+    let recurse = |v: &CssValue| resolve_computed(v, em_basis, rem_basis);
+    match value {
+        // Every unit with a known conversion becomes the canonical one - px for a length, deg
+        // for an angle, s for a time. That is what a computed value is: `margin: 12cm` computes
+        // to `453.5433px`, the same as any expression that arrives at that length by another
+        // route. Only `em` and `rem` needed an element to resolve against, and only they used to
+        // be done here, so a bare `12cm` and a `round(10cm, 6cm)` that equals it disagreed.
+        CssValue::Unit(val, unit) => {
+            let units = calc::Units::computed(em_basis, rem_basis);
+            match calc::to_canonical(*val, unit, &units) {
+                Some((canonical, converted)) => CssValue::Unit(converted, canonical),
+                // `ch`, `lh` and the container-query units have no value here, and a percentage
+                // needs a containing block. They travel on as written.
+                None => value.clone(),
+            }
+        }
+        CssValue::List(values) => CssValue::List(values.iter().map(recurse).collect()),
+        // A `calc()` body is arithmetic, not a list of arguments, so it is evaluated as a whole
+        // rather than recursed into. A body that comes down to a single value *is* that value:
+        // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
+        CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
+            let units = calc::Units::computed(em_basis, rem_basis);
+            calc::evaluate(args, &units, true).unwrap_or_else(|| value.clone())
+        }
+        CssValue::Function(name, args) => {
+            let args: Vec<CssValue> = args.iter().map(recurse).collect();
+            // A math function is evaluated here rather than when the declaration was collected,
+            // because only now is an `em` among its arguments worth anything. Parsing tries the
+            // same thing with less to go on, and what it could not reduce lands here.
+            let units = calc::Units::computed(em_basis, rem_basis);
+            if let Some(reduced) = calc::evaluate_call(name, &args, &units, true) {
+                return reduced;
+            }
+            // What the evaluator cannot reduce here has a unit nothing can resolve yet - `ch`,
+            // `lh`, a container unit - or a percentage. It stays as written. It used to fall to
+            // `resolve_math`, which reduces through `unit_to_px`, and that treats an unknown
+            // unit as px: `min(1ch, 2px)` came out as `1px`.
+            CssValue::Function(name.clone(), args)
+        }
+        other => other.clone(),
+    }
 }
 
 impl CssProperty {
@@ -658,6 +748,8 @@ impl CssProperty {
             used: CssValue::None,
             actual: CssValue::None,
             inherited: CssValue::None,
+            font_size_basis: DEFAULT_FONT_SIZE_PX,
+            root_font_size_basis: DEFAULT_FONT_SIZE_PX,
         }
     }
 
@@ -696,11 +788,119 @@ impl CssProperty {
     }
 
     fn find_computed_value(&self) -> CssValue {
-        if self.specified != CssValue::None {
-            return self.specified.clone();
+        let specified = match &self.specified {
+            // `initial` names the property's own initial value, whatever that is
+            // (css-cascade §7.1), so it resolves here rather than travelling on as a keyword
+            // nothing downstream recognises. It arrives as a string far more often than as the
+            // dedicated variant, because that is what the parser lowers the CSS-wide keywords to.
+            CssValue::Initial | CssValue::None => self.get_initial_value().unwrap_or(CssValue::None),
+            CssValue::String(keyword) if keyword.eq_ignore_ascii_case("initial") => {
+                self.get_initial_value().unwrap_or(CssValue::None)
+            }
+            specified => specified.clone(),
+        };
+
+        // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
+        // percentage resolves here rather than travelling on. It is the one percentage that can:
+        // it is a fraction of the *parent's* font-size, which is exactly what `font_size_basis`
+        // holds for this property, where every other percentage needs a containing block and has
+        // to wait for layout.
+        if self.name == "font-size" {
+            if let CssValue::Percentage(pct) = specified {
+                return CssValue::Unit(f64::from(self.font_size_basis) * pct / 100.0, "px".to_string());
+            }
         }
 
-        self.get_initial_value().unwrap_or(CssValue::None)
+        // A `<line-width>` keyword computes to an absolute length (css-backgrounds-3 §4.1 leaves
+        // the sizes to the UA; these are what every browser uses). Only the `*-width` properties
+        // take these keywords, and for them a keyword that reached the consumer as a string
+        // measured as zero, so `border: solid red` drew no border at all.
+        if self.name.ends_with("-width") {
+            if let CssValue::String(keyword) = &specified {
+                let px = [("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
+                    .into_iter()
+                    .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+                    .map(|(_, px)| px);
+                if let Some(px) = px {
+                    return CssValue::Unit(px, "px".to_string());
+                }
+            }
+        }
+
+        // Font-relative lengths become px here, which is what the computed stage is for. What
+        // survives is what genuinely cannot be decided yet: a percentage, which needs a
+        // containing block, and the units nothing has a value for.
+        let computed = resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis);
+
+        self.clamp_to_range(computed)
+    }
+
+    /// Bring a computed value inside the range its property allows (css-values-4 §10.12).
+    ///
+    /// This is what a property's `[0,∞]` does for a math function. The matcher cannot apply it
+    /// when the declaration is parsed - `width: calc(-5px)` is a valid declaration whose result
+    /// is not known yet - so the range waits here and clamps the answer instead of throwing the
+    /// declaration away. `width: -5px` is still rejected outright, because a literal *is* known
+    /// when it is parsed.
+    ///
+    /// Clamping is not conditional on the value having come from a math function. It does not
+    /// need to be: a literal that the range would have caught never reaches here, and for the
+    /// properties whose range comes from their computed-value line rather than their grammar
+    /// (`opacity` and its kin) the clamp is meant to apply to every value - `opacity: 1.5`
+    /// computes to `1`.
+    fn clamp_to_range(&self, computed: CssValue) -> CssValue {
+        let defs = get_css_definitions();
+        let Some(def) = defs.find_property(&self.name) else {
+            return computed;
+        };
+        // A property whose computed value is a number clipped to [0,1] takes a percentage as
+        // that fraction: `opacity: 50%` computes to `0.5` (css-color-4 §3.2). Converted before
+        // the range is applied, or the `50` would be clamped against `[0,1]` and come out `1%`.
+        let computed = match computed {
+            CssValue::Percentage(pct) if def.percentage_is_number() => {
+                CssValue::Number(pct / 100.0, NumberKind::Number)
+            }
+            other => other,
+        };
+        // Only a single number has a magnitude to clamp. A list is several values, and the range
+        // belongs to whichever grammar arm each one matched - which is not recorded.
+        let magnitude = match &computed {
+            CssValue::Number(n, _) | CssValue::Percentage(n) | CssValue::Unit(n, _) => *n,
+            CssValue::Zero => 0.0,
+            _ => return computed,
+        };
+
+        // A shorthand's own value is never what gets computed - it is expanded into longhands
+        // first - and the range it reports is whatever range its longhands' grammars happened to
+        // mention, which belongs to those longhands rather than to the shorthand.
+        if def.is_shorthand() {
+            return computed;
+        }
+        let Some((min, max)) = def.computed_range() else {
+            return computed;
+        };
+
+        // NaN comes out as the bound rather than travelling on: `f64::max` answers the operand
+        // that is not NaN, which is what css-values-4 asks for - `animation-duration:
+        // calc(NaN * 1s)` computes to `0s`, not to NaN.
+        let mut clamped = magnitude;
+        if let Some(min) = min {
+            clamped = clamped.max(min);
+        }
+        if let Some(max) = max {
+            clamped = clamped.min(max);
+        }
+        if clamped == magnitude {
+            return computed;
+        }
+
+        match computed {
+            CssValue::Number(_, kind) => CssValue::Number(clamped, kind),
+            CssValue::Percentage(_) => CssValue::Percentage(clamped),
+            CssValue::Unit(_, unit) => CssValue::Unit(clamped, unit),
+            CssValue::Zero => CssValue::Number(clamped, NumberKind::Number),
+            other => other,
+        }
     }
 
     fn find_used_value(&self) -> CssValue {
@@ -709,23 +909,15 @@ impl CssProperty {
 
     fn find_actual_value(&self) -> CssValue {
         // @TODO: stuff like clipping and such should occur as well
-        // Bare numbers and percentages are ratios/multipliers and must keep their fractional
-        // value: rounding `opacity: 0.15` to 0 makes an element vanish, `line-height: 1.7`
-        // to 2.0 inflates every paragraph, `flex-grow: 0.5` to 1 doubles an item's share.
-        // Relative units (em, rem, vw, vh) must not be rounded either - 1.5em rounded to
-        // 2.0em would make h2 render at h1 size. Only absolute lengths (px, pt, in, cm, mm)
-        // are snapped to whole values here.
-        match &self.used {
-            CssValue::Unit(value, unit) => {
-                let absolute = matches!(unit.as_str(), "px" | "pt" | "in" | "cm" | "mm" | "pc" | "q");
-                if absolute {
-                    CssValue::Unit(value.round(), unit.clone())
-                } else {
-                    self.used.clone()
-                }
-            }
-            _ => self.used.clone(),
-        }
+        //
+        // No rounding happens here. This used to snap absolute lengths to whole values, a
+        // leftover from when every value was rounded; the carve-outs for bare numbers
+        // (`opacity: 0.15` must not become 0) and for relative units (`1.5em` must not become
+        // `2em`) were added one at a time until only absolute lengths were left. Those turn
+        // fractional too the moment a font-relative length resolves - `0.14em` against a 20px
+        // font-size is exactly 2.8px, and that is what a computed value has to report.
+        // Snapping to the device pixel grid is the renderer's job, not the value's.
+        self.used.clone()
     }
 
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
@@ -821,7 +1013,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_percentage(&self) -> Option<f32> {
         if let CssValue::Percentage(percent) = &self.actual {
-            Some(*percent)
+            Some(*percent as f32)
         } else {
             None
         }
@@ -829,7 +1021,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_unit(&self) -> Option<(f32, &str)> {
         if let CssValue::Unit(value, unit) = &self.actual {
-            Some((*value, unit))
+            Some((*value as f32, unit))
         } else {
             None
         }
@@ -849,7 +1041,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_number(&self) -> Option<f32> {
         match &self.actual {
-            CssValue::Number(num) => Some(*num),
+            CssValue::Number(num, _) => Some(*num as f32),
             // A bare `0` parses to the dedicated `Zero` variant; surface it as the number 0 so
             // consumers (e.g. unitless `top: 0`, `margin: 0`) see it instead of dropping the value.
             CssValue::Zero => Some(0.0),
@@ -888,6 +1080,16 @@ impl css3::CssProperty<Css3System> for CssProperty {
 pub struct CssProperties {
     pub properties: HashMap<String, CssProperty>,
     pub dirty: bool,
+    /// This element's computed `font-size` in px, resolved while the map was built.
+    ///
+    /// Kept on the map so a child can read its parent's basis without recomputing it - `em`
+    /// resolves against the element's own font-size, which is itself inherited when undeclared,
+    /// so every level needs the level above it.
+    pub font_size_px: f32,
+    /// The root element's computed `font-size` in px - what a `rem` is worth anywhere in the
+    /// document. Carried down the tree rather than looked up, since the cascade walks top-down
+    /// and only ever holds the parent's map.
+    pub root_font_size_px: f32,
     /// Custom properties (`--*`) in scope for this node, own declarations layered over the
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
@@ -907,6 +1109,8 @@ impl CssProperties {
             properties: HashMap::new(),
             dirty: true,
             custom: Arc::new(HashMap::new()),
+            font_size_px: DEFAULT_FONT_SIZE_PX,
+            root_font_size_px: DEFAULT_FONT_SIZE_PX,
         }
     }
 
@@ -1026,8 +1230,149 @@ mod tests {
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
         assert!(!prop.is_shorthand());
         assert_eq!(prop.name, "color");
-        assert_eq!(prop.get_initial_value(), Some(&CssValue::None).cloned());
+        // css-color-4 gives `color` an initial value of `canvastext`. This asserted `None`,
+        // which was not a fact about the property but about the loader: it looked for an
+        // `initial_value` key the definitions file has never had, so every initial value was
+        // absent.
+        assert_eq!(
+            prop.get_initial_value(),
+            Some(CssValue::String("canvastext".to_string()))
+        );
         assert!(prop_is_inherit(&prop.name));
+    }
+
+    #[test]
+    fn the_initial_keyword_resolves_to_the_property_s_initial_value() {
+        // css-cascade §7.1. The parser lowers the CSS-wide keywords to a plain string, so that is
+        // the form this has to recognise; the dedicated `CssValue::Initial` variant is checked too
+        // because callers that build values directly produce it.
+        for keyword in [CssValue::String("initial".to_string()), CssValue::Initial] {
+            let mut prop = CssProperty::new("width");
+            prop.declared.push(DeclarationProperty {
+                value: keyword,
+                origin: CssOrigin::Author,
+                important: false,
+                location: String::new(),
+                specificity: Specificity::new(1, 0, 0),
+                shadow_depth: 0,
+                order: 0,
+            });
+
+            assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
+        }
+    }
+
+    /// Compute one declared value for `name`, the way the cascade would.
+    /// css-color-4 §3.2: a percentage `opacity` is the same fraction as the number. The clamp
+    /// used to read the `50` of `50%` against `[0,1]` and answer `1%`.
+    #[test]
+    fn a_percentage_opacity_computes_to_the_fraction() {
+        assert_eq!(
+            computed_for("opacity", CssValue::Percentage(50.0)),
+            CssValue::Number(0.5, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Percentage(150.0)),
+            CssValue::Number(1.0, NumberKind::Number)
+        );
+        // A percentage on a property whose range is in its own units is left as one.
+        assert_eq!(
+            computed_for("width", CssValue::Percentage(50.0)),
+            CssValue::Percentage(50.0)
+        );
+    }
+
+    fn computed_for(name: &str, value: CssValue) -> CssValue {
+        let mut prop = CssProperty::new(name);
+        prop.declared.push(DeclarationProperty {
+            value,
+            origin: CssOrigin::Author,
+            important: false,
+            location: String::new(),
+            specificity: Specificity::new(1, 0, 0),
+            shadow_depth: 0,
+            order: 0,
+        });
+        prop.compute_value().clone()
+    }
+
+    #[test]
+    fn a_computed_value_is_clamped_into_the_property_s_range() {
+        // css-values-4 §10.12. `width` is `<length-percentage [0,∞]>`, and a math function is
+        // not range-checked when it is parsed, so the range has to bite here instead.
+        assert_eq!(
+            computed_for("width", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(0.0, "px".into())
+        );
+        assert_eq!(
+            computed_for("width", CssValue::Percentage(-10.0)),
+            CssValue::Percentage(0.0)
+        );
+        // `tab-size` is `<number [0,∞]>`, so the same rule reaches a bare number.
+        assert_eq!(
+            computed_for("tab-size", CssValue::Number(-8.0, NumberKind::Number)),
+            CssValue::Number(0.0, NumberKind::Number)
+        );
+        // And `column-count` is `<integer [1,∞]>`, where the bound is not zero.
+        assert_eq!(
+            computed_for("column-count", CssValue::Number(0.0, NumberKind::Integer)),
+            CssValue::Number(1.0, NumberKind::Integer)
+        );
+
+        // NaN comes out as the bound rather than travelling on: css-values-4 asks for
+        // `animation-duration: calc(NaN * 1s)` to compute to `0s`.
+        assert_eq!(
+            computed_for("width", CssValue::Unit(f64::NAN, "px".into())),
+            CssValue::Unit(0.0, "px".into())
+        );
+
+        // The other half of the rule, and the reason clamping is not a way round the matcher: a
+        // *literal* out of range is still rejected outright, because its value is known when the
+        // declaration is parsed. Only a math function gets to be clamped instead.
+        let defs = get_css_definitions();
+        let width = defs.find_property("width").expect("width is defined");
+        assert!(!width.matches(&[CssValue::Unit(-5.0, "px".into())]));
+        assert!(width.matches(&[CssValue::Unit(5.0, "px".into())]));
+        assert!(width.matches(&[CssValue::Function(
+            "calc".to_string(),
+            vec![CssValue::Unit(-5.0, "px".into())]
+        )]));
+    }
+
+    #[test]
+    fn opacity_is_clamped_by_its_computed_value_line_rather_than_its_grammar() {
+        // `<opacity-value>` is `<number> | <percentage>` with no bounds written on it at all -
+        // the [0,1] lives in css-color-4's computed-value line, and unlike a grammar range it
+        // applies to every value, not only to math results. So `opacity: 1.5` computes to `1`.
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(1.5, NumberKind::Number)),
+            CssValue::Number(1.0, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(-1.0, NumberKind::Number)),
+            CssValue::Number(0.0, NumberKind::Number)
+        );
+        assert_eq!(
+            computed_for("opacity", CssValue::Number(0.4, NumberKind::Number)),
+            CssValue::Number(0.4, NumberKind::Number)
+        );
+    }
+
+    #[test]
+    fn a_property_with_no_range_is_left_alone() {
+        // Negative values are meaningful for these, and nothing in their grammar says otherwise.
+        assert_eq!(
+            computed_for("letter-spacing", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(-5.0, "px".into())
+        );
+        assert_eq!(
+            computed_for("z-index", CssValue::Number(-5.0, NumberKind::Integer)),
+            CssValue::Number(-5.0, NumberKind::Integer)
+        );
+        assert_eq!(
+            computed_for("margin-left", CssValue::Unit(-5.0, "px".into())),
+            CssValue::Unit(-5.0, "px".into())
+        );
     }
 
     #[test]

@@ -3914,7 +3914,7 @@
   },
   {
     "name": "letter-spacing",
-    "syntax": "normal | <length>",
+    "syntax": "normal | <length-percentage>",
     "computed": [
       "optimumValueOfAbsoluteLengthOrNormal"
     ],

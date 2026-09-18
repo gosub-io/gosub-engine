@@ -1,7 +1,8 @@
+use crate::tokenizer::NumberKind;
 use core::fmt::{Display, Formatter};
 use gosub_shared::byte_stream::Location;
 
-pub type Number = f32;
+pub type Number = f64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FeatureKind {
@@ -45,6 +46,8 @@ pub enum NodeType {
     },
     Number {
         value: Number,
+        /// Whether it was written as an integer. `<integer>` needs the spelling, not the value.
+        kind: NumberKind,
     },
     Percentage {
         value: Number,
@@ -118,7 +121,21 @@ pub enum NodeType {
         name: String,
         arguments: Vec<Node>,
     },
-    Operator(String),
+    /// An operator token in a value: `+`, `-`, `*`, `/`, `,`, `:`, `=`.
+    ///
+    /// The surrounding whitespace is part of the token because css-values-4 §10.1 makes it
+    /// load-bearing: `+` and `-` require whitespace on *both* sides, which is the only thing
+    /// separating `calc(1px - 2px)` (a subtraction) from `calc(1px -2px)` (two adjacent
+    /// values). The generic value parser discards whitespace, so without recording it here the
+    /// rule is unenforceable for every math function but `calc()`.
+    ///
+    /// Both flags are false outside a value sequence (selectors, media queries), where no rule
+    /// depends on them.
+    Operator {
+        value: String,
+        space_before: bool,
+        space_after: bool,
+    },
     Nth {
         nth: Box<Node>,
         selector: Option<Box<Node>>,
@@ -134,8 +151,17 @@ pub enum NodeType {
         value: String,
         default_value: String,
     },
+    /// A `calc()` body, as the tokens that make it up: values, operators with their
+    /// whitespace, nested functions, in source order. A parenthesized group is a nested
+    /// `calc()`, which css-values-4 says it is.
+    ///
+    /// This used to be a single [`NodeType::Raw`] holding the body re-serialized back into
+    /// text, which the evaluator then tokenized for a second time. The round trip was lossy in
+    /// exactly the place it could least afford to be - `calc(1px +2px)` came back as
+    /// `calc(1px 2px)`, because the tokenizer folds a leading `+` into the number and a
+    /// dimension prints without its sign.
     Calc {
-        expr: Box<Node>,
+        tokens: Vec<Node>,
     },
     SupportsDeclaration {
         term: Box<Node>,
@@ -164,6 +190,19 @@ pub enum NodeType {
         right_comparison: Option<Box<Node>>,
         right: Option<Box<Node>>,
     },
+}
+
+impl NodeType {
+    /// An operator with no recorded whitespace, which is the right default everywhere the
+    /// surrounding whitespace carries no meaning. `parse_value_sequence` fills the flags in for
+    /// the one context that needs them.
+    pub(crate) fn operator(value: impl Into<String>) -> Self {
+        NodeType::Operator {
+            value: value.into(),
+            space_before: false,
+            space_after: false,
+        }
+    }
 }
 
 /// A node is a single element in the AST
@@ -264,7 +303,7 @@ impl Node {
     #[must_use]
     pub fn as_number(&self) -> Option<&Number> {
         match &self.node_type {
-            NodeType::Number { value } => Some(value),
+            NodeType::Number { value, .. } => Some(value),
             _ => None,
         }
     }
@@ -434,7 +473,7 @@ impl Display for Node {
                 .collect::<String>(),
             NodeType::IdSelector { value } => value.clone(),
             NodeType::Ident { value } => value.clone(),
-            NodeType::Number { value } => value.to_string(),
+            NodeType::Number { value, .. } => value.to_string(),
             NodeType::Percentage { value } => format!("{value}%"),
             NodeType::Dimension { value, unit } => format!("{value}{unit}"),
             NodeType::Hash { value } => format!("#{}", value.clone()),
@@ -464,7 +503,7 @@ impl Display for Node {
                 Some(arguments) => format!("::{value}({arguments})"),
                 None => format!("::{value}"),
             },
-            NodeType::Operator(value) => value.clone(),
+            NodeType::Operator { value, .. } => value.clone(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {
                 let ns = namespace.as_ref().map_or(String::new(), |ns| format!("{ns}|"));
@@ -478,7 +517,10 @@ impl Display for Node {
                 format!("{nth}{sel}")
             }
             NodeType::AnPlusB { a, b } => format!("{a}n+{b}"),
-            NodeType::Calc { expr } => format!("calc({expr})"),
+            NodeType::Calc { tokens } => {
+                let body: Vec<String> = tokens.iter().map(std::string::ToString::to_string).collect();
+                format!("calc({})", body.join(" "))
+            }
             NodeType::Raw { value } => value.clone(),
 
             _ => {

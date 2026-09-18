@@ -112,6 +112,117 @@ mod rendertree_from_engine {
         assert!(matches!(c, Value::Color(0, 128, 0, _)), "inline color: {c:?}");
     }
 
+    /// A shorthand resets the longhands it does not mention (css-cascade-5 §2.5). An earlier
+    /// `border-color: red` must not survive a later `border: 1px solid`, an earlier
+    /// `font-weight: bold` must not survive `font: 12px serif`, and a `border` without a width
+    /// gets `medium`, which is 3px and not nothing.
+    #[test]
+    fn a_shorthand_resets_the_longhands_it_leaves_out() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{FontWeight, StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>
+          #b { border-color: red; border: 1px solid }
+          #f { font-weight: bold; font: 12px serif }
+          #w { border: solid red }
+        </style></head>
+        <body><div id="b">b</div><div id="f">f</div><div id="w">w</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        // `currentColor`, which resolves to the text colour: black, not red.
+        let b = find_node_by_id_attr(&adapter.doc, root, "b").expect("#b");
+        let c = adapter.get_style(b, &StyleProperty::BorderTopColor);
+        assert!(matches!(c, Value::Color(0, 0, 0, _)), "border reset colour: {c:?}");
+
+        let f = find_node_by_id_attr(&adapter.doc, root, "f").expect("#f");
+        let fw = adapter.get_style(f, &StyleProperty::FontWeight);
+        assert!(
+            matches!(fw, Value::FontWeight(FontWeight::Normal)),
+            "font reset weight: {fw:?}"
+        );
+
+        let w = find_node_by_id_attr(&adapter.doc, root, "w").expect("#w");
+        let bw = adapter.get_style(w, &StyleProperty::BorderTopWidth);
+        assert!(
+            matches!(bw, Value::Unit(v, Unit::Px) if (v - 3.0).abs() < 0.01),
+            "medium border width: {bw:?}"
+        );
+    }
+
+    /// `background` expands like any other shorthand now: the colour and the image come out
+    /// as longhands, and a `background` without a colour resets an earlier `background-color`.
+    #[test]
+    fn background_shorthand_sets_and_resets_its_longhands() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{StyleProperty, Value};
+
+        let html = r#"<html><head><style>
+          #c { background: #c22 }
+          #r { background-color: red; background: url(x.png) }
+        </style></head>
+        <body><div id="c">c</div><div id="r">r</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let c = find_node_by_id_attr(&adapter.doc, root, "c").expect("#c");
+        let colour = adapter.get_style(c, &StyleProperty::BackgroundColor);
+        assert!(
+            matches!(colour, Value::Color(204, 34, 34, _)),
+            "background colour: {colour:?}"
+        );
+
+        let r = find_node_by_id_attr(&adapter.doc, root, "r").expect("#r");
+        let colour = adapter.get_style(r, &StyleProperty::BackgroundColor);
+        assert!(
+            matches!(colour, Value::Color(_, _, _, 0)),
+            "a background without a colour resets background-color to transparent: {colour:?}"
+        );
+        let image = adapter.get_style(r, &StyleProperty::BackgroundImage);
+        assert!(
+            matches!(&image, Value::Keyword(_)),
+            "background image via the longhand: {image:?}"
+        );
+    }
+
+    /// A sibling combinator walks elements only: `* ~ .target` is not satisfied by the
+    /// whitespace text node before `.target`, and `* .target` not by the document node.
+    #[test]
+    fn combinators_skip_non_element_nodes() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = "<html><head><style>* ~ .target { width: 200px; display: block }</style></head>\
+                    <body><div>\n  <p class=\"target\">x</p></div></body></html>";
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target")
+            .or_else(|| {
+                fn by_class(
+                    doc: &DocumentImpl<Config>,
+                    node: gosub_shared::node::NodeId,
+                ) -> Option<gosub_shared::node::NodeId> {
+                    if doc.attributes(node).and_then(|a| a.get("class").cloned()).as_deref() == Some("target") {
+                        return Some(node);
+                    }
+                    doc.children(node).iter().find_map(|&c| by_class(doc, c))
+                }
+                by_class(&adapter.doc, root)
+            })
+            .expect("p.target");
+        let width = adapter.get_style(target, &StyleProperty::Width);
+        assert!(
+            !matches!(width, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "no element precedes .target, so `* ~ .target` must not match, got {width:?}"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
@@ -207,6 +318,66 @@ mod rendertree_from_engine {
             "cells occupy adjacent columns: x {} vs {}",
             a.x,
             b.x
+        );
+    }
+
+    /// A descendant combinator has to try *every* ancestor, not commit to the nearest one that
+    /// matched the part beside it.
+    ///
+    /// `.a > .b .c` matches here: the OUTER `.b` is a child of `.a`, and `p.c` is its
+    /// descendant. Walking from `.c`, the nearest `.b` ancestor is the inner one, whose parent
+    /// is not `.a` - so a matcher that commits there answers "no match" and is wrong.
+    #[test]
+    fn a_descendant_combinator_tries_every_ancestor() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+        use gosub_interface::document::Document as _;
+
+        fn width_of_c(html: &str) -> Value {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target = find_node_by_class_attr(&adapter.doc, root, "c").expect("p.c exists");
+            adapter.get_style(target, &StyleProperty::Width)
+        }
+
+        fn find_node_by_class_attr(
+            doc: &DocumentImpl<Config>,
+            node: gosub_shared::node::NodeId,
+            target: &str,
+        ) -> Option<gosub_shared::node::NodeId> {
+            if let Some(attrs) = doc.attributes(node) {
+                if attrs.get("class").map(|s| s.as_str()) == Some(target) {
+                    return Some(node);
+                }
+            }
+            for &child in doc.children(node) {
+                if let Some(found) = find_node_by_class_attr(doc, child, target) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        const STYLE: &str = "<style>.a > .b .c { width: 200px; display: block }</style>";
+
+        // The control: one `.b`, so there is nothing to climb past.
+        let single = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><p class=\"c\">x</p></div></div></body></html>"
+        ));
+        assert!(
+            matches!(single, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "control case must match, got {single:?}"
+        );
+
+        // The regression: a second `.b` nested inside the first.
+        let nested = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><div class=\"b\"><p class=\"c\">x</p></div></div></div></body></html>"
+        ));
+        assert!(
+            matches!(nested, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
+            "the outer .b satisfies `.a > .b`, so the selector matches, got {nested:?}"
         );
     }
 
@@ -365,6 +536,188 @@ mod rendertree_from_engine {
             matches!(ls_text, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
             "expected inherited letter-spacing 2.8px on text node, got {ls_text:?}"
         );
+    }
+
+    #[test]
+    fn a_rem_in_the_style_attribute_follows_the_root_font_size_too() {
+        // The `style` attribute is parsed by `inline_style`, which builds `Unit::Rem` itself
+        // rather than going through the CSS computed stage - so it is the one path where the
+        // pipeline has to resolve `rem` on its own.
+        let html = r#"
+            <html>
+            <head><style>html { font-size: 20px; }</style></head>
+            <body><div id="attr" style="width: 2rem"></div></body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        let width = adapter.get_style(node, &StyleProperty::Width);
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 40.0).abs() < 0.1),
+            "expected 2rem to be 40px against a 20px root, got {width:?}"
+        );
+    }
+
+    /// `style="width: <value>"` on a div, with `<root_css>` applied to `html`.
+    fn style_attr_width(root_css: &str, value: &str) -> crate::common::document::style::Value {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::StyleProperty;
+
+        let html = format!(
+            r#"<html><head><style>html {{ {root_css} }}</style></head>
+               <body><div id="attr" style="width: {value}"></div></body></html>"#
+        );
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        adapter.get_style(node, &StyleProperty::Width)
+    }
+
+    #[test]
+    fn a_rem_on_the_root_itself_uses_the_initial_font_size() {
+        // css-values-4 §5.1.1: the root's own `font-size` is what *defines* a `rem`, so a `rem`
+        // inside it means the initial 16px. Saying so is also what stops this recursing.
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>html { font-size: 2rem; }</style></head>
+                      <body><div id="attr" style="width: 1rem"></div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+
+        // The root resolves 2rem against the initial 16px = 32px, and the div's 1rem then
+        // follows that.
+        let width = adapter.get_style(node, &StyleProperty::Width);
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 32.0).abs() < 0.1),
+            "expected 32px, got {width:?}"
+        );
+    }
+
+    #[test]
+    fn a_percentage_root_font_size_still_sets_the_rem_basis() {
+        // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px, so the numbers
+        // in a stylesheet read as tenths.
+        use crate::common::document::style::{Unit, Value};
+
+        let width = style_attr_width("font-size: 62.5%;", "2rem");
+        assert!(
+            matches!(width, Value::Unit(px, Unit::Px) if (px - 20.0).abs() < 0.1),
+            "expected 2rem to be 20px against a 62.5% root, got {width:?}"
+        );
+    }
+
+    #[test]
+    fn rem_follows_the_root_font_size_and_em_the_elements_own() {
+        // `rem` used to be hard-coded to the initial 16px, so a document that resizes its root
+        // laid out at the wrong scale everywhere. `min()` is here because its operands are
+        // font-relative too, and it is only resolvable once the basis exists.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html   { font-size: 20px; }
+                    #rem   { width: 2rem; }
+                    #em    { font-size: 25px; width: 2em; }
+                    #cmp   { font-size: 25px; width: min(2em, 30px); }
+                </style>
+            </head>
+            <body>
+                <div id="rem"></div>
+                <div id="em"></div>
+                <div id="cmp"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.get_style(node, &StyleProperty::Width)
+        };
+
+        for (id_attr, expected) in [("rem", 40.0), ("em", 50.0), ("cmp", 30.0)] {
+            let width = width_of(id_attr);
+            assert!(
+                matches!(width, Value::Unit(px, Unit::Px) if (px - expected).abs() < 0.1),
+                "expected width {expected}px on #{id_attr}, got {width:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn calc_reaches_layout_as_a_length() {
+        // `calc()` bodies were carried to layout as text and never evaluated, so every one of
+        // these arrived as the string it was written as and contributed no length at all.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html    { font-size: 20px; }
+                    #plain  { width: calc(10px + 20px); }
+                    #nested { width: calc(10px + calc(10px + calc(10px + calc(10px + 1px)))); }
+                    #units  { width: calc(1in + 1px); }
+                    #rel    { font-size: 25px; width: calc(2em + 1rem); }
+                    #scaled { width: calc((10px + 20px) * 2 / 3); }
+                </style>
+            </head>
+            <body>
+                <div id="plain"></div>
+                <div id="nested"></div>
+                <div id="units"></div>
+                <div id="rel"></div>
+                <div id="scaled"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for (id_attr, expected) in [
+            ("plain", 30.0),
+            ("nested", 41.0),
+            // 1in is 96px by definition.
+            ("units", 97.0),
+            // 2em at 25px, plus 1rem against the root's 20px.
+            ("rel", 70.0),
+            ("scaled", 20.0),
+        ] {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            let width = adapter.get_style(node, &StyleProperty::Width);
+            assert!(
+                matches!(width, Value::Unit(px, Unit::Px) if (px - expected).abs() < 0.1),
+                "expected width {expected}px on #{id_attr}, got {width:?}"
+            );
+        }
     }
 
     // Regression: `line-height: 1.7` once rounded to 2.0, inflating every paragraph.

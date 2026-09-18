@@ -29,14 +29,14 @@ pub enum TableRole {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CssLength {
     Auto,
-    Px(f32),
-    Percent(f32),
+    Px(f64),
+    Percent(f64),
     Zero,
 }
 
 impl CssLength {
     /// Resolve to pixels given a `percentage_basis`.  Returns `None` for `auto`.
-    pub fn resolve(self, percentage_basis: f32) -> Option<f32> {
+    pub fn resolve(self, percentage_basis: f64) -> Option<f64> {
         match self {
             CssLength::Auto => None,
             CssLength::Px(px) => Some(px),
@@ -50,7 +50,7 @@ impl CssLength {
     }
 
     /// Returns the pixel value, or `default` if not a definite length.
-    pub fn px_or(self, default: f32) -> f32 {
+    pub fn px_or(self, default: f64) -> f64 {
         match self {
             CssLength::Px(v) => v,
             CssLength::Zero => 0.0,
@@ -93,18 +93,18 @@ pub enum CssProp {
 /// Inset values for a single box edge (top / right / bottom / left), in pixels.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoxEdges {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
 }
 
 impl BoxEdges {
-    pub fn horizontal(self) -> f32 {
+    pub fn horizontal(self) -> f64 {
         self.left + self.right
     }
 
-    pub fn vertical(self) -> f32 {
+    pub fn vertical(self) -> f64 {
         self.top + self.bottom
     }
 }
@@ -135,7 +135,7 @@ pub struct CellLayout {
     /// Vertical offset the host should add to the cell's *children* (relative
     /// to the content-box top) to realize `vertical-align` when the cell is
     /// taller than its content. Always 0 for non-cell nodes.
-    pub content_offset_y: f32,
+    pub content_offset_y: f64,
     /// Border edges the host should NOT paint, as `[top, right, bottom, left]`.
     /// Under `border-collapse` every shared boundary is painted by exactly one
     /// of the two adjacent cells (the wider border wins; ties go to the
@@ -146,7 +146,7 @@ pub struct CellLayout {
     /// grid line: the cell's layout only reserves half the border (in
     /// `border`), and the winning cell paints its full border shifted outward
     /// by the other half. Zero everywhere for separate-border tables.
-    pub border_outsets: [f32; 4],
+    pub border_outsets: [f64; 4],
 }
 
 impl Default for CellLayout {
@@ -185,7 +185,7 @@ pub struct CollapsedBorders {
     pub suppressed: [bool; 4],
     /// Paint outset per edge (`[top, right, bottom, left]`): the winning cell
     /// paints its full CSS border shifted outward by half its width.
-    pub outsets: [f32; 4],
+    pub outsets: [f64; 4],
 }
 
 /// `border-collapse` property.

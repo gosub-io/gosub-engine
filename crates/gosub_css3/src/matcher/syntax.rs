@@ -6,7 +6,6 @@ use nom::bytes::complete::{tag, tag_no_case, take_while};
 use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of, space0};
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many0, many1, separated_list0, separated_list1};
-use nom::number::complete::float;
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::Err;
 use nom::IResult;
@@ -113,20 +112,44 @@ impl RangeType {
         matches!(self.min, NumberOrInfinity::None) && matches!(self.max, NumberOrInfinity::None)
     }
 
+    /// The lower bound as a number, or `None` when the range does not set one.
+    ///
+    /// Used by the computed-value clamp, which needs the bound itself rather than a yes/no
+    /// answer: `contains()` can say `width: calc(-5px)` is out of range, but only the bound
+    /// says what to replace it with.
+    pub(crate) fn min_bound(&self) -> Option<f64> {
+        bound(self.min)
+    }
+
+    /// The upper bound as a number, or `None` when the range does not set one.
+    pub(crate) fn max_bound(&self) -> Option<f64> {
+        bound(self.max)
+    }
+
     /// Returns true when `value` lies within the range. An unset or infinite bound is
     /// treated as unbounded on that side, so an empty range accepts every value.
-    pub(crate) fn contains(&self, value: f32) -> bool {
+    pub(crate) fn contains(&self, value: f64) -> bool {
         let above_min = match self.min {
             NumberOrInfinity::None | NumberOrInfinity::NegativeInfinity => true,
             NumberOrInfinity::Infinity => false,
-            NumberOrInfinity::FiniteI64(n) => value >= n as f32,
+            NumberOrInfinity::FiniteI64(n) => value >= n as f64,
         };
         let below_max = match self.max {
             NumberOrInfinity::None | NumberOrInfinity::Infinity => true,
             NumberOrInfinity::NegativeInfinity => false,
-            NumberOrInfinity::FiniteI64(n) => value <= n as f32,
+            NumberOrInfinity::FiniteI64(n) => value <= n as f64,
         };
         above_min && below_max
+    }
+}
+
+/// One end of a range as a number. `None` and an infinity both mean unbounded, and both answer
+/// `None` - clamping to infinity is the same as not clamping, and saying so once here keeps the
+/// callers from having to know the difference.
+fn bound(end: NumberOrInfinity) -> Option<f64> {
+    match end {
+        NumberOrInfinity::None | NumberOrInfinity::Infinity | NumberOrInfinity::NegativeInfinity => None,
+        NumberOrInfinity::FiniteI64(n) => Some(n as f64),
     }
 }
 
@@ -293,7 +316,7 @@ impl CssSyntax {
 
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
-    let (input, value) = float(input)?;
+    let (input, value) = nom::number::complete::double(input)?;
 
     // nom's float parser accepts the textual forms "inf"/"infinity"/"nan", which makes it
     // eat the front of grammar KEYWORDS: `infinite` parsed as Unit(inf, "inite") and could
@@ -708,7 +731,7 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
         let val = match value {
             CssValue::Unit(v, _) => v as i64,
             CssValue::Zero => 0,
-            CssValue::Number(v) => v as i64,
+            CssValue::Number(v, _) => v as i64,
             _ => {
                 return Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify)));
             }

@@ -21,9 +21,9 @@ use crate::TableTree;
 pub fn compute_table_layout<T: TableTree>(
     tree: &mut T,
     table_node: T::NodeId,
-    available_width: f32,
-    _available_height: Option<f32>,
-) -> Result<(f32, f32)> {
+    available_width: f64,
+    _available_height: Option<f64>,
+) -> Result<(f64, f64)> {
     let model = build_model(tree, table_node);
     let collapse = model.border_collapse == BorderCollapse::Collapse;
     // Collapsed borders have no gutters; adjacent cells share their border
@@ -188,10 +188,10 @@ pub fn compute_table_layout<T: TableTree>(
     // run the normal layout engine inside each cell.  We use for-loops rather
     // than iterator combinators because a closure can't hold `&mut tree` while
     // the model is also borrowed.
-    let mut content_heights: HashMap<T::NodeId, f32> = HashMap::new();
-    let mut baseline_shifts: HashMap<T::NodeId, f32> = HashMap::new();
+    let mut content_heights: HashMap<T::NodeId, f64> = HashMap::new();
+    let mut baseline_shifts: HashMap<T::NodeId, f64> = HashMap::new();
 
-    let mut header_heights: Vec<Vec<f32>> = Vec::with_capacity(header_grids.len());
+    let mut header_heights: Vec<Vec<f64>> = Vec::with_capacity(header_grids.len());
     for grid in &header_grids {
         header_heights.push(compute_row_heights(
             tree,
@@ -205,7 +205,7 @@ pub fn compute_table_layout<T: TableTree>(
         ));
     }
 
-    let mut body_heights: Vec<Vec<f32>> = Vec::with_capacity(body_grids.len());
+    let mut body_heights: Vec<Vec<f64>> = Vec::with_capacity(body_grids.len());
     for grid in &body_grids {
         body_heights.push(compute_row_heights(
             tree,
@@ -219,7 +219,7 @@ pub fn compute_table_layout<T: TableTree>(
         ));
     }
 
-    let mut footer_heights: Vec<Vec<f32>> = Vec::with_capacity(footer_grids.len());
+    let mut footer_heights: Vec<Vec<f64>> = Vec::with_capacity(footer_grids.len());
     for grid in &footer_grids {
         footer_heights.push(compute_row_heights(
             tree,
@@ -272,7 +272,7 @@ pub fn compute_table_layout<T: TableTree>(
     let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y + perimeter.top;
 
     #[allow(clippy::type_complexity)]
-    let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
+    let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f64>])] = &[
         (&model.header_groups, &header_grids, &header_heights),
         (&model.row_groups, &body_grids, &body_heights),
         (&model.footer_groups, &footer_grids, &footer_heights),
@@ -356,16 +356,16 @@ fn place_rows<T: TableTree>(
     tree: &mut T,
     group: &RowGroup<T::NodeId>,
     grid: &SectionGrid<T::NodeId>,
-    row_heights: &[f32],
-    row_y: &[f32],
-    col_x: &[f32],
-    col_widths: &[f32],
-    content_heights: &HashMap<T::NodeId, f32>,
+    row_heights: &[f64],
+    row_y: &[f64],
+    col_x: &[f64],
+    col_widths: &[f64],
+    content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
-    baseline_shifts: &HashMap<T::NodeId, f32>,
-    group_base_y: f32,
+    baseline_shifts: &HashMap<T::NodeId, f64>,
+    group_base_y: f64,
 ) {
-    let inner_width: f32 = match (col_x.last(), col_widths.last()) {
+    let inner_width: f64 = match (col_x.last(), col_widths.last()) {
         (Some(&x), Some(&w)) => x + w - col_x.first().copied().unwrap_or(0.0),
         _ => 0.0,
     };
@@ -414,15 +414,15 @@ fn place_rows<T: TableTree>(
 fn place_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
-    row_heights: &[f32],
-    col_x: &[f32],
-    col_widths: &[f32],
-    row_y: &[f32],
-    content_heights: &HashMap<T::NodeId, f32>,
+    row_heights: &[f64],
+    col_x: &[f64],
+    col_widths: &[f64],
+    row_y: &[f64],
+    content_heights: &HashMap<T::NodeId, f64>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
-    baseline_shifts: &HashMap<T::NodeId, f32>,
+    baseline_shifts: &HashMap<T::NodeId, f64>,
     // Offset of the cell's (anonymous) row relative to the cell's DOM parent; 0 in a real row.
-    base_y: f32,
+    base_y: f64,
 ) {
     // Extents come from the offset tables so gutters (separate borders) and
     // overlaps (collapsed borders) are both handled: a spanning cell runs from
@@ -476,7 +476,7 @@ fn place_cell<T: TableTree>(
 /// `col_x[i]` = x of the left edge of column `i` within a row, in px.
 /// Accounts for the border-spacing gutter to the left of each column
 /// (zero under `border-collapse`, where cells sit flush).
-fn col_x_offsets(col_widths: &[f32], spacing_x: f32) -> Vec<f32> {
+fn col_x_offsets(col_widths: &[f64], spacing_x: f64) -> Vec<f64> {
     let mut offsets = Vec::with_capacity(col_widths.len());
     let mut x = spacing_x;
     for &w in col_widths {
@@ -489,7 +489,7 @@ fn col_x_offsets(col_widths: &[f32], spacing_x: f32) -> Vec<f32> {
 /// `row_y[i]` = y of the top edge of row `i` within its group, in px.
 /// The first row starts at 0 - the gutter above it belongs to the table
 /// (or to the previous group's bottom boundary), not to this group.
-fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
+fn row_y_offsets(row_heights: &[f64], spacing_y: f64) -> Vec<f64> {
     let mut offsets = Vec::with_capacity(row_heights.len());
     let mut y = 0.0;
     for &h in row_heights {
@@ -503,7 +503,7 @@ fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
 /// the last (gutters are baked into `row_y`). Boundary gutters (above the
 /// first row / below the last) are added by the caller when stacking groups,
 /// so they are not counted here.
-fn section_height(row_heights: &[f32], row_y: &[f32]) -> f32 {
+fn section_height(row_heights: &[f64], row_y: &[f64]) -> f64 {
     match (row_y.last(), row_heights.last()) {
         (Some(&y), Some(&h)) => y + h,
         _ => 0.0,
@@ -592,7 +592,7 @@ fn resolve_border_conflicts<T: TableTree>(
     struct EdgeState<Id> {
         has_seg: [bool; 4],
         won_any: [bool; 4],
-        resolved: [f32; 4],
+        resolved: [f64; 4],
         winner: [Option<Id>; 4],
     }
     impl<Id> EdgeState<Id> {
@@ -699,8 +699,8 @@ fn resolve_border_conflicts<T: TableTree>(
         let s = states.get(&node).copied().unwrap_or_else(EdgeState::new);
         let own = [raw.top, raw.right, raw.bottom, raw.left];
         let mut suppressed = [false; 4];
-        let mut resolved = [0.0_f32; 4];
-        let mut outsets = [0.0_f32; 4];
+        let mut resolved = [0.0_f64; 4];
+        let mut outsets = [0.0_f64; 4];
         let mut owners = [None; 4];
         for e in 0..4 {
             suppressed[e] = s.has_seg[e] && !s.won_any[e];

@@ -46,6 +46,7 @@ dbg_macro = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
+unreachable = "deny"
 
 
 [workspace.dependencies]

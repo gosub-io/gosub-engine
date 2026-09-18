@@ -1120,14 +1120,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Token::EndTag { name, .. } if name == "style" => {
                         // Fetch first child node id. This should be the inline stylesheet text
                         let style_node_id = current_node_id!(self);
-                        if self.document.children(style_node_id).is_empty() {
+                        // One construct instead of an `is_empty()` guard three lines above an
+                        // `unwrap()`: the two had to agree to stay correct, and only a comment
+                        // said they did.
+                        let Some(&style_text_node_id) = self.document.children(style_node_id).first() else {
                             self.open_elements.pop();
                             self.insertion_mode = self.original_insertion_mode;
                             return;
-                        }
-
-                        #[allow(clippy::unwrap_used)] // PANIC-SAFE: the is_empty() guard above returned
-                        let style_text_node_id = *self.document.children(style_node_id).first().unwrap();
+                        };
 
                         // Load stylesheet from text node
                         if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, style_text_node_id) {
@@ -2049,11 +2049,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             if idx == 0 {
                 last = true;
 
-                // fragment case: use context node
+                // fragment case: use context node (13.2.4). The context node is set whenever
+                // fragment parsing starts, so the `else` cannot be reached - but asking for it
+                // rather than asserting it means a parser built some other way degrades to the
+                // node it already had instead of aborting the process.
                 if self.is_fragment_case {
-                    #[allow(clippy::expect_used)] // PANIC-SAFE: fragment parsing always sets a context node (13.2.4)
-                    let context_node_id = self.context_node_id.expect("context_node_id not set in fragment case");
-                    node_id = context_node_id;
+                    if let Some(context_node_id) = self.context_node_id {
+                        node_id = context_node_id;
+                    }
                 }
             }
             match self.document.tag_name(node_id).unwrap_or_default() {
@@ -4019,10 +4022,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     fn get_adjusted_current_node_id(&self) -> NodeId {
+        // fragment case: return the context node (13.2.4), which fragment parsing always
+        // sets. Falling through to the current node when it is somehow absent gives the same
+        // answer everywhere it was set, and an answer rather than an abort where it was not.
         if self.is_fragment_case && self.open_elements.len() == 1 {
-            // fragment case: return context node
-            #[allow(clippy::expect_used)] // PANIC-SAFE: fragment parsing always sets a context node (13.2.4)
-            return self.context_node_id.expect("context_node_id not set in fragment case");
+            if let Some(context_node_id) = self.context_node_id {
+                return context_node_id;
+            }
         }
         current_node_id!(self)
     }
@@ -4863,7 +4869,6 @@ mod test {
         };
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
         let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(
-            #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
             url::Url::parse("http://example.test/page.html").unwrap(),
         ));
         let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));

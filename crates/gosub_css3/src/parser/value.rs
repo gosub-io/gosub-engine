@@ -8,25 +8,50 @@ impl Css3<'_> {
     pub fn parse_value_sequence(&mut self) -> CssResult<Vec<Node>> {
         log::trace!("parse_value_sequence");
 
-        let mut children = Vec::new();
+        let mut children: Vec<Node> = Vec::new();
 
         while !self.tokenizer.eof() {
-            let t = self.consume_any()?;
-            match t.token_type {
-                TokenType::Comment(_) => {
-                    // eat token
-                }
-                TokenType::Whitespace(_) => {
-                    // eat token
-                }
-                _ => {
-                    self.tokenizer.reconsume(t);
+            // Skip the run of whitespace and comments ahead of the next value, remembering
+            // whether any whitespace was among it. Whitespace is not a value, but css-values-4
+            // §10.1 makes its presence part of the meaning of `+` and `-`: both require
+            // whitespace on either side, and that is the only thing separating
+            // `calc(1px - 2px)` (a subtraction) from `calc(1px -2px)` (two adjacent values).
+            // Discarding it outright left that rule unenforceable for every math function whose
+            // arguments come through here.
+            //
+            // This loop also replaces a single-token skip that could not cope with whitespace
+            // and a comment in sequence: `1px /* c */ 2px` ended the value list at the comment.
+            let mut space_before = false;
+            loop {
+                let t = self.consume_any()?;
+                match t.token_type {
+                    TokenType::Whitespace(_) => space_before = true,
+                    TokenType::Comment(_) => {}
+                    _ => {
+                        self.tokenizer.reconsume(t);
+                        break;
+                    }
                 }
             }
 
-            let Some(child) = self.parse_value()? else {
+            // Whitespace ahead of this value is also whitespace *after* whatever preceded it.
+            if space_before {
+                if let Some(NodeType::Operator { space_after, .. }) =
+                    children.last_mut().map(|node| &mut node.node_type)
+                {
+                    *space_after = true;
+                }
+            }
+
+            let Some(mut child) = self.parse_value()? else {
                 break;
             };
+            if let NodeType::Operator {
+                space_before: before, ..
+            } = &mut child.node_type
+            {
+                *before = space_before;
+            }
             children.push(child);
         }
 
@@ -51,10 +76,12 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Comma, t.location);
                 Ok(Some(node))
             }
-            TokenType::LBracket => Err(CssError::with_location(
-                "Unexpected token [",
-                self.tokenizer.current_location(),
-            )),
+            // A bracketed block is grid's line-name list, `[a b]`. Its brackets are kept as
+            // operator values, the way `/` is, so that `'[' <custom-ident>* ']'` in the grammar
+            // matches them one by one. This used to be an error, which made every track list
+            // with a line name an invalid declaration.
+            TokenType::LBracket => Ok(Some(Node::new(NodeType::operator("["), t.location))),
+            TokenType::RBracket => Ok(Some(Node::new(NodeType::operator("]"), t.location))),
             TokenType::QuotedString(value) => {
                 let node = Node::new(NodeType::String { value }, t.location);
                 Ok(Some(node))
@@ -67,8 +94,8 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Percentage { value }, t.location);
                 Ok(Some(node))
             }
-            TokenType::Number(value) => {
-                let node = Node::new(NodeType::Number { value }, t.location);
+            TokenType::Number(value, kind) => {
+                let node = Node::new(NodeType::Number { value, kind }, t.location);
                 Ok(Some(node))
             }
             TokenType::Function(ref name) => {
@@ -118,7 +145,7 @@ impl Css3<'_> {
                             },
                             t.location,
                         ),
-                        TokenType::Number(default_value) => Node::new(
+                        TokenType::Number(default_value, _) => Node::new(
                             NodeType::MSIdent {
                                 value: value.to_string(),
                                 default_value: default_value.to_string(),

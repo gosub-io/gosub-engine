@@ -185,8 +185,8 @@ fn apply_recursive(
             }
             Some(cell_layout) => {
                 let abs = Coordinate::new(
-                    parent_abs.x + cell_layout.position.x as f64,
-                    parent_abs.y + cell_layout.position.y as f64,
+                    parent_abs.x + cell_layout.position.x,
+                    parent_abs.y + cell_layout.position.y,
                 );
                 // Read old position before overwriting so we can compute the
                 // translation needed for non-pending children of this cell.
@@ -200,12 +200,12 @@ fn apply_recursive(
                         element.box_model = cell_layout_to_box_model(cell_layout, abs);
                         element.collapsed_borders = edge_owners.get(&child_id).map(|&owners| CollapsedCellBorders {
                             widths: [
-                                cell_layout.border.top,
-                                cell_layout.border.right,
-                                cell_layout.border.bottom,
-                                cell_layout.border.left,
+                                cell_layout.border.top as f32,
+                                cell_layout.border.right as f32,
+                                cell_layout.border.bottom as f32,
+                                cell_layout.border.left as f32,
                             ],
-                            outsets: cell_layout.border_outsets,
+                            outsets: cell_layout.border_outsets.map(|v| v as f32),
                             owners,
                         });
                     }
@@ -213,7 +213,7 @@ fn apply_recursive(
                 // vertical-align: only cells whose subtree was re-anchored at the
                 // cell top this pass get the shift, so it applies exactly once.
                 let valign_shift = if relaid.contains(&child_id) {
-                    cell_layout.content_offset_y as f64
+                    cell_layout.content_offset_y
                 } else {
                     0.0
                 };
@@ -229,8 +229,8 @@ fn apply_recursive(
                 {
                     let raw_left = doc.get_style_f32(child_id, &StyleProperty::BorderLeftWidth) as f64;
                     let raw_top = doc.get_style_f32(child_id, &StyleProperty::BorderTopWidth) as f64;
-                    let dl = cell_layout.border.left as f64 - raw_left;
-                    let dt = cell_layout.border.top as f64 - raw_top;
+                    let dl = cell_layout.border.left - raw_left;
+                    let dt = cell_layout.border.top - raw_top;
                     if dl != 0.0 || dt != 0.0 {
                         Coordinate::new(dl, dt)
                     } else {
@@ -275,20 +275,20 @@ fn translate_box_model(bm: &mut BoxModel, offset: Coordinate) {
 }
 
 fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
-    let border_box = Rect::new(abs.x, abs.y, layout.size.width as f64, layout.size.height as f64);
+    let border_box = Rect::new(abs.x, abs.y, layout.size.width, layout.size.height);
     BoxModel::new(
         border_box,
         Edges {
-            top: layout.padding.top as f64,
-            right: layout.padding.right as f64,
-            bottom: layout.padding.bottom as f64,
-            left: layout.padding.left as f64,
+            top: layout.padding.top,
+            right: layout.padding.right,
+            bottom: layout.padding.bottom,
+            left: layout.padding.left,
         },
         Edges {
-            top: layout.border.top as f64,
-            right: layout.border.right as f64,
-            bottom: layout.border.bottom as f64,
-            left: layout.border.left as f64,
+            top: layout.border.top,
+            right: layout.border.right,
+            bottom: layout.border.bottom,
+            left: layout.border.left,
         },
         Edges {
             top: 0.0,
@@ -370,8 +370,8 @@ impl TableTree for PipelineTableTree<'_> {
         };
 
         match self.doc.get_style(id, &style_prop) {
-            Value::Unit(v, Unit::Px) => CssLength::Px(v),
-            Value::Unit(v, Unit::Percent) => CssLength::Percent(v),
+            Value::Unit(v, Unit::Px) => CssLength::Px(v as f64),
+            Value::Unit(v, Unit::Percent) => CssLength::Percent(v as f64),
             Value::Unit(0.0, _) => CssLength::Zero,
             _ => CssLength::Auto,
         }
@@ -396,7 +396,7 @@ impl TableTree for PipelineTableTree<'_> {
         }
     }
 
-    fn layout_cell(&mut self, id: DomNodeId, available_width: f32) -> f32 {
+    fn layout_cell(&mut self, id: DomNodeId, available_width: f64) -> f64 {
         let Some(&layout_id) = self.dom_to_layout.get(&id) else {
             return 0.0;
         };
@@ -407,8 +407,8 @@ impl TableTree for PipelineTableTree<'_> {
         // `post_process_tables` propagates it up here.
         if self.subtree_contains_table(id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
-                let taffy_h = element.box_model.content_box.height as f32;
-                return taffy_h.max(self.nested_table_height(layout_id));
+                let taffy_h = element.box_model.content_box.height;
+                return taffy_h.max(f64::from(self.nested_table_height(layout_id)));
             }
             return 0.0;
         }
@@ -423,25 +423,25 @@ impl TableTree for PipelineTableTree<'_> {
             .arena
             .get(&layout_id)
             .map(|el| {
-                (el.box_model.border.left
+                el.box_model.border.left
                     + el.box_model.border.right
                     + el.box_model.padding.left
-                    + el.box_model.padding.right) as f32
+                    + el.box_model.padding.right
             })
             .unwrap_or(0.0);
-        if let Some(content_h) = self
-            .layouter
-            .relayout_cell(self.layout_tree, layout_id, available_width + extras)
+        if let Some(content_h) =
+            self.layouter
+                .relayout_cell(self.layout_tree, layout_id, (available_width + extras) as f32)
         {
             self.relaid.insert(id);
-            return content_h;
+            return f64::from(content_h);
         }
 
         // Fallback: the content height from the taffy first pass.
         self.layout_tree
             .arena
             .get(&layout_id)
-            .map(|el| el.box_model.content_box.height as f32)
+            .map(|el| el.box_model.content_box.height)
             .unwrap_or(0.0)
     }
 
@@ -472,7 +472,7 @@ impl TableTree for PipelineTableTree<'_> {
         VerticalAlign::Top
     }
 
-    fn cell_baseline(&mut self, id: DomNodeId) -> Option<f32> {
+    fn cell_baseline(&mut self, id: DomNodeId) -> Option<f64> {
         let &layout_id = self.dom_to_layout.get(&id)?;
         let cell_top = self.layout_tree.arena.get(&layout_id)?.box_model.border_box.y;
 
@@ -502,10 +502,10 @@ impl TableTree for PipelineTableTree<'_> {
             return None;
         };
         let ascent = self.layouter.first_line_ascent(&ctx.text, &ctx.font_info)?;
-        Some((text_el.box_model.content_box.y - cell_top) as f32 + ascent)
+        Some((text_el.box_model.content_box.y - cell_top) + f64::from(ascent))
     }
 
-    fn cell_intrinsic_widths(&mut self, id: DomNodeId) -> (f32, f32) {
+    fn cell_intrinsic_widths(&mut self, id: DomNodeId) -> (f64, f64) {
         let Some(&layout_id) = self.dom_to_layout.get(&id) else {
             if std::env::var("LATTICE_DEBUG").is_ok() {
                 eprintln!("lattice-dbg: cell {:?} NOT in dom_to_layout", id);
@@ -518,19 +518,25 @@ impl TableTree for PipelineTableTree<'_> {
         // flex row here) and reported Wikipedia's comma-separated infobox lists as one
         // unbreakable 1100px run. Both are border-box widths, so the walk - which only sees
         // content - gets the cell's own padding and border added back.
-        let max = self.layouter.measure_max_content_width(layout_id).unwrap_or(0.0);
+        let max = f64::from(self.layouter.measure_max_content_width(layout_id).unwrap_or(0.0));
         let extras = self
             .layout_tree
             .arena
             .get(&layout_id)
             .map(|el| {
-                (el.box_model.border.left
+                el.box_model.border.left
                     + el.box_model.border.right
                     + el.box_model.padding.left
-                    + el.box_model.padding.right) as f32
+                    + el.box_model.padding.right
             })
             .unwrap_or(0.0);
-        let min = subtree_min_content_width(self.doc, self.layout_tree, self.layouter, layout_id, true) + extras;
+        let min = f64::from(subtree_min_content_width(
+            self.doc,
+            self.layout_tree,
+            self.layouter,
+            layout_id,
+            true,
+        )) + extras;
         let w = (min, max.max(min));
         if std::env::var("LATTICE_DEBUG").is_ok() {
             eprintln!("lattice-dbg: cell {:?} intrinsics={:?}", id, w);
@@ -767,7 +773,7 @@ fn lay_out_one_table(
         layout_tree
             .arena
             .get(&table_layout_id)
-            .map(|e| e.box_model.content_box.width as f32)
+            .map(|e| e.box_model.content_box.width)
             .unwrap_or(0.0)
     };
     let available_width = if table_is_abs {
@@ -776,7 +782,7 @@ fn lay_out_one_table(
         doc.parent(table_dom_id)
             .and_then(|p| dom_to_layout.get(&p))
             .and_then(|&pid| layout_tree.arena.get(&pid))
-            .map(|el| el.box_model.content_box.width as f32)
+            .map(|el| el.box_model.content_box.width)
             .unwrap_or_else(own_width)
     };
 
@@ -806,8 +812,8 @@ fn lay_out_one_table(
                 } else {
                     (el.box_model.border, el.box_model.padding)
                 };
-                let bw = table_width as f64 + border.left + border.right + padding.left + padding.right;
-                let bh = table_height as f64 + border.top + border.bottom + padding.top + padding.bottom;
+                let bw = table_width + border.left + border.right + padding.left + padding.right;
+                let bh = table_height + border.top + border.bottom + padding.top + padding.bottom;
                 el.box_model = BoxModel::new(Rect::new(bb.x, bb.y, bw, bh), padding, border, el.box_model.margin);
             }
             // The first taffy pass only approximated the table's height; when
@@ -829,7 +835,7 @@ fn lay_out_one_table(
                         .arena
                         .get(&table_layout_id)
                         .map(|e| e.box_model.border_box.height)
-                        .unwrap_or(table_height as f64);
+                        .unwrap_or(table_height);
                     let delta = new_h - old.height;
                     if std::env::var("LATTICE_DEBUG").is_ok() {
                         eprintln!(

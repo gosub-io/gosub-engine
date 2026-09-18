@@ -55,6 +55,7 @@ FILE dom/events/Event-dispatch-multiple-cancelBubble.html
 FILE dom/events/Event-dispatch-multiple-stopPropagation.html
 FILE dom/events/Event-dispatch-omitted-capture.html
 FILE dom/events/Event-dispatch-on-disabled-elements.html
+HARNESS dom/events/Event-dispatch-on-disabled-elements.html
 PASS dom/events/Event-dispatch-on-disabled-elements.html :: Can dispatch untrusted 'click' Events at disabled HTML elements.
 PASS dom/events/Event-dispatch-on-disabled-elements.html :: Can dispatch untrusted Events at disabled HTML elements.
 FILE dom/events/Event-dispatch-order-at-target.html
@@ -909,7 +910,7 @@ FILE html/dom/elements/global-attributes/translate-inherit-no-parent-element.htm
 FILE html/dom/elements/global-attributes/translate-non-html-translation-mode.html
 FILE html/dom/elements/images/bypass-cache-revalidation.html
 FILE html/dom/elements/name-content-attribute-and-property.html
-ERROR html/dom/elements/name-content-attribute-and-property.html
+HARNESS html/dom/elements/name-content-attribute-and-property.html
 FILE html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
 HARNESS html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001a.html
 FILE html/dom/elements/requirements-relating-to-bidirectional-algorithm-formatting-characters/dir-isolation-001b.html
@@ -1004,6 +1005,7 @@ FILE html/dom/historical.html
 PASS html/dom/historical.html :: HTMLAppletElement is no more
 PASS html/dom/historical.html :: document cannot find applet
 PASS html/dom/historical.html :: window cannot find applet
+PASS html/dom/historical.html :: applet is not styled
 PASS html/dom/historical.html :: HTMLTableDataCellElement interface is removed
 PASS html/dom/historical.html :: HTMLTableHeaderCellElement interface is removed
 FILE html/dom/idlharness.https.html

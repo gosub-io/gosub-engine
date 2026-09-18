@@ -73,6 +73,82 @@ fn is_legacy_pseudo_element(name: &str) -> bool {
         || name.eq_ignore_ascii_case("first-letter")
 }
 
+/// Whether the `[`/`]` in `nodes` pair up into line-name lists whose every entry is an
+/// identifier css-grid allows (css-grid-2 §7.2: any `<custom-ident>` except `span` and `auto`;
+/// a `<custom-ident>` itself excludes the CSS-wide keywords and `default`). Function arguments
+/// are checked the same way, each as its own list.
+fn line_names_are_valid(nodes: &[CssNode]) -> bool {
+    let mut open = false;
+    for node in nodes {
+        match &node.node_type {
+            NodeType::Operator { value, .. } if value == "[" => {
+                if open {
+                    return false;
+                }
+                open = true;
+            }
+            NodeType::Operator { value, .. } if value == "]" => {
+                if !open {
+                    return false;
+                }
+                open = false;
+            }
+            NodeType::Ident { value } if open => {
+                let excluded = [
+                    "span",
+                    "auto",
+                    "default",
+                    "initial",
+                    "inherit",
+                    "unset",
+                    "revert",
+                    "revert-layer",
+                ];
+                if excluded.iter().any(|k| value.eq_ignore_ascii_case(k)) {
+                    return false;
+                }
+            }
+            _ if open => return false,
+            NodeType::Function { arguments, .. } if !line_names_are_valid(arguments) => return false,
+            _ => {}
+        }
+    }
+    !open
+}
+
+/// Whether every math expression in this value node spaces its `+` and `-` the way
+/// css-values-4 §10.1 requires: whitespace on *both* sides.
+///
+/// The rule exists because the sign is otherwise part of the number - `calc(1px -2px)` is two
+/// adjacent values, not a subtraction - and a UA that guessed would accept CSS no other UA does.
+///
+/// `in_math` tracks whether we are inside a math function's arguments, because the rule applies
+/// only there: the `+` in `rgb(1 2 3 / +0.5)` is not arithmetic.
+///
+/// A `calc()` body is its own node type rather than a function with arguments, so it needs its
+/// own arm - without one, `calc(1px+ 2px)` was folded to `3px` while the same expression inside
+/// `min()` was rejected.
+fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
+    match &node.node_type {
+        NodeType::Operator {
+            value,
+            space_before,
+            space_after,
+        } if in_math && (value == "+" || value == "-") => *space_before && *space_after,
+        NodeType::Function { name, arguments } => {
+            // A math function nested anywhere still has to obey the rule, so the flag only ever
+            // turns on as we descend.
+            let inside = in_math || crate::functions::calc::is_math_function_name(name);
+            arguments.iter().all(|arg| math_spacing_is_valid(arg, inside))
+        }
+        // `calc()` is parsed by a path of its own and keeps its body as a flat token list, so it
+        // is not a `Function` and has to be descended into separately. Everything in there is
+        // arithmetic by definition.
+        NodeType::Calc { tokens } => tokens.iter().all(|token| math_spacing_is_valid(token, true)),
+        _ => true,
+    }
+}
+
 /// Convert a functional pseudo-class's selector-list argument (as `:not()` takes) into one
 /// compound per comma-separated selector.
 fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelectorPart>>> {
@@ -176,7 +252,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                     None => MatcherType::None,
 
                     Some(matcher) => {
-                        if let NodeType::Operator(op) = &matcher.node_type {
+                        if let NodeType::Operator { value: op, .. } = &matcher.node_type {
                             match op.as_str() {
                                 "=" => MatcherType::Equals,
                                 "~=" => MatcherType::Includes,
@@ -237,13 +313,13 @@ fn collect_rule(
             return Ok(None);
         };
 
-        let mut selector = CssSelector { parts: vec![vec![]] };
+        let mut parts: Vec<Vec<CssSelectorPart>> = vec![vec![]];
         for node in selectors {
             let NodeType::Selector { children } = node.node_type else {
                 continue;
             };
 
-            convert_selector_children(children, &mut selector.parts)?;
+            convert_selector_children(children, &mut parts)?;
         }
 
         // A compound with no parts matches every element vacuously, so an empty prelude
@@ -251,12 +327,12 @@ fn collect_rule(
         // apply its declarations to the entire document. Per CSS Syntax a style rule with an
         // invalid or empty prelude is invalid and must be dropped, so drop the empty compounds
         // and the rule with them if nothing is left.
-        selector.parts.retain(|part| !part.is_empty());
-        if selector.parts.is_empty() {
+        parts.retain(|part| !part.is_empty());
+        if parts.is_empty() {
             return Ok(None);
         }
 
-        rule.selectors.push(selector);
+        rule.selectors.push(CssSelector::new(parts));
     }
 
     if let Some(declaration) = block {
@@ -272,6 +348,20 @@ fn collect_rule(
             else {
                 continue;
             };
+
+            // A math expression with an ill-spaced `+` or `-` makes the whole declaration
+            // invalid, so it is checked before any value is converted. Dropping only the
+            // offending value would leave `margin: 1px min(1px+ 2px, 9px)` behind as
+            // `margin: 1px`, which is not what the author wrote and not what the cascade
+            // should see.
+            if value.iter().any(|node| !math_spacing_is_valid(node, false)) {
+                continue;
+            }
+            // Likewise a bracketed line-name list that is not one: brackets that do not pair
+            // up (`random-item(auto, ])`), or a name css-grid excludes (`[auto]`, `[span]`).
+            if !line_names_are_valid(&value) {
+                continue;
+            }
 
             // Convert the nodes into CSS Values
             let mut css_values = vec![];
@@ -634,7 +724,7 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1);
         assert_eq!(
-            stylesheet.rules[0].selectors.first().unwrap().parts.len(),
+            stylesheet.rules[0].selectors.first().unwrap().parts().len(),
             3,
             "dropping empty compounds must not drop real ones"
         );
@@ -652,7 +742,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts: Vec<_> = stylesheet.rules[0].selectors[0].parts[0].clone();
+        let parts: Vec<_> = stylesheet.rules[0].selectors[0].parts()[0].clone();
         assert!(
             parts
                 .iter()
@@ -660,7 +750,7 @@ mod tests {
             "`:after` must become a pseudo-element, got {parts:?}"
         );
 
-        let parts: Vec<_> = stylesheet.rules[1].selectors[0].parts[0].clone();
+        let parts: Vec<_> = stylesheet.rules[1].selectors[0].parts()[0].clone();
         assert!(
             parts
                 .iter()
@@ -732,7 +822,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let parts = &stylesheet.rules[0].selectors[0].parts()[0];
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -750,7 +840,7 @@ mod tests {
         )
         .unwrap();
 
-        let parts = &stylesheet.rules[0].selectors[0].parts[0];
+        let parts = &stylesheet.rules[0].selectors[0].parts()[0];
         let Some(CssSelectorPart::Not(inner)) = parts.last() else {
             panic!("expected a Not part, got {parts:?}");
         };
@@ -768,7 +858,7 @@ mod tests {
         )
         .unwrap();
 
-        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].parts[0].as_slice());
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].parts()[0].as_slice());
         assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
         assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
         assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
@@ -821,15 +911,15 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 3);
         assert_eq!(
-            stylesheet.rules[0].selectors[0].parts[0][0],
+            stylesheet.rules[0].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h1".into())
         );
         assert_eq!(
-            stylesheet.rules[1].selectors[0].parts[0][0],
+            stylesheet.rules[1].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h2".into())
         );
         assert_eq!(
-            stylesheet.rules[2].selectors[0].parts[0][0],
+            stylesheet.rules[2].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h3".into())
         );
     }
@@ -848,6 +938,85 @@ mod tests {
         .unwrap();
 
         assert_eq!(stylesheet.rules.len(), 1);
+    }
+
+    /// Parse a one-rule stylesheet and return its declarations as `name: value` strings.
+    fn declarations_of(css: &str) -> Vec<String> {
+        Css3::parse_str(
+            css,
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .expect("stylesheet should parse")
+        .rules
+        .first()
+        .map(|rule| {
+            rule.declarations
+                .iter()
+                .map(|d| format!("{}: {}", d.property, d.value))
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    #[test]
+    fn math_functions_require_whitespace_around_plus_and_minus() {
+        // css-values-4 §10.1: whitespace on *both* sides of `+` and `-`, or the declaration is
+        // invalid. One space short is enough.
+        assert_eq!(declarations_of("a{width:min(1px+ 2px, 9px)}"), Vec::<String>::new());
+        assert_eq!(declarations_of("a{width:max(1px, 2px+ 3px)}"), Vec::<String>::new());
+        assert_eq!(
+            declarations_of("a{width:clamp(1px, 2px+ 3px, 9px)}"),
+            Vec::<String>::new()
+        );
+        // `calc()` is parsed by a path of its own, so it needs checking in its own right - it
+        // used to be exempt by accident and folded this to `calc(3px)`.
+        assert_eq!(declarations_of("a{width:calc(1px+ 2px)}"), Vec::<String>::new());
+        // Including through a nested group, which is a call with no name.
+        assert_eq!(declarations_of("a{width:calc((1px+ 2px) * 2)}"), Vec::<String>::new());
+
+        // Correctly spaced, so it still folds.
+        assert_eq!(declarations_of("a{width:min(1px + 2px, 9px)}"), ["width: calc(3px)"]);
+        assert_eq!(declarations_of("a{width:calc(1px + 2px)}"), ["width: calc(3px)"]);
+
+        // The other half of the rule is not this stage's to enforce. `calc(1px -2px)` has no
+        // operator in it at all - the tokenizer folded the sign into the number, which is
+        // exactly why the spec demands the space - so it parses as two juxtaposed values and
+        // survives to here. What rejects it is the matcher, which cannot read it as a sum.
+        assert_eq!(declarations_of("a{width:calc(1px -2px)}"), ["width: calc(1px -2px)"]);
+    }
+
+    #[test]
+    fn one_bad_math_expression_drops_the_whole_declaration() {
+        // Not just the offending value: `margin: 1px <invalid>` is invalid as a declaration, and
+        // leaving `margin: 1px` behind would apply a value the author never wrote.
+        assert_eq!(
+            declarations_of("a{margin:1px min(1px+ 2px, 9px)}"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn the_whitespace_rule_is_only_for_math_functions() {
+        // The `+` in an alpha value is a sign, not an operator, so no spacing is required.
+        assert_eq!(
+            declarations_of("a{color:rgb(1 2 3 / +0.5)}"),
+            ["color: rgba(1, 2, 3, 0.5)"]
+        );
+        // And `*` and `/` need no whitespace even inside a math function.
+        assert_eq!(declarations_of("a{width:min(1px*2, 9px)}"), ["width: calc(2px)"]);
+    }
+
+    #[test]
+    fn a_comment_does_not_end_a_value_list() {
+        // The whitespace/comment skip used to consume a single token, so a comment that followed
+        // whitespace was handed to `parse_value`, which stopped the list there: this came out as
+        // `margin: 1px`.
+        assert_eq!(declarations_of("a{margin:1px /* c */ 2px}"), ["margin: 1px 2px"]);
     }
 
     /// Parse `css` and return its collected imports.
@@ -978,7 +1147,7 @@ mod tests {
 
         assert_eq!(sheet.rules.len(), 1, "only the satisfied block contributes rules");
         assert_eq!(
-            sheet.rules[0].selectors[0].parts[0][0],
+            sheet.rules[0].selectors[0].parts()[0][0],
             CssSelectorPart::Type("h1".into())
         );
     }

@@ -229,34 +229,44 @@ fn unquote(s: &str) -> &str {
     }
 }
 
-/// Compile a literal regex pattern.
-fn re(pattern: &str) -> Regex {
-    #[allow(clippy::unwrap_used)] // PANIC-SAFE: all callers pass literal patterns, exercised by tests
-    Regex::new(pattern).unwrap()
+/// Compile a literal regex pattern, or `None` if it will not compile.
+///
+/// These patterns are literals in this file, so a failure here is a typo in this repository
+/// rather than anything a page can cause - but this is a *prescan* that produces preload hints,
+/// so a pattern that does not compile costs the hints it would have found and nothing else.
+/// It used to be an `unwrap()`, which paid for a typo with the process.
+fn re(pattern: &str) -> Option<Regex> {
+    match Regex::new(pattern) {
+        Ok(regex) => Some(regex),
+        Err(e) => {
+            log::error!("resource prescan pattern {pattern:?} did not compile, so it will find nothing: {e}");
+            None
+        }
+    }
 }
 
-static RE_LINK_STYLESHEET: Lazy<Regex> = Lazy::new(|| {
+static RE_LINK_STYLESHEET: Lazy<Option<Regex>> = Lazy::new(|| {
     // allow "..." or '...' or unquoted; capture into the *same* group `href`
     re(
         r#"(?is)<\s*link\b[^>]*\brel\s*=\s*(?:"stylesheet"|'stylesheet')[^>]*\bhref\s*=\s*(?P<href>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#,
     )
 });
 
-static RE_SCRIPT_SRC: Lazy<Regex> =
+static RE_SCRIPT_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-static RE_ASYNC_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\basync\b"#));
+static RE_ASYNC_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\basync\b"#));
 
-static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\bdefer\b"#));
+static RE_DEFER_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\bdefer\b"#));
 
-static RE_IMG_SRC: Lazy<Regex> =
+static RE_IMG_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
 fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     let mut out = Vec::new();
 
     // Stylesheets
-    for cap in RE_LINK_STYLESHEET.captures_iter(html) {
+    for cap in RE_LINK_STYLESHEET.iter().flat_map(|re| re.captures_iter(html)) {
         let Some(m) = cap.name("href") else {
             continue;
         };
@@ -277,11 +287,14 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     }
 
     // Scripts
-    for cap in RE_SCRIPT_SRC.captures_iter(html) {
+    for cap in RE_SCRIPT_SRC.iter().flat_map(|re| re.captures_iter(html)) {
         let tag = cap.get(0).map_or("", |m| m.as_str());
         let tag_lower = tag.cow_to_ascii_lowercase();
         // A script is blocking unless it has async or defer attributes
-        let blocking = !RE_ASYNC_ATTR.is_match(tag_lower.as_ref()) && !RE_DEFER_ATTR.is_match(tag_lower.as_ref());
+        // A pattern that did not compile cannot say the script is async or deferred, so the
+        // script is treated as blocking - the conservative answer, and the HTML default.
+        let has = |re: &Lazy<Option<Regex>>| re.as_ref().is_some_and(|re| re.is_match(tag_lower.as_ref()));
+        let blocking = !has(&RE_ASYNC_ATTR) && !has(&RE_DEFER_ATTR);
         let Some(m) = cap.name("src") else {
             continue;
         };
@@ -302,7 +315,7 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     }
 
     // Images
-    for cap in RE_IMG_SRC.captures_iter(html) {
+    for cap in RE_IMG_SRC.iter().flat_map(|re| re.captures_iter(html)) {
         let Some(m) = cap.name("src") else {
             continue;
         };

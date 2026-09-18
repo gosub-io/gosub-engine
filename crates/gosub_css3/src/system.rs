@@ -1,16 +1,14 @@
-use crate::colors::RgbColor;
 use crate::functions::attr::resolve_attr;
-use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{
     cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
+    DEFAULT_FONT_SIZE_PX,
 };
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
-use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
@@ -192,6 +190,23 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         classes: doc.attribute(id, "class").unwrap_or(""),
         tag: doc.tag_name(id),
     };
+    // The `style` attribute, parsed as a one-rule stylesheet so it can join the cascade as a
+    // rule like any other. Declared before `matched` so it outlives the borrows taken of it.
+    //
+    // It used to be parsed only when it contained a `--`, and only its custom properties were
+    // read: the render pipeline layered the ordinary declarations on afterwards, outside the
+    // cascade entirely. Anything else asking the cascade what an element computes to - which is
+    // to say `getComputedStyle` - therefore could not see a single thing set through
+    // `element.style`.
+    let inline_sheet = pseudo
+        .is_none()
+        .then(|| doc.attribute(id, "style"))
+        .flatten()
+        .filter(|style| !style.trim().is_empty())
+        .and_then(|style| {
+            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
+        });
+
     let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity, u16)> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
     // rule. Unconditional rules never look at it.
@@ -227,6 +242,12 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         }
     }
 
+    // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
+    // to the element's own tree, so it ranks at that tree's depth rather than the document's.
+    if let Some((sheet, rule)) = inline_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
+        matched.push((sheet, rule, INLINE_SPECIFICITY, shadow_depth::<C>(doc, element_scope)));
+    }
+
     // Custom properties: the parent's scope with this node's own declarations cascaded on
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
@@ -256,38 +277,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             }
         }
     }
-    // The `style` attribute cascades above every stylesheet rule; it is parsed here only
-    // when it can carry a custom property (it usually cannot), through the real parser.
-    let inline_sheet = pseudo
-        .is_none()
-        .then(|| doc.attribute(id, "style"))
-        .flatten()
-        .filter(|style| style.contains("--"))
-        .and_then(|style| {
-            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
-        });
-    if let Some(rule) = inline_sheet.as_ref().and_then(|sheet| sheet.rules.first()) {
-        for decl in rule.declarations() {
-            if !decl.property.starts_with("--") {
-                continue;
-            }
-            // The `style` attribute belongs to the element's own tree, so depth 0 applies.
-            let rank = (
-                cascade_rank(CssOrigin::Author, decl.important),
-                tree_rank(0, decl.important),
-                INLINE_SPECIFICITY,
-            );
-            match own_custom.entry(decl.property.as_str()) {
-                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
-                    slot.insert((rank, &decl.value));
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(slot) => {
-                    slot.insert((rank, &decl.value));
-                }
-            }
-        }
-    }
+    // The `style` attribute needs no pass of its own here: it is one of the rules in `matched`,
+    // so the loop above already cascaded its custom properties at inline specificity.
     let changes_scope = own_custom
         .iter()
         .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
@@ -374,58 +365,12 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
                     fix_list.reset_multiplier(&declaration.property);
                     if !definition.matches_and_shorthands(match_value, &mut fix_list) {
-                        // Special-case: the full `background` shorthand grammar
-                        // (comma-separated `<bg-layer>` lists) is stricter than the
-                        // matcher supports, so common forms like
-                        // `background: url(x) no-repeat` or `background: #fff` fail
-                        // validation and would be dropped entirely. Recover the parts
-                        // the consumer understands - `background-image` (a `url()`)
-                        // and `background-color` (a color) - and emit them as the
-                        // corresponding longhands. Position/repeat/size are still
-                        // ignored.
-                        if declaration.property == "background" {
-                            let mut recovered = false;
-                            // `url(...)` or a `*-gradient(...)` both become the
-                            // `background-image` longhand the consumer reads.
-                            if let Some(image_value) =
-                                find_background_url(&value).or_else(|| find_background_gradient(&value))
-                            {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-image".to_string(),
-                                        value: image_value,
-                                        important: declaration.important,
-                                    },
-                                    depth,
-                                    order,
-                                );
-                                recovered = true;
-                            }
-                            if let Some(color_value) = find_background_color(&value) {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-color".to_string(),
-                                        value: color_value,
-                                        important: declaration.important,
-                                    },
-                                    depth,
-                                    order,
-                                );
-                                recovered = true;
-                            }
-                            if recovered {
-                                continue;
-                            }
-                        }
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
                     }
+                    // A shorthand sets every one of its longhands; the ones it left out are
+                    // reset to their initial value.
+                    fix_list.reset_unmentioned(definition, match_value, definitions);
 
                     let value = if let CssValue::List(mut values) = value {
                         match values.pop() {
@@ -439,27 +384,6 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     } else {
                         value
                     };
-
-                    // Also emit the color as a `background-color` longhand: the consumer
-                    // reads the longhand key first, so a UA `background-color: ButtonFace`
-                    // would otherwise beat an author `background: #c22`. No color = reset
-                    // to transparent.
-                    if declaration.property == "background" {
-                        let color_value =
-                            find_background_color(&value).unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
-                        add_property_to_map(
-                            &mut css_map_entry,
-                            sheet,
-                            specificity,
-                            &CssDeclaration {
-                                property: "background-color".to_string(),
-                                value: color_value,
-                                important: declaration.important,
-                            },
-                            depth,
-                            order,
-                        );
-                    }
 
                     add_property_to_map(
                         &mut css_map_entry,
@@ -512,7 +436,59 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
+    resolve_font_size_basis(&mut css_map_entry, inherited);
+
     Some(css_map_entry)
+}
+
+/// Work out what an `em` and a `rem` mean on this element, and tell every property.
+///
+/// `font-size` has to go first and is the only one measured against the *parent*: `font-size:
+/// 2em` doubles what it inherits, not itself. Every other property then resolves against this
+/// element's own size. The result is stored on the map so a child can read its parent's basis
+/// without recomputing the parent's cascade.
+fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProperties>) {
+    let parent_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.font_size_px);
+    // No parent map means no element above this one, so this is the root - and the root is what
+    // a `rem` is measured against. Its own `font-size` is therefore the one declaration a `rem`
+    // cannot refer to without circularity, so there it means the initial size.
+    let parent_root_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.root_font_size_px);
+
+    let own_px = match map.properties.get_mut("font-size") {
+        Some(font_size) => {
+            font_size.font_size_basis = parent_px;
+            font_size.root_font_size_basis = parent_root_px;
+            font_size.mark_dirty();
+            match font_size.compute_value() {
+                CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
+                // A percentage font-size is a fraction of the *parent's* computed font-size
+                // (css-fonts-4 §3.5), which is a basis this already has - unlike every other
+                // percentage, which needs a containing block and so has to wait for layout.
+                // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px.
+                #[expect(clippy::cast_possible_truncation, reason = "a font-size fits an f32")]
+                CssValue::Percentage(pct) => parent_px * (*pct as f32) / 100.0,
+                // A keyword (`larger`), or anything else this does not resolve: inheriting the
+                // parent's size is closer than falling back to the initial one.
+                _ => parent_px,
+            }
+        }
+        // Undeclared, so inherited - which is what `font-size` does by default.
+        None => parent_px,
+    };
+    map.font_size_px = own_px;
+
+    let root_px = if inherited.is_some() { parent_root_px } else { own_px };
+    map.root_font_size_px = root_px;
+
+    for (name, property) in &mut map.properties {
+        if name != "font-size" {
+            property.font_size_basis = own_px;
+            property.root_font_size_basis = root_px;
+            // The basis changed after the property was built, so any value computed before now
+            // used the default and has to be recomputed.
+            property.mark_dirty();
+        }
+    }
 }
 
 fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
@@ -523,7 +499,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     for sheet in sheets {
         for rule in &sheet.rules {
             for selector in &rule.selectors {
-                for part_list in &selector.parts {
+                for part_list in selector.parts() {
                     // Split the part list into compounds (groups between Combinators).
                     // :hover belongs to the compound it appears in; that compound's
                     // Type/Class/Id parts are the hover-subject fingerprint.
@@ -707,40 +683,6 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
     }
 }
 
-/// Recursively find the first `url(...)` function inside a (possibly nested/list) CSS value.
-/// Used to recover `background-image` from a `background` shorthand that fails strict matching.
-fn find_background_url(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.eq_ignore_ascii_case("url") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_url),
-        _ => None,
-    }
-}
-
-/// Recursively find the first `*-gradient(...)` function inside a (possibly nested/list)
-/// CSS value. Used to recover the image part of a `background` shorthand whose full
-/// `<bg-layer>` grammar the value matcher does not yet support.
-fn find_background_gradient(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.cow_to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_gradient),
-        _ => None,
-    }
-}
-
-/// Recursively find the first color inside a (possibly nested/list) CSS value.
-/// Used to recover `background-color` from a `background` shorthand. The `currentColor`
-/// keyword is a valid color too; it is preserved as a string and resolved to the element's
-/// `color` later in the render bridge.
-fn find_background_color(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Color(_) => Some(value.clone()),
-        CssValue::String(s) if s.eq_ignore_ascii_case("currentcolor") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_color),
-        _ => None,
-    }
-}
-
 pub fn resolve_functions<C: HasDocument>(
     value: &CssValue,
     doc: &C::Document,
@@ -758,15 +700,18 @@ pub fn resolve_functions<C: HasDocument>(
                 let resolved = match func.as_str() {
                     "attr" => resolve_attr::<C>(values, doc, id),
                     "var" => resolve_var(values, custom_props),
-                    "clamp" | "min" | "max" => {
-                        resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
-                    }
                     // Unresolved, the whole declaration fails validation - the UA sheet uses it
                     // on form controls.
                     "light-dark" | "-internal-light-dark" => values
                         .split(|v| matches!(v, CssValue::Comma))
                         .nth(usize::from(crate::stylesheet::prefers_dark()))
                         .map_or_else(Vec::new, <[CssValue]>::to_vec),
+                    // `min`/`max`/`clamp` are deliberately *not* evaluated here. Their operands
+                    // may be font-relative, and this runs while declarations are still being
+                    // collected - before the element's font-size is known - so an `em` would be
+                    // measured against the default 16px. `min(2em, 50px)` came out as 32px on an
+                    // element with `font-size: 20px`, where it should be 40px. The computed
+                    // stage evaluates them instead, once the basis exists.
                     _ => vec![val.clone()],
                 };
 

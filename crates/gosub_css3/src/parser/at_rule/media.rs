@@ -13,7 +13,7 @@ impl Css3<'_> {
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
-            TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
+            TokenType::Number(value, kind) => Ok(Node::new(NodeType::Number { value, kind }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(_) => {
                 self.tokenizer.reconsume(t);
@@ -33,7 +33,7 @@ impl Css3<'_> {
 
         let delim = self.consume_any_delim()?;
         if delim == '=' {
-            return Ok(Node::new(NodeType::Operator("=".into()), loc));
+            return Ok(Node::new(NodeType::operator("="), loc));
         }
 
         if delim == '>' || delim == '<' {
@@ -42,9 +42,9 @@ impl Css3<'_> {
             let la = self.tokenizer.lookahead(0);
             if la.is_delim('=') {
                 self.consume_any()?;
-                return Ok(Node::new(NodeType::Operator(format!("{delim}=")), loc));
+                return Ok(Node::new(NodeType::operator(format!("{delim}=")), loc));
             }
-            return Ok(Node::new(NodeType::Operator(format!("{delim}")), loc));
+            return Ok(Node::new(NodeType::operator(format!("{delim}")), loc));
         }
 
         Err(CssError::with_location("Expected comparison operator", loc))
@@ -98,7 +98,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             let first = match t.token_type {
-                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
+                TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, t.location),
                 TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
                 TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
                 TokenType::Function(_) => {
@@ -122,7 +122,7 @@ impl Css3<'_> {
                 let second = self.parse_media_read_term()?;
                 Some(Node::new(
                     NodeType::Value {
-                        children: vec![first, Node::new(NodeType::Operator("/".into()), op_loc), second],
+                        children: vec![first, Node::new(NodeType::operator("/"), op_loc), second],
                     },
                     loc,
                 ))
@@ -214,13 +214,16 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let t = self.consume_any()?;
 
+        // Asking once for the identifier, rather than testing `is_ident()` and then matching
+        // for it again with an `unreachable!()` for the case the test already excluded. `t`
+        // itself is kept whole, because the `else` branch below reconsumes it.
         let nt = self.tokenizer.lookahead_sc(0);
-        if t.is_ident() && nt.token_type != TokenType::LParen {
-            let ident = match t.token_type {
-                TokenType::Ident(s) => s,
-                _ => unreachable!(),
-            };
+        let bare_ident = match &t.token_type {
+            TokenType::Ident(ident) if nt.token_type != TokenType::LParen => Some(ident.clone()),
+            _ => None,
+        };
 
+        if let Some(ident) = bare_ident {
             let s = ident.cow_to_lowercase();
             media_type = if ["not", "only"].contains(&s.as_ref()) {
                 self.consume_whitespace_comments();

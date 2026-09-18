@@ -23,8 +23,18 @@ export WPT_ROOT=$PWD
 
 `resources` and `common` are always needed; add whichever test directories you want to run.
 The css suites also pull helper scripts out of `css/support` and `css/reference`, which is why
-those are in the list. For the directories CI gates instead, use
-`resources common dom/nodes dom/events html/dom`.
+those are in the list. The property-parsing corpus (`make wpt-css-parsing`) needs the modules
+that carry a `parsing/` directory:
+
+```bash
+git sparse-checkout add css/css-align css/css-animations css/css-backgrounds css/css-box \
+    css/css-color css/css-display css/css-flexbox css/css-fonts css/css-grid css/css-images \
+    css/css-lists css/css-logical css/css-overflow css/css-position css/css-sizing \
+    css/css-tables css/css-text-decor css/css-text css/css-transforms css/css-transitions css/css-ui
+```
+
+For the directories CI gates instead, use
+`resources common dom/nodes dom/events html/dom html/resources`, plus the single file `dom/constants.js` (cone mode includes it as a parent-directory file; in non-cone mode add it with a leading slash: `git sparse-checkout add /dom/constants.js`).
 
 **2. Run a component.** A directory argument runs every testharness suite underneath it:
 
@@ -56,6 +66,7 @@ With a checkout in `wpt/` (or `WPT_ROOT` set), these wrap the commands above:
 |---|---|
 | `make wpt` | check the gate against `tests/wpt/expectations.txt` |
 | `make wpt-css` | check the CSS component against `tests/wpt/expectations-css.txt` |
+| `make wpt-css-parsing` | check property parsing (`css/*/parsing`) against `tests/wpt/expectations-css-parsing.txt` |
 | `make wpt-shortlist` | what to work on (`DIR=dom/events` to pick the subtree) |
 | `make wpt-update` | regenerate both baselines after a fix |
 
@@ -102,8 +113,8 @@ It prints the suites that crash the engine first, then the ones that partly pass
 working first. That ordering is the recommendation: a crash is a bug a real page could reach,
 and after that the closer a suite is to passing the smaller the gap left to understand.
 
-Suites that fully fail are left out. A suite at 0/40 is usually missing a whole binding -
-`getComputedStyle`, the CSSOM stylesheet - and is a project rather than an afternoon; one that
+Suites that fully fail are left out. A suite at 0/40 is usually missing a whole binding - the
+CSSOM stylesheet, named access on `window` - and is a project rather than an afternoon; one that
 partly passes has an engine that already understands the shape of the thing and is wrong about
 a detail, which is what you want.
 
@@ -204,6 +215,7 @@ Measured at the pinned commit; regenerate rather than trust these.
 |---|---:|---:|---:|
 | `wpt` gate - `dom/events`, `html/dom` | 621 files, 50,310 subtests | 2,348 (4.7%) | 30s |
 | CSS parser component - `css/css-syntax`, `css/css-values` | 309 files, 5,441 subtests | 343 (6.3%) | 30s |
+| CSS property parsing - `css/*/parsing` | 810 files, 22,832 subtests | 10,372 (45%) | 60s |
 | nightly - every testharness suite | 27,301 files | ~2% | 150s |
 | reftests - `css/CSS2` | 5,952 | ~1560 (26%) | 455s |
 
@@ -212,9 +224,10 @@ into strict mode: most suites were dying on their first sloppy-mode line and rep
 at all. The rate fell from 8.9% to 4.7% because what was being measured before was the handful
 of suites that happened to survive, not the corpus.
 
-The CSS component's 6.3% is close to a floor rather than a measurement of the parser: 156 of
-its 309 suites need `getComputedStyle`, which does not exist, and most of the rest assert a
-canonical serialization the engine does not produce. Where the parser is actually reached the
+The CSS component's rate is close to a floor rather than a measurement of the parser: a large
+part of its 309 suites assert that an invalid value is *rejected*, and the matcher checks a
+function's name against the property grammar without ever checking its arguments - so the
+engine accepts `min(red, 50px)` and the suite fails. Where the parser is actually reached the
 numbers are much higher - `calc-size` at 32%, `urls` at 31%, `position` at 25%.
 
 The reftest rate is the higher one because those exercise layout and painting, which the
@@ -304,14 +317,37 @@ both refused to treat as text.
 (`css/css-syntax` and `css/css-values`). It is **not** gated in CI: it exists so the parser's
 progress is measurable and so a contributor can pick a failing subtest and go fix it.
 
+`tests/wpt/expectations-css-parsing.txt` covers the property-parsing corpus: every
+`css/<module>/parsing/` directory, where WPT keeps its `<property>-valid`, `-invalid`,
+`-shorthand` and `-computed` suites. It is the CSS counterpart of the html5lib tests - one
+`test_valid_value` / `test_invalid_value` call per value the validator must accept or reject,
+and `test_shorthand_value` checks shorthand expansion longhand by longhand. Same format, same
+rules, also not gated. `make wpt-update` regenerates it from the files it lists; to take in a
+module added to the checkout later, regenerate once from the directories:
+
+```bash
+ls -d "$WPT_ROOT"/css/*/parsing | sed "s#$WPT_ROOT/##" > /tmp/parsing-dirs
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --tests-from /tmp/parsing-dirs \
+    --write-expectations > tests/wpt/expectations-css-parsing.txt
+```
+
 Regenerating rewrites the whole file, so anything a baseline needs to say about itself lives
 here rather than in a comment at the top of it. For the gated file, that is:
 
 - **Covered:** `dom/events` and `html/dom`, the two directories the `gosub_domjs` bindings
   actually reach. The checkout also needs `dom/nodes`: three suites pull support scripts out of
   it (`Document-createEvent.js`, `DOMImplementation-createHTMLDocument.js`, `attributes.js`) and
-  become `ERROR` records without it. The baseline is pinned to the sparse set as much as to the
-  commit in `wpt-commit.txt` — widen or narrow the checkout and the results move.
+  become `ERROR` records without it, as does `dom/events/Event-constants.html` without
+  `dom/constants.js` and `html/dom/elements/name-content-attribute-and-property.html` without
+  `html/resources`. The CI job's sparse set in `.github/workflows/ci.yaml` and the checkout the
+  baseline was regenerated on must agree, or CI reports the suites one of them cannot run.
+  The baseline is pinned to the sparse set as much as to the commit in
+  `wpt-commit.txt` - widen or narrow the checkout and the results move. Note that
+  `git sparse-checkout set` replaces the pattern list: a set made for the CSS component drops
+  the gate's directories. `make wpt-update` refuses to run while one of them is missing, but
+  its guard only checks that each directory exists, not that it is complete: a directory that
+  is present but partial (a non-cone pattern, or a checkout at another commit) turns the suites
+  that read from it into `ERROR` records, and regenerating writes those into the gate baseline.
 - **Form controls are out of scope.** That work lives on its own branch and needs engine modules
   (`edit`, `form`, `focus`) that are not on main yet.
 - **`dom/events/passive-by-default.html` is deliberately not covered.** It names three subtests
@@ -475,15 +511,17 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
 - **No `CustomEvent`, `MouseEvent` or `KeyboardEvent`** constructors, and no `EventTarget`
   constructor. The forms corpus never uses the first; it uses the mouse and keyboard ones in
   13 files.
-- **No CSSOM serialization.** `getPropertyValue` gives back the text the author wrote, because
-  `CssValue`'s `Display` is a debug rendering rather than a CSS serializer - a `List` prints as
-  `List(a, b, c)`. Every suite asserting a canonical form therefore fails: `calc()`
-  normalization (`calc(1vh + 2px + 3%)` should serialize as `calc(3% + 2px + 1vh)`) is a few
-  hundred subtests on its own. Writing a serializer in the bindings would make those tests
-  measure the binding rather than the engine, so the work belongs in `gosub_css3`.
-- **No `getComputedStyle`**, so nothing about the cascade, inheritance or used values is
-  reachable. 156 of the 309 suites in the CSS component need it and none of them can pass
-  without it - it is the single largest thing standing between the engine and those numbers.
+- **CSSOM serialization is partial.** A declaration now reads back as the serialization of the
+  value rather than as the text that was assigned, and `CssValue`'s `Display` is a CSS
+  serializer rather than the debug rendering it used to be. What is still missing is the
+  *unparsed* half: a function the engine does not implement is parsed and re-serialized instead
+  of being kept as the token stream css-values-5 calls an arbitrary substitution value, so
+  `random-item(auto, ,)` comes back with its whitespace normalised. Shorthands also do not
+  reserialize from their longhands.
+- **No layout behind `getComputedStyle`.** It reports computed values, not used ones, so any
+  suite that measures a box - `getComputedStyle(el).height` on an abspos, anything comparing
+  against a laid-out reference element - reads back `auto` and cannot pass. Several suites that
+  look like value bugs are really this.
 - **No CSSOM stylesheet.** `style.sheet`, `insertRule`, `deleteRule` and `cssRules[i].cssText`
   are all missing, which is what `test_valid_selector` and `test_valid_rule` drive - so the
   selector and at-rule parsers have no coverage here yet.

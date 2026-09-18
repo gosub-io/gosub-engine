@@ -1,7 +1,10 @@
 use crate::colors::{is_named_color, is_system_color};
+use crate::functions::calc;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
+use crate::tokenizer::NumberKind;
+use cow_utils::CowUtils;
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -14,10 +17,14 @@ pub struct MatchResult<'a> {
     pub matched_values: Vec<CssValue>,
 }
 
-const LENGTH_UNITS: [&str; 34] = [
-    "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw", "vmax", "vmin", "vb",
-    "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm", "Q", "in", "pc", "pt", "svw", "lvw", "dvw",
-];
+/// Whether `unit` is a length, asked of the one table that knows.
+///
+/// This used to be a list of its own, and the two drifted: it spelled `Q` in capitals and was
+/// compared exactly, so once units were folded to lowercase at parse time `1Q` stopped being a
+/// length at all; and of the twenty-four viewport units it named three.
+fn is_length_unit(unit: &str) -> bool {
+    calc::unit_datatype(unit) == Some("length")
+}
 
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +62,26 @@ impl CssSyntaxTree {
 
         let res = match_component(input, &self.components[0], None);
         res.matched && res.remainder.is_empty()
+    }
+
+    /// The values `input` matched as, in the grammar's canonical form, or `None` when it does
+    /// not match. This is what a specified value serializes as (CSSOM §6.7.2): keywords in the
+    /// grammar's spelling, a bare zero with the unit it matched as, `||` operands in grammar
+    /// order, box repetitions in their shortest form. A CSS-wide keyword, or a value still
+    /// holding a `var()`, is returned as it came: there is no grammar to read it against yet.
+    pub fn canonical(&self, input: &[CssValue]) -> Option<Vec<CssValue>> {
+        if self.components.is_empty() {
+            return None;
+        }
+        if is_css_wide_keyword(input) || contains_substitution(input) || is_vendor_prefixed_keyword(input) {
+            return Some(input.to_vec());
+        }
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
+        let res = match_component(input, &self.components[0], None);
+        (res.matched && res.remainder.is_empty()).then_some(res.matched_values)
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], resolver: ShorthandResolver) -> bool {
@@ -139,7 +166,7 @@ fn match_component_inner<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    let mut repetitions: Vec<Vec<CssValue>> = vec![];
 
     // Loop through the input values and try to match them against the component. It's possible
     // that we need to loop multiple times in case we have a multiplier that allows this. ie: 'foo*' or 'foo{1,3}'
@@ -173,7 +200,10 @@ fn match_component_inner<'a>(
             multiplier_count += 1;
 
             let remainder = res.remainder;
-            matched_values.append(&mut res.matched_values.clone());
+            // Every repetition's values are kept. This used to return the last repetition's
+            // result alone once the multiplier was satisfied, so `margin: 1px 2px 3px 4px`
+            // reported `4px` as what it matched.
+            repetitions.push(res.matched_values);
 
             // Check if we fulfilled the multiplier for this component
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -190,12 +220,20 @@ fn match_component_inner<'a>(
 
                     // No more input to check, so we can just return this match
                     if input.is_empty() {
-                        return res;
+                        return MatchResult {
+                            remainder,
+                            matched: true,
+                            matched_values: collapse_repetitions(component, repetitions),
+                        };
                     }
                 }
                 Fulfillment::Fulfilled => {
                     // no more values are allowed.
-                    return res;
+                    return MatchResult {
+                        remainder,
+                        matched: true,
+                        matched_values: collapse_repetitions(component, repetitions),
+                    };
                 }
                 Fulfillment::NotFulfilled => {
                     // The multiplier is not fulfilled.
@@ -213,7 +251,7 @@ fn match_component_inner<'a>(
                 Fulfillment::FulfilledButMoreAllowed => MatchResult {
                     remainder: input,
                     matched: true,
-                    matched_values,
+                    matched_values: collapse_repetitions(component, repetitions),
                 },
                 Fulfillment::NotFulfilled => no_match(raw_input),
             };
@@ -253,11 +291,19 @@ fn match_component<'a>(
         }
 
         if !inner_result.matched {
-            // Not matched, so break the loop
+            // Not matched, so break the loop. A comma was consumed ahead of this item; it is
+            // not part of what matched.
+            if matches!(matched_values.last(), Some(CssValue::Comma)) {
+                matched_values.pop();
+            }
             break;
         }
 
         csv_cnt += 1;
+        // The separator is part of the matched value: `20s, 10s` serializes with its comma.
+        if csv_cnt > 1 {
+            matched_values.push(CssValue::Comma);
+        }
         matched_values.append(&mut inner_result.matched_values.clone());
 
         input = inner_result.remainder;
@@ -277,6 +323,9 @@ fn match_component<'a>(
 
         // Remove the comma, and continue matching
         input.clone_from(&&input[1..input.len()]);
+        if let Some(resolver) = shorthand_resolver.as_mut() {
+            resolver.layer_separator();
+        }
 
         if input.is_empty() {
             // We have a comma at the end of the input. This is not allowed.
@@ -330,7 +379,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return first_match(input);
             }
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
-                return first_match(input);
+                // Keywords are ASCII case-insensitive and serialize in lowercase (CSSOM
+                // §6.7.2); the grammar itself spells a few in mixed case (`currentColor`).
+                return matched_as(input, CssValue::String(keyword.cow_to_ascii_lowercase().into_owned()));
             }
             _ => {}
         },
@@ -339,13 +390,35 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         }
         SyntaxComponent::Builtin { datatype, range, .. } => {
             // A math function may be used wherever a numeric datatype is allowed (CSS
-            // Values & Units §10), e.g. `width: calc(100% - 20px)`. The expression is
-            // accepted opaquely - calc bodies are stored as raw text for the layout
-            // engine to evaluate, so neither its type nor a `[min,max]` range can be
-            // checked here.
-            if let CssValue::Function(name, _) = value {
+            // Values & Units §10), e.g. `width: calc(100% - 20px)`.
+            //
+            // Its arguments are type-checked rather than taken on trust. This used to accept any
+            // math function outright, on the name alone, because a `calc()` body was opaque text
+            // nobody evaluated - so `width: min(red, 50px)` was valid, and so was `min(1px 2px)`.
+            // Now the expression is evaluated, its type is knowable, and an expression that does
+            // not parse is known not to.
+            if let CssValue::Function(name, args) = value {
                 if is_math_function(name) && NUMERIC_DATATYPES.contains(&datatype.as_str()) {
-                    return first_match(input);
+                    return match calc::math_function_type(name, args, &calc::Units::none()) {
+                        // A length mixed with a percentage is a legal `<length-percentage>`, and
+                        // that expands to `[ <length> | <percentage> ]` before it reaches here -
+                        // so by the time one arm is being matched there is no way to tell a
+                        // length-only property from one that takes both. Accepting the mix
+                        // over-accepts `border-width: min(1px, 1%)`; rejecting it would throw out
+                        // `width: min(1px, 1%)`, which is valid and which real pages write.
+                        calc::MathType::Resolved(kinds)
+                            if kinds.iter().any(|kind| datatype_accepts(datatype, kind))
+                                && kinds
+                                    .iter()
+                                    .all(|kind| datatype_accepts(datatype, kind) || *kind == "percentage") =>
+                        {
+                            first_match(input)
+                        }
+                        calc::MathType::Resolved(_) | calc::MathType::Invalid => no_match(input),
+                        // A `var()` yet to be substituted, or a function this cannot evaluate.
+                        // Not knowing is not the same as knowing it is wrong.
+                        calc::MathType::Unknown => first_match(input),
+                    };
                 }
             }
             match datatype.as_str() {
@@ -361,7 +434,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                 }
                 "angle" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "deg".to_string()))
+                    }
                     CssValue::Unit(n, u)
                         if range.contains(*n)
                             && (u.eq_ignore_ascii_case("deg")
@@ -374,14 +449,16 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     _ => {}
                 },
                 "length" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Unit(n, u) if LENGTH_UNITS.contains(&u.as_str()) && range.contains(*n) => {
-                        return first_match(input)
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "px".to_string()))
                     }
+                    CssValue::Unit(n, u) if is_length_unit(u) && range.contains(*n) => return first_match(input),
                     _ => {}
                 },
                 "time" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "s".to_string()))
+                    }
                     CssValue::Unit(n, u)
                         if (u.eq_ignore_ascii_case("s") || u.eq_ignore_ascii_case("ms")) && range.contains(*n) =>
                     {
@@ -391,7 +468,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 },
                 // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
                 "flex" => match value {
-                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Zero if range.contains(0.0) => {
+                        return matched_as(input, CssValue::Unit(0.0, "fr".to_string()))
+                    }
                     CssValue::Unit(n, u) if u.eq_ignore_ascii_case("fr") && range.contains(*n) => {
                         return first_match(input)
                     }
@@ -399,14 +478,127 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 },
                 "number" => match value {
                     CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Number(n) if range.contains(*n) => return first_match(input),
+                    CssValue::Number(n, _) if range.contains(*n) => return first_match(input),
                     _ => {}
                 },
+                // An `<integer>` is spelled as digits with an optional sign: no decimal point
+                // and no exponent. `1e1` and `10` are the same number and only one of them is an
+                // integer, so the css-syntax type flag decides this and not the value - asking
+                // whether the value happens to be whole says yes to `z-index: 1e1`.
+                //
+                // A math function is not held to the spelling: `calc(1e1)` and `calc(10.1)` are
+                // both valid here, because css-values rounds a math function's result to the
+                // nearest integer in an `<integer>` context. Those arrive as a function and are
+                // answered by the `is_math_function` branch above, never here.
                 "integer" => match value {
                     CssValue::Zero if range.contains(0.0) => return first_match(input),
-                    CssValue::Number(n) if n.fract() == 0.0 && range.contains(*n) => return first_match(input),
+                    CssValue::Number(n, NumberKind::Integer) if n.fract() == 0.0 && range.contains(*n) => {
+                        return first_match(input)
+                    }
                     _ => {}
                 },
+                // `<zero>` is a literal zero and nothing else. css-values allows it alongside
+                // `<angle>` so that `rotate(0)` works - a bare `0` carries no unit, so it is not
+                // an angle - and alongside `<length>` for the same reason.
+                //
+                // Without an arm here it fell to the permissive catch-all at the bottom, which
+                // accepts any value at all. `<zero>` sits in the grammar of every transform
+                // function, so `transform: rotate(banana)` was accepted through this.
+                "zero" => match value {
+                    CssValue::Zero => return first_match(input),
+                    CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
+                    _ => {}
+                },
+                // A `<url>` is the `url()` function (or `src()`); the parser folds both the
+                // `url(x)` token form and `url("x")` into a function. `<uri>`, `<url-token>` and
+                // `<url-set>` are the older spellings of the same thing.
+                //
+                // These are in `BUILTIN_DATA_TYPES`, which makes `parse_syntax_file` skip the
+                // grammar the definitions file carries for them - so without an arm here they
+                // fell to the permissive catch-all, and `background-image: banana` was valid.
+                "url" | "uri" | "url-token" | "url-set" => match value {
+                    CssValue::Function(name, _)
+                        if name.eq_ignore_ascii_case("url")
+                            || name.eq_ignore_ascii_case("src")
+                            || name.eq_ignore_ascii_case("image-set")
+                            || name.eq_ignore_ascii_case("-webkit-image-set") =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "resolution" => match value {
+                    CssValue::Unit(n, u)
+                        if range.contains(*n)
+                            && (u.eq_ignore_ascii_case("dpi")
+                                || u.eq_ignore_ascii_case("dpcm")
+                                || u.eq_ignore_ascii_case("dppx")
+                                || u.eq_ignore_ascii_case("x")) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "frequency" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u)
+                        if range.contains(*n) && (u.eq_ignore_ascii_case("hz") || u.eq_ignore_ascii_case("khz")) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // The aural/speech types. Rare, but as cheap to answer as to leave open.
+                "decibel" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if range.contains(*n) && u.eq_ignore_ascii_case("db") => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "semitones" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if range.contains(*n) && u.eq_ignore_ascii_case("st") => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // A `<dimension>` is any number with a unit - the token, not a particular type.
+                "dimension" => match value {
+                    CssValue::Zero => return first_match(input),
+                    CssValue::Unit(n, _) if range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "number-token" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Number(n, _) if range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "hash-token" => match value {
+                    CssValue::Color(_) => return first_match(input),
+                    CssValue::String(v) if v.starts_with('#') => return first_match(input),
+                    _ => {}
+                },
+                "age" => match value {
+                    CssValue::String(v) if ["child", "young", "old"].iter().any(|kw| v.eq_ignore_ascii_case(kw)) => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "gender" => match value {
+                    CssValue::String(v)
+                        if ["male", "female", "neutral"]
+                            .iter()
+                            .any(|kw| v.eq_ignore_ascii_case(kw)) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // `<declaration-value>` really is "any sequence of tokens" (css-syntax §9), so
+                // the permissive answer is the correct one. Saying so explicitly separates it
+                // from the datatypes that reach the catch-all only because nobody wrote an arm.
+                "declaration-value" => return first_match(input),
                 "system-color" => {
                     if let CssValue::String(v) = value {
                         if is_system_color(v) {
@@ -441,8 +633,33 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
                 // the transition-property name. Slashes are separators, not idents.
                 "custom-ident" | "ident" => match value {
-                    CssValue::String(s) if s != "/" => return first_match(input),
+                    // The brackets of a line-name list are structure, not identifiers, or the
+                    // `<custom-ident>*` inside `[ ... ]` would swallow its own closing bracket.
+                    CssValue::String(s) if s != "/" && s != "[" && s != "]" => return first_match(input),
                     _ => {}
+                },
+                // A quoted string and a bare identifier both arrive as `CssValue::String`, so
+                // `<string>` cannot yet tell `"a"` from `a`; it can at least refuse the
+                // structural tokens, or `grid-template: [a] 10px` matched its `<string>` piece
+                // against the `[`.
+                "string" => match value {
+                    CssValue::String(s) if s == "/" || s == "[" || s == "]" => return no_match(input),
+                    // An identifier is accepted: a quoted string and a bare identifier both
+                    // arrive as `CssValue::String`, so `<string>` cannot tell them apart yet.
+                    CssValue::String(_) => return first_match(input),
+                    // A function this engine does not implement (`random-item()`) is accepted
+                    // as it always was, so an unsupported feature reads as "cannot tell" rather
+                    // than "invalid". A function known to be something else is not a string.
+                    CssValue::Function(name, _)
+                        if !is_math_function(name)
+                            && !["repeat", "minmax", "fit-content", "url", "src"]
+                                .iter()
+                                .any(|f| name.eq_ignore_ascii_case(f)) =>
+                    {
+                        return first_match(input)
+                    }
+                    // A number, a length, a colour: not a string.
+                    _ => return no_match(input),
                 },
                 "dashed-ident" => match value {
                     CssValue::String(s) if s.starts_with("--") => return first_match(input),
@@ -477,16 +694,18 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             _ => {}
         },
         SyntaxComponent::Unit { from, to, unit, .. } => {
-            let f32min = f32::MIN;
-            let f32max = f32::MAX;
+            let min_bound = f64::MIN;
+            let max_bound = f64::MAX;
 
             match value {
                 // A bare `0` is a valid value for any unit-typed component (e.g. `<length>`):
                 // it parses to the dedicated `Zero` variant, and `Number(0)` is the same case.
                 CssValue::Zero => return first_match(input),
-                CssValue::Number(n) if *n == 0.0 => return first_match(input),
+                CssValue::Number(n, _) if *n == 0.0 => return first_match(input),
                 CssValue::Unit(n, u)
-                    if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) =>
+                    if unit.contains(u)
+                        && *n >= from.map_or(min_bound, f64::from)
+                        && *n <= to.map_or(max_bound, f64::from) =>
                 {
                     return first_match(input);
                 }
@@ -534,13 +753,13 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return first_match(input);
             }
         }
-        e => {
-            #[allow(clippy::panic)]
-            // PANIC-SAFE: components come from the compiled-in definitions, which the test suite matches exhaustively
-            {
-                panic!("Unknown syntax component: {e:?}");
-            }
-        }
+        // A group never reaches here - `match_component` sends it to `match_component_group`
+        // instead - but naming it keeps this match exhaustive, which is the point: a component
+        // variant added later is now a compile error rather than a panic in front of a user.
+        // It used to be a catch-all `panic!`, justified on the grounds that the test suite
+        // covers every variant. That is a promise about test coverage; this is a promise the
+        // compiler keeps.
+        SyntaxComponent::Group { .. } => {}
     }
 
     no_match(input)
@@ -576,12 +795,23 @@ fn match_group_exactly_one<'a>(
         return no_match(input);
     }
 
+    // The alternative that consumes the most wins. Between alternatives that consume the same,
+    // the one that reports the value as written wins over one that rewrote it: a bare `0`
+    // against `<length> | <number>` matches both, and it is a number, which serializes as `0`,
+    // not the length's `0px`. A change of case alone is not a rewrite: `NONE` against
+    // `none | <custom-ident>` is the keyword, spelled `none`, and not an ident called `NONE`.
     let mut winner = 0;
     let mut shortest_remainder_len = usize::MAX;
-    for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
-        if remainder.len() < shortest_remainder_len {
+    let mut winner_as_written = false;
+    for (idx, (_, values, remainder)) in components_matched.iter().enumerate() {
+        let consumed = input.len() - remainder.len();
+        let as_written = same_ignoring_case(values, &input[..consumed.min(input.len())]);
+        let better = remainder.len() < shortest_remainder_len
+            || (remainder.len() == shortest_remainder_len && as_written && !winner_as_written);
+        if better {
             shortest_remainder_len = remainder.len();
             winner = idx;
+            winner_as_written = as_written;
         }
     }
     let (winner_c_idx, winner_values, winner_remainder) = &components_matched[winner];
@@ -624,14 +854,27 @@ fn match_group_at_least_one_any_order<'a>(
         });
     }
 
+    // The order that matches without the resolver is the order to replay with it: the
+    // completions have side effects, so they run for the winning assignment only.
+    let order = best_any_order(components.len(), |order| {
+        at_least_one_any_order_pass(raw_input, components, order)
+    });
+
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched = vec![];
 
-    let mut c_idx = 0;
-    while c_idx < components.len() {
+    let mut pos = 0;
+    while pos < order.len() {
         if input.is_empty() {
             break;
+        }
+        let c_idx = order[pos];
+        if components_matched.contains(&c_idx) {
+            pos += 1;
+            continue;
         }
 
         if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
@@ -650,29 +893,26 @@ fn match_group_at_least_one_any_order<'a>(
 
             let res = match_component(input, component, resolver);
             if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
+                per_component[c_idx] = res.matched_values.clone();
                 components_matched.push(c_idx);
 
                 input = res.remainder;
 
                 // Found a match, so loop around for new matches
-                c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos = 0;
 
                 if let Some(complete) = complete {
                     complete.complete(res.matched_values);
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
-                c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos += 1;
             }
         } else {
-            unreachable!("resolver-less matching is handled by at_least_one_any_order_pass");
+            // No resolver: `at_least_one_any_order_pass` handles that case and this function is
+            // never called without one. Stopping leaves `components_matched` as it stands, and
+            // the check below decides the match on that - an answer rather than an abort.
+            break;
         }
     }
 
@@ -683,7 +923,7 @@ fn match_group_at_least_one_any_order<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -694,7 +934,9 @@ fn at_least_one_any_order_pass<'a>(
     order: &[usize],
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -710,7 +952,7 @@ fn at_least_one_any_order_pass<'a>(
 
         let res = match_component(input, &components[c_idx], None);
         if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
+            per_component[c_idx] = res.matched_values.clone();
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -726,7 +968,7 @@ fn at_least_one_any_order_pass<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -748,14 +990,27 @@ fn match_group_all_any_order<'a>(
         });
     }
 
+    // The order that matches without the resolver is the order to replay with it: the
+    // completions have side effects, so they run for the winning assignment only.
+    let order = best_any_order(components.len(), |order| {
+        all_any_order_pass(raw_input, components, order)
+    });
+
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched = vec![];
 
-    let mut c_idx = 0;
-    while c_idx < components.len() {
+    let mut pos = 0;
+    while pos < order.len() {
         if input.is_empty() {
             break;
+        }
+        let c_idx = order[pos];
+        if components_matched.contains(&c_idx) {
+            pos += 1;
+            continue;
         }
 
         if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
@@ -784,29 +1039,26 @@ fn match_group_all_any_order<'a>(
                 Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
             );
             if res.matched && (consumed || !optional) {
-                matched_values.append(&mut res.matched_values.clone());
+                per_component[c_idx] = res.matched_values.clone();
                 components_matched.push(c_idx);
 
                 input = res.remainder;
 
                 // Found a match, so loop around for new matches
-                c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos = 0;
 
                 if let Some(complete) = complete {
                     complete.complete(res.matched_values);
                 }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
-                c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+                pos += 1;
             }
         } else {
-            unreachable!("resolver-less matching is handled by all_any_order_pass");
+            // No resolver: `all_any_order_pass` handles that case and this function is never
+            // called without one. Stopping leaves `components_matched` as it stands, and the
+            // check below decides the match on that - an answer rather than an abort.
+            break;
         }
     }
 
@@ -827,8 +1079,30 @@ fn match_group_all_any_order<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
+}
+
+/// The operand order whose attempt does best, by the same measure as
+/// [`best_any_order_attempt`]; the plain order when nothing matches.
+fn best_any_order<'a>(component_count: usize, attempt: impl Fn(&[usize]) -> MatchResult<'a>) -> Vec<usize> {
+    let mut best: Option<(Vec<usize>, usize)> = None;
+    for offset in 0..component_count.max(1) {
+        let order: Vec<usize> = (0..component_count)
+            .map(|i| (i + offset) % component_count.max(1))
+            .collect();
+        let res = attempt(&order);
+        if !res.matched {
+            continue;
+        }
+        if res.remainder.is_empty() {
+            return order;
+        }
+        if best.as_ref().is_none_or(|(_, len)| res.remainder.len() < *len) {
+            best = Some((order, res.remainder.len()));
+        }
+    }
+    best.map_or_else(|| (0..component_count).collect(), |(order, _)| order)
 }
 
 /// Runs `attempt` once per rotation of the operand priority order and returns the best
@@ -866,7 +1140,9 @@ fn all_any_order_pass<'a>(
     order: &[usize],
 ) -> MatchResult<'a> {
     let mut input = raw_input;
-    let mut matched_values = vec![];
+    // Collected per operand and flattened in grammar order at the end: the canonical
+    // serialization of `a || b` lists a before b however the author ordered them.
+    let mut per_component: Vec<Vec<CssValue>> = vec![Vec::new(); components.len()];
     let mut components_matched: Vec<usize> = vec![];
 
     let mut pos = 0;
@@ -890,7 +1166,7 @@ fn all_any_order_pass<'a>(
             Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
         );
         if res.matched && (consumed || !optional) {
-            matched_values.append(&mut res.matched_values.clone());
+            per_component[c_idx] = res.matched_values.clone();
             components_matched.push(c_idx);
             input = res.remainder;
             pos = 0;
@@ -913,7 +1189,7 @@ fn all_any_order_pass<'a>(
     MatchResult {
         remainder: input,
         matched: true,
-        matched_values,
+        matched_values: per_component.into_iter().flatten().collect(),
     }
 }
 
@@ -1002,7 +1278,7 @@ fn match_group_juxtaposition<'a>(
 
 /// Returns true when the component is the literal comma separator.
 /// Numeric datatypes a math function may substitute for (CSS Values & Units §10).
-const NUMERIC_DATATYPES: [&str; 9] = [
+pub(crate) const NUMERIC_DATATYPES: [&str; 9] = [
     "length",
     "percentage",
     "number",
@@ -1017,34 +1293,17 @@ const NUMERIC_DATATYPES: [&str; 9] = [
 /// Returns true when `name` is a CSS math function (CSS Values & Units §10). Vendor
 /// prefixed forms (`-webkit-calc()`, `-moz-calc()`) predate the unprefixed ones and are
 /// still common in shipped CSS, so a vendor prefix is stripped first.
+/// Whether a component expecting `datatype` accepts an expression that came to `kind`.
+///
+/// The only place the two names differ is `<integer>`, which a math function reaches through
+/// plain numbers - `z-index: calc(1 + 1)` is an integer-valued expression, and css-values-4 has
+/// the result rounded to an integer rather than rejected for not already being one.
+fn datatype_accepts(datatype: &str, kind: &str) -> bool {
+    datatype == kind || (datatype == "integer" && kind == "number")
+}
+
 fn is_math_function(name: &str) -> bool {
-    let name = strip_vendor_prefix(name).unwrap_or(name);
-    [
-        "calc",
-        "calc-size",
-        "min",
-        "max",
-        "clamp",
-        "round",
-        "mod",
-        "rem",
-        "abs",
-        "sign",
-        "pow",
-        "sqrt",
-        "hypot",
-        "log",
-        "exp",
-        "sin",
-        "cos",
-        "tan",
-        "asin",
-        "acos",
-        "atan",
-        "atan2",
-    ]
-    .iter()
-    .any(|f| name.eq_ignore_ascii_case(f))
+    calc::is_math_function_name(strip_vendor_prefix(name).unwrap_or(name))
 }
 
 fn is_comma_literal(component: &SyntaxComponent) -> bool {
@@ -1138,10 +1397,98 @@ fn first_match(input: &[CssValue]) -> MatchResult<'_> {
     }
 }
 
+/// Whether two value lists are the same apart from the ASCII case of their keywords.
+fn same_ignoring_case(a: &[CssValue], b: &[CssValue]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| match (x, y) {
+            (CssValue::String(x), CssValue::String(y)) => x.eq_ignore_ascii_case(y),
+            _ => x == y,
+        })
+}
+
+/// The first element matched, reported as `value` rather than as written: the canonical form
+/// the grammar leaf knows for it (a keyword in the grammar's spelling, a bare `0` matched as a
+/// length as `0px`). What the CSSOM serializes is these matched values, not the author's text.
+fn matched_as(input: &[CssValue], value: CssValue) -> MatchResult<'_> {
+    MatchResult {
+        remainder: input.get(1..).unwrap_or(&[]),
+        matched: true,
+        matched_values: vec![value],
+    }
+}
+
+/// The matched values of a component that repeats `{1,2}` or `{1,4}`, in the shortest form
+/// that means the same (CSSOM "serialize a CSS value" for the box shorthands): `1px 1px` is
+/// `1px`, `1px 2px 1px 2px` is `1px 2px`, `1px 2px 3px 2px` is `1px 2px 3px`. Only when every
+/// repetition matched exactly one value; anything else is returned as it was.
+fn collapse_repetitions(component: &SyntaxComponent, reps: Vec<Vec<CssValue>>) -> Vec<CssValue> {
+    let box_like = component.get_multipliers().iter().any(|m| {
+        matches!(
+            m,
+            SyntaxComponentMultiplier::Between(1, 2) | SyntaxComponentMultiplier::Between(1, 4)
+        )
+    });
+    if !box_like || reps.is_empty() || reps.iter().any(|r| r.len() != 1) {
+        return reps.into_iter().flatten().collect();
+    }
+    let mut values: Vec<CssValue> = reps.into_iter().map(|mut r| r.remove(0)).collect();
+    if values.len() == 4 && values[3] == values[1] {
+        values.pop();
+    }
+    if values.len() == 3 && values[2] == values[0] {
+        values.pop();
+    }
+    if values.len() == 2 && values[1] == values[0] {
+        values.pop();
+    }
+    values
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
+
+    /// The canonical form of a specified value (CSSOM §6.7.2), as the grammar leaves report it.
+    #[test]
+    fn canonical_values_follow_the_grammar() {
+        use crate::matcher::property_definitions::get_css_definitions;
+        let canonical = |property: &str, css: &str| -> String {
+            let value = crate::stylesheet::CssValue::parse_str(css)
+                .ok()
+                .map(|v| v.into_vec())
+                .unwrap_or_default();
+            let values = match crate::Css3::parse_str(
+                &format!("x {{ {property}: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            ) {
+                Ok(sheet) => sheet.rules[0].declarations()[0].value.to_slice().to_vec(),
+                Err(_) => value,
+            };
+            let def = get_css_definitions().find_property(property).expect("defined");
+            def.canonical(&values)
+                .map(CssValue::from_vec)
+                .expect("valid")
+                .to_string()
+        };
+        // Keywords in the grammar's spelling, lowercase.
+        assert_eq!(canonical("animation-name", "NONE"), "none");
+        assert_eq!(canonical("color", "currentColor"), "currentcolor");
+        // A bare zero takes the unit it matched as - and stays `0` where a number would do.
+        assert_eq!(canonical("column-gap", "0"), "0px");
+        assert_eq!(canonical("border-image-width", "0"), "0");
+        // `||` operands in grammar order, box repetitions in their shortest form.
+        assert_eq!(
+            canonical("text-decoration-line", "overline underline"),
+            "underline overline"
+        );
+        assert_eq!(canonical("margin", "1px 1px"), "1px");
+        assert_eq!(canonical("margin", "1px 2px 1px 2px"), "1px 2px");
+        // Comma lists keep their commas.
+        assert_eq!(canonical("animation-delay", "20s, 10s"), "20s, 10s");
+    }
     use crate::matcher::property_definitions::{get_css_definitions, PropertyDefinition};
     use crate::matcher::syntax::CssSyntax;
 

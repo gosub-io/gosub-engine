@@ -1055,14 +1055,20 @@ pub trait PipelineDocument: Send + Sync {
             meta.initial_value()
         };
 
-        // Resolve font-relative units (em/rem) to px. `rem` is always relative to the root
-        // element's font-size (16px default). `em` is relative to the *parent's* computed
-        // font-size for `font-size` itself, and to the element's *own* computed font-size
-        // for every other property (e.g. `max-width: 17ch` lands here as `em`).
-        // `font-size` written as a percentage or a keyword. Neither could be turned into pixels,
-        // so `font_size_px` fell back to its 16px default and the element rendered at full body
-        // size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and anything using
-        // the UA's `sup { font-size: smaller }` or `<small>`.
+        // Resolve font-relative units (em/rem) to px. `rem` is relative to the root element's
+        // computed font-size; `em` is relative to the *parent's* computed font-size for
+        // `font-size` itself, and to the element's *own* computed font-size for every other
+        // property (e.g. `max-width: 17ch` lands here as `em`).
+        //
+        // A `rem` from a stylesheet is already px by the time it arrives - `resolve_computed`
+        // in gosub_css3 does it, where css-values says it belongs. What reaches here is the
+        // `style` attribute, which `inline_style` parses on its own and which therefore has no
+        // computed stage behind it.
+        //
+        // A `font-size` written as a percentage or a keyword could not be turned into pixels
+        // either, so `font_size_px` fell back to its 16px default and the element rendered at
+        // full body size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and
+        // anything using the UA's `sup { font-size: smaller }` or `<small>`.
         //
         // A percentage is against the *parent's* computed size, as are `smaller`/`larger`, which
         // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
@@ -1096,7 +1102,7 @@ pub trait PipelineDocument: Send + Sync {
         }
 
         match &raw {
-            Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
+            Value::Unit(v, Unit::Rem) => Value::Unit(v * self.root_font_size_px(id), Unit::Px),
             Value::Unit(v, Unit::Em) => {
                 let basis = if matches!(prop, StyleProperty::FontSize) {
                     match self.parent(id) {
@@ -1109,6 +1115,18 @@ pub trait PipelineDocument: Send + Sync {
                 Value::Unit(v * basis, Unit::Px)
             }
             _ => raw,
+        }
+    }
+
+    /// The font-size a `rem` on `id` resolves against: the root element's computed font-size.
+    ///
+    /// On the root itself it is the *initial* font-size instead (css-values-4 §5.1.1). The
+    /// root's own `font-size` is what defines a `rem`, so it cannot be expressed in one - and
+    /// saying so here is also what stops `html { font-size: 2rem }` recursing forever.
+    fn root_font_size_px(&self, id: NodeId) -> f32 {
+        match self.root() {
+            Some(root) if root != id => self.font_size_px(root),
+            _ => 16.0,
         }
     }
 
