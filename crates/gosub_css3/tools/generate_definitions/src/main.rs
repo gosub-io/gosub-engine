@@ -46,6 +46,27 @@ const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 3] = [
     ),
 ];
 
+/// Overrides for a property's longhand list where MDN's is out of date.
+///
+/// A shorthand's list is what the cascade resets when the declaration leaves a longhand out, so
+/// a stale entry resets a property the shorthand does not set at all.
+const PROPERTY_LONGHAND_PATCHES: [(&str, &[&str]); 1] = [
+    // MDN still lists the gutters, from the css-grid-1 draft where `grid` reset them. css-grid-2
+    // §7.4 sets only the six grid-template-* and grid-auto-* longhands, and WPT asserts that a
+    // `grid` declaration leaves the gutters alone.
+    (
+        "grid",
+        &[
+            "grid-template-rows",
+            "grid-template-columns",
+            "grid-template-areas",
+            "grid-auto-rows",
+            "grid-auto-columns",
+            "grid-auto-flow",
+        ],
+    ),
+];
+
 /// Value types that grammars reference but neither source defines: webref
 /// lists them with an EMPTY syntax (which the generator skips) and MDN
 /// references them from <shape> without defining them. Definitions per
@@ -168,6 +189,10 @@ fn main() -> Result<()> {
             }
         } else {
             mdn_prop.computed.array.clone()
+        };
+        let computed = match PROPERTY_LONGHAND_PATCHES.iter().find(|(n, _)| *n == name) {
+            Some((_, longhands)) => longhands.iter().map(|l| (*l).to_string()).collect(),
+            None => computed,
         };
 
         data.properties.push(Property {

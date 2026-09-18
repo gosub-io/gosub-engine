@@ -370,6 +370,59 @@ fn a_computed_value_sees_the_style_attribute() {
 }
 
 #[test]
+fn a_declaration_for_an_unknown_property_is_dropped() {
+    // css-syntax-3 §9: a declaration whose property this engine does not support is invalid.
+    // The cascade used to pass any property it had no definition for straight through to the
+    // style map, so a misspelling was recorded as though it were a real declaration and could be
+    // read back. A real property beside it still applies - an invalid declaration takes only
+    // itself down.
+    let value = eval(
+        "<div id=target style='dsiplay: block; color: red'></div>",
+        "const s = getComputedStyle(document.getElementById('target')); \
+         (s.getPropertyValue('dsiplay') || 'dropped') + '|' + s.color;",
+    );
+    assert_eq!(value, "dropped|red");
+}
+
+#[test]
+fn content_is_validated_like_every_other_property() {
+    // `content` used to skip validation entirely, because its grammar could not be matched
+    // against the tokens the parser produced. It can now, so the exemption is gone: a value the
+    // grammar accepts still applies, and one it rejects is dropped like any other.
+    let value = eval(
+        "<style>#a { content: \"x\" } #b { content: 10px }</style><div id=a></div><div id=b></div>",
+        "const a = getComputedStyle(document.getElementById('a')).content; \
+         const b = getComputedStyle(document.getElementById('b')).content; \
+         a + '|' + b;",
+    );
+    // A dropped declaration leaves the property at its initial value.
+    assert_eq!(value, "x|normal");
+}
+
+#[test]
+fn attr_reads_its_type_and_its_fallback() {
+    // css-values-5 §12.1: `attr( <attr-name> <attr-type>? , <declaration-value>? )`. The second
+    // argument is the type, not the fallback - that comes after the comma - and an untyped
+    // attr() substitutes a string, so it is only valid where a string is. This used to read the
+    // type slot as the fallback and parse the attribute as a CSS value whatever was asked,
+    // which let `width: attr(data-w)` take a length out of an attribute.
+    let value = eval(
+        "<style>\
+           #a { width: attr(data-w px) } \
+           #b { width: attr(missing px, 7px) } \
+           #c { width: attr(data-bad px, 3px) } \
+           #d { width: attr(data-w) } \
+         </style>\
+         <div id=a data-w=10></div><div id=b></div>\
+         <div id=c data-bad=wide></div><div id=d data-w=10></div>",
+        "const w = id => getComputedStyle(document.getElementById(id)).width; \
+         w('a') + '|' + w('b') + '|' + w('c') + '|' + w('d');",
+    );
+    // The last one is invalid - a string is not a length - so `width` keeps its initial value.
+    assert_eq!(value, "10px|7px|3px|auto");
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",

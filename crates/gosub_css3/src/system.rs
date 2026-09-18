@@ -293,29 +293,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             }
             let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
 
-            // `content` carries arbitrary tokens (strings, `attr()`, counters,
-            // quotes) that the property-syntax matcher cannot validate - notably the
-            // empty string `content: ""`. Pass it through verbatim; the render
-            // pipeline resolves it into generated text itself.
-            if declaration.property == "content" {
-                add_property_to_map(
-                    &mut css_map_entry,
-                    sheet,
-                    specificity,
-                    &CssDeclaration {
-                        property: "content".to_string(),
-                        value,
-                        important: declaration.important,
-                    },
-                    depth,
-                    order,
-                );
-                continue;
-            }
-
-            // If the property has a definition, validate and expand shorthands.
-            // If not (e.g. margin-top, padding-bottom - longhand properties not yet
-            // in the definition list), insert the value directly without validation.
+            // `content` used to be passed through here without validation, because its
+            // grammar could not be matched against the tokens the parser produced - the empty
+            // string of `::before { content: "" }` most of all. It can now, so it goes through
+            // the same path as everything else and a `content: 10px` is dropped.
             match definitions.find_property(&declaration.property) {
                 Some(definition) => {
                     let match_value = if let CssValue::List(value) = &value {
@@ -376,34 +357,19 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     );
                 }
                 None => {
-                    // No definition: pass the value through as-is so that properties
-                    // like margin-top, padding-left, font-size etc. (which are valid
-                    // CSS but happen not to have their own PropertyDefinition entry)
-                    // still reach the style consumer.
-                    let value = if let CssValue::List(mut values) = value {
-                        match values.pop() {
-                            Some(single) if values.is_empty() => single,
-                            Some(last) => {
-                                values.push(last);
-                                CssValue::List(values)
-                            }
-                            None => CssValue::List(values),
-                        }
-                    } else {
-                        value
-                    };
-                    add_property_to_map(
-                        &mut css_map_entry,
-                        sheet,
-                        specificity,
-                        &CssDeclaration {
-                            property: declaration.property.clone(),
-                            value,
-                            important: declaration.important,
-                        },
-                        depth,
-                        order,
-                    );
+                    // A property this engine has no definition for is a property it does not
+                    // support, and a declaration for one is invalid (css-syntax-3 §9). It is
+                    // dropped rather than passed through: an unvalidated value reaching the
+                    // style consumer is how `dsiplay: block` used to be recorded and answered
+                    // by `getComputedStyle` as though it were a real declaration.
+                    //
+                    // The comment here used to say this path carried the common longhands,
+                    // which have had their own definitions for a long time. What reaches it now
+                    // is misspellings, properties from specs the definitions data does not
+                    // cover, and the few `-internal-` names the user-agent sheet sets and
+                    // nothing reads.
+                    log::debug!("Unknown property, declaration dropped: {}", declaration.property);
+                    continue;
                 }
             }
         }
