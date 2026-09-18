@@ -109,7 +109,7 @@ endef
 # dom/nodes is not read directly: three gate suites pull support scripts out of it and become
 # ERROR records without it. See docs/wpt.md.
 wpt: ## Check the WPT gate against tests/wpt/expectations.txt (needs a checkout)
-	$(call require_wpt,dom/events html/dom dom/nodes)
+	$(call require_wpt,dom/events html/dom dom/nodes html/resources)
 	source test-utils.sh ;\
 	run_section "WPT gate" cargo run --release -p gosub-wpt -- \
 		"$(WPT_ROOT)" --all --expect tests/wpt/expectations.txt
@@ -140,7 +140,7 @@ wpt-shortlist: ## List the WPT suites worth picking up (DIR=... to pick the subt
 	cargo run --release --quiet -p gosub-wpt -- "$(WPT_ROOT)" $(or $(DIR),css/css-values) --shortlist
 
 wpt-update: ## Regenerate the WPT baselines after a fix, for committing alongside it
-	$(call require_wpt,dom/events html/dom dom/nodes css/css-syntax css/css-values css/support $(CSS_PARSING_DIRS))
+	$(call require_wpt,dom/events html/dom dom/nodes html/resources css/css-syntax css/css-values css/support $(CSS_PARSING_DIRS))
 	cargo run --release -p gosub-wpt -- "$(WPT_ROOT)" \
 		--tests-from <(grep '^FILE ' tests/wpt/expectations.txt | sed 's/^FILE //') \
 		--write-expectations > tests/wpt/expectations.txt.new
