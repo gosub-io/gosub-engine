@@ -340,12 +340,14 @@ here rather than in a comment at the top of it. For the gated file, that is:
   become `ERROR` records without it, as does `dom/events/Event-constants.html` without
   `dom/constants.js` and `html/dom/elements/name-content-attribute-and-property.html` without
   `html/resources`. The CI job's sparse set in `.github/workflows/ci.yaml` and the checkout the
-  baseline was regenerated on must agree, or CI reports the suites one of them cannot run. The baseline is pinned to the sparse set as much as to the commit in
-  `wpt-commit.txt` — widen or narrow the checkout and the results move. Note that
+  baseline was regenerated on must agree, or CI reports the suites one of them cannot run.
+  The baseline is pinned to the sparse set as much as to the commit in
+  `wpt-commit.txt` - widen or narrow the checkout and the results move. Note that
   `git sparse-checkout set` replaces the pattern list: a set made for the CSS component drops
-  the gate's directories, and `make wpt-update` will not notice, since the directory guard only
-  checks that each directory exists, not that it is complete. Regenerating then rewrites the gate
-  baseline as 600 `ERROR` records.
+  the gate's directories. `make wpt-update` refuses to run while one of them is missing, but
+  its guard only checks that each directory exists, not that it is complete: a directory that
+  is present but partial (a non-cone pattern, or a checkout at another commit) turns the suites
+  that read from it into `ERROR` records, and regenerating writes those into the gate baseline.
 - **Form controls are out of scope.** That work lives on its own branch and needs engine modules
   (`edit`, `form`, `focus`) that are not on main yet.
 - **`dom/events/passive-by-default.html` is deliberately not covered.** It names three subtests

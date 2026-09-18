@@ -4,6 +4,19 @@ use crate::Css3;
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
+    /// An+B takes integers only (css-syntax-3 section 9), so the B value must be an
+    /// integer token: `1.0` and `1e0` are numbers and make the selector invalid.
+    fn consume_integer(&mut self) -> CssResult<Number> {
+        let t = self.tokenizer.consume();
+        match t.token_type {
+            TokenType::Number(value, NumberKind::Integer) => Ok(value),
+            _ => Err(CssError::with_location(
+                format!("Expected integer, got {t:?}").as_str(),
+                self.tokenizer.current_location(),
+            )),
+        }
+    }
+
     fn do_dimension_block(&mut self, value: Number, unit: String) -> CssResult<(String, String)> {
         log::trace!("do_dimension_block");
 
@@ -84,8 +97,6 @@ impl Css3<'_> {
                 self.consume_delim('+')?;
                 false
             }
-            // An+B takes integers only: `1.0` and `1e0` are numbers, not integers, and
-            // `:nth-child(1.0)` is invalid.
             TokenType::Number(_, NumberKind::Integer) => false,
             _ => {
                 return Err(CssError::with_location(
@@ -101,7 +112,7 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let val = self.consume_any_number()?;
+        let val = self.consume_integer()?;
         if negative {
             return Ok(format!("-{val}"));
         }
@@ -130,7 +141,7 @@ impl Css3<'_> {
                 self.check_integer(value, 0, false)?;
 
                 b.push('-');
-                let s = self.consume_any_number()?.to_string();
+                let s = self.consume_integer()?.to_string();
                 b.push_str(s.as_str());
             }
             _ => {
@@ -164,7 +175,7 @@ impl Css3<'_> {
                 self.check_integer(value, 0, false)?;
 
                 b.push('-');
-                let s = self.consume_any_number()?.to_string();
+                let s = self.consume_integer()?.to_string();
                 b.push_str(s.as_str());
             }
             _ => {
@@ -189,7 +200,7 @@ impl Css3<'_> {
         match t.token_type {
             TokenType::Number(_, NumberKind::Integer) => {
                 self.tokenizer.reconsume(t);
-                b = self.consume_any_number()?.to_string();
+                b = self.consume_integer()?.to_string();
             }
             TokenType::Ident(ref value) if value.starts_with('-') => {
                 let value = value.clone();
@@ -251,7 +262,7 @@ mod test {
     /// `:nth-child(1.0)` and `:nth-child(2n+1.5)` are invalid.
     #[test]
     fn anplusb_rejects_non_integer_numbers() {
-        for input in ["1.0", "1e0", "2n+1.5"] {
+        for input in ["1.0", "1e0", "2n+1.5", "2n + 1.5", "2n - 1e0", "n- 1.5"] {
             let mut stream = ByteStream::from_str(input, Encoding::UTF8);
             let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
             assert!(parser.parse_anplusb().is_err(), "{input} must not parse as An+B");
