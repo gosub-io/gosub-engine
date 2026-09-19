@@ -344,6 +344,9 @@ impl PropertyDefinition {
             match component {
                 SyntaxComponent::Builtin { datatype, .. } => datatype == "hex-color",
                 SyntaxComponent::Group { components, .. } => components.iter().any(walks),
+                // A gradient keeps its colours inside its own arguments, so a property that
+                // takes one has its colour slot a level further down than the groups.
+                SyntaxComponent::Function { arguments, .. } => arguments.as_deref().is_some_and(walks),
                 _ => false,
             }
         }

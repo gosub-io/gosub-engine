@@ -81,7 +81,7 @@ const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
 /// Pins value definitions that multiple specs define differently, so the
 /// choice is explicit instead of an artifact of decode order (first spec
 /// wins).
-const VALUE_SYNTAX_PATCHES: [(&str, &str); 3] = [
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 5] = [
     // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
     // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
     // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
@@ -97,6 +97,17 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 3] = [
     (
         "<gradient>",
         "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()>          | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>",
+    ),
+    // css-images-4 §3.1 lets every gradient name the space its stops are interpolated in, and
+    // upstream carries it only on the conic form. Without it `linear-gradient(in oklab, red,
+    // blue)` is not a gradient at all and the declaration is dropped.
+    (
+        "<linear-gradient-syntax>",
+        "[ [ <angle> | <zero> | to <side-or-corner> ]? || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    (
+        "<radial-gradient-syntax>",
+        "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
     ),
     // A mask layer names its boxes <geometry-box>, while every mask longhand
     // takes <coord-box> - two spellings of the same set, from css-masking-1 and

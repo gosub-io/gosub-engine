@@ -1,4 +1,4 @@
-use crate::colors::{is_named_color, is_system_color};
+use crate::colors::{is_named_color, is_system_color, ColorSyntax};
 use crate::functions::calc;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
@@ -736,7 +736,19 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     // by no input (i.e. every argument is optional).
                     let res = match_component(c_args, arg_syntax, None);
                     if res.matched && res.remainder.is_empty() {
-                        return first_match(input);
+                        // The arguments are reported as the grammar orders them, not as they
+                        // were written: a function's insides are canonicalized like anything
+                        // else. `linear-gradient(in lab 30deg, ...)` serializes as
+                        // `linear-gradient(30deg in lab, ...)`, because the `||` that holds the
+                        // angle and the interpolation method lists the angle first.
+                        return MatchResult {
+                            remainder: input.get(1..).unwrap_or(&[]),
+                            matched: true,
+                            matched_values: vec![CssValue::Function(
+                                c_name.clone(),
+                                canonical_gradient(c_name, res.matched_values),
+                            )],
+                        };
                     }
                     return no_match(input);
                 }
@@ -1389,6 +1401,95 @@ fn first_match(input: &[CssValue]) -> MatchResult<'_> {
         matched: true,
         matched_values: input.first().cloned().into_iter().collect(),
     }
+}
+
+/// Drop a radial gradient's shape keyword when its size already says which shape it is
+/// (css-images-3 §4.2): two size values can only describe an ellipse, one only a circle.
+fn drop_implied_radial_shape(name: &str, args: Vec<CssValue>, head_end: usize) -> Vec<CssValue> {
+    if !name.cow_to_ascii_lowercase().contains("radial") {
+        return args;
+    }
+    let shape = match args.first() {
+        Some(CssValue::String(word)) if word.eq_ignore_ascii_case("ellipse") => 2,
+        Some(CssValue::String(word)) if word.eq_ignore_ascii_case("circle") => 1,
+        _ => return args,
+    };
+    // The size is what sits between the shape and whatever comes after it: the `at` that starts
+    // a position, or the `in` that starts an interpolation method.
+    let sizes = args[1..head_end]
+        .iter()
+        .take_while(|value| {
+            !matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("at") || word.eq_ignore_ascii_case("in"))
+        })
+        .count();
+    if sizes != shape {
+        return args;
+    }
+    args[1..].to_vec()
+}
+
+/// Tidy the interpolation method of a gradient, which has three rules of its own
+/// (css-images-4 §3.1 and css-color-4 §12.4).
+///
+/// `xyz` is a synonym that serializes under its full name; `shorter hue` is what a polar space
+/// does anyway; and a method that names the space the stops would have been interpolated in
+/// regardless is left off entirely. That last one depends on the stops: the default is `oklab`,
+/// except for a gradient whose every stop is a legacy sRGB colour, where it stays `srgb`.
+fn canonical_gradient(name: &str, args: Vec<CssValue>) -> Vec<CssValue> {
+    if !name.cow_to_ascii_lowercase().contains("gradient") {
+        return args;
+    }
+    let head_end = |args: &[CssValue]| {
+        args.iter()
+            .position(|value| matches!(value, CssValue::Comma))
+            .unwrap_or(args.len())
+    };
+    // Dropping the shape shortens the part before the stops, so the rest is measured again.
+    let first_head_end = head_end(&args);
+    let args = drop_implied_radial_shape(name, args, first_head_end);
+    let head_end = head_end(&args);
+    let Some(at) = args[..head_end]
+        .iter()
+        .position(|value| matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("in")))
+    else {
+        return args;
+    };
+
+    let mut method: Vec<String> = args[at + 1..head_end]
+        .iter()
+        .map(|value| value.to_string().cow_to_ascii_lowercase().into_owned())
+        .collect();
+    if method.first().is_some_and(|space| space == "xyz") {
+        method[0] = "xyz-d65".to_string();
+    }
+    if method.len() >= 3 && method[method.len() - 2] == "shorter" && method[method.len() - 1] == "hue" {
+        method.truncate(method.len() - 2);
+    }
+
+    // A stop that is not a legacy sRGB colour moves the default to oklab for the whole gradient.
+    let all_legacy = args[head_end..].iter().all(|value| match value {
+        CssValue::Color(color) => !matches!(
+            color.syntax,
+            ColorSyntax::Predefined(_) | ColorSyntax::Lab | ColorSyntax::Lch | ColorSyntax::Oklab | ColorSyntax::Oklch
+        ),
+        _ => true,
+    });
+    let default = if all_legacy { "srgb" } else { "oklab" };
+
+    let mut out: Vec<CssValue> = args[..at].to_vec();
+    if method.as_slice() != [default.to_string()] {
+        out.push(CssValue::String("in".to_string()));
+        out.extend(method.into_iter().map(CssValue::String));
+    }
+    // Dropping the method can empty the part before the stops, and then the comma that
+    // separated them has nothing left to separate.
+    let tail = if out.is_empty() && matches!(args.get(head_end), Some(CssValue::Comma)) {
+        &args[head_end + 1..]
+    } else {
+        &args[head_end..]
+    };
+    out.extend_from_slice(tail);
+    out
 }
 
 /// Whether two value lists are the same apart from the ASCII case of their keywords.

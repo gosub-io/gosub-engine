@@ -593,6 +593,41 @@ fn a_missing_colour_component_is_not_zero() {
 }
 
 #[test]
+fn a_gradient_names_the_space_its_stops_interpolate_in() {
+    // css-images-4 §3.1 lets a gradient say which space its stops are interpolated in. Our
+    // grammar carried it only on the conic form, so `linear-gradient(in oklab, ...)` was not a
+    // gradient at all and the declaration was dropped.
+    //
+    // Three rules govern how it comes back. A method that names the space the stops would have
+    // used anyway is left off, and that default depends on the stops: `oklab`, or `srgb` when
+    // every stop is a legacy sRGB colour. `xyz` is a synonym for `xyz-d65`. And `shorter hue`
+    // is what a polar space does without being told.
+    let value = eval(
+        "<div id=t></div>",
+        "const el = document.getElementById('t'); \
+         const round = v => { el.style.backgroundImage = ''; el.style.backgroundImage = v; \
+                              return el.style.backgroundImage; }; \
+         round('linear-gradient(in lab 30deg, red, blue)') + '\\n' + \
+         round('linear-gradient(in srgb, red, blue)') + '\\n' + \
+         round('linear-gradient(in oklab, color(srgb 1 0 0), blue)') + '\\n' + \
+         round('linear-gradient(in xyz, red, blue)') + '\\n' + \
+         round('linear-gradient(in hsl shorter hue, red, blue)') + '\\n' + \
+         round('radial-gradient(ellipse 50% 40em in lab, red, blue)');",
+    );
+    assert_eq!(
+        value,
+        // The angle comes first whatever order it was written in, because that is the order the
+        // grammar lists the two in.
+        "linear-gradient(30deg in lab, red, blue)\n\
+         linear-gradient(red, blue)\n\
+         linear-gradient(color(srgb 1 0 0), blue)\n\
+         linear-gradient(in xyz-d65, red, blue)\n\
+         linear-gradient(in hsl, red, blue)\n\
+         radial-gradient(50% 40em in lab, red, blue)"
+    );
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",

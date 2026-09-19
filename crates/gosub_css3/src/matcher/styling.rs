@@ -926,29 +926,10 @@ impl CssProperty {
         // the computed value is the sRGB colour, which is what `getComputedStyle` reports and
         // what the painter needs. Whether the keyword is a colour at all depends on the
         // property: `red` names a grid line on `grid-row-start`.
-        if let CssValue::String(keyword) = &specified {
-            if let Some(mut color) = self.color_keyword(keyword) {
-                color.computed = true;
-                return CssValue::Color(color);
-            }
-        }
-
-        // A colour function left standing because a `calc()` was inside it is folded here, where
-        // the arithmetic belongs. See `fold_color_function`.
-        if let CssValue::Function(name, args) = &specified {
-            if let Some(mut color) = crate::stylesheet::fold_color_function(name, args, true) {
-                color.computed = true;
-                return CssValue::Color(color);
-            }
-        }
-
-        // A colour reaching the computed stage is a computed colour, and one of them serializes
-        // its percentage axes where the other does not. See `CssColor::computed`.
-        if let CssValue::Color(color) = &specified {
-            let mut color = *color;
-            color.computed = true;
-            return CssValue::Color(color);
-        }
+        //
+        // The whole value is walked, not just its top: the stops of a gradient are colours too,
+        // and `linear-gradient(30deg, red, blue)` computes with each of them resolved.
+        let specified = self.resolve_colors(&specified);
 
         // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
         // percentage resolves here rather than travelling on. It is the one percentage that can:
@@ -983,6 +964,35 @@ impl CssProperty {
         let computed = resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis);
 
         self.clamp_to_range(computed)
+    }
+
+    /// Resolve every colour in a value: a keyword to the colour it names, and a colour already
+    /// parsed to its computed form. Recurses, because a colour can sit inside a function.
+    fn resolve_colors(&self, value: &CssValue) -> CssValue {
+        match value {
+            CssValue::String(keyword) => match self.color_keyword(keyword) {
+                Some(mut color) => {
+                    color.computed = true;
+                    CssValue::Color(color)
+                }
+                None => value.clone(),
+            },
+            CssValue::Color(color) => {
+                let mut color = *color;
+                color.computed = true;
+                CssValue::Color(color)
+            }
+            CssValue::Function(name, args) => {
+                // A colour function still standing is folded here, where its `calc()` can be.
+                if let Some(mut color) = crate::stylesheet::fold_color_function(name, args, true) {
+                    color.computed = true;
+                    return CssValue::Color(color);
+                }
+                CssValue::Function(name.clone(), args.iter().map(|a| self.resolve_colors(a)).collect())
+            }
+            CssValue::List(items) => CssValue::List(items.iter().map(|item| self.resolve_colors(item)).collect()),
+            other => other.clone(),
+        }
     }
 
     /// The colour a keyword names, when this property is one that takes a colour.
