@@ -303,12 +303,7 @@ fn collect_rule(
     media: &[Arc<MediaQueryList>],
     layer: Option<u32>,
 ) -> CssResult<Option<CssRule>> {
-    let mut rule = CssRule {
-        selectors: vec![],
-        declarations: vec![],
-        media: (!media.is_empty()).then(|| media.to_vec()),
-        layer,
-    };
+    let mut rule = CssRule::new(vec![], vec![], (!media.is_empty()).then(|| media.to_vec()), layer);
 
     if let Some(node) = prelude {
         let NodeType::SelectorList { selectors } = node.node_type else {

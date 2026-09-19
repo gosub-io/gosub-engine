@@ -733,6 +733,30 @@ impl FixList {
         self.list.append(&mut other.list);
     }
 
+    /// How many longhands are recorded, for a caller sizing a buffer.
+    #[must_use]
+    pub fn entry_count(&self) -> usize {
+        self.list.len()
+    }
+
+    /// The recorded longhands as `(property, value)`, exactly the ones [`FixList::apply`] would
+    /// hand to a property map and in the same order.
+    ///
+    /// This is for expanding a declaration on its own, away from any element: the cascade facts
+    /// the entries carry are the caller's to supply, so only the values come back.
+    #[must_use]
+    pub fn into_entries(self) -> Vec<(String, CssValue)> {
+        self.list
+            .into_iter()
+            .filter_map(|(name, declarations)| {
+                declarations
+                    .into_iter()
+                    .max()
+                    .map(|declaration| (name, declaration.value))
+            })
+            .collect()
+    }
+
     pub fn apply(&mut self, props: &mut CssProperties) {
         for (name, value) in &self.list {
             let Some(decl) = value.iter().max().cloned() else {

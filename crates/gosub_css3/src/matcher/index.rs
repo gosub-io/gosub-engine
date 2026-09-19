@@ -131,12 +131,7 @@ mod tests {
     use crate::stylesheet::CssSelector;
 
     fn rule(selectors: Vec<Vec<CssSelectorPart>>) -> CssRule {
-        CssRule {
-            selectors: vec![CssSelector::new(selectors)],
-            declarations: vec![],
-            media: None,
-            layer: None,
-        }
+        CssRule::new(vec![CssSelector::new(selectors)], vec![], None, None)
     }
 
     #[test]

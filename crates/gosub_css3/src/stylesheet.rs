@@ -9,8 +9,10 @@ use gosub_shared::node::NodeId;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use crate::colors::{ColorSyntax, CssColor, PredefinedSpace, RgbColor};
+use crate::matcher::expansion::{expand_declarations, ExpandedDeclaration};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
 use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
 use crate::supports::SupportsCondition;
@@ -345,11 +347,16 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct CssRule {
     /// Selectors that must match for the declarations to apply
     pub selectors: Vec<CssSelector>,
-    /// Actual declarations that will be applied if the selectors match
+    /// Actual declarations that will be applied if the selectors match.
+    ///
+    /// Editing these once the rule is in a document invalidates [`CssRule::expanded`], which is
+    /// built from them and kept. Nothing does: the parser fills them in before the rule reaches
+    /// a stylesheet, and the CSSOM rewrites the `style` attribute's text, which is parsed into a
+    /// sheet of its own.
     pub declarations: Vec<CssDeclaration>,
     /// The `@media` conditions enclosing this rule, outermost first - all of them must match
     /// before the rule applies. `None` for the overwhelmingly common unconditional rule, so
@@ -361,9 +368,40 @@ pub struct CssRule {
     /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
     /// declaration is the strongest place to be.
     pub layer: Option<u32>,
+    /// The declarations validated and expanded, built the first time an element needs them;
+    /// see [`CssRule::expanded`].
+    expanded: OnceLock<Vec<ExpandedDeclaration>>,
+}
+
+/// The expansion is a function of the declarations and nothing else, so it plays no part in
+/// whether two rules are the same rule.
+impl PartialEq for CssRule {
+    fn eq(&self, other: &Self) -> bool {
+        self.selectors == other.selectors
+            && self.declarations == other.declarations
+            && self.media == other.media
+            && self.layer == other.layer
+    }
 }
 
 impl CssRule {
+    /// A rule as the parser builds it, with the declaration expansion still to be done.
+    #[must_use]
+    pub fn new(
+        selectors: Vec<CssSelector>,
+        declarations: Vec<CssDeclaration>,
+        media: Option<Vec<Arc<MediaQueryList>>>,
+        layer: Option<u32>,
+    ) -> Self {
+        Self {
+            selectors,
+            declarations,
+            media,
+            layer,
+            expanded: OnceLock::new(),
+        }
+    }
+
     #[must_use]
     pub fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
@@ -372,6 +410,18 @@ impl CssRule {
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
+    }
+
+    /// The rule's declarations, each validated against its property definition and expanded
+    /// into the longhands it sets, in the same order as [`CssRule::declarations`].
+    ///
+    /// None of that depends on the element the rule is being applied to, so it is done once
+    /// here rather than once per matched element. It is built on first use rather than when the
+    /// rule is parsed, because rules arrive after parsing too: `@import` splices whole sheets
+    /// in, and an element's `style` attribute is a sheet built on its own.
+    #[must_use]
+    pub fn expanded(&self) -> &[ExpandedDeclaration] {
+        self.expanded.get_or_init(|| expand_declarations(&self.declarations))
     }
 
     /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules
@@ -1686,16 +1736,16 @@ mod test {
 
     #[test]
     fn test_css_rule() {
-        let rule = CssRule {
-            media: None,
-            layer: None,
-            selectors: vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
-            declarations: vec![CssDeclaration {
+        let rule = CssRule::new(
+            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            vec![CssDeclaration {
                 property: "color".to_string(),
                 value: CssValue::String("red".to_string()),
                 important: false,
             }],
-        };
+            None,
+            None,
+        );
 
         assert_eq!(rule.selectors().len(), 1);
         let part = rule

@@ -1,5 +1,6 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::var::resolve_var;
+use crate::matcher::expansion::{single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
@@ -58,6 +59,43 @@ fn inline_parser_config() -> ParserConfig {
         ignore_errors: true,
         ..Default::default()
     }
+}
+
+/// How many parsed `style` attributes to keep per thread. A page that reaches this many
+/// *distinct* attribute texts is one where the cache has stopped paying for itself, so the
+/// table is emptied rather than grown or evicted piecemeal.
+const INLINE_SHEET_CACHE_LIMIT: usize = 4096;
+
+thread_local! {
+    /// Parsed `style` attributes, by the attribute's text.
+    ///
+    /// The text is the whole input to the parse, so identical text gives an identical sheet:
+    /// the cache is content-addressed, and script rewriting an attribute simply asks a
+    /// different question. Nothing mutates a sheet once parsed, so one `Arc` serves every
+    /// element that carries the same `style` - and, with it, one expansion of its declarations.
+    ///
+    /// Per thread, like the media environment: a style computation reads the thread's
+    /// environment, so its results belong to that thread.
+    static INLINE_SHEETS: std::cell::RefCell<HashMap<String, Arc<CssStylesheet>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// The `style` attribute as a one-rule stylesheet, so it can join the cascade like any other
+/// rule. Parsed once per distinct attribute text.
+fn inline_stylesheet(style: &str) -> Option<Arc<CssStylesheet>> {
+    INLINE_SHEETS.with(|cache| {
+        if let Some(sheet) = cache.borrow().get(style) {
+            return Some(Arc::clone(sheet));
+        }
+        let sheet =
+            Arc::new(Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()?);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= INLINE_SHEET_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(style.to_string(), Arc::clone(&sheet));
+        Some(sheet)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -212,9 +250,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         .then(|| doc.attribute(id, "style"))
         .flatten()
         .filter(|style| !style.trim().is_empty())
-        .and_then(|style| {
-            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
-        });
+        .and_then(inline_stylesheet);
 
     let mut matched: Vec<MatchedRule<'_>> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
@@ -272,9 +308,16 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     }
 
     // Where each cascade layer sorts, merged across the sheets of each origin. Built only when
-    // some sheet actually declares one, which no page that does not use `@layer` ever does.
-    let sheet_refs: Vec<&CssStylesheet> = sheets.iter().collect();
-    let layer_order = crate::layers::LayerOrder::build(&sheet_refs);
+    // some sheet actually declares one, which no page that does not use `@layer` ever does -
+    // and the test for that comes first, so such a page does not even collect the sheets.
+    let layer_order = sheets
+        .iter()
+        .any(|sheet| !sheet.layers.is_empty())
+        .then(|| {
+            let sheet_refs: Vec<&CssStylesheet> = sheets.iter().collect();
+            crate::layers::LayerOrder::build(&sheet_refs)
+        })
+        .flatten();
     let layer_rank = |matched: &MatchedRule<'_>| -> Option<u32> {
         let order = layer_order.as_ref()?;
         let name = matched.sheet.layers.get(matched.layer? as usize)?;
@@ -355,12 +398,38 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         let layer = layer_rank(&matched_rule);
         let attached = matched_rule.attached;
         // Selector matched, so we add all declared values to the map
-        for declaration in rule.declarations() {
+        for (declaration, expanded) in rule.declarations().iter().zip(rule.expanded()) {
             order += 1;
-            // Custom property declarations were consumed above; keep them out of
-            // the regular cascade.
-            if declaration.property.starts_with("--") {
-                continue;
+            match expanded {
+                // Custom property declarations were consumed above; keep them out of the
+                // regular cascade.
+                ExpandedDeclaration::Custom => continue,
+                // Unknown property, or a value its grammar rejects. Which of the two it was,
+                // and why, was logged when the rule was expanded.
+                ExpandedDeclaration::Invalid => continue,
+                ExpandedDeclaration::Resolved { entries, important } => {
+                    // The declaration and every longhand it expands to, already worked out.
+                    // All that is left is the element's own cascade facts.
+                    for (name, value) in entries {
+                        push_declaration(
+                            &mut css_map_entry,
+                            name,
+                            value,
+                            sheet,
+                            *important,
+                            specificity,
+                            depth,
+                            order,
+                            layer,
+                            attached,
+                        );
+                    }
+                    continue;
+                }
+                // A substitution function reads the element or the environment, so what this
+                // declaration says - and whether it says anything valid at all - is only known
+                // here. It takes the per-element path below.
+                ExpandedDeclaration::Pending => {}
             }
             let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
 
@@ -403,28 +472,13 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // reset to their initial value.
                     fix_list.reset_unmentioned(definition, match_value, definitions);
 
-                    let value = if let CssValue::List(mut values) = value {
-                        match values.pop() {
-                            Some(single) if values.is_empty() => single,
-                            Some(last) => {
-                                values.push(last);
-                                CssValue::List(values)
-                            }
-                            None => CssValue::List(values),
-                        }
-                    } else {
-                        value
-                    };
-
-                    add_property_to_map(
+                    push_declaration(
                         &mut css_map_entry,
+                        &declaration.property,
+                        &single_value(value),
                         sheet,
+                        declaration.important,
                         specificity,
-                        &CssDeclaration {
-                            property: declaration.property.clone(),
-                            value,
-                            important: declaration.important,
-                        },
                         depth,
                         order,
                         layer,
@@ -627,13 +681,42 @@ pub fn add_property_to_map(
     layer: Option<u32>,
     attached: bool,
 ) {
-    let property_name = declaration.property.clone();
+    push_declaration(
+        css_map_entry,
+        &declaration.property,
+        &declaration.value,
+        sheet,
+        declaration.important,
+        specificity,
+        shadow_depth,
+        order,
+        layer,
+        attached,
+    );
+}
 
+/// Record one declared value for `name`, with the cascade facts of the element it was declared
+/// on. Takes the property and value by reference: a pre-expanded shorthand hands over a dozen of
+/// these, and building a `CssDeclaration` for each only to copy it out again is a dozen
+/// allocations per element.
+#[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
+fn push_declaration(
+    css_map_entry: &mut CssProperties,
+    name: &str,
+    value: &CssValue,
+    sheet: &crate::stylesheet::CssStylesheet,
+    important: bool,
+    specificity: Specificity,
+    shadow_depth: u16,
+    order: u32,
+    layer: Option<u32>,
+    attached: bool,
+) {
     let declaration = DeclarationProperty {
         // @todo: this seems wrong. We only get the first values from the declared values
-        value: declaration.value.clone(),
+        value: value.clone(),
         origin: sheet.origin,
-        important: declaration.important,
+        important,
         location: sheet.url.clone(),
         specificity,
         shadow_depth,
@@ -642,12 +725,16 @@ pub fn add_property_to_map(
         attached,
     };
 
-    css_map_entry
-        .properties
-        .entry(property_name.clone())
-        .or_insert_with(|| CssProperty::new(property_name.as_str()))
-        .declared
-        .push(declaration);
+    // Looked up before it is inserted, rather than through `entry`, because `entry` needs the
+    // key owned whether or not it is used - and on an expanded shorthand most of these names are
+    // already in the map.
+    if let Some(property) = css_map_entry.properties.get_mut(name) {
+        property.declared.push(declaration);
+        return;
+    }
+    let mut property = CssProperty::new(name);
+    property.declared.push(declaration);
+    css_map_entry.properties.insert(name.to_string(), property);
 }
 
 /// The tree scope `id` lives in: the shadow root at the top of its ancestor chain, or `None`
