@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::LazyLock;
 
+use crate::matcher::property_ids::{PropertyId, PROPERTY_COUNT};
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
@@ -453,11 +454,38 @@ pub enum SyntaxType {
     None,
 }
 
+/// A resolved property, together with the answers about it that the cascade would otherwise
+/// work out again for every element it applies to.
+///
+/// [`PropertyDefinition::takes_color`] and [`PropertyDefinition::computed_range`] both read the
+/// resolved value grammar, which is a tree a few hundred nodes deep for a property like
+/// `background-image`. Neither answer can change once the definitions are loaded, so both are
+/// settled here instead - as is the initial value, which used to be cloned out of an `Option` on
+/// every lookup.
+#[derive(Debug, Clone)]
+struct ResolvedProperty {
+    definition: PropertyDefinition,
+    /// Exactly what [`PropertyDefinition::initial_value`] answers.
+    initial: CssValue,
+    takes_color: bool,
+    computed_range: Option<(Option<f64>, Option<f64>)>,
+}
+
 /// Defines a list of CSS properties and its syntax.
 #[derive(Debug, Clone)]
 pub struct CssDefinitions {
-    // List of all resolved properties
-    pub resolved_properties: HashMap<String, PropertyDefinition>,
+    /// Every resolved property, indexed by [`PropertyId::index`], so the cascade reaches a
+    /// definition by array index rather than by hashing a name. A property with no id - `--*`,
+    /// or anything a hand-built definition set names that the generated ids do not - is kept in
+    /// a slot past the ids.
+    resolved: Vec<Option<ResolvedProperty>>,
+    /// Which slot of `resolved` each property name sits in. This is the name-keyed door, for
+    /// the parser and the syntax matcher; the cascade uses the ids.
+    resolved_at: HashMap<String, usize>,
+    /// Where [`CssDefinitions::resolve`] accumulates its work, drained into `resolved` when the
+    /// pass is done. Resolution is recursive and looks up what it has already resolved by name,
+    /// which is why it is a map of its own rather than the table above.
+    resolved_properties: HashMap<String, PropertyDefinition>,
     /// All defined properties
     pub properties: HashMap<String, PropertyDefinition>,
     /// List of syntax elements for resolving the properties
@@ -477,6 +505,8 @@ impl CssDefinitions {
     #[must_use]
     pub fn new() -> Self {
         CssDefinitions {
+            resolved: Vec::new(),
+            resolved_at: HashMap::new(),
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
@@ -499,22 +529,60 @@ impl CssDefinitions {
         self.syntax.insert(name.to_string(), syntax);
     }
 
-    /// Find a specific property
+    /// Find a specific property by name. The name-keyed door into the definitions, for the
+    /// parser and the syntax matcher; the cascade goes through [`CssDefinitions::definition`].
     #[must_use]
     pub fn find_property(&self, name: &str) -> Option<&PropertyDefinition> {
-        self.resolved_properties.get(name)
+        self.entry_by_name(name).map(|entry| &entry.definition)
+    }
+
+    /// The definition of the property `id` names, when this set has one.
+    #[must_use]
+    pub fn definition(&self, id: PropertyId) -> Option<&PropertyDefinition> {
+        self.entry(id).map(|entry| &entry.definition)
+    }
+
+    /// The initial value of the property `id` names, the same value
+    /// [`PropertyDefinition::initial_value`] answers - worked out once when the definitions
+    /// loaded rather than on every lookup.
+    #[must_use]
+    pub fn initial_value(&self, id: PropertyId) -> Option<CssValue> {
+        self.entry(id).map(|entry| entry.initial.clone())
+    }
+
+    /// Whether the property `id` names can take a `<color>`; see
+    /// [`PropertyDefinition::takes_color`].
+    #[must_use]
+    pub fn takes_color(&self, id: PropertyId) -> bool {
+        self.entry(id).is_some_and(|entry| entry.takes_color)
+    }
+
+    /// The range a computed value for the property `id` names has to lie in; see
+    /// [`PropertyDefinition::computed_range`].
+    #[must_use]
+    pub fn computed_range(&self, id: PropertyId) -> Option<(Option<f64>, Option<f64>)> {
+        self.entry(id).and_then(|entry| entry.computed_range)
+    }
+
+    fn entry(&self, id: PropertyId) -> Option<&ResolvedProperty> {
+        self.resolved.get(id.index())?.as_ref()
+    }
+
+    fn entry_by_name(&self, name: &str) -> Option<&ResolvedProperty> {
+        let slot = *self.resolved_at.get(name)?;
+        self.resolved.get(slot)?.as_ref()
     }
 
     /// Returns the length of the property definitions
     #[must_use]
     pub fn len(&self) -> usize {
-        self.resolved_properties.len()
+        self.resolved_at.len()
     }
 
     /// Returns true when the properties definitions are empty
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.resolved_properties.is_empty()
+        self.resolved_at.is_empty()
     }
 
     /// Resolves all elements in the definitions
@@ -525,6 +593,46 @@ impl CssDefinitions {
         for name in names {
             self.resolve_property(&name);
         }
+
+        self.build_id_table();
+    }
+
+    /// Move what `resolve` produced into the id-indexed table, working out the per-property
+    /// facts that never change while it goes.
+    fn build_id_table(&mut self) {
+        let mut resolved: Vec<Option<ResolvedProperty>> = Vec::with_capacity(PROPERTY_COUNT);
+        resolved.resize_with(PROPERTY_COUNT, || None);
+        let mut resolved_at = HashMap::with_capacity(self.resolved_properties.len());
+
+        // Sorted, so the slots handed out past the ids do not depend on hash order.
+        let mut names: Vec<String> = self.resolved_properties.keys().cloned().collect();
+        names.sort();
+
+        for name in names {
+            let Some(definition) = self.resolved_properties.remove(&name) else {
+                continue;
+            };
+            let slot = match PropertyId::from_name(&name) {
+                Some(id) => id.index(),
+                // No id: `--*`, or a name only a hand-built definition set knows. It still needs
+                // a slot, just not one the cascade can reach.
+                None => {
+                    resolved.push(None);
+                    resolved.len() - 1
+                }
+            };
+            let entry = ResolvedProperty {
+                initial: definition.initial_value(),
+                takes_color: definition.takes_color(),
+                computed_range: definition.computed_range(),
+                definition,
+            };
+            resolved[slot] = Some(entry);
+            resolved_at.insert(name, slot);
+        }
+
+        self.resolved = resolved;
+        self.resolved_at = resolved_at;
     }
 
     /// Resolves a property definition (recursively)
@@ -781,6 +889,16 @@ const INITIAL_IS_PROSE: &[&str] = &[
 ];
 
 impl RawInitial {
+    /// The value as the file writes it, or `None` where the file gives a shorthand's longhand
+    /// list instead. This is what the generated id tables carry.
+    #[cfg(test)]
+    fn source(&self) -> Option<&str> {
+        match self {
+            RawInitial::Value(text) => Some(text),
+            RawInitial::Longhands(_) => None,
+        }
+    }
+
     /// The initial value this describes, if it describes one at all.
     fn value(&self) -> Option<CssValue> {
         let RawInitial::Value(text) = self else {
@@ -851,6 +969,8 @@ fn parse_definition_files() -> CssDefinitions {
 
     // Create definition structure, and resolve all definitions
     let mut definitions = CssDefinitions {
+        resolved: Vec::new(),
+        resolved_at: HashMap::new(),
         resolved_properties: HashMap::new(),
         properties,
         syntax,
@@ -2345,5 +2465,111 @@ mod tests {
             str!("ital"),
             CssValue::Number(100.0, NumberKind::Integer)
         ]));
+    }
+}
+
+/// The generated property ids are a second copy of what `definitions_properties.json` says, so
+/// they can drift from it - a regenerated JSON with a property added, removed or reclassified
+/// leaves the ids describing the old data, and nothing about that fails to compile.
+///
+/// So the ids are re-derived here from the same embedded JSON and compared against the generated
+/// module, entry by entry. A failure means [`crate::matcher::property_ids`] needs regenerating:
+///
+/// ```text
+/// cargo run -p generate_definitions -- --property-ids
+/// ```
+#[cfg(test)]
+mod generated_ids {
+    use super::{RawProperty, DEFINITIONS_PROPERTIES};
+    use crate::matcher::property_ids::{
+        LonghandId, PropertyId, ShorthandId, ALL_LONGHAND_IDS, ALL_SHORTHAND_IDS, LONGHAND_COUNT, PROPERTY_COUNT,
+        SHORTHAND_COUNT,
+    };
+
+    /// The properties of the embedded JSON, split the way the generator splits them: everything
+    /// whose `computed` list names more than one thing is a shorthand, `--*` is neither.
+    fn derived() -> (Vec<RawProperty>, Vec<RawProperty>) {
+        let mut properties: Vec<RawProperty> =
+            serde_json::from_str(DEFINITIONS_PROPERTIES).expect("the embedded property JSON parses");
+        properties.retain(|property| property.name != "--*");
+        properties.sort_by(|a, b| a.name.cmp(&b.name));
+        properties
+            .into_iter()
+            .partition(|property| property.computed.len() <= 1)
+    }
+
+    #[test]
+    fn property_ids_match_the_definitions() {
+        let (longhands, shorthands) = derived();
+
+        assert_eq!(longhands.len(), LONGHAND_COUNT, "longhand count");
+        assert_eq!(shorthands.len(), SHORTHAND_COUNT, "shorthand count");
+        assert_eq!(LONGHAND_COUNT + SHORTHAND_COUNT, PROPERTY_COUNT);
+        assert_eq!(ALL_LONGHAND_IDS.len(), LONGHAND_COUNT);
+        assert_eq!(ALL_SHORTHAND_IDS.len(), SHORTHAND_COUNT);
+
+        for (index, property) in longhands.iter().enumerate() {
+            let id = LonghandId::from_index(index).expect("every longhand slot is filled");
+            assert_eq!(id.name(), property.name, "longhand {index}");
+            assert_eq!(id.index(), index, "longhand {} is not at its own index", property.name);
+            assert_eq!(id.inherited(), property.inherited, "{} inherited", property.name);
+            assert!(!PropertyId::Longhand(id).is_shorthand(), "{}", property.name);
+            assert_eq!(
+                PropertyId::from_name(&property.name),
+                Some(PropertyId::Longhand(id)),
+                "{} by name",
+                property.name
+            );
+        }
+
+        for (index, property) in shorthands.iter().enumerate() {
+            let id = ShorthandId::from_index(index).expect("every shorthand slot is filled");
+            assert_eq!(id.name(), property.name, "shorthand {index}");
+            assert_eq!(id.inherited(), property.inherited, "{} inherited", property.name);
+            assert_eq!(
+                PropertyId::Shorthand(id).index(),
+                LONGHAND_COUNT + index,
+                "{} slot",
+                property.name
+            );
+            assert_eq!(
+                PropertyId::from_name(&property.name),
+                Some(PropertyId::Shorthand(id)),
+                "{} by name",
+                property.name
+            );
+            let expanded: Vec<&str> = id.longhands().iter().map(|longhand| longhand.name()).collect();
+            assert_eq!(expanded, property.computed, "{} longhands", property.name);
+        }
+    }
+
+    /// The initial value in the table is the one the JSON gives, so step 3 can parse it there
+    /// rather than reaching back into the definitions.
+    #[test]
+    fn generated_initial_values_match_the_definitions() {
+        let (longhands, shorthands) = derived();
+        for (index, property) in longhands.iter().enumerate() {
+            let id = LonghandId::from_index(index).expect("every longhand slot is filled");
+            assert_eq!(id.initial_source(), property.initial.source(), "{}", property.name);
+        }
+        for (index, property) in shorthands.iter().enumerate() {
+            let id = ShorthandId::from_index(index).expect("every shorthand slot is filled");
+            assert_eq!(id.initial_source(), property.initial.source(), "{}", property.name);
+        }
+    }
+
+    /// Property names are ASCII case-insensitive (css-syntax-3 §3.3).
+    #[test]
+    fn a_name_is_found_whatever_its_case() {
+        let color = PropertyId::from_name("color").expect("color is a property");
+        assert_eq!(PropertyId::from_name("COLOR"), Some(color));
+        assert_eq!(PropertyId::from_name("Color"), Some(color));
+        assert_eq!(
+            PropertyId::from_name("BorDer-Top-Width").map(PropertyId::name),
+            Some("border-top-width")
+        );
+        assert_eq!(PropertyId::from_name("colour"), None);
+        assert_eq!(PropertyId::from_name("--brand"), None);
+        assert_eq!(PropertyId::from_name(""), None);
     }
 }

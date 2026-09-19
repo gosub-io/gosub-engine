@@ -99,6 +99,27 @@ See [headless.md](headless.md) for how the tool drives the engine and how to bui
 | `cargo run --bin html5-parser-test` | html5lib tree-builder test suite |
 | `cargo run --bin parser-test` | Parser development test runner |
 | `cargo run -p gosub_lattice --bin table_console` | Table layout engine console demos |
-| `cargo run -p generate_definitions` | Regenerate the gosub_css3 CSS definition JSON |
+| `cargo run -p generate_definitions` | Regenerate the gosub_css3 CSS definition JSON (`-- --property-ids` regenerates the property-id module offline) |
+| `cargo run -p gosub_render_pipeline --example style_dump -- <out-dir>` | Dump every element's computed style for a set of page fixtures, so a change to the style system can be diffed against itself |
 
 For more detail on the component tools see [`binaries.md`](binaries.md).
+
+### style_dump
+
+`style_dump` exists for changes to the style system. It writes down, for every element of a set
+of page fixtures, every declaration that reached each property with its cascade facts, and the
+cascaded, specified, computed, used, actual and inherited value the property settled on. Run it
+before a change and after; the two directories have to be identical unless the change was meant
+to alter what pages compute to.
+
+```bash
+cargo run -p gosub_render_pipeline --example style_dump -- /tmp/style/before
+# ... make the change ...
+cargo run -p gosub_render_pipeline --example style_dump -- /tmp/style/after
+diff -r /tmp/style/before /tmp/style/after
+```
+
+The fixtures are the ones the `style` benchmark measures plus the page fixtures in `tests/data`,
+and the pages themselves are shared with that benchmark, so the two describe one thing. Keys are
+property names and every list is sorted, so the output stays comparable across a change to how
+the engine keys itself internally.

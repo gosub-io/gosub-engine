@@ -16,7 +16,9 @@
 //! the per-element path.
 
 use crate::matcher::property_definitions::get_css_definitions;
+use crate::matcher::property_ids::PropertyId;
 use crate::matcher::shorthands::{FixList, FixListInfo};
+use crate::matcher::styling::no_location;
 use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
 use gosub_interface::css3::CssOrigin;
 
@@ -40,7 +42,7 @@ pub enum ExpandedDeclaration {
     /// shorthand expansion produced.
     Resolved {
         /// `(property, value)` in the order they enter the element's map.
-        entries: Vec<(String, CssValue)>,
+        entries: Vec<(PropertyId, CssValue)>,
         /// The declaration's `!important` flag, carried by every entry above.
         important: bool,
     },
@@ -62,7 +64,8 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     }
 
     let definitions = get_css_definitions();
-    let Some(definition) = definitions.find_property(&declaration.property) else {
+    let Some(definition) = PropertyId::from_name(&declaration.property).and_then(|id| definitions.definition(id))
+    else {
         // A property this engine has no definition for is a property it does not support, and a
         // declaration for one is invalid (css-syntax-3 §9). It is dropped rather than passed
         // through: an unvalidated value reaching the style consumer is how `dsiplay: block` used
@@ -94,7 +97,9 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // The declaration itself is kept under its own name as well as expanded: the render pipeline
     // reads shorthand keys (`background`, `padding`, `text-decoration`) directly.
     let mut entries = Vec::with_capacity(fix_list.entry_count() + 1);
-    entries.push((declaration.property.clone(), single_value(declaration.value.clone())));
+    if let Some(id) = PropertyId::from_name(&declaration.property) {
+        entries.push((id, single_value(declaration.value.clone())));
+    }
     entries.extend(fix_list.into_entries());
 
     ExpandedDeclaration::Resolved {
@@ -132,7 +137,7 @@ fn placeholder_info() -> FixListInfo {
     FixListInfo::new(
         CssOrigin::Author,
         false,
-        String::new(),
+        no_location(),
         Specificity::new(0, 0, 0),
         0,
         0,
@@ -168,7 +173,7 @@ mod tests {
         }
     }
 
-    fn entries(declaration: &CssDeclaration) -> Vec<(String, CssValue)> {
+    fn entries(declaration: &CssDeclaration) -> Vec<(PropertyId, CssValue)> {
         match expand_declaration(declaration) {
             ExpandedDeclaration::Resolved { entries, .. } => entries,
             other => panic!("expected a resolved declaration, got {other:?}"),
@@ -223,7 +228,10 @@ mod tests {
         let declaration = declaration("color", CssValue::String("red".to_string()));
         assert_eq!(
             entries(&declaration),
-            vec![("color".to_string(), CssValue::String("red".to_string()))]
+            vec![(
+                PropertyId::from_name("color").expect("color is a property"),
+                CssValue::String("red".to_string())
+            )]
         );
     }
 
@@ -237,7 +245,7 @@ mod tests {
             ]),
         );
         let entries = entries(&declaration);
-        let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
+        let names: Vec<&str> = entries.iter().map(|(id, _)| id.name()).collect();
         assert_eq!(names[0], "margin");
         for side in ["margin-top", "margin-right", "margin-bottom", "margin-left"] {
             assert!(names.contains(&side), "{side} missing from {names:?}");
@@ -245,7 +253,7 @@ mod tests {
         let value = |name: &str| {
             entries
                 .iter()
-                .find(|(entry, _)| entry == name)
+                .find(|(entry, _)| entry.name() == name)
                 .map(|(_, value)| value.clone())
         };
         assert_eq!(value("margin-top"), Some(CssValue::Unit(1.0, "px".to_string())));

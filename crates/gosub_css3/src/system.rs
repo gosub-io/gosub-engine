@@ -3,6 +3,7 @@ use crate::functions::var::resolve_var;
 use crate::matcher::expansion::{single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
+use crate::matcher::property_ids::{LonghandId, PropertyId};
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{
     cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
@@ -410,10 +411,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 ExpandedDeclaration::Resolved { entries, important } => {
                     // The declaration and every longhand it expands to, already worked out.
                     // All that is left is the element's own cascade facts.
-                    for (name, value) in entries {
+                    for (id, value) in entries {
                         push_declaration(
                             &mut css_map_entry,
-                            name,
+                            *id,
                             value,
                             sheet,
                             *important,
@@ -437,8 +438,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             // grammar could not be matched against the tokens the parser produced - the empty
             // string of `::before { content: "" }` most of all. It can now, so it goes through
             // the same path as everything else and a `content: 10px` is dropped.
-            match definitions.find_property(&declaration.property) {
-                Some(definition) => {
+            match PropertyId::from_name(&declaration.property).and_then(|id| Some((id, definitions.definition(id)?))) {
+                Some((id, definition)) => {
                     let match_value = if let CssValue::List(value) = &value {
                         &**value
                     } else {
@@ -451,7 +452,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     fix_list.set_info(FixListInfo::new(
                         sheet.origin,
                         declaration.important,
-                        sheet.url.clone(),
+                        Arc::clone(&sheet.url),
                         specificity,
                         depth,
                         order,
@@ -474,7 +475,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
                     push_declaration(
                         &mut css_map_entry,
-                        &declaration.property,
+                        id,
                         &single_value(value),
                         sheet,
                         declaration.important,
@@ -531,7 +532,7 @@ fn inherit_from_parent(map: &mut CssProperties, inherited: Option<&CssProperties
     let Some(parent) = inherited else {
         return;
     };
-    for (name, parent_property) in &parent.properties {
+    for (id, parent_property) in parent.iter_ids() {
         // The parent's computed value is the inherited value. A parent map that was never
         // computed has nothing to give, and the property falls back to its initial value.
         if matches!(parent_property.computed, CssValue::None) {
@@ -541,14 +542,10 @@ fn inherit_from_parent(map: &mut CssProperties, inherited: Option<&CssProperties
         // so the value keeps travelling down. One that does not inherit gets the value recorded
         // only where the element already has an entry: nothing is inherited by default, but
         // `inherit` names the parent's value for *any* property, `width` included.
-        let property = if prop_is_inherit(name) {
-            Some(
-                map.properties
-                    .entry(name.clone())
-                    .or_insert_with(|| CssProperty::new(name)),
-            )
+        let property = if id.inherited() {
+            Some(map.entry(id))
         } else {
-            map.properties.get_mut(name)
+            map.get_id_mut(id)
         };
         let Some(property) = property else {
             continue;
@@ -571,7 +568,7 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
     // cannot refer to without circularity, so there it means the initial size.
     let parent_root_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.root_font_size_px);
 
-    let own_px = match map.properties.get_mut("font-size") {
+    let own_px = match map.get_id_mut(FONT_SIZE) {
         Some(font_size) => {
             font_size.font_size_basis = parent_px;
             font_size.root_font_size_basis = parent_root_px;
@@ -597,8 +594,8 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
     let root_px = if inherited.is_some() { parent_root_px } else { own_px };
     map.root_font_size_px = root_px;
 
-    for (name, property) in &mut map.properties {
-        if name != "font-size" {
+    for (id, property) in map.iter_ids_mut() {
+        if id != FONT_SIZE {
             property.font_size_basis = own_px;
             property.root_font_size_basis = root_px;
             // The basis changed after the property was built, so any value computed before now
@@ -663,11 +660,13 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     fp
 }
 
+/// `font-size` is the one property every other property's `em` resolves against.
+const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+
+/// Whether the property `name` denotes inherits by default.
 #[must_use]
 pub fn prop_is_inherit(name: &str) -> bool {
-    get_css_definitions()
-        .find_property(name)
-        .is_some_and(|def| def.inherited)
+    PropertyId::from_name(name).is_some_and(PropertyId::inherited)
 }
 
 #[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
@@ -681,9 +680,12 @@ pub fn add_property_to_map(
     layer: Option<u32>,
     attached: bool,
 ) {
+    let Some(id) = PropertyId::from_name(&declaration.property) else {
+        return;
+    };
     push_declaration(
         css_map_entry,
-        &declaration.property,
+        id,
         &declaration.value,
         sheet,
         declaration.important,
@@ -702,7 +704,7 @@ pub fn add_property_to_map(
 #[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
 fn push_declaration(
     css_map_entry: &mut CssProperties,
-    name: &str,
+    id: PropertyId,
     value: &CssValue,
     sheet: &crate::stylesheet::CssStylesheet,
     important: bool,
@@ -717,7 +719,7 @@ fn push_declaration(
         value: value.clone(),
         origin: sheet.origin,
         important,
-        location: sheet.url.clone(),
+        location: Arc::clone(&sheet.url),
         specificity,
         shadow_depth,
         order,
@@ -725,16 +727,7 @@ fn push_declaration(
         attached,
     };
 
-    // Looked up before it is inserted, rather than through `entry`, because `entry` needs the
-    // key owned whether or not it is used - and on an expanded shorthand most of these names are
-    // already in the map.
-    if let Some(property) = css_map_entry.properties.get_mut(name) {
-        property.declared.push(declaration);
-        return;
-    }
-    let mut property = CssProperty::new(name);
-    property.declared.push(declaration);
-    css_map_entry.properties.insert(name.to_string(), property);
+    css_map_entry.entry(id).declared.push(declaration);
 }
 
 /// The tree scope `id` lives in: the shadow root at the top of its ancestor chain, or `None`

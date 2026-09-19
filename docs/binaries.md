@@ -15,7 +15,7 @@ one-line banner (name, version, purpose) on stderr when it starts.
 | 8 | `gosub-mini-browser` | `cargo run --release -p gosub-mini-browser` | The full-featured reference embedder (GTK4 + Cairo): keyboard editing in form fields, clipboard, cursor shapes, kinetic scrolling, dark colour scheme, persistent cookies/localStorage. The GUI examples stay minimal; interactive engine features are exercised here. |
 | 9 | `gosub-screenshot` | `cargo run -p gosub-screenshot` | Headless full-page screenshot: load a URL through the complete engine + render pipeline and write a PNG. CPU rasterization only — no GPU, no window. See [headless.md](headless.md). |
 | 10 | `table_console` | `cargo run -p gosub_lattice --bin table_console` | Console demos of the lattice table layout engine (colspan/rowspan/section clamping) rendered as ASCII tables; mirrors the integration tests in `gosub_lattice/src/tests.rs`. |
-| 11 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. |
+| 11 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. `--property-ids` regenerates the property-id module from the checked-in JSON instead, offline. |
 | 12 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_domjs`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
 | 13–22 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
 | 23 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
@@ -173,6 +173,15 @@ Regenerates the CSS definition JSON files embedded in `gosub_css3` (`resources/d
 
 ```bash
 $ cargo run -p generate_definitions
+```
+
+It has a second, offline mode that writes the property-id module the cascade is keyed by
+(`crates/gosub_css3/src/matcher/property_ids.rs`) from the definition JSON that is already
+checked in. It downloads nothing, and it is what brings the ids back in step after the JSON
+changes - `property_ids_match_the_definitions` in `gosub_css3` fails until it has been run.
+
+```bash
+$ cargo run -p generate_definitions -- --property-ids
 ```
 
 ## Fuzz targets

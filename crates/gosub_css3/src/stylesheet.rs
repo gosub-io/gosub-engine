@@ -201,8 +201,12 @@ pub struct CssStylesheet {
     /// light-DOM nodes projected into its slots - both of which live in the tree *outside*.
     /// User-agent sheets ignore scope entirely and apply everywhere.
     pub scope: Option<NodeId>,
-    /// Url or file path where the stylesheet was found
-    pub url: String,
+    /// Url or file path where the stylesheet was found.
+    ///
+    /// Shared rather than owned outright: every declaration the cascade records keeps the URL it
+    /// came from, and on a page of a few thousand elements that was a few hundred thousand
+    /// copies of the same string.
+    pub url: std::sync::Arc<str>,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
     /// Cascade layers this sheet declares, by full dotted name, in the order they were first
@@ -241,7 +245,7 @@ impl CssStylesheet {
             uses_viewport_units: false,
             origin,
             scope: None,
-            url: url.to_string(),
+            url: url.into(),
             parse_log: Vec::new(),
             layers: Vec::new(),
             index: parking_lot::RwLock::new(None),
@@ -257,7 +261,7 @@ impl CssStylesheet {
             uses_viewport_units: false,
             origin,
             scope: None,
-            url: url.to_string(),
+            url: url.into(),
             parse_log: vec![],
             layers: vec![],
             index: parking_lot::RwLock::new(None),

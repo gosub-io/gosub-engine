@@ -1,10 +1,11 @@
 use crate::stylesheet::{CssValue, Specificity};
 use crate::tokenizer::NumberKind;
 use gosub_interface::css3::CssOrigin;
-use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 use crate::matcher::property_definitions::{get_css_definitions, CssDefinitions, PropertyDefinition};
-use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
+use crate::matcher::property_ids::PropertyId;
+use crate::matcher::styling::{no_location, CssProperties, DeclarationProperty};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
@@ -110,19 +111,19 @@ pub struct Shorthands {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FixList {
-    list: Vec<(String, Vec<DeclarationProperty>)>,
+    list: Vec<(PropertyId, Vec<DeclarationProperty>)>,
     multipliers: Vec<(String, usize)>,
     /// The longhands the declaration currently being expanded has set, so
     /// [`FixList::reset_unmentioned`] can tell which of a shorthand's longhands it left out.
     /// Cleared by [`FixList::set_info`], which every expansion calls first.
-    touched: Vec<String>,
+    touched: Vec<PropertyId>,
     /// Set while a layered shorthand is being expanded: values go to `layer_values` instead
     /// of `list`, and [`FixList::reset_unmentioned`] assembles the comma lists at the end.
     layered: bool,
     /// The layer the values now being recorded belong to, counted from 0.
     layer: usize,
     /// `(layer, longhand, value)` recorded so far for a layered shorthand.
-    layer_values: Vec<(usize, String, CssValue)>,
+    layer_values: Vec<(usize, PropertyId, CssValue)>,
 
     current_info: Option<FixListInfo>,
 }
@@ -131,7 +132,7 @@ pub struct FixList {
 pub struct FixListInfo {
     origin: CssOrigin,
     important: bool,
-    location: String,
+    location: Arc<str>,
     specificity: Specificity,
     /// Shadow depth of the declaring sheet, carried through shorthand expansion so the
     /// longhands it produces keep the cross-tree half of the cascade.
@@ -152,7 +153,7 @@ impl FixListInfo {
     pub fn new(
         origin: CssOrigin,
         important: bool,
-        location: String,
+        location: Arc<str>,
         specificity: Specificity,
         shadow_depth: u16,
         order: u32,
@@ -427,10 +428,10 @@ impl FixList {
     }
 
     /// The value layer `layer` recorded for `name`, if any.
-    fn layer_value(&self, layer: usize, name: &str) -> Option<&CssValue> {
+    fn layer_value(&self, layer: usize, id: PropertyId) -> Option<&CssValue> {
         self.layer_values
             .iter()
-            .find(|(l, n, _)| *l == layer && n == name)
+            .find(|(l, n, _)| *l == layer && *n == id)
             .map(|(_, _, v)| v)
     }
 
@@ -445,16 +446,19 @@ impl FixList {
         // One box in a background layer sets both origin and clip (css-backgrounds-3 §2.10.1);
         // the grammar hands it to origin.
         for (origin, clip) in [("background-origin", "background-clip"), ("mask-origin", "mask-clip")] {
+            let (Some(origin), Some(clip)) = (PropertyId::from_name(origin), PropertyId::from_name(clip)) else {
+                continue;
+            };
             for layer in 0..layers {
                 if let (Some(value), None) = (self.layer_value(layer, origin).cloned(), self.layer_value(layer, clip)) {
-                    self.layer_values.push((layer, clip.to_string(), value));
+                    self.layer_values.push((layer, clip, value));
                 }
             }
         }
 
-        let mut assembled: Vec<(String, CssValue)> = Vec::new();
+        let mut assembled: Vec<(PropertyId, CssValue)> = Vec::new();
         for name in shorthand.expanded_properties() {
-            let Some(def) = definitions.find_property(&name) else {
+            let (Some(id), Some(def)) = (PropertyId::from_name(&name), definitions.find_property(&name)) else {
                 continue;
             };
             let is_list = def.syntax().components.first().is_some_and(takes_comma_list);
@@ -462,7 +466,7 @@ impl FixList {
                 let mut items = Vec::with_capacity(layers * 2);
                 for layer in 0..layers {
                     let item = self
-                        .layer_value(layer, &name)
+                        .layer_value(layer, id)
                         .cloned()
                         .or_else(|| def.initial_value.clone());
                     let Some(item) = item else {
@@ -483,20 +487,18 @@ impl FixList {
                 }
                 CssValue::from_vec(items)
             } else {
-                let last = (0..layers)
-                    .rev()
-                    .find_map(|layer| self.layer_value(layer, &name).cloned());
+                let last = (0..layers).rev().find_map(|layer| self.layer_value(layer, id).cloned());
                 match last.or_else(|| def.initial_value.clone()) {
                     Some(value) => value,
                     None => continue,
                 }
             };
-            assembled.push((name, value));
+            assembled.push((id, value));
         }
 
         self.layered = false;
-        for (name, value) in assembled {
-            self.insert(name, value);
+        for (id, value) in assembled {
+            self.insert_id(id, value);
         }
     }
 
@@ -545,30 +547,30 @@ impl FixList {
         // to the image, so the type has to be filled in here before the general reset would give
         // it `disc` - and `ul { list-style: none }` is how every page hides its bullets.
         if shorthand.name() == "list-style"
-            && !self.touched.iter().any(|t| t == "list-style-type")
-            && self.list.iter().any(|(name, decls)| {
-                name == "list-style-image"
+            && !self.touched.iter().any(|touched| touched.name() == "list-style-type")
+            && self.list.iter().any(|(id, decls)| {
+                id.name() == "list-style-image"
                     && decls.last().is_some_and(|d| {
                         matches!(&d.value, CssValue::None)
                             || matches!(&d.value, CssValue::String(s) if s.eq_ignore_ascii_case("none"))
                     })
             })
         {
-            self.insert("list-style-type".to_string(), CssValue::String("none".to_string()));
+            self.insert("list-style-type", CssValue::String("none".to_string()));
         }
         for name in shorthand.expanded_properties() {
-            if self.touched.contains(&name) {
-                continue;
-            }
-            let Some(def) = definitions.find_property(&name) else {
+            let (Some(id), Some(def)) = (PropertyId::from_name(&name), definitions.find_property(&name)) else {
                 continue;
             };
+            if self.touched.contains(&id) {
+                continue;
+            }
             if def.is_shorthand() {
                 self.reset_unmentioned(def, &[], definitions);
                 continue;
             }
             match &def.initial_value {
-                Some(initial) => self.insert(name, initial.clone()),
+                Some(initial) => self.insert_id(id, initial.clone()),
                 None => log::debug!("{}: no initial value to reset {name} to", shorthand.name()),
             }
         }
@@ -589,7 +591,7 @@ impl FixList {
                 origin: info.origin,
                 important: info.important,
                 specificity: info.specificity,
-                location: info.location.clone(),
+                location: Arc::clone(&info.location),
                 shadow_depth: info.shadow_depth,
                 order: info.order,
                 layer: info.layer,
@@ -601,7 +603,7 @@ impl FixList {
                 origin: CssOrigin::Author,
                 important: false,
                 specificity: Specificity::new(0, 0, 0),
-                location: String::new(),
+                location: no_location(),
                 // A declaration with no info is a synthesized default, not something an
                 // author wrote, and it carries no tree of its own. Depth 0 would read as
                 // "from the document" - the *winning* end of the cross-tree comparison for
@@ -644,29 +646,43 @@ impl FixList {
             ]
         };
         for (name, value) in defaults {
-            if is_none || !self.touched.iter().any(|t| t == name) {
-                self.insert(name.to_string(), value);
+            let Some(id) = PropertyId::from_name(name) else {
+                continue;
+            };
+            if is_none || !self.touched.contains(&id) {
+                self.insert_id(id, value);
             }
         }
     }
 
-    pub fn insert(&mut self, name: String, value: CssValue) {
-        if !self.touched.contains(&name) {
-            self.touched.push(name.clone());
+    /// Record a longhand by name. The name comes from the grammar, which is written in names;
+    /// a name this engine has no property for records nothing, which is what a declaration for
+    /// an unknown property does anyway.
+    pub fn insert(&mut self, name: &str, value: CssValue) {
+        match PropertyId::from_name(name) {
+            Some(id) => self.insert_id(id, value),
+            None => log::debug!("shorthand expansion names an unknown property, dropped: {name}"),
+        }
+    }
+
+    /// Record a longhand.
+    pub fn insert_id(&mut self, id: PropertyId, value: CssValue) {
+        if !self.touched.contains(&id) {
+            self.touched.push(id);
         }
         if self.layered {
             let layer = self.layer;
-            if let Some(slot) = self.layer_values.iter_mut().find(|(l, n, _)| *l == layer && *n == name) {
+            if let Some(slot) = self.layer_values.iter_mut().find(|(l, n, _)| *l == layer && *n == id) {
                 slot.2 = value;
             } else {
-                self.layer_values.push((layer, name, value));
+                self.layer_values.push((layer, id, value));
             }
             return;
         }
         let value = self.get_declaration(value);
 
         for (k, v) in &mut self.list {
-            if *k == name {
+            if *k == id {
                 // Keep the cascade-winning declaration for this longhand. A higher- or
                 // equal-priority declaration replaces the existing one: "equal" covers the
                 // within-declaration TRBL re-assignment (last write wins), while a higher origin
@@ -680,7 +696,7 @@ impl FixList {
             }
         }
 
-        self.list.push((name, vec![value]));
+        self.list.push((id, vec![value]));
     }
 
     pub fn resolve_nested(&mut self, definitions: &CssDefinitions) {
@@ -688,8 +704,8 @@ impl FixList {
 
         let mut had_shorthands = false;
 
-        for (name, decl) in &self.list {
-            let Some(prop) = definitions.find_property(name) else {
+        for (id, decl) in &self.list {
+            let Some(prop) = definitions.definition(*id) else {
                 continue;
             };
 
@@ -709,7 +725,7 @@ impl FixList {
             fix_list.set_info(FixListInfo::new(
                 decl.origin,
                 decl.important,
-                decl.location.clone(),
+                Arc::clone(&decl.location),
                 decl.specificity,
                 decl.shadow_depth,
                 decl.order,
@@ -745,38 +761,24 @@ impl FixList {
     /// This is for expanding a declaration on its own, away from any element: the cascade facts
     /// the entries carry are the caller's to supply, so only the values come back.
     #[must_use]
-    pub fn into_entries(self) -> Vec<(String, CssValue)> {
+    pub fn into_entries(self) -> Vec<(PropertyId, CssValue)> {
         self.list
             .into_iter()
-            .filter_map(|(name, declarations)| {
+            .filter_map(|(id, declarations)| {
                 declarations
                     .into_iter()
                     .max()
-                    .map(|declaration| (name, declaration.value))
+                    .map(|declaration| (id, declaration.value))
             })
             .collect()
     }
 
     pub fn apply(&mut self, props: &mut CssProperties) {
-        for (name, value) in &self.list {
+        for (id, value) in &self.list {
             let Some(decl) = value.iter().max().cloned() else {
                 continue;
             };
-
-            match props.properties.entry(name.clone()) {
-                Entry::Occupied(mut entry) => {
-                    let prop = entry.get_mut();
-
-                    prop.declared.push(decl);
-                }
-                Entry::Vacant(entry) => {
-                    let mut prop = CssProperty::new(name);
-
-                    prop.declared.push(decl);
-
-                    entry.insert(prop);
-                }
-            }
+            props.entry(*id).declared.push(decl);
         }
     }
 }
@@ -800,7 +802,7 @@ impl CompleteStep<'_> {
         let val = CssValue::from_vec(value);
 
         for name in self.name.clone() {
-            self.list.insert(name.to_string(), val.clone());
+            self.list.insert(name, val.clone());
         }
     }
 }
@@ -963,7 +965,7 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
     fix_list.set_info(FixListInfo::new(
         CssOrigin::Author,
         false,
-        String::new(),
+        no_location(),
         Specificity::new(0, 0, 0),
         0,
         0,
@@ -975,10 +977,10 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
     }
     fix_list.reset_unmentioned(def, input, definitions);
     fix_list.resolve_nested(definitions);
-    let recorded: std::collections::HashMap<&str, &CssValue> = fix_list
+    let recorded: std::collections::HashMap<PropertyId, &CssValue> = fix_list
         .list
         .iter()
-        .filter_map(|(name, declared)| declared.last().map(|d| (name.as_str(), &d.value)))
+        .filter_map(|(id, declared)| declared.last().map(|d| (*id, &d.value)))
         .collect();
     // Nothing recorded means this shorthand has neither a shape map nor positional rules, so
     // the CSSOM keeps the declaration as written rather than reporting that it sets no
@@ -990,9 +992,8 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
         longhands_of(property)
             .into_iter()
             .filter_map(|longhand| {
-                recorded
-                    .get(longhand.as_str())
-                    .map(|v| (longhand.clone(), (*v).clone()))
+                let id = PropertyId::from_name(&longhand)?;
+                recorded.get(&id).map(|v| (longhand.clone(), (*v).clone()))
             })
             .collect(),
     )
@@ -1036,7 +1037,7 @@ pub(crate) fn expand_by_hand(name: &str, input: &[CssValue], fix_list: &mut FixL
         "grid-template" => {
             if let Some(longhands) = grid_template(input) {
                 for (name, value) in longhands {
-                    fix_list.insert(name, value);
+                    fix_list.insert(&name, value);
                 }
             }
         }
@@ -1161,8 +1162,8 @@ fn background_position(input: &[CssValue], fix_list: &mut FixList) {
     if horizontal.is_empty() {
         return;
     }
-    fix_list.insert("background-position-x".to_string(), CssValue::from_vec(horizontal));
-    fix_list.insert("background-position-y".to_string(), CssValue::from_vec(vertical));
+    fix_list.insert("background-position-x", CssValue::from_vec(horizontal));
+    fix_list.insert("background-position-y", CssValue::from_vec(vertical));
 }
 
 /// `grid-template`: `none | <'grid-template-rows'> / <'grid-template-columns'> | [ <line-names>?
@@ -1308,11 +1309,11 @@ fn grid(input: &[CssValue], fix_list: &mut FixList) {
             return;
         };
         for (name, value) in longhands {
-            fix_list.insert(name, value);
+            fix_list.insert(&name, value);
         }
-        fix_list.insert("grid-auto-rows".to_string(), keyword("auto"));
-        fix_list.insert("grid-auto-columns".to_string(), keyword("auto"));
-        fix_list.insert("grid-auto-flow".to_string(), keyword("row"));
+        fix_list.insert("grid-auto-rows", keyword("auto"));
+        fix_list.insert("grid-auto-columns", keyword("auto"));
+        fix_list.insert("grid-auto-flow", keyword("row"));
         return;
     };
 
@@ -1359,18 +1360,18 @@ fn grid(input: &[CssValue], fix_list: &mut FixList) {
         keyword(flow)
     };
 
-    fix_list.insert("grid-auto-flow".to_string(), flow);
-    fix_list.insert(auto_name.to_string(), auto_tracks);
-    fix_list.insert(template_name.to_string(), part_value(track_side));
-    fix_list.insert(empty_template.to_string(), keyword("none"));
-    fix_list.insert("grid-template-areas".to_string(), keyword("none"));
+    fix_list.insert("grid-auto-flow", flow);
+    fix_list.insert(auto_name, auto_tracks);
+    fix_list.insert(template_name, part_value(track_side));
+    fix_list.insert(empty_template, keyword("none"));
+    fix_list.insert("grid-template-areas", keyword("none"));
     // The other automatic track size is the one this form does not name.
     let other_auto = if side == 0 {
         "grid-auto-columns"
     } else {
         "grid-auto-rows"
     };
-    fix_list.insert(other_auto.to_string(), keyword("auto"));
+    fix_list.insert(other_auto, keyword("auto"));
 }
 
 /// Whether a `<grid-line>` is a lone `<custom-ident>`, which is what decides an omitted end
@@ -1418,12 +1419,12 @@ fn grid_line_pair(input: &[CssValue], start_name: &str, end_name: &str, fix_list
     let Some(start) = parts.first().filter(|part| !part.is_empty()) else {
         return;
     };
-    fix_list.insert(start_name.to_string(), part_value(start));
+    fix_list.insert(start_name, part_value(start));
     let end = match parts.get(1).filter(|part| !part.is_empty()) {
         Some(end) => part_value(end),
         None => omitted_line(start),
     };
-    fix_list.insert(end_name.to_string(), end);
+    fix_list.insert(end_name, end);
 }
 
 /// `grid-area`: `<grid-line> [ / <grid-line> ]{0,3}` (css-grid-2 §8.4). The values are
@@ -1450,10 +1451,10 @@ fn grid_area(input: &[CssValue], fix_list: &mut FixList) {
         |part| part_value(part),
     );
 
-    fix_list.insert("grid-row-start".to_string(), part_value(row_start));
-    fix_list.insert("grid-column-start".to_string(), column_start_value);
-    fix_list.insert("grid-row-end".to_string(), row_end_value);
-    fix_list.insert("grid-column-end".to_string(), column_end_value);
+    fix_list.insert("grid-row-start", part_value(row_start));
+    fix_list.insert("grid-column-start", column_start_value);
+    fix_list.insert("grid-row-end", row_end_value);
+    fix_list.insert("grid-column-end", column_end_value);
 }
 
 /// Longhands that share a grammar piece, in the order the spec hands the pieces to them: the
@@ -1947,8 +1948,10 @@ impl CssDefinitions {
 mod tests {
     use crate::colors::RgbColor;
     use crate::matcher::property_definitions::get_css_definitions;
+    use crate::matcher::property_ids::PropertyId;
     use crate::matcher::shorthands::CssValue;
     use crate::matcher::shorthands::FixList;
+    use crate::matcher::styling::no_location;
     use crate::tokenizer::NumberKind;
 
     macro_rules! str {
@@ -1994,8 +1997,13 @@ mod tests {
         fix_list
             .list
             .iter()
-            .map(|(name, decls)| (name.clone(), decls.last().unwrap().value.clone()))
+            .map(|(id, decls)| (id.name().to_string(), decls.last().unwrap().value.clone()))
             .collect()
+    }
+
+    /// The id of a property the tests name, which they do name by name.
+    fn id(name: &str) -> PropertyId {
+        PropertyId::from_name(name).expect("a property the tests name")
     }
 
     fn value_of<'a>(expanded: &'a [(String, CssValue)], name: &str) -> Option<&'a CssValue> {
@@ -2025,7 +2033,7 @@ mod tests {
         fix_list.set_info(super::FixListInfo::new(
             CssOrigin::Author,
             false,
-            String::new(),
+            no_location(),
             Specificity::new(0, 0, 0),
             0,
             1,
@@ -2041,7 +2049,7 @@ mod tests {
         fix_list
             .list
             .iter()
-            .map(|(name, decls)| (name.clone(), decls.last().expect("a value").value.clone()))
+            .map(|(id, decls)| (id.name().to_string(), decls.last().expect("a value").value.clone()))
             .collect()
     }
 
@@ -2696,7 +2704,7 @@ mod tests {
 
         let mut fix_list = FixList::new();
         assert!(!prop.matches_and_shorthands(values, &mut fix_list));
-        let recorded: Vec<&str> = fix_list.list.iter().map(|(name, _)| name.as_str()).collect();
+        let recorded: Vec<&str> = fix_list.list.iter().map(|(id, _)| id.name()).collect();
         assert!(
             recorded.is_empty(),
             "a rejected declaration left {recorded:?} in the fix list"
@@ -2777,7 +2785,11 @@ mod tests {
         ));
 
         let get = |name: &str| -> String {
-            let (_, v) = fix_list.list.iter().find(|(k, _)| k == name).expect("longhand present");
+            let (_, v) = fix_list
+                .list
+                .iter()
+                .find(|(k, _)| k.name() == name)
+                .expect("longhand present");
             format!("{}", v.last().unwrap().value)
         };
         assert_eq!(get("border-top-color"), "green");
@@ -2802,17 +2814,17 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(1.0, "px").into()]),
-                    ("margin-left".to_string(), vec![unit!(1.0, "px").into()]),
-                    ("margin-right".to_string(), vec![unit!(1.0, "px").into()]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
+                    (id("margin-bottom"), vec![unit!(1.0, "px").into()]),
+                    (id("margin-left"), vec![unit!(1.0, "px").into()]),
+                    (id("margin-right"), vec![unit!(1.0, "px").into()]),
+                    (id("margin-top"), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 1),],
                 touched: vec![
-                    "margin-bottom".to_string(),
-                    "margin-left".to_string(),
-                    "margin-right".to_string(),
-                    "margin-top".to_string(),
+                    id("margin-bottom"),
+                    id("margin-left"),
+                    id("margin-right"),
+                    id("margin-top"),
                 ],
                 layered: false,
                 layer: 0,
@@ -2831,17 +2843,17 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(1.0, "px").into()]),
-                    ("margin-left".to_string(), vec![unit!(2.0, "px").into()]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
+                    (id("margin-bottom"), vec![unit!(1.0, "px").into()]),
+                    (id("margin-left"), vec![unit!(2.0, "px").into()]),
+                    (id("margin-right"), vec![unit!(2.0, "px").into()]),
+                    (id("margin-top"), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 2),],
                 touched: vec![
-                    "margin-bottom".to_string(),
-                    "margin-left".to_string(),
-                    "margin-right".to_string(),
-                    "margin-top".to_string(),
+                    id("margin-bottom"),
+                    id("margin-left"),
+                    id("margin-right"),
+                    id("margin-top"),
                 ],
                 layered: false,
                 layer: 0,
@@ -2859,17 +2871,17 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(3.0, "px").into()]),
-                    ("margin-left".to_string(), vec![unit!(2.0, "px").into()]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
+                    (id("margin-bottom"), vec![unit!(3.0, "px").into()]),
+                    (id("margin-left"), vec![unit!(2.0, "px").into()]),
+                    (id("margin-right"), vec![unit!(2.0, "px").into()]),
+                    (id("margin-top"), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 3),],
                 touched: vec![
-                    "margin-bottom".to_string(),
-                    "margin-left".to_string(),
-                    "margin-right".to_string(),
-                    "margin-top".to_string(),
+                    id("margin-bottom"),
+                    id("margin-left"),
+                    id("margin-right"),
+                    id("margin-top"),
                 ],
                 layered: false,
                 layer: 0,
@@ -2888,17 +2900,17 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(3.0, "px").into()]),
-                    ("margin-left".to_string(), vec![unit!(4.0, "px").into()]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
+                    (id("margin-bottom"), vec![unit!(3.0, "px").into()]),
+                    (id("margin-left"), vec![unit!(4.0, "px").into()]),
+                    (id("margin-right"), vec![unit!(2.0, "px").into()]),
+                    (id("margin-top"), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 4),],
                 touched: vec![
-                    "margin-bottom".to_string(),
-                    "margin-left".to_string(),
-                    "margin-right".to_string(),
-                    "margin-top".to_string(),
+                    id("margin-bottom"),
+                    id("margin-left"),
+                    id("margin-right"),
+                    id("margin-top"),
                 ],
                 layered: false,
                 layer: 0,
@@ -2956,7 +2968,11 @@ mod tests {
             let mut fl = FixList::new();
             assert!(prop.clone().matches_and_shorthands(vals, &mut fl), "should match");
             let get = |name: &str| -> f64 {
-                let (_, v) = fl.list.iter().find(|(k, _)| k == name).expect("longhand present");
+                let (_, v) = fl
+                    .list
+                    .iter()
+                    .find(|(k, _)| k.name() == name)
+                    .expect("longhand present");
                 match &v.last().unwrap().value {
                     CssValue::Unit(n, _) => *n,
                     other => panic!("unexpected value {other:?}"),

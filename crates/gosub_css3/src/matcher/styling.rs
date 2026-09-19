@@ -15,6 +15,7 @@ use gosub_shared::node::NodeId;
 use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
+use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
 use crate::system::Css3System;
 use crate::tokenizer::NumberKind;
@@ -569,8 +570,12 @@ pub struct DeclarationProperty {
     /// Whether the declaration is !important
     pub important: bool,
     // @TODO: location should be a Location
-    /// The location of the declaration in the stylesheet (name.css:123) or empty
-    pub location: String,
+    /// The location of the declaration in the stylesheet (name.css:123) or empty.
+    ///
+    /// Shared with the stylesheet rather than copied: every declaration of every element used to
+    /// clone the sheet's URL, which on a page of a few thousand elements is a few hundred
+    /// thousand string allocations that nothing ever reads apart from a debugger.
+    pub location: Arc<str>,
     /// The specificity of the selector that declared this property
     pub specificity: Specificity,
     /// How many shadow boundaries deep the declaring stylesheet sits: 0 for the document,
@@ -717,8 +722,10 @@ pub fn css_wide_keyword(value: &CssValue) -> Option<CssWide> {
 /// all the computed values.
 #[derive(Debug, Clone)]
 pub struct CssProperty {
-    /// The name of the property
-    pub name: String,
+    /// Which property this is. `None` only for a property built straight from a value, which
+    /// names nothing and so has no definition to consult - the same answer the name `unknown`
+    /// used to get.
+    pub id: Option<PropertyId>,
     /// True when this property needs to be recalculated
     pub dirty: bool,
     /// List of all declared values for this property
@@ -802,11 +809,33 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
     }
 }
 
+/// `font-size` is the one property whose `em` resolves against its parent rather than itself,
+/// and the one whose percentage resolves before layout.
+const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+/// `color` is the one property on which `currentcolor` means the inherited colour.
+const COLOR: PropertyId = PropertyId::Longhand(LonghandId::Color);
+
 impl CssProperty {
     #[must_use]
-    pub fn new(prop_name: &str) -> Self {
+    pub fn new(id: PropertyId) -> Self {
+        Self::with_id(Some(id))
+    }
+
+    /// The property `name` denotes, or `None` when this engine has no definition for it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        PropertyId::from_name(name).map(Self::new)
+    }
+
+    /// The CSS name of this property, empty for one built straight from a value.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        self.id.map_or("", PropertyId::name)
+    }
+
+    fn with_id(id: Option<PropertyId>) -> Self {
         Self {
-            name: prop_name.to_string(),
+            id,
             dirty: true,
             declared: Vec::new(),
             cascaded: None,
@@ -902,9 +931,7 @@ impl CssProperty {
 
     /// Whether this property inherits by default, which is what `unset` turns on.
     fn property_inherits(&self) -> bool {
-        get_css_definitions()
-            .find_property(&self.name)
-            .is_some_and(|definition| definition.inherited())
+        self.id.is_some_and(PropertyId::inherited)
     }
 
     fn find_computed_value(&self) -> CssValue {
@@ -936,7 +963,7 @@ impl CssProperty {
         // it is a fraction of the *parent's* font-size, which is exactly what `font_size_basis`
         // holds for this property, where every other percentage needs a containing block and has
         // to wait for layout.
-        if self.name == "font-size" {
+        if self.id == Some(FONT_SIZE) {
             if let CssValue::Percentage(pct) = specified {
                 return CssValue::Unit(f64::from(self.font_size_basis) * pct / 100.0, "px".to_string());
             }
@@ -946,7 +973,7 @@ impl CssProperty {
         // the sizes to the UA; these are what every browser uses). Only the `*-width` properties
         // take these keywords, and for them a keyword that reached the consumer as a string
         // measured as zero, so `border: solid red` drew no border at all.
-        if self.name.ends_with("-width") {
+        if self.name().ends_with("-width") {
             if let CssValue::String(keyword) = &specified {
                 let px = [("thin", 1.0), ("medium", 3.0), ("thick", 5.0)]
                     .into_iter()
@@ -1002,12 +1029,12 @@ impl CssProperty {
     /// mentions it resolves against this element's computed `color`, which this cannot see, so
     /// there the keyword travels on untouched.
     fn color_keyword(&self, keyword: &str) -> Option<CssColor> {
-        let definition = get_css_definitions().find_property(&self.name)?;
-        if !definition.takes_color() {
+        let id = self.id?;
+        if !get_css_definitions().takes_color(id) {
             return None;
         }
         if keyword.eq_ignore_ascii_case("currentcolor") {
-            if self.name != "color" {
+            if id != COLOR {
                 return None;
             }
             return match &self.inherited {
@@ -1034,16 +1061,17 @@ impl CssProperty {
     /// computes to `1`.
     fn clamp_to_range(&self, computed: CssValue) -> CssValue {
         let defs = get_css_definitions();
-        let Some(def) = defs.find_property(&self.name) else {
+        let Some(id) = self.id else {
             return computed;
         };
+        if defs.definition(id).is_none() {
+            return computed;
+        }
         // A property whose computed value is a number clipped to [0,1] takes a percentage as
         // that fraction: `opacity: 50%` computes to `0.5` (css-color-4 §3.2). Converted before
         // the range is applied, or the `50` would be clamped against `[0,1]` and come out `1%`.
         let computed = match computed {
-            CssValue::Percentage(pct) if def.percentage_is_number() => {
-                CssValue::Number(pct / 100.0, NumberKind::Number)
-            }
+            CssValue::Percentage(pct) if id.percentage_is_number() => CssValue::Number(pct / 100.0, NumberKind::Number),
             other => other,
         };
         // Only a single number has a magnitude to clamp. A list is several values, and the range
@@ -1057,10 +1085,10 @@ impl CssProperty {
         // A shorthand's own value is never what gets computed - it is expanded into longhands
         // first - and the range it reports is whatever range its longhands' grammars happened to
         // mention, which belongs to those longhands rather than to the shorthand.
-        if def.is_shorthand() {
+        if id.is_shorthand() {
             return computed;
         }
-        let Some((min, max)) = def.computed_range() else {
+        let Some((min, max)) = defs.computed_range(id) else {
             return computed;
         };
 
@@ -1107,44 +1135,32 @@ impl CssProperty {
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
     #[must_use]
     pub fn is_shorthand(&self) -> bool {
-        let defs = get_css_definitions();
-        match defs.find_property(&self.name) {
-            Some(def) => def.expanded_properties().len() > 1,
-            None => false,
-        }
+        self.id.is_some_and(PropertyId::is_shorthand)
     }
 
-    /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
+    /// The longhands this shorthand expands to, or nothing when it is not a shorthand.
     #[must_use]
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
-        let defs = get_css_definitions();
-        match defs.find_property(&self.name) {
-            Some(def) => {
-                let props = def.expanded_properties();
-                if props.len() == 1 {
-                    vec![]
-                } else {
-                    props
-                }
-            }
-            None => vec![],
-        }
+        self.id.map_or_else(Vec::new, |id| {
+            id.longhands()
+                .iter()
+                .map(|longhand| longhand.name().to_string())
+                .collect()
+        })
     }
 
     // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
-        let defs = get_css_definitions();
-        defs.find_property(&self.name)
-            .map(super::property_definitions::PropertyDefinition::initial_value)
+        get_css_definitions().initial_value(self.id?)
     }
 }
 
 impl From<CssValue> for CssProperty {
     fn from(value: CssValue) -> Self {
-        let mut this = Self::new("unknown");
+        let mut this = Self::with_id(None);
 
         this.declared = vec![DeclarationProperty {
-            location: String::new(),
+            location: no_location(),
             important: false,
             value,
             origin: CssOrigin::Author,
@@ -1161,10 +1177,17 @@ impl From<CssValue> for CssProperty {
     }
 }
 
+/// The location of a declaration nobody wrote: a value built straight from a `CssValue`, or a
+/// longhand a shorthand's expansion synthesized.
+#[must_use]
+pub fn no_location() -> Arc<str> {
+    Arc::from("")
+}
+
 impl From<CssValue> for DeclarationProperty {
     fn from(value: CssValue) -> Self {
         Self {
-            location: String::new(),
+            location: no_location(),
             important: false,
             value,
             origin: CssOrigin::Author,
@@ -1265,9 +1288,17 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
 /// Map of all declared values for a single node. Note that these are only the defined properties, not
 /// the non-existing properties.
-#[derive(Debug)]
+///
+/// Keyed by [`PropertyId`] rather than by name, and densely: `slots` is one entry per property
+/// this engine knows, holding where that property sits in `props`. A lookup is an array index
+/// where it used to be a string hash, and an insert costs no allocation at all - which on a page
+/// where every element carries a hundred declarations is most of what styling it used to do.
 pub struct CssProperties {
-    pub properties: HashMap<String, CssProperty>,
+    /// The properties this element has an entry for, in the order they were first declared.
+    props: Vec<CssProperty>,
+    /// One slot per [`PropertyId::index`]: the position in `props` plus one, or zero for a
+    /// property this element has no entry for.
+    slots: Box<[u16]>,
     pub dirty: bool,
     /// This element's computed `font-size` in px, resolved while the map was built.
     ///
@@ -1291,11 +1322,26 @@ impl Default for CssProperties {
     }
 }
 
+impl Debug for CssProperties {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The slot table is 665 mostly-empty entries and says nothing a reader wants; what a
+        // property map is, is its properties.
+        f.debug_struct("CssProperties")
+            .field("properties", &self.props)
+            .field("dirty", &self.dirty)
+            .field("font_size_px", &self.font_size_px)
+            .field("root_font_size_px", &self.root_font_size_px)
+            .field("custom", &self.custom)
+            .finish()
+    }
+}
+
 impl CssProperties {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            properties: HashMap::new(),
+            props: Vec::new(),
+            slots: vec![0; PROPERTY_COUNT].into_boxed_slice(),
             dirty: true,
             custom: Arc::new(HashMap::new()),
             font_size_px: DEFAULT_FONT_SIZE_PX,
@@ -1304,25 +1350,116 @@ impl CssProperties {
     }
 
     pub fn get(&mut self, name: &str) -> Option<&mut CssProperty> {
-        self.properties.get_mut(name)
+        self.get_id_mut(PropertyId::from_name(name)?)
+    }
+
+    /// The entry for `id`, if this element has one.
+    #[must_use]
+    pub fn get_id(&self, id: PropertyId) -> Option<&CssProperty> {
+        self.props.get(self.slot(id)?)
+    }
+
+    /// The entry for `id`, if this element has one.
+    pub fn get_id_mut(&mut self, id: PropertyId) -> Option<&mut CssProperty> {
+        let slot = self.slot(id)?;
+        self.props.get_mut(slot)
+    }
+
+    /// The entry for `id`, added with nothing declared if it is not there yet.
+    pub fn entry(&mut self, id: PropertyId) -> &mut CssProperty {
+        if let Some(slot) = self.slot(id) {
+            // Reborrowed rather than returned from the branch above: the borrow checker reads
+            // `get_mut` in an early return as borrowing `self` for the whole function.
+            #[expect(clippy::indexing_slicing, reason = "the slot table only ever holds live positions")]
+            return &mut self.props[slot];
+        }
+        self.push(id, CssProperty::new(id))
+    }
+
+    /// Replace the entry for `id`, or add it.
+    pub fn insert_id(&mut self, id: PropertyId, mut value: CssProperty) {
+        value.id = Some(id);
+        match self.slot(id) {
+            Some(slot) => {
+                #[expect(clippy::indexing_slicing, reason = "the slot table only ever holds live positions")]
+                {
+                    self.props[slot] = value;
+                }
+            }
+            None => {
+                self.push(id, value);
+            }
+        }
+    }
+
+    /// How many properties this element has an entry for.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.props.len()
+    }
+
+    /// Whether this element has no entries at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.props.is_empty()
+    }
+
+    /// Every entry with its id, in the order the properties were first declared.
+    pub fn iter_ids(&self) -> impl Iterator<Item = (PropertyId, &CssProperty)> + '_ {
+        self.props.iter().filter_map(|prop| Some((prop.id?, prop)))
+    }
+
+    /// Every entry with its id, in the order the properties were first declared.
+    pub fn iter_ids_mut(&mut self) -> impl Iterator<Item = (PropertyId, &mut CssProperty)> + '_ {
+        self.props.iter_mut().filter_map(|prop| Some((prop.id?, prop)))
+    }
+
+    fn slot(&self, id: PropertyId) -> Option<usize> {
+        match self.slots.get(id.index()).copied().unwrap_or(0) {
+            0 => None,
+            slot => Some(usize::from(slot) - 1),
+        }
+    }
+
+    fn push(&mut self, id: PropertyId, value: CssProperty) -> &mut CssProperty {
+        self.props.push(value);
+        let position = self.props.len();
+        if let Some(slot) = self.slots.get_mut(id.index()) {
+            // Every position fits: there are fewer properties than there are ids, and there are
+            // 665 of those.
+            #[expect(clippy::cast_possible_truncation, reason = "a slot is at most PROPERTY_COUNT")]
+            {
+                *slot = position as u16;
+            }
+        }
+        #[expect(clippy::indexing_slicing, reason = "just pushed")]
+        &mut self.props[position - 1]
     }
 }
 
 impl CssPropertyMap<Css3System> for CssProperties {
     fn insert_inherited(&mut self, name: &str, value: CssProperty) {
-        self.properties.entry(name.to_string()).or_insert(value);
+        let Some(id) = PropertyId::from_name(name) else {
+            return;
+        };
+        if self.slot(id).is_none() {
+            self.insert_id(id, value);
+        }
     }
 
     fn insert(&mut self, name: &str, value: CssProperty) {
-        self.properties.insert(name.to_string(), value);
+        let Some(id) = PropertyId::from_name(name) else {
+            return;
+        };
+        self.insert_id(id, value);
     }
 
     fn get(&self, name: &str) -> Option<&CssProperty> {
-        self.properties.get(name)
+        self.get_id(PropertyId::from_name(name)?)
     }
 
     fn get_mut(&mut self, name: &str) -> Option<&mut CssProperty> {
-        self.properties.get_mut(name)
+        self.get_id_mut(PropertyId::from_name(name)?)
     }
 
     fn make_dirty(&mut self) {
@@ -1330,11 +1467,11 @@ impl CssPropertyMap<Css3System> for CssProperties {
     }
 
     fn iter(&self) -> impl Iterator<Item = (&str, &CssProperty)> + '_ {
-        self.properties.iter().map(|(k, v)| (k.as_str(), v))
+        self.iter_ids().map(|(id, prop)| (id.name(), prop))
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut CssProperty)> + '_ {
-        self.properties.iter_mut().map(|(k, v)| (k.as_str(), v))
+        self.iter_ids_mut().map(|(id, prop)| (id.name(), prop))
     }
 
     fn make_clean(&mut self) {
@@ -1357,14 +1494,19 @@ mod tests {
 
     use super::*;
 
+    /// The id of a property the tests name, which they do name by name.
+    fn id(name: &str) -> PropertyId {
+        PropertyId::from_name(name).expect("a property the tests name")
+    }
+
     #[test]
     fn css_props() {
         let mut props = CssProperties::new();
-        let prop = CssProperty::new("color");
-        props.properties.insert("color".into(), prop);
+        let prop = CssProperty::new(id("color"));
+        props.insert_id(id("color"), prop);
 
         let prop = props.get("color").unwrap();
-        assert_eq!(prop.name, "color");
+        assert_eq!(prop.name(), "color");
 
         let prop = props.get("not-exists");
         assert!(prop.is_none());
@@ -1372,7 +1514,7 @@ mod tests {
 
     #[test]
     fn border_prop_test() {
-        let mut prop = CssProperty::new("border");
+        let mut prop = CssProperty::new(id("border"));
 
         prop.declared.push(DeclarationProperty {
             value: CssValue::List(vec![
@@ -1382,7 +1524,7 @@ mod tests {
             ]),
             origin: CssOrigin::Author,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1399,20 +1541,20 @@ mod tests {
             ])
         );
         assert!(prop.is_shorthand());
-        assert_eq!(prop.name, "border");
+        assert_eq!(prop.name(), "border");
         assert_eq!(prop.get_initial_value(), Some(CssValue::None));
-        assert!(!prop_is_inherit(&prop.name));
+        assert!(!prop_is_inherit(prop.name()));
     }
 
     #[test]
     fn color_prop_test() {
-        let mut prop = CssProperty::new("color");
+        let mut prop = CssProperty::new(id("color"));
 
         prop.declared.push(DeclarationProperty {
             value: CssValue::String("red".into()),
             origin: CssOrigin::Author,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1424,7 +1566,7 @@ mod tests {
         // keyword itself is the *specified* value, which is what `element.style` reads back.
         assert_eq!(prop.compute_value(), &CssValue::Color(RgbColor::from("red").into()));
         assert!(!prop.is_shorthand());
-        assert_eq!(prop.name, "color");
+        assert_eq!(prop.name(), "color");
         // css-color-4 gives `color` an initial value of `canvastext`. This asserted `None`,
         // which was not a fact about the property but about the loader: it looked for an
         // `initial_value` key the definitions file has never had, so every initial value was
@@ -1433,7 +1575,7 @@ mod tests {
             prop.get_initial_value(),
             Some(CssValue::String("canvastext".to_string()))
         );
-        assert!(prop_is_inherit(&prop.name));
+        assert!(prop_is_inherit(prop.name()));
     }
 
     #[test]
@@ -1442,12 +1584,12 @@ mod tests {
         // the form this has to recognise; the dedicated `CssValue::Initial` variant is checked too
         // because callers that build values directly produce it.
         for keyword in [CssValue::String("initial".to_string()), CssValue::Initial] {
-            let mut prop = CssProperty::new("width");
+            let mut prop = CssProperty::new(id("width"));
             prop.declared.push(DeclarationProperty {
                 value: keyword,
                 origin: CssOrigin::Author,
                 important: false,
-                location: String::new(),
+                location: no_location(),
                 specificity: Specificity::new(1, 0, 0),
                 shadow_depth: 0,
                 order: 0,
@@ -1480,12 +1622,12 @@ mod tests {
     }
 
     fn computed_for(name: &str, value: CssValue) -> CssValue {
-        let mut prop = CssProperty::new(name);
+        let mut prop = CssProperty::new(id(name));
         prop.declared.push(DeclarationProperty {
             value,
             origin: CssOrigin::Author,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1580,7 +1722,7 @@ mod tests {
             value: CssValue::String("red".into()),
             origin: CssOrigin::Author,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1591,7 +1733,7 @@ mod tests {
             value: CssValue::String("blue".into()),
             origin: CssOrigin::UserAgent,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1602,7 +1744,7 @@ mod tests {
             value: CssValue::String("green".into()),
             origin: CssOrigin::User,
             important: false,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1613,7 +1755,7 @@ mod tests {
             value: CssValue::String("yellow".into()),
             origin: CssOrigin::Author,
             important: true,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1624,7 +1766,7 @@ mod tests {
             value: CssValue::String("orange".into()),
             origin: CssOrigin::UserAgent,
             important: true,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1635,7 +1777,7 @@ mod tests {
             value: CssValue::String("purple".into()),
             origin: CssOrigin::User,
             important: true,
-            location: String::new(),
+            location: no_location(),
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
@@ -1666,32 +1808,34 @@ mod tests {
 
     #[test]
     fn is_inheritable() {
-        let prop = CssProperty::new("border");
-        assert!(!prop_is_inherit(&prop.name));
+        let prop = CssProperty::new(id("border"));
+        assert!(!prop_is_inherit(prop.name()));
 
-        let prop = CssProperty::new("color");
-        assert!(prop_is_inherit(&prop.name));
+        let prop = CssProperty::new(id("color"));
+        assert!(prop_is_inherit(prop.name()));
 
-        let prop = CssProperty::new("font");
-        assert!(prop_is_inherit(&prop.name));
+        let prop = CssProperty::new(id("font"));
+        assert!(prop_is_inherit(prop.name()));
 
-        let prop = CssProperty::new("border-top-color");
-        assert!(!prop_is_inherit(&prop.name));
+        let prop = CssProperty::new(id("border-top-color"));
+        assert!(!prop_is_inherit(prop.name()));
     }
 
     #[test]
     fn shorthand_props() {
-        let prop = CssProperty::new("border");
+        let prop = CssProperty::new(id("border"));
         assert!(prop.is_shorthand());
         assert_eq!(
             prop.get_props_from_shorthand(),
             vec!["border-width", "border-style", "border-color"]
         );
-        let prop = CssProperty::new("window");
+        // A name this engine has no property for has no id at all, so it never reaches a map.
+        assert!(CssProperty::from_name("window").is_none());
+        let prop = CssProperty::from(CssValue::None);
         assert!(!prop.is_shorthand());
         assert!(prop.get_props_from_shorthand().is_empty());
 
-        let prop = CssProperty::new("border-color");
+        let prop = CssProperty::new(id("border-color"));
         assert!(prop.is_shorthand());
         assert_eq!(
             prop.get_props_from_shorthand(),
@@ -1703,7 +1847,7 @@ mod tests {
             ]
         );
 
-        let prop = CssProperty::new("border-top-color");
+        let prop = CssProperty::new(id("border-top-color"));
         assert!(!prop.is_shorthand());
         assert!(prop.get_props_from_shorthand().is_empty());
     }
