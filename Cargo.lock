@@ -3335,6 +3335,7 @@ dependencies = [
  "bytemuck",
  "bytes",
  "cow-utils",
+ "criterion",
  "csscolorparser",
  "gosub-sonar",
  "gosub_css3",
