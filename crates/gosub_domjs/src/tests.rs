@@ -556,6 +556,43 @@ fn hwb_resolves_to_srgb_unless_a_component_is_missing() {
 }
 
 #[test]
+fn a_colour_keeps_the_space_it_was_written_in() {
+    // The colour value carries its own space now, rather than being converted to an sRGB triple
+    // as it is parsed. That is what lets `lab()` stay `lab()` - sRGB cannot hold it - while
+    // `hsl()` still reports as `rgb()`, which is what css-color-4 §15 asks of each.
+    let value = eval(
+        "<style>#a { color: lab(50 10 20) } #b { color: oklch(0.5 0.2 180) } \
+                #c { color: hsl(120 50% 50%) } #d { color: color(display-p3 1 0 0) }</style>\
+         <div id=a></div><div id=b></div><div id=c></div><div id=d></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c') + '|' + g('d');",
+    );
+    assert_eq!(
+        value,
+        "lab(50 10 20)|oklch(0.5 0.2 180)|rgb(64, 191, 64)|color(display-p3 1 0 0)"
+    );
+}
+
+#[test]
+fn a_missing_colour_component_is_not_zero() {
+    // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
+    // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation
+    // to keep it, while the specified value goes out as the legacy triple with the component
+    // read as zero.
+    let value = eval(
+        "<style>#t { color: rgb(128 none none) }</style><div id=t></div><div id=s></div>",
+        "const el = document.getElementById('s'); \
+         el.style.color = 'rgb(128 none none)'; const specified = el.style.color; \
+         const computed = getComputedStyle(document.getElementById('t')).color; \
+         specified + '|' + computed;",
+    );
+    // The style attribute holds its declarations as text, so reading one back goes through the
+    // specified serialization - which is where the missing component is read as zero. The rule
+    // in the stylesheet keeps it as far as the computed value.
+    assert_eq!(value, "rgb(128, 0, 0)|color(srgb 0.50196078 none none)");
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",

@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
+use crate::colors::{ColorSyntax, CssColor, PredefinedSpace, RgbColor};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
 use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
 use crate::supports::SupportsCondition;
@@ -740,7 +740,7 @@ impl Ord for Specificity {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssValue {
     None,
-    Color(RgbColor),
+    Color(CssColor),
     Zero,
     /// A number, with the type flag css-syntax gave it. `<integer>` reads the flag rather than
     /// asking whether the value happens to be whole, so `1e1` is a `<number>` and not an
@@ -883,12 +883,12 @@ impl CssValue {
     #[must_use]
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
-            CssValue::Color(col) => Some(*col),
+            CssValue::Color(col) => Some(col.to_rgb()),
             // Fallible on purpose: a string that is not a colour (`none`, `no-repeat`, any
             // keyword that lands in a colour slot) must leave the property unset rather than
             // resolve to `RgbColor`'s opaque-black default and paint over the element.
             CssValue::String(s) => RgbColor::try_from_str(s.as_str()),
-            CssValue::Function(name, args) => parse_css_color_function(name, args),
+            CssValue::Function(name, args) => parse_css_color_function(name, args).map(|color| color.to_rgb()),
             _ => None,
         }
     }
@@ -1006,7 +1006,7 @@ impl CssValue {
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
-                Ok(CssValue::Color(RgbColor::from(value.as_str())))
+                Ok(CssValue::Color(RgbColor::from(value.as_str()).into()))
             }
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
@@ -1085,13 +1085,6 @@ impl CssValue {
             return Ok(CssValue::Number(num, kind));
         }
 
-        // Color values
-        if value.starts_with("color(") && value.ends_with(')') {
-            return Ok(CssValue::Color(RgbColor::from(
-                value[6..value.len() - 1].to_string().as_str(),
-            )));
-        }
-
         // Percentages
         if value.ends_with('%') {
             if let Ok(num) = value[0..value.len() - 1].parse::<f64>() {
@@ -1123,10 +1116,10 @@ impl CssValue {
 /// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
 /// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
 /// True for CSS functional color notations that `parse_css_color_function` can resolve.
-fn is_color_function(name: &str) -> bool {
+pub(crate) fn is_color_function(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
-        "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "oklch" | "oklab" | "color"
+        "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "oklch" | "oklab" | "color"
     )
 }
 
@@ -1143,229 +1136,265 @@ fn reduce_color_component(value: &CssValue) -> CssValue {
         .unwrap_or_else(|| value.clone())
 }
 
-fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
-    // A component that is itself a function has to reduce to a number before this can fold the
-    // colour, and a `calc()` that came down to one term does. Anything still a function after
-    // that - `var()`, `sibling-index()`, a `calc()` over one of them - means the colour is not
-    // knowable here, so refuse rather than fold.
-    //
-    // The filter below *drops* what it does not recognise, so without this check
-    // `oklch(0.5 0.2 180 / calc(0.1 * sibling-index()))` lost its alpha silently and became a
-    // fully opaque colour nobody wrote. Returning `None` leaves the function intact for a
-    // later stage that knows more.
-    let reduced: Vec<CssValue> = args.iter().map(reduce_color_component).collect();
-    if reduced.iter().any(|v| matches!(v, CssValue::Function(..))) {
-        return None;
-    }
-    let args = reduced.as_slice();
-
-    let name = name.cow_to_ascii_lowercase();
-    let has_comma = args.iter().any(|value| matches!(value, CssValue::Comma));
-    let has_missing = args
-        .iter()
-        .any(|value| matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("none")));
-
-    // `hsl()` and `hwb()` describe a colour in their own space, and a component written `none`
-    // stays missing there: css-color-4 §12.2 keeps such a colour in the notation it was written
-    // in rather than resolving it to sRGB, because sRGB has no way to say "missing". Folding it
-    // would answer `rgb(0, 0, 0)` where every browser answers `hwb(none none none)`. Leaving the
-    // function alone is the closest this can get until a colour value can carry its own space.
-    if has_missing && matches!(name.as_ref(), "hsl" | "hsla" | "hwb") {
-        return None;
-    }
-    // `hwb()` has no legacy comma form - it postdates them - so `hwb(90deg, 50%, 50%)` is not a
-    // colour at all, and folding it would accept CSS no browser does.
-    if has_comma && name == "hwb" {
-        return None;
-    }
-
-    // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
-    // and any string tokens (like the color-space name in `color(srgb ...)`).
-    // CSS `none` keyword means "missing value" = 0.
-    let nums: Vec<f32> = args
-        .iter()
-        .filter_map(|v| match v {
-            CssValue::Number(n, _) => Some(*n as f32),
-            CssValue::Percentage(p) => Some(*p as f32),
-            CssValue::Zero => Some(0.0),
-            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(0.0),
-            _ => None,
-        })
-        .collect();
-
-    // Helper to resolve an L (lightness) argument: percentage 0-100 → 0.0-1.0, decimal as-is.
-    let resolve_l = |raw: f32, is_pct: bool| -> f32 {
-        if is_pct {
-            raw / 100.0
-        } else {
-            raw
-        }
-    };
-
-    // Detect whether each positional arg was given as a percentage.
-    let is_pct: Vec<bool> = args
-        .iter()
-        .filter_map(|v| match v {
-            CssValue::Number(..) | CssValue::Zero => Some(false),
-            CssValue::Percentage(_) => Some(true),
-            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(false),
-            _ => None,
-        })
-        .collect();
-
-    match name.as_ref() {
-        "oklch" if nums.len() >= 3 => {
-            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
-            // Chroma: percentage 0-100 maps to ~0-0.4 max chroma.
-            let c = if *is_pct.get(1).unwrap_or(&false) {
-                nums[1] / 100.0 * 0.4
-            } else {
-                nums[1]
-            };
-            let h = nums[2];
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            let (r, g, b) = oklch_to_srgb(l, c, h);
-            Some(RgbColor::new(r, g, b, alpha))
-        }
-        "oklab" if nums.len() >= 3 => {
-            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
-            let a_ok = if *is_pct.get(1).unwrap_or(&false) {
-                nums[1] / 100.0 * 0.4
-            } else {
-                nums[1]
-            };
-            let b_ok = if *is_pct.get(2).unwrap_or(&false) {
-                nums[2] / 100.0 * 0.4
-            } else {
-                nums[2]
-            };
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            let (r, g, b) = oklab_to_srgb(l, a_ok, b_ok);
-            Some(RgbColor::new(r, g, b, alpha))
-        }
-        // color(srgb R G B) or color(display-p3 R G B) - treat as linear/sRGB for now.
-        "color" if nums.len() >= 3 => {
-            // First element of args is the color space name (a String), skip it.
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            Some(RgbColor::new(nums[0] * 255.0, nums[1] * 255.0, nums[2] * 255.0, alpha))
-        }
-        // rgb(R G B) / rgba(R G B A). Channels are 0-255 numbers or 0%-100% percentages.
-        "rgb" | "rgba" if nums.len() >= 3 => {
-            let chan = |i: usize| -> f32 {
-                if *is_pct.get(i).unwrap_or(&false) {
-                    nums[i] / 100.0 * 255.0
-                } else {
-                    nums[i]
-                }
-            };
-            Some(RgbColor::new(chan(0), chan(1), chan(2), parse_alpha(&nums, &is_pct, 3)))
-        }
-        // hsl(H S% L%) / hsla(...). Hue in degrees; saturation/lightness as percentages.
-        "hsl" | "hsla" if nums.len() >= 3 => {
-            let (r, g, b) = hsl_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
-            Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
-        }
-        // hwb(H W% B%): a hue with a proportion of white and of black mixed into it
-        // (css-color-4 §7). It resolves to sRGB like `hsl()` does, and serializes the same way.
-        "hwb" if nums.len() >= 3 => {
-            let (r, g, b) = hwb_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
-            Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
-        }
+/// One component of a colour, in the units its notation uses.
+///
+/// `None` is a component written `none`, which css-color-4 §12.2 calls *missing* and which is
+/// not the same as zero. `scale` is what a percentage means here: 255 for an sRGB channel, 100
+/// for a percentage that stays a percentage, 1 for a `color()` component.
+fn color_component(value: &CssValue, scale: f64) -> Option<Option<f64>> {
+    match value {
+        // css-values-4 §10.9: NaN becomes zero and an infinity clamps to the end of the range.
+        CssValue::Number(number, _) => Some(Some(finite(*number, scale))),
+        CssValue::Zero => Some(Some(0.0)),
+        // Scaled by one factor rather than divided and multiplied: `30%` of an axis that is
+        // itself a percentage has to come out exactly 30, not 30.00000191.
+        CssValue::Percentage(percentage) => Some(Some(*percentage * (scale / 100.0))),
+        CssValue::String(word) if word.eq_ignore_ascii_case("none") => Some(None),
         _ => None,
     }
 }
 
-/// Resolves an optional alpha argument at `idx` into the 0-255 range. A bare number is a
-/// 0-1 ratio; a percentage is 0-100. Missing alpha is fully opaque.
-fn parse_alpha(nums: &[f32], is_pct: &[bool], idx: usize) -> f32 {
-    nums.get(idx)
-        .copied()
-        .map(|a| {
-            if *is_pct.get(idx).unwrap_or(&false) {
-                a / 100.0 * 255.0
-            } else {
-                a * 255.0
-            }
-        })
-        .unwrap_or(255.0)
+/// A hue, which may be written as a plain number or as any angle unit (css-color-4 §7).
+fn color_hue(value: &CssValue) -> Option<Option<f64>> {
+    match value {
+        CssValue::Unit(angle, unit) => {
+            let degrees = match unit.as_str() {
+                "deg" => *angle,
+                "grad" => *angle * 0.9,
+                "rad" => angle.to_degrees(),
+                "turn" => *angle * 360.0,
+                _ => return None,
+            };
+            Some(Some(finite(degrees, 0.0)))
+        }
+        _ => color_component(value, 360.0),
+    }
 }
 
-/// Converts HSL (hue in degrees, saturation/lightness in 0-1) to sRGB channels in 0-255.
-/// Convert an HWB colour to sRGB (css-color-4 §7.2).
-///
-/// The hue is the fully saturated colour at that angle, and whiteness and blackness say how much
-/// of it is replaced by white and by black. The two are normalized when they would leave nothing
-/// of the hue at all: `hwb(0 60% 60%)` is grey, not a negative amount of red.
-#[must_use]
-fn hwb_to_srgb(hue: f32, white: f32, black: f32) -> (f32, f32, f32) {
-    let (mut white, mut black) = (white, black);
-    let total = white + black;
-    if total > 1.0 {
-        white /= total;
-        black /= total;
-    }
-    let (r, g, b) = hsl_to_srgb(hue, 1.0, 0.5);
-    let mix = |channel: f32| (channel / 255.0).mul_add(1.0 - white - black, white) * 255.0;
-    (mix(r), mix(g), mix(b))
-}
-
-fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
-    let h = h.rem_euclid(360.0) / 360.0;
-    if s <= 0.0 {
-        let v = l * 255.0;
-        return (v, v, v);
-    }
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
-    let hue = |mut t: f32| -> f32 {
-        if t < 0.0 {
-            t += 1.0;
-        }
-        if t > 1.0 {
-            t -= 1.0;
-        }
-        let c = if t < 1.0 / 6.0 {
-            p + (q - p) * 6.0 * t
-        } else if t < 1.0 / 2.0 {
-            q
-        } else if t < 2.0 / 3.0 {
-            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+/// Bring a component that is not a number back into the range it belongs to: NaN is zero, and
+/// an infinity is as far as the component goes (css-values-4 §10.9).
+fn finite(value: f64, scale: f64) -> f64 {
+    if value.is_nan() {
+        0.0
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            scale
         } else {
-            p
+            0.0
+        }
+    } else {
+        value
+    }
+}
+
+/// Alpha is a fraction, and a value outside it is brought back in rather than rejected
+/// (css-color-4 §4.1): `lab(0 0 0 / 300%)` is opaque, not invalid.
+fn clamp_alpha(alpha: f64) -> f64 {
+    alpha.clamp(0.0, 1.0)
+}
+
+/// Alpha, which is a number from 0 to 1 or a percentage of it.
+fn color_alpha(value: &CssValue) -> Option<Option<f64>> {
+    color_component(value, 1.0)
+}
+
+/// Split a colour function's arguments into its components and its alpha.
+///
+/// Both notations are accepted: the legacy comma form, where the alpha is simply the fourth
+/// item, and the modern form, where it follows a solidus. Mixing them is not a colour, and
+/// neither is a comma form for a function that never had one.
+fn split_color_args<'a>(name: &str, args: &'a [CssValue]) -> Option<(Vec<&'a CssValue>, Option<&'a CssValue>)> {
+    let is = |value: &CssValue, text: &str| matches!(value, CssValue::String(word) if word == text);
+    let commas = args.iter().any(|value| matches!(value, CssValue::Comma));
+    let solidus = args.iter().position(|value| is(value, "/"));
+
+    if commas {
+        // `hwb()`, `lab()` and everything newer postdate the comma form and never had one.
+        if !matches!(name, "rgb" | "rgba" | "hsl" | "hsla") || solidus.is_some() {
+            return None;
+        }
+        // `none` postdates the comma form too, so `hsl(none, none, none)` is not a colour.
+        if args
+            .iter()
+            .any(|value| matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("none")))
+        {
+            return None;
+        }
+        let mut items: Vec<&CssValue> = Vec::with_capacity(4);
+        for value in args {
+            if !matches!(value, CssValue::Comma) {
+                items.push(value);
+            }
+        }
+        // A comma form gives every component or none of them; `rgb(1, 2)` is not a colour.
+        let alpha = if items.len() == 4 { items.pop() } else { None };
+        if items.len() != 3 {
+            return None;
+        }
+        return Some((items, alpha));
+    }
+
+    match solidus {
+        Some(at) => {
+            let alpha = args.get(at + 1)?;
+            if args.len() != at + 2 {
+                return None;
+            }
+            Some((args[..at].iter().collect(), Some(alpha)))
+        }
+        None => Some((args.iter().collect(), None)),
+    }
+}
+
+/// Build a colour from one of the colour functions, keeping its components in that function's
+/// own units. Returns `None` when the arguments are not a colour, which leaves the function
+/// alone for a stage that knows more - or drops the declaration, if none does.
+fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<CssColor> {
+    fold_color_function(name, args, false)
+}
+
+/// Whether `name` is one of the colour functions and `args` make a colour of it.
+///
+/// `resolve_math` says which stage is asking. A `calc()` inside a colour component stays a
+/// `calc()` in the *specified* value - `lab(calc(50 * 3) 0 0)` reads back from `element.style`
+/// as `lab(calc(150) 0 0)`, not as `lab(100 0 0)` - so the parse refuses to fold such a colour
+/// at all and leaves the function standing. The computed value is where the arithmetic is done.
+pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: bool) -> Option<CssColor> {
+    if !is_color_function(name) {
+        return None;
+    }
+    let has_calc = args
+        .iter()
+        .any(|value| matches!(value, CssValue::Function(inner, _) if inner.eq_ignore_ascii_case("calc")));
+    // A component that is itself a function has to reduce to a number before this can fold the
+    // colour, and a `calc()` that came down to one term does. Anything still a function after
+    // that - `var()`, `sibling-index()`, a `calc()` over one of them - means the colour is not
+    // knowable here, so refuse rather than fold.
+    let reduced: Vec<CssValue> = args.iter().map(reduce_color_component).collect();
+    if reduced.iter().any(|v| matches!(v, CssValue::Function(..))) {
+        return None;
+    }
+    let name = name.cow_to_ascii_lowercase();
+    let name = name.as_ref();
+
+    // `color()` names its space first, and its components are 0 to 1 within that space. It
+    // always keeps its own notation, so a `calc()` inside it stays unresolved until computed.
+    if name == "color" {
+        if !resolve_math && has_calc {
+            return None;
+        }
+        let space = match reduced.first() {
+            Some(CssValue::String(word)) => PredefinedSpace::from_name(word)?,
+            _ => return None,
         };
-        c * 255.0
+        let (components, alpha) = split_color_args(name, &reduced[1..])?;
+        let [first, second, third] = components.as_slice() else {
+            return None;
+        };
+        return Some(CssColor {
+            syntax: ColorSyntax::Predefined(space),
+            components: [
+                color_component(first, 1.0)?,
+                color_component(second, 1.0)?,
+                color_component(third, 1.0)?,
+            ],
+            alpha: alpha.map_or(Some(Some(1.0)), color_alpha)?.map(clamp_alpha),
+            computed: false,
+        });
+    }
+
+    let (components, alpha) = split_color_args(name, &reduced)?;
+    let [first, second, third] = components.as_slice() else {
+        return None;
     };
-    (hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0))
+    let alpha = alpha.map_or(Some(Some(1.0)), color_alpha)?;
+
+    // Each notation reads its components in its own units: a percentage is a channel of 255 in
+    // `rgb()`, a percentage of the axis in `lab()`, and simply itself in `hsl()`.
+    let (syntax, components) = match name {
+        "rgb" | "rgba" => (
+            ColorSyntax::Rgb,
+            [
+                color_component(first, 255.0)?,
+                color_component(second, 255.0)?,
+                color_component(third, 255.0)?,
+            ],
+        ),
+        "hsl" | "hsla" => (
+            ColorSyntax::Hsl,
+            [
+                color_hue(first)?,
+                color_component(second, 100.0)?,
+                color_component(third, 100.0)?,
+            ],
+        ),
+        "hwb" => (
+            ColorSyntax::Hwb,
+            [
+                color_hue(first)?,
+                color_component(second, 100.0)?,
+                color_component(third, 100.0)?,
+            ],
+        ),
+        "lab" => (
+            ColorSyntax::Lab,
+            [
+                color_component(first, 100.0)?,
+                color_component(second, 125.0)?,
+                color_component(third, 125.0)?,
+            ],
+        ),
+        "lch" => (
+            ColorSyntax::Lch,
+            [
+                color_component(first, 100.0)?,
+                color_component(second, 150.0)?,
+                color_hue(third)?,
+            ],
+        ),
+        "oklab" => (
+            ColorSyntax::Oklab,
+            [
+                color_component(first, 1.0)?,
+                color_component(second, 0.4)?,
+                color_component(third, 0.4)?,
+            ],
+        ),
+        "oklch" => (
+            ColorSyntax::Oklch,
+            [
+                color_component(first, 1.0)?,
+                color_component(second, 0.4)?,
+                color_hue(third)?,
+            ],
+        ),
+        _ => return None,
+    };
+    // Lightness has ends, and chroma has a floor. css-color-4 §11 brings a value outside them
+    // back in rather than rejecting it, so `lab(400 0 10)` is simply the lightest lab there is.
+    let mut components = components;
+    match syntax {
+        ColorSyntax::Lab | ColorSyntax::Lch => components[0] = components[0].map(|l| l.clamp(0.0, 100.0)),
+        ColorSyntax::Oklab | ColorSyntax::Oklch => components[0] = components[0].map(|l| l.clamp(0.0, 1.0)),
+        _ => {}
+    }
+    if matches!(syntax, ColorSyntax::Lch | ColorSyntax::Oklch) {
+        components[1] = components[1].map(|chroma| chroma.max(0.0));
+    }
+
+    let color = CssColor {
+        syntax,
+        components,
+        alpha: alpha.map(clamp_alpha),
+        computed: false,
+    };
+    // A colour that goes out through the legacy sRGB triple has nowhere to show a `calc()`, so
+    // the arithmetic is done whatever stage is asking. One that keeps its own notation does have
+    // somewhere, and the specified value has to show it.
+    if !resolve_math && has_calc && color.keeps_its_notation() {
+        return None;
+    }
+    Some(color)
 }
 
 impl gosub_interface::css3::CssValue for CssValue {
@@ -1382,7 +1411,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self {
-        CssValue::Color(RgbColor::new(r, g, b, a))
+        CssValue::Color(RgbColor::new(r, g, b, a).into())
     }
 
     fn new_number(value: f32) -> Self {
@@ -1423,6 +1452,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
         if let CssValue::Color(color) = &self {
+            let color = color.to_rgb();
             Some((color.r, color.g, color.b, color.a))
         } else {
             None
@@ -1473,16 +1503,22 @@ mod test {
     fn a_colour_serializes_as_rgb_not_as_hex() {
         // `#rrggbbaa` was a debug rendering. Every CSS consumer - `getComputedStyle`, a
         // round-trip through `element.style` - is defined to see the legacy `rgb()` form.
-        assert_eq!(CssValue::Color(RgbColor::from("#ff0000")).to_string(), "rgb(255, 0, 0)");
-        assert_eq!(CssValue::Color(RgbColor::from("red")).to_string(), "rgb(255, 0, 0)");
         assert_eq!(
-            CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 127.5)).to_string(),
+            CssValue::Color(RgbColor::from("#ff0000").into()).to_string(),
+            "rgb(255, 0, 0)"
+        );
+        assert_eq!(
+            CssValue::Color(RgbColor::from("red").into()).to_string(),
+            "rgb(255, 0, 0)"
+        );
+        assert_eq!(
+            CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 127.5).into()).to_string(),
             "rgba(0, 0, 0, 0.5)"
         );
         // An alpha that came from a hex byte is not a round number; three decimals is what
         // tells two of the 256 steps apart without printing f32 noise.
         assert_eq!(
-            CssValue::Color(RgbColor::new(1.0, 2.0, 3.0, 128.0)).to_string(),
+            CssValue::Color(RgbColor::new(1.0, 2.0, 3.0, 128.0).into()).to_string(),
             "rgba(1, 2, 3, 0.502)"
         );
     }
@@ -1518,7 +1554,9 @@ mod test {
         ];
         assert_eq!(parse_css_color_function("oklch", &args), None);
 
-        // A `calc()` that does come down to a number is just that number.
+        // A `calc()` that does come down to a number is folded straight away when the colour
+        // serializes through the legacy sRGB triple, because that form has nowhere to show the
+        // arithmetic anyway.
         let resolvable = CssValue::Function(
             "calc".to_string(),
             vec![
@@ -1533,8 +1571,16 @@ mod test {
             CssValue::Number(0.0, NumberKind::Integer),
         ];
         assert_eq!(
-            parse_css_color_function("rgb", &args),
+            parse_css_color_function("rgb", &args).map(|color| color.to_rgb()),
             Some(RgbColor::new(155.0, 0.0, 0.0, 255.0))
+        );
+
+        // `lab()` keeps the notation it was written in, so it can show the `calc()` - and the
+        // specified value has to. Only the computed stage does the sum.
+        assert_eq!(parse_css_color_function("lab", &args), None);
+        assert_eq!(
+            fold_color_function("lab", &args, true).map(|color| color.components[0]),
+            Some(Some(100.0))
         );
     }
 
@@ -1804,6 +1850,7 @@ mod test {
             ],
         )
         .expect("rgba should parse");
+        let c = c.to_rgb();
         assert_eq!((c.r, c.g, c.b), (14.0, 42.0, 54.0));
         assert!((c.a - 127.5).abs() < 0.5);
 
@@ -1817,6 +1864,7 @@ mod test {
             ],
         )
         .unwrap();
+        let c = c.to_rgb();
         assert_eq!((c.r, c.g, c.b, c.a), (255.0, 0.0, 0.0, 255.0));
 
         // hsl(0 100% 50%) == red.
@@ -1829,6 +1877,7 @@ mod test {
             ],
         )
         .unwrap();
+        let c = c.to_rgb();
         assert!((c.r - 255.0).abs() < 1.0 && c.g < 1.0 && c.b < 1.0, "hsl red got {c:?}");
 
         // A color function collapses to CssValue::Color at AST conversion time.

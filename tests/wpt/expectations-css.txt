@@ -398,6 +398,7 @@ PASS css/css-values/calc-dimension-serialization-order.html :: vmax sorts after 
 PASS css/css-values/calc-dimension-serialization-order.html :: vmin sorts after vmax
 PASS css/css-values/calc-dimension-serialization-order.html :: vw sorts after vmin
 FILE css/css-values/calc-in-color-001.html
+PASS css/css-values/calc-in-color-001.html :: calc() in color functions
 FILE css/css-values/calc-in-font-feature-settings.html
 FILE css/css-values/calc-in-media-queries-with-mixed-units.html
 HARNESS css/css-values/calc-in-media-queries-with-mixed-units.html

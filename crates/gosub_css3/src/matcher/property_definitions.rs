@@ -1168,26 +1168,26 @@ mod tests {
         assert!(prop.clone().matches(&[
             unit!(1.0, "px"),
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
         ]));
         assert!(prop.clone().matches(&[
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             str!("solid"),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[unit!(1.0, "px")]));
         assert!(prop.clone().matches(&[str!("solid")]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert_true!(prop.clone().matches(&[str!("solid")]));
         assert_false!(prop.clone().matches(&[str!("not-solid")]));
         assert_false!(prop.clone().matches(&[str!("solid"), str!("solid"), unit!(1.0, "px"),]));
@@ -2116,7 +2116,9 @@ mod tests {
         assert_true!(def.clone().matches(&[str!("Menu")]));
 
         assert_true!(def.clone().matches(&[str!("blue")]));
-        assert_true!(def.clone().matches(&[CssValue::Color(RgbColor::from("#ff0000"))]));
+        assert_true!(def
+            .clone()
+            .matches(&[CssValue::Color(RgbColor::from("#ff0000").into())]));
         assert_true!(def.clone().matches(&[str!("rebeccapurple")]));
 
         assert_false!(def.clone().matches(&[str!("thiscolordoesnotexist")]));

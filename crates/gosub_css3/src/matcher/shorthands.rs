@@ -2896,7 +2896,7 @@ mod tests {
             &[
                 unit!(1.0, "px"),
                 str!("solid"),
-                CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0))
+                CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0).into())
             ],
             &mut fix_list,
         ));
@@ -2906,7 +2906,7 @@ mod tests {
         fix_list = FixList::new();
 
         assert!(prop.clone().matches_and_shorthands(
-            &[str!("solid"), CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0))],
+            &[str!("solid"), CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0).into())],
             &mut fix_list,
         ));
 
@@ -2915,7 +2915,7 @@ mod tests {
         assert!(prop.clone().matches_and_shorthands(
             &[
                 str!("solid"),
-                CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)),
+                CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0).into()),
                 unit!(1.0, "px")
             ],
             &mut fix_list,

@@ -12,7 +12,7 @@ use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
-use crate::colors::RgbColor;
+use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
@@ -927,9 +927,27 @@ impl CssProperty {
         // what the painter needs. Whether the keyword is a colour at all depends on the
         // property: `red` names a grid line on `grid-row-start`.
         if let CssValue::String(keyword) = &specified {
-            if let Some(color) = self.color_keyword(keyword) {
+            if let Some(mut color) = self.color_keyword(keyword) {
+                color.computed = true;
                 return CssValue::Color(color);
             }
+        }
+
+        // A colour function left standing because a `calc()` was inside it is folded here, where
+        // the arithmetic belongs. See `fold_color_function`.
+        if let CssValue::Function(name, args) = &specified {
+            if let Some(mut color) = crate::stylesheet::fold_color_function(name, args, true) {
+                color.computed = true;
+                return CssValue::Color(color);
+            }
+        }
+
+        // A colour reaching the computed stage is a computed colour, and one of them serializes
+        // its percentage axes where the other does not. See `CssColor::computed`.
+        if let CssValue::Color(color) = &specified {
+            let mut color = *color;
+            color.computed = true;
+            return CssValue::Color(color);
         }
 
         // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
@@ -973,7 +991,7 @@ impl CssProperty {
     /// on `color` itself means the inherited one (css-color-4 §6.2). Every other property that
     /// mentions it resolves against this element's computed `color`, which this cannot see, so
     /// there the keyword travels on untouched.
-    fn color_keyword(&self, keyword: &str) -> Option<RgbColor> {
+    fn color_keyword(&self, keyword: &str) -> Option<CssColor> {
         let definition = get_css_definitions().find_property(&self.name)?;
         if !definition.takes_color() {
             return None;
@@ -985,10 +1003,10 @@ impl CssProperty {
             return match &self.inherited {
                 CssValue::Color(inherited) => Some(*inherited),
                 // Nothing above declared a colour, so `currentcolor` is the initial one.
-                _ => RgbColor::try_from_str("black"),
+                _ => RgbColor::try_from_str("black").map(CssColor::from),
             };
         }
-        RgbColor::try_from_str(keyword)
+        RgbColor::try_from_str(keyword).map(CssColor::from)
     }
 
     /// Bring a computed value inside the range its property allows (css-values-4 §10.12).
@@ -1189,6 +1207,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
         if let CssValue::Color(color) = &self.actual {
+            let color = color.to_rgb();
             Some((color.r, color.g, color.b, color.a))
         } else {
             None
@@ -1349,7 +1368,7 @@ mod tests {
             value: CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
-                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0)),
+                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0).into()),
             ]),
             origin: CssOrigin::Author,
             important: false,
@@ -1366,7 +1385,7 @@ mod tests {
             &CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
-                CssValue::Color("red".into()),
+                CssValue::Color(RgbColor::from("red").into()),
             ])
         );
         assert!(prop.is_shorthand());
@@ -1393,7 +1412,7 @@ mod tests {
 
         // The computed value of a colour keyword is the colour it names (css-color-4 §15). The
         // keyword itself is the *specified* value, which is what `element.style` reads back.
-        assert_eq!(prop.compute_value(), &CssValue::Color(RgbColor::from("red")));
+        assert_eq!(prop.compute_value(), &CssValue::Color(RgbColor::from("red").into()));
         assert!(!prop.is_shorthand());
         assert_eq!(prop.name, "color");
         // css-color-4 gives `color` an initial value of `canvastext`. This asserted `None`,
