@@ -64,6 +64,29 @@ Whether a property inherits, and its initial value, come from the same definitio
 
 `hover_fingerprints` scans all sheets once and records which element types, classes, and ids appear in a compound with `:hover` (or whether a bare `*:hover` exists). The engine uses this to skip style recalculation entirely for pointer movement that no hover rule could affect — and the scan lives in this crate because only the CSS system understands its own selector representation. See the trait notes in [interface.md](interface.md).
 
+## Measuring
+
+Two Criterion benchmarks cover this crate. `css_parser` in `crates/gosub_css3/benches` times the
+tokenizer and the parser over the user-agent sheet and the 2.2 MB real-world sheet in
+`tests/data/css3-data`. `style` in `crates/gosub_render_pipeline/benches` times what happens after
+parsing: giving every element its computed style. It has to live in the pipeline crate because
+that is the one place that can reach the HTML parser, this crate and the adapter together.
+
+`style` reports two numbers per fixture. `cascade` walks the element tree top-down through
+`Css3System` alone, computing every property, which is this crate's cost in isolation.
+`render-tree` builds a cold adapter and the render tree over it, which adds the pipeline's
+string-to-typed conversion. The fixtures are a dozen-element floor, a generated utility-first
+page of about 3,000 class-heavy elements with several thousand rules, and the wikipedia fixture
+DOM under the 2.2 MB sheet. Throughput is reported per styled element.
+
+To compare a change against the code before it, save a baseline first and name it:
+
+``` bash
+cargo bench -p gosub_render_pipeline --bench style -- --save-baseline before
+# make the change
+cargo bench -p gosub_render_pipeline --bench style -- --baseline before
+```
+
 ## Known gaps
 
 -   Not every longhand has a grammar definition yet; those skip validation (by design, see above).
