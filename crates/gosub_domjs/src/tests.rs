@@ -370,12 +370,271 @@ fn a_computed_value_sees_the_style_attribute() {
 }
 
 #[test]
+fn a_declaration_for_an_unknown_property_is_dropped() {
+    // css-syntax-3 §9: a declaration whose property this engine does not support is invalid.
+    // The cascade used to pass any property it had no definition for straight through to the
+    // style map, so a misspelling was recorded as though it were a real declaration and could be
+    // read back. A real property beside it still applies - an invalid declaration takes only
+    // itself down.
+    let value = eval(
+        "<div id=target style='dsiplay: block; color: red'></div>",
+        "const s = getComputedStyle(document.getElementById('target')); \
+         (s.getPropertyValue('dsiplay') || 'dropped') + '|' + s.color;",
+    );
+    assert_eq!(value, "dropped|rgb(255, 0, 0)");
+}
+
+#[test]
+fn content_is_validated_like_every_other_property() {
+    // `content` used to skip validation entirely, because its grammar could not be matched
+    // against the tokens the parser produced. It can now, so the exemption is gone: a value the
+    // grammar accepts still applies, and one it rejects is dropped like any other.
+    let value = eval(
+        "<style>#a { content: \"x\" } #b { content: 10px }</style><div id=a></div><div id=b></div>",
+        "const a = getComputedStyle(document.getElementById('a')).content; \
+         const b = getComputedStyle(document.getElementById('b')).content; \
+         a + '|' + b;",
+    );
+    // A dropped declaration leaves the property at its initial value.
+    assert_eq!(value, "x|normal");
+}
+
+#[test]
+fn attr_reads_its_type_and_its_fallback() {
+    // css-values-5 §12.1: `attr( <attr-name> <attr-type>? , <declaration-value>? )`. The second
+    // argument is the type, not the fallback - that comes after the comma - and an untyped
+    // attr() substitutes a string, so it is only valid where a string is. This used to read the
+    // type slot as the fallback and parse the attribute as a CSS value whatever was asked,
+    // which let `width: attr(data-w)` take a length out of an attribute.
+    let value = eval(
+        "<style>\
+           #a { width: attr(data-w px) } \
+           #b { width: attr(missing px, 7px) } \
+           #c { width: attr(data-bad px, 3px) } \
+           #d { width: attr(data-w) } \
+         </style>\
+         <div id=a data-w=10></div><div id=b></div>\
+         <div id=c data-bad=wide></div><div id=d data-w=10></div>",
+        "const w = id => getComputedStyle(document.getElementById(id)).width; \
+         w('a') + '|' + w('b') + '|' + w('c') + '|' + w('d');",
+    );
+    // The last one is invalid - a string is not a length - so `width` keeps its initial value.
+    assert_eq!(value, "10px|7px|3px|auto");
+}
+
+#[test]
+fn cascade_layers_sort_before_specificity() {
+    // css-cascade-5 §6.4.1. A layer is a way of saying "this whole group is weak" without
+    // touching specificity, so it is settled before the selectors are compared at all. Unlayered
+    // CSS beats every layer, and a layer declared later beats one declared earlier. The parser
+    // used to read `@layer` and throw the name away, flattening the rules into the sheet where
+    // they stood, so both of these came out as plain document order.
+    let unlayered_wins = eval(
+        "<style>p { color: rgb(0, 128, 0) } @layer base { p { color: rgb(255, 0, 0) } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(unlayered_wins, "rgb(0, 128, 0)");
+
+    // The order the layers were announced in wins over the order their blocks were written in.
+    let announced_order = eval(
+        "<style>@layer base, overrides; \
+                @layer overrides { p { color: rgb(0, 128, 0) } } \
+                @layer base { p { color: rgb(255, 0, 0) } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(announced_order, "rgb(0, 128, 0)");
+
+    // A layer beats a more specific selector outside it only when the unlayered rule is weaker
+    // in the cascade - which it never is. Specificity cannot rescue a layered rule.
+    let specificity_does_not_help = eval(
+        "<style>@layer base { p#t.c { color: rgb(255, 0, 0) } } p { color: rgb(0, 128, 0) }</style>\
+         <p id=t class=c>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(specificity_does_not_help, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn an_important_declaration_reverses_the_layer_order() {
+    // The reversal is what makes layers usable for a reset: an `!important` in the *first* layer
+    // wins, and an unlayered `!important` is the weakest of all (css-cascade-5 §6.4.1).
+    let value = eval(
+        "<style>@layer base, theme; \
+                @layer base { p { color: rgb(255, 0, 0) !important } } \
+                @layer theme { p { color: rgb(0, 0, 255) !important } } \
+                p { color: rgb(0, 128, 0) !important }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)");
+}
+
+#[test]
+fn a_nested_layer_sorts_inside_the_one_that_holds_it() {
+    // `@layer a { @layer b { } }` is the layer `a.b`, and a layer's own rules are unlayered
+    // within it, so they beat anything it nests.
+    let value = eval(
+        "<style>@layer a { @layer b { p { color: rgb(255, 0, 0) } } p { color: rgb(0, 128, 0) } }</style>\
+         <p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn the_style_attribute_outranks_a_layer() {
+    // Element-attached styles are their own step of the cascade, above layers and specificity
+    // both (css-cascade-5 §6.3). Ranking them by specificity alone was enough until layers
+    // existed, because nothing else could reach that high.
+    let value = eval(
+        "<style>@layer base { p { color: rgb(255, 0, 0) } }</style><p id=t style='color: rgb(0, 128, 0)'>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn revert_layer_rolls_back_only_its_own_layer() {
+    // `revert-layer` asks what the property would be if this layer had said nothing, which is
+    // the earlier layer's value - not the user-agent's, which is what `revert` gives. Both were
+    // the same keyword here until layers existed to tell them apart.
+    let value = eval(
+        "<style>@layer base, theme; \
+                @layer base { p { color: rgb(255, 0, 0) } } \
+                @layer theme { p { color: revert-layer } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)");
+}
+
+#[test]
+fn a_color_keyword_computes_to_the_color_it_names() {
+    // css-color-4 §15: the computed value of a colour is the colour, not the word for it. The
+    // keyword is the *specified* value, which is what `element.style` reads back, and the two
+    // were the same thing here - so `getComputedStyle(el).color` answered `red`.
+    //
+    // Whether a keyword is a colour at all depends on the property. `red` names a grid line on
+    // `grid-row-start`, and must stay a name there.
+    let value = eval(
+        "<style>#a { color: red } #b { color: transparent } #c { grid-row-start: red }</style>\
+         <div id=a></div><div id=b></div><div id=c></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)); \
+         g('a').color + '|' + g('b').color + '|' + g('c').gridRowStart;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)|rgba(0, 0, 0, 0)|red");
+}
+
+#[test]
+fn currentcolor_on_color_is_the_inherited_color() {
+    // `currentcolor` stands for the element's own `color`, which on `color` itself means the
+    // one it inherits (css-color-4 §6.2).
+    let value = eval(
+        "<style>#parent { color: rgb(1, 2, 3) } #child { color: currentcolor }</style>\
+         <div id=parent><div id=child></div></div>",
+        "getComputedStyle(document.getElementById('child')).color;",
+    );
+    assert_eq!(value, "rgb(1, 2, 3)");
+}
+
+#[test]
+fn hwb_resolves_to_srgb_unless_a_component_is_missing() {
+    // `hwb()` is a hue with white and black mixed in (css-color-4 §7). It resolves to sRGB and
+    // serializes as `rgb()`, like `hsl()` - but only when every component is there. A component
+    // written `none` is missing, and sRGB has no way to say that, so such a colour stays in the
+    // notation it was written in.
+    let value = eval(
+        "<style>#a { color: hwb(120 30% 50%) } #b { color: hwb(none none none) } \
+                #c { color: hwb(90deg, 50%, 50%) }</style>\
+         <div id=a></div><div id=b></div><div id=c></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c');",
+    );
+    // The third has commas, which `hwb()` has no legacy form for, so it is not a colour at all
+    // and the declaration is dropped. What is left is `color`'s initial value, the system
+    // colour `canvastext` - which stays a keyword, because the table that gives a system colour
+    // a value lives in the render pipeline rather than here.
+    assert_eq!(value, "rgb(77, 128, 77)|hwb(none none none)|canvastext");
+}
+
+#[test]
+fn a_colour_keeps_the_space_it_was_written_in() {
+    // The colour value carries its own space now, rather than being converted to an sRGB triple
+    // as it is parsed. That is what lets `lab()` stay `lab()` - sRGB cannot hold it - while
+    // `hsl()` still reports as `rgb()`, which is what css-color-4 §15 asks of each.
+    let value = eval(
+        "<style>#a { color: lab(50 10 20) } #b { color: oklch(0.5 0.2 180) } \
+                #c { color: hsl(120 50% 50%) } #d { color: color(display-p3 1 0 0) }</style>\
+         <div id=a></div><div id=b></div><div id=c></div><div id=d></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c') + '|' + g('d');",
+    );
+    assert_eq!(
+        value,
+        "lab(50 10 20)|oklch(0.5 0.2 180)|rgb(64, 191, 64)|color(display-p3 1 0 0)"
+    );
+}
+
+#[test]
+fn a_missing_colour_component_is_not_zero() {
+    // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
+    // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation
+    // to keep it, while the specified value goes out as the legacy triple with the component
+    // read as zero.
+    let value = eval(
+        "<style>#t { color: rgb(128 none none) }</style><div id=t></div><div id=s></div>",
+        "const el = document.getElementById('s'); \
+         el.style.color = 'rgb(128 none none)'; const specified = el.style.color; \
+         const computed = getComputedStyle(document.getElementById('t')).color; \
+         specified + '|' + computed;",
+    );
+    // The style attribute holds its declarations as text, so reading one back goes through the
+    // specified serialization - which is where the missing component is read as zero. The rule
+    // in the stylesheet keeps it as far as the computed value.
+    assert_eq!(value, "rgb(128, 0, 0)|color(srgb 0.50196078 none none)");
+}
+
+#[test]
+fn a_gradient_names_the_space_its_stops_interpolate_in() {
+    // css-images-4 §3.1 lets a gradient say which space its stops are interpolated in. Our
+    // grammar carried it only on the conic form, so `linear-gradient(in oklab, ...)` was not a
+    // gradient at all and the declaration was dropped.
+    //
+    // Three rules govern how it comes back. A method that names the space the stops would have
+    // used anyway is left off, and that default depends on the stops: `oklab`, or `srgb` when
+    // every stop is a legacy sRGB colour. `xyz` is a synonym for `xyz-d65`. And `shorter hue`
+    // is what a polar space does without being told.
+    let value = eval(
+        "<div id=t></div>",
+        "const el = document.getElementById('t'); \
+         const round = v => { el.style.backgroundImage = ''; el.style.backgroundImage = v; \
+                              return el.style.backgroundImage; }; \
+         round('linear-gradient(in lab 30deg, red, blue)') + '\\n' + \
+         round('linear-gradient(in srgb, red, blue)') + '\\n' + \
+         round('linear-gradient(in oklab, color(srgb 1 0 0), blue)') + '\\n' + \
+         round('linear-gradient(in xyz, red, blue)') + '\\n' + \
+         round('linear-gradient(in hsl shorter hue, red, blue)') + '\\n' + \
+         round('radial-gradient(ellipse 50% 40em in lab, red, blue)');",
+    );
+    assert_eq!(
+        value,
+        // The angle comes first whatever order it was written in, because that is the order the
+        // grammar lists the two in.
+        "linear-gradient(30deg in lab, red, blue)\n\
+         linear-gradient(red, blue)\n\
+         linear-gradient(color(srgb 1 0 0), blue)\n\
+         linear-gradient(in xyz-d65, red, blue)\n\
+         linear-gradient(in hsl, red, blue)\n\
+         radial-gradient(50% 40em in lab, red, blue)"
+    );
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",
         "getComputedStyle(document.getElementById('target')).color;",
     );
-    assert_eq!(value, "blue");
+    // A computed colour is the colour, not the keyword that named it.
+    assert_eq!(value, "rgb(0, 0, 255)");
 }
 
 #[test]

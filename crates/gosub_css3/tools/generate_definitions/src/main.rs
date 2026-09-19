@@ -26,7 +26,7 @@ fn strip_trailing_comma_multiplier(re: &Regex, syntax: &str) -> String {
 
 /// Overrides for upstream PROPERTY grammars where both sources are wrong or
 /// incomplete for real-world CSS.
-const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 2] = [
+const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 3] = [
     // webref only carries the modern space-separated basic-shape <rect()>, but
     // the dominant real-world clip syntax is the legacy comma-separated CSS2
     // rect() (MDN's <shape>). Accept both.
@@ -36,6 +36,35 @@ const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 2] = [
     // `background-clip: text` is widely deployed. MDN's <bg-clip> carries the
     // full alternation.
     ("background-clip", "<bg-clip>#"),
+    // webref types column-rule from the css-gaps-1 draft (<gap-rule-list>),
+    // whose shape matches none of its own longhands, so the shorthand expanded
+    // to nothing and never reset them. css-multicol-1 §3.2 is the stable
+    // definition and names the longhands directly.
+    (
+        "column-rule",
+        "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    ),
+];
+
+/// Overrides for a property's longhand list where MDN's is out of date.
+///
+/// A shorthand's list is what the cascade resets when the declaration leaves a longhand out, so
+/// a stale entry resets a property the shorthand does not set at all.
+const PROPERTY_LONGHAND_PATCHES: [(&str, &[&str]); 1] = [
+    // MDN still lists the gutters, from the css-grid-1 draft where `grid` reset them. css-grid-2
+    // §7.4 sets only the six grid-template-* and grid-auto-* longhands, and WPT asserts that a
+    // `grid` declaration leaves the gutters alone.
+    (
+        "grid",
+        &[
+            "grid-template-rows",
+            "grid-template-columns",
+            "grid-template-areas",
+            "grid-auto-rows",
+            "grid-auto-columns",
+            "grid-auto-flow",
+        ],
+    ),
 ];
 
 /// Value types that grammars reference but neither source defines: webref
@@ -52,7 +81,7 @@ const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
 /// Pins value definitions that multiple specs define differently, so the
 /// choice is explicit instead of an artifact of decode order (first spec
 /// wins).
-const VALUE_SYNTAX_PATCHES: [(&str, &str); 2] = [
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 5] = [
     // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
     // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
     // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
@@ -68,6 +97,25 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 2] = [
     (
         "<gradient>",
         "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()>          | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>",
+    ),
+    // css-images-4 §3.1 lets every gradient name the space its stops are interpolated in, and
+    // upstream carries it only on the conic form. Without it `linear-gradient(in oklab, red,
+    // blue)` is not a gradient at all and the declaration is dropped.
+    (
+        "<linear-gradient-syntax>",
+        "[ [ <angle> | <zero> | to <side-or-corner> ]? || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    (
+        "<radial-gradient-syntax>",
+        "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    // A mask layer names its boxes <geometry-box>, while every mask longhand
+    // takes <coord-box> - two spellings of the same set, from css-masking-1 and
+    // css-box-4. The shorthand resolver maps longhands onto layer pieces by
+    // shape, so the spelling difference left `mask` expanding to nothing.
+    (
+        "<mask-layer>",
+        "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <coord-box> || [ <coord-box> | no-clip ] || <compositing-operator> || <masking-mode>",
     ),
 ];
 
@@ -152,6 +200,10 @@ fn main() -> Result<()> {
             }
         } else {
             mdn_prop.computed.array.clone()
+        };
+        let computed = match PROPERTY_LONGHAND_PATCHES.iter().find(|(n, _)| *n == name) {
+            Some((_, longhands)) => longhands.iter().map(|l| (*l).to_string()).collect(),
+            None => computed,
         };
 
         data.properties.push(Property {

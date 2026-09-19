@@ -293,7 +293,17 @@ impl PropertyDefinition {
     /// rejected, and they reached the element as if the author had written them.
     pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
         let Some(shorthands) = &self.shorthands else {
-            return self.syntax.matches(input);
+            if !self.syntax.matches(input) {
+                return false;
+            }
+            // No shape map, which for a shorthand means its longhands cannot be told apart by
+            // grammar alone. The spec still says exactly what each value means, so the ones
+            // that are placed by position are expanded from those rules instead of being left
+            // to set nothing.
+            if self.is_shorthand() {
+                crate::matcher::shorthands::expand_by_hand(self.name(), input, fix_list);
+            }
+            return true;
         };
 
         let before = fix_list.clone();
@@ -318,6 +328,29 @@ impl PropertyDefinition {
         self.computed
             .iter()
             .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
+    }
+
+    /// Whether this property can take a `<color>` at all.
+    ///
+    /// A colour keyword is a keyword until something says otherwise: `red` is a colour on
+    /// `background-color` and a line name on `grid-row-start`. Asking the grammar is what tells
+    /// the two apart, and it only has to be asked once, when the computed value is worked out.
+    #[must_use]
+    pub fn takes_color(&self) -> bool {
+        // `<color>` is inlined into the grammar when the definitions load, so there is no node
+        // by that name left to look for. What the expansion always begins with is the hex form,
+        // and nothing else in CSS takes one, so its presence marks a colour slot.
+        fn walks(component: &SyntaxComponent) -> bool {
+            match component {
+                SyntaxComponent::Builtin { datatype, .. } => datatype == "hex-color",
+                SyntaxComponent::Group { components, .. } => components.iter().any(walks),
+                // A gradient keeps its colours inside its own arguments, so a property that
+                // takes one has its colour slot a level further down than the groups.
+                SyntaxComponent::Function { arguments, .. } => arguments.as_deref().is_some_and(walks),
+                _ => false,
+            }
+        }
+        self.syntax.components.iter().any(walks)
     }
 
     /// The range a computed value for this property has to lie in, if it has one.
@@ -1138,26 +1171,26 @@ mod tests {
         assert!(prop.clone().matches(&[
             unit!(1.0, "px"),
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
         ]));
         assert!(prop.clone().matches(&[
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             str!("solid"),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[unit!(1.0, "px")]));
         assert!(prop.clone().matches(&[str!("solid")]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert_true!(prop.clone().matches(&[str!("solid")]));
         assert_false!(prop.clone().matches(&[str!("not-solid")]));
         assert_false!(prop.clone().matches(&[str!("solid"), str!("solid"), unit!(1.0, "px"),]));
@@ -1610,9 +1643,12 @@ mod tests {
         assert!(!ok("width", "-webkit-banana(1)"));
     }
 
-    /// POLICY: a lone vendor-prefixed keyword is accepted for every property (cascade
-    /// fallbacks like `display: -webkit-box; display: flex`). Vendor keywords inside
-    /// larger values and unprefixed legacy keywords stay rejected.
+    /// A prefixed keyword is matched against the grammar like any other value, and this
+    /// engine implements none of them, so every one is invalid (css-syntax-3 §9). That is what
+    /// makes the `display: -webkit-box; display: flex` fallback idiom work: the prefixed
+    /// declaration is dropped and the standard one before or after it stands. Prefixed *math*
+    /// functions stay accepted, since the prefix there names a function this engine does
+    /// evaluate.
     #[test]
     fn test_vendor_prefixed_values() {
         let defs = get_css_definitions();
@@ -1623,18 +1659,21 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
+        // The Compatibility Standard's four `display` aliases resolve to the value they name
+        // when the stylesheet is built, so they reach the grammar as `flex`/`inline-flex`.
         assert!(ok("display", "-webkit-box"));
-        assert!(ok("display", "-moz-box"));
-        assert!(ok("position", "-webkit-sticky"));
-        assert!(ok("cursor", "-webkit-grab"));
-        assert!(ok("width", "-webkit-fit-content"));
-        assert!(ok("width", "-moz-fit-content"));
-        // Unprefixed legacy keywords are NOT covered by the policy.
+        assert!(ok("display", "-webkit-inline-flex"));
+        // Nothing else prefixed is supported, on `display` or anywhere else.
+        assert!(!ok("display", "-moz-box"));
+        assert!(!ok("position", "-webkit-sticky"));
+        assert!(!ok("cursor", "-webkit-grab"));
+        assert!(!ok("width", "-webkit-fit-content"));
+        assert!(!ok("width", "-moz-fit-content"));
         assert!(!ok("display", "box"));
-        // A lone dash or non-keyword stays rejected.
         assert!(!ok("display", "-webkit-"));
-        // The policy covers only a single bare identifier, not compound values.
         assert!(!ok("margin", "-webkit-foo 10px"));
+        // A grammar that does list a prefixed keyword still matches it.
+        assert!(ok("-moz-appearance", "button"));
     }
 
     /// `clip` accepts both rect() forms: the legacy comma-separated CSS2 shape (MDN's
@@ -2080,7 +2119,9 @@ mod tests {
         assert_true!(def.clone().matches(&[str!("Menu")]));
 
         assert_true!(def.clone().matches(&[str!("blue")]));
-        assert_true!(def.clone().matches(&[CssValue::Color(RgbColor::from("#ff0000"))]));
+        assert_true!(def
+            .clone()
+            .matches(&[CssValue::Color(RgbColor::from("#ff0000").into())]));
         assert_true!(def.clone().matches(&[str!("rebeccapurple")]));
 
         assert_false!(def.clone().matches(&[str!("thiscolordoesnotexist")]));

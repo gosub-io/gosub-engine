@@ -21,23 +21,32 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
-/// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
-/// the unprefixed form. E.g. "-webkit-match-parent" → "match-parent".
-fn strip_vendor_prefix(s: &str) -> &str {
-    for prefix in &["-webkit-", "-moz-", "-ms-", "-o-"] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return rest;
-        }
-    }
-    s
+/// Where a custom property declaration sorts: the cascade's steps, in order, as one key.
+type CustomRank = (u8, u16, bool, u32, Specificity);
+
+/// A rule that matched the element, with everything the cascade needs to rank it.
+struct MatchedRule<'a> {
+    sheet: &'a CssStylesheet,
+    rule: &'a crate::stylesheet::CssRule,
+    /// The highest specificity among the rule's selectors that matched.
+    specificity: Specificity,
+    /// How many shadow boundaries deep the declaring sheet sits.
+    depth: u16,
+    /// The rule's cascade layer, as an index into its own sheet's list.
+    layer: Option<u32>,
+    /// Whether this is the element's `style` attribute rather than a stylesheet rule.
+    attached: bool,
 }
 
-/// Recursively normalize vendor-prefixed string values to their standard form.
-fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
-    match value {
-        CssValue::String(s) => CssValue::String(strip_vendor_prefix(&s).to_string()),
-        CssValue::List(values) => CssValue::List(values.into_iter().map(normalize_vendor_prefixes).collect()),
-        other => other,
+/// A layer rank as the cascade sorts it: unlayered is the top of the order for a normal
+/// declaration and the bottom for an important one, and the layers run in opposite directions
+/// for the two (css-cascade-5 §6.4.1).
+fn layer_sort_key(layer: Option<u32>, important: bool) -> u32 {
+    match (layer, important) {
+        (None, false) => u32::MAX,
+        (None, true) => 0,
+        (Some(layer), false) => layer.saturating_add(1),
+        (Some(layer), true) => u32::MAX.saturating_sub(layer).saturating_sub(1),
     }
 }
 
@@ -207,7 +216,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
         });
 
-    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity, u16)> = Vec::new();
+    let mut matched: Vec<MatchedRule<'_>> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
     // rule. Unconditional rules never look at it.
     let media_env = crate::media_query::media_environment();
@@ -237,7 +246,14 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 })
                 .max();
             if let Some(specificity) = best {
-                matched.push((sheet, rule, specificity, depth));
+                matched.push(MatchedRule {
+                    sheet,
+                    rule,
+                    specificity,
+                    depth,
+                    layer: rule.layer,
+                    attached: false,
+                });
             }
         }
     }
@@ -245,25 +261,51 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
     // to the element's own tree, so it ranks at that tree's depth rather than the document's.
     if let Some((sheet, rule)) = inline_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
-        matched.push((sheet, rule, INLINE_SPECIFICITY, shadow_depth::<C>(doc, element_scope)));
+        matched.push(MatchedRule {
+            sheet,
+            rule,
+            specificity: INLINE_SPECIFICITY,
+            depth: shadow_depth::<C>(doc, element_scope),
+            layer: None,
+            attached: true,
+        });
     }
+
+    // Where each cascade layer sorts, merged across the sheets of each origin. Built only when
+    // some sheet actually declares one, which no page that does not use `@layer` ever does.
+    let sheet_refs: Vec<&CssStylesheet> = sheets.iter().collect();
+    let layer_order = crate::layers::LayerOrder::build(&sheet_refs);
+    let layer_rank = |matched: &MatchedRule<'_>| -> Option<u32> {
+        let order = layer_order.as_ref()?;
+        let name = matched.sheet.layers.get(matched.layer? as usize)?;
+        Some(order.rank(matched.sheet.origin, name))
+    };
 
     // Custom properties: the parent's scope with this node's own declarations cascaded on
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
     // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
-    let mut own_custom: HashMap<&str, ((u8, u16, Specificity), &CssValue)> = HashMap::new();
-    for (sheet, rule, specificity, depth) in &matched {
+    let mut own_custom: HashMap<&str, (CustomRank, &CssValue)> = HashMap::new();
+    for matched_rule in &matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
         for decl in rule.declarations() {
             if !decl.property.starts_with("--") {
                 continue;
             }
             // Same ordering as the regular cascade: origin/importance, then the cross-tree
-            // tiebreak, then specificity.
+            // tiebreak, then element-attached, then layer, then specificity.
             let rank = (
                 cascade_rank(sheet.origin, decl.important),
                 tree_rank(*depth, decl.important),
+                matched_rule.attached,
+                layer_sort_key(layer_rank(matched_rule), decl.important),
                 *specificity,
             );
             match own_custom.entry(decl.property.as_str()) {
@@ -302,7 +344,16 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // exactly the order the author wrote.
     let mut order: u32 = 0;
 
-    for (sheet, rule, specificity, depth) in matched {
+    for matched_rule in matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
+        let layer = layer_rank(&matched_rule);
+        let attached = matched_rule.attached;
         // Selector matched, so we add all declared values to the map
         for declaration in rule.declarations() {
             order += 1;
@@ -312,33 +363,11 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 continue;
             }
             let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
-            // Normalize vendor-prefixed values (-webkit-X → X) so they match
-            // against the standard keyword definitions.
-            let value = normalize_vendor_prefixes(value);
 
-            // `content` carries arbitrary tokens (strings, `attr()`, counters,
-            // quotes) that the property-syntax matcher cannot validate - notably the
-            // empty string `content: ""`. Pass it through verbatim; the render
-            // pipeline resolves it into generated text itself.
-            if declaration.property == "content" {
-                add_property_to_map(
-                    &mut css_map_entry,
-                    sheet,
-                    specificity,
-                    &CssDeclaration {
-                        property: "content".to_string(),
-                        value,
-                        important: declaration.important,
-                    },
-                    depth,
-                    order,
-                );
-                continue;
-            }
-
-            // If the property has a definition, validate and expand shorthands.
-            // If not (e.g. margin-top, padding-bottom - longhand properties not yet
-            // in the definition list), insert the value directly without validation.
+            // `content` used to be passed through here without validation, because its
+            // grammar could not be matched against the tokens the parser produced - the empty
+            // string of `::before { content: "" }` most of all. It can now, so it goes through
+            // the same path as everything else and a `content: 10px` is dropped.
             match definitions.find_property(&declaration.property) {
                 Some(definition) => {
                     let match_value = if let CssValue::List(value) = &value {
@@ -357,6 +386,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         specificity,
                         depth,
                         order,
+                        layer,
+                        attached,
                     ));
 
                     // Each CSS declaration starts with a fresh TRBL multiplier
@@ -396,37 +427,24 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         },
                         depth,
                         order,
+                        layer,
+                        attached,
                     );
                 }
                 None => {
-                    // No definition: pass the value through as-is so that properties
-                    // like margin-top, padding-left, font-size etc. (which are valid
-                    // CSS but happen not to have their own PropertyDefinition entry)
-                    // still reach the style consumer.
-                    let value = if let CssValue::List(mut values) = value {
-                        match values.pop() {
-                            Some(single) if values.is_empty() => single,
-                            Some(last) => {
-                                values.push(last);
-                                CssValue::List(values)
-                            }
-                            None => CssValue::List(values),
-                        }
-                    } else {
-                        value
-                    };
-                    add_property_to_map(
-                        &mut css_map_entry,
-                        sheet,
-                        specificity,
-                        &CssDeclaration {
-                            property: declaration.property.clone(),
-                            value,
-                            important: declaration.important,
-                        },
-                        depth,
-                        order,
-                    );
+                    // A property this engine has no definition for is a property it does not
+                    // support, and a declaration for one is invalid (css-syntax-3 §9). It is
+                    // dropped rather than passed through: an unvalidated value reaching the
+                    // style consumer is how `dsiplay: block` used to be recorded and answered
+                    // by `getComputedStyle` as though it were a real declaration.
+                    //
+                    // The comment here used to say this path carried the common longhands,
+                    // which have had their own definitions for a long time. What reaches it now
+                    // is misspellings, properties from specs the definitions data does not
+                    // cover, and the few `-internal-` names the user-agent sheet sets and
+                    // nothing reads.
+                    log::debug!("Unknown property, declaration dropped: {}", declaration.property);
+                    continue;
                 }
             }
         }
@@ -436,9 +454,54 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
+    inherit_from_parent(&mut css_map_entry, inherited);
+
     resolve_font_size_basis(&mut css_map_entry, inherited);
 
     Some(css_map_entry)
+}
+
+/// Carry the parent's computed values down for every property that inherits.
+///
+/// An element that declares nothing for an inherited property computes to its parent's computed
+/// value (css-cascade-4 §4.4), and the value is written into this element's map rather than
+/// looked up later for two reasons. It is what `inherit` and `unset` resolve against, and
+/// without it those keywords could only see a parent that happened to declare the property
+/// itself - `body { color: red }` with a plain `<div>` between would leave `color: inherit` on
+/// the element below computing to black. And because every element's map then holds the
+/// inherited state in full, one level of lookup is all any element ever needs.
+///
+/// A property the element declares itself is left alone; only `inherited` is filled in, since
+/// that is what `inherit` names even when there is a cascaded value to override it.
+fn inherit_from_parent(map: &mut CssProperties, inherited: Option<&CssProperties>) {
+    let Some(parent) = inherited else {
+        return;
+    };
+    for (name, parent_property) in &parent.properties {
+        // The parent's computed value is the inherited value. A parent map that was never
+        // computed has nothing to give, and the property falls back to its initial value.
+        if matches!(parent_property.computed, CssValue::None) {
+            continue;
+        }
+        // A property that inherits gets an entry here whether or not this element mentions it,
+        // so the value keeps travelling down. One that does not inherit gets the value recorded
+        // only where the element already has an entry: nothing is inherited by default, but
+        // `inherit` names the parent's value for *any* property, `width` included.
+        let property = if prop_is_inherit(name) {
+            Some(
+                map.properties
+                    .entry(name.clone())
+                    .or_insert_with(|| CssProperty::new(name)),
+            )
+        } else {
+            map.properties.get_mut(name)
+        };
+        let Some(property) = property else {
+            continue;
+        };
+        property.inherited = parent_property.computed.clone();
+        property.mark_dirty();
+    }
 }
 
 /// Work out what an `em` and a `rem` mean on this element, and tell every property.
@@ -553,6 +616,7 @@ pub fn prop_is_inherit(name: &str) -> bool {
         .is_some_and(|def| def.inherited)
 }
 
+#[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
 pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &crate::stylesheet::CssStylesheet,
@@ -560,6 +624,8 @@ pub fn add_property_to_map(
     declaration: &CssDeclaration,
     shadow_depth: u16,
     order: u32,
+    layer: Option<u32>,
+    attached: bool,
 ) {
     let property_name = declaration.property.clone();
 
@@ -572,6 +638,8 @@ pub fn add_property_to_map(
         specificity,
         shadow_depth,
         order,
+        layer,
+        attached,
     };
 
     css_map_entry

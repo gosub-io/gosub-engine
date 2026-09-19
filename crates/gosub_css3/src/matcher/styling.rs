@@ -12,6 +12,7 @@ use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
+use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
@@ -576,6 +577,21 @@ pub struct DeclarationProperty {
     /// 1 for a sheet in a shadow tree hosted by a document element, and so on. Feeds the
     /// cross-tree half of the cascade; see [`DeclarationProperty::tree_rank`].
     pub shadow_depth: u16,
+    /// The cascade layer this declaration came from, as its rank within its origin: higher
+    /// means declared later. `None` for a declaration outside every layer.
+    ///
+    /// css-cascade-5 §6.4.1 sorts layers after the tree and before specificity, so a layer
+    /// settles the winner while the selectors are still unread. A normal declaration is
+    /// strongest when it sits in no layer at all and, failing that, in the latest one. For an
+    /// important declaration the whole order turns round: the earliest layer wins and unlayered
+    /// is weakest, which is what lets a reset layer keep an `!important` the page cannot undo.
+    pub layer: Option<u32>,
+    /// Whether the declaration came from the element's own `style` attribute.
+    ///
+    /// Element-attached styles are their own step of the cascade, above layers and specificity
+    /// both (css-cascade-5 §6.3). Ranking them by specificity alone was enough until layers
+    /// existed, because nothing else could reach that high; a rule in a late layer can.
+    pub attached: bool,
     /// Position of the declaration in document order, counted across every matched rule.
     /// The last step of the cascade: when origin, tree and specificity all tie, the
     /// declaration that comes later in the stylesheets wins.
@@ -620,6 +636,19 @@ impl DeclarationProperty {
             u16::MAX - self.shadow_depth
         }
     }
+
+    /// The cascade-layer step, as a number where higher wins (css-cascade-5 §6.4.1).
+    ///
+    /// Unlayered is the top of the order for a normal declaration and the bottom for an
+    /// important one, and the layers themselves run in opposite directions for the two.
+    fn layer_rank(&self) -> u32 {
+        match (self.layer, self.important) {
+            (None, false) => u32::MAX,
+            (None, true) => 0,
+            (Some(layer), false) => layer.saturating_add(1),
+            (Some(layer), true) => u32::MAX.saturating_sub(layer).saturating_sub(1),
+        }
+    }
 }
 
 impl PartialEq<Self> for DeclarationProperty {
@@ -641,8 +670,46 @@ impl Ord for DeclarationProperty {
         self.priority()
             .cmp(&other.priority())
             .then_with(|| self.tree_rank().cmp(&other.tree_rank()))
+            .then_with(|| self.attached.cmp(&other.attached))
+            .then_with(|| self.layer_rank().cmp(&other.layer_rank()))
             .then_with(|| self.specificity.cmp(&other.specificity))
             .then_with(|| self.order.cmp(&other.order))
+    }
+}
+
+/// The CSS-wide keywords, which are valid for every property and mean something about the
+/// cascade rather than about the property (css-cascade-4 §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CssWide {
+    Inherit,
+    Initial,
+    Unset,
+    Revert,
+    RevertLayer,
+}
+
+/// Which CSS-wide keyword `value` is, if any. The parser lowers all of them to a string, so the
+/// dedicated variants are only what a caller that builds values directly produces.
+#[must_use]
+pub fn css_wide_keyword(value: &CssValue) -> Option<CssWide> {
+    match value {
+        CssValue::Inherit => Some(CssWide::Inherit),
+        CssValue::Initial => Some(CssWide::Initial),
+        CssValue::String(keyword) => {
+            for (name, kind) in [
+                ("inherit", CssWide::Inherit),
+                ("initial", CssWide::Initial),
+                ("unset", CssWide::Unset),
+                ("revert", CssWide::Revert),
+                ("revert-layer", CssWide::RevertLayer),
+            ] {
+                if keyword.eq_ignore_ascii_case(name) {
+                    return Some(kind);
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -780,11 +847,64 @@ impl CssProperty {
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
-        self.declared.iter().max().map(|v| v.value.clone())
+        let winner = self.declared.iter().max()?;
+        // `revert` is not a value: it says to take the value this property would have had if
+        // the origin the winning declaration came from had said nothing at all (css-cascade-5
+        // §7.2). `revert-layer` asks the narrower question, about the layer rather than the
+        // whole origin. Either way the answer is the cascade run again over what is left.
+        match css_wide_keyword(&winner.value) {
+            Some(CssWide::Revert) => {
+                let origin = winner.origin;
+                self.declared
+                    .iter()
+                    .filter(|declaration| declaration.origin != origin)
+                    .max()
+                    .map(|declaration| declaration.value.clone())
+            }
+            Some(CssWide::RevertLayer) => {
+                let (origin, layer) = (winner.origin, winner.layer);
+                self.declared
+                    .iter()
+                    .filter(|declaration| declaration.origin != origin || declaration.layer != layer)
+                    .max()
+                    .map(|declaration| declaration.value.clone())
+            }
+            _ => Some(winner.value.clone()),
+        }
     }
 
+    /// The specified value: the cascaded value, or what the property falls back to when nothing
+    /// in the cascade set it (css-cascade-4 §4.3).
+    ///
+    /// This is where `inherit` and `unset` resolve. Both name the inherited value - `unset` only
+    /// for a property that inherits, and the initial value otherwise - and `inherited` holds it
+    /// when a parent map was passed in. A consumer that walks the tree itself sees the keyword
+    /// travel on, and resolves it against the ancestor it has; what must not happen is for it to
+    /// reach a value converter, which reads a keyword it does not know as "nothing declared".
     fn find_specified_value(&self) -> CssValue {
-        self.cascaded.as_ref().unwrap_or(&self.inherited).clone()
+        let Some(cascaded) = self.cascaded.as_ref() else {
+            return self.inherited.clone();
+        };
+        match css_wide_keyword(cascaded) {
+            Some(CssWide::Inherit) => self.inherited.clone(),
+            // `unset` is `inherit` on a property that inherits and `initial` on one that does
+            // not, which is the same thing as having no cascaded value at all.
+            Some(CssWide::Unset) => {
+                if self.property_inherits() {
+                    self.inherited.clone()
+                } else {
+                    CssValue::Initial
+                }
+            }
+            _ => cascaded.clone(),
+        }
+    }
+
+    /// Whether this property inherits by default, which is what `unset` turns on.
+    fn property_inherits(&self) -> bool {
+        get_css_definitions()
+            .find_property(&self.name)
+            .is_some_and(|definition| definition.inherited())
     }
 
     fn find_computed_value(&self) -> CssValue {
@@ -799,6 +919,17 @@ impl CssProperty {
             }
             specified => specified.clone(),
         };
+
+        // A colour keyword computes to the colour it names (css-color-4 §15). It travels this
+        // far as a plain keyword because that is what the *specified* value is - reading
+        // `element.style.color` back after setting it to `red` has to answer `red` - and only
+        // the computed value is the sRGB colour, which is what `getComputedStyle` reports and
+        // what the painter needs. Whether the keyword is a colour at all depends on the
+        // property: `red` names a grid line on `grid-row-start`.
+        //
+        // The whole value is walked, not just its top: the stops of a gradient are colours too,
+        // and `linear-gradient(30deg, red, blue)` computes with each of them resolved.
+        let specified = self.resolve_colors(&specified);
 
         // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
         // percentage resolves here rather than travelling on. It is the one percentage that can:
@@ -833,6 +964,59 @@ impl CssProperty {
         let computed = resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis);
 
         self.clamp_to_range(computed)
+    }
+
+    /// Resolve every colour in a value: a keyword to the colour it names, and a colour already
+    /// parsed to its computed form. Recurses, because a colour can sit inside a function.
+    fn resolve_colors(&self, value: &CssValue) -> CssValue {
+        match value {
+            CssValue::String(keyword) => match self.color_keyword(keyword) {
+                Some(mut color) => {
+                    color.computed = true;
+                    CssValue::Color(color)
+                }
+                None => value.clone(),
+            },
+            CssValue::Color(color) => {
+                let mut color = *color;
+                color.computed = true;
+                CssValue::Color(color)
+            }
+            CssValue::Function(name, args) => {
+                // A colour function still standing is folded here, where its `calc()` can be.
+                if let Some(mut color) = crate::stylesheet::fold_color_function(name, args, true) {
+                    color.computed = true;
+                    return CssValue::Color(color);
+                }
+                CssValue::Function(name.clone(), args.iter().map(|a| self.resolve_colors(a)).collect())
+            }
+            CssValue::List(items) => CssValue::List(items.iter().map(|item| self.resolve_colors(item)).collect()),
+            other => other.clone(),
+        }
+    }
+
+    /// The colour a keyword names, when this property is one that takes a colour.
+    ///
+    /// `currentcolor` is not a colour of its own: it stands for the element's own `color`, which
+    /// on `color` itself means the inherited one (css-color-4 §6.2). Every other property that
+    /// mentions it resolves against this element's computed `color`, which this cannot see, so
+    /// there the keyword travels on untouched.
+    fn color_keyword(&self, keyword: &str) -> Option<CssColor> {
+        let definition = get_css_definitions().find_property(&self.name)?;
+        if !definition.takes_color() {
+            return None;
+        }
+        if keyword.eq_ignore_ascii_case("currentcolor") {
+            if self.name != "color" {
+                return None;
+            }
+            return match &self.inherited {
+                CssValue::Color(inherited) => Some(*inherited),
+                // Nothing above declared a colour, so `currentcolor` is the initial one.
+                _ => RgbColor::try_from_str("black").map(CssColor::from),
+            };
+        }
+        RgbColor::try_from_str(keyword).map(CssColor::from)
     }
 
     /// Bring a computed value inside the range its property allows (css-values-4 §10.12).
@@ -967,6 +1151,8 @@ impl From<CssValue> for CssProperty {
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         }];
 
         this.calculate_value();
@@ -985,6 +1171,8 @@ impl From<CssValue> for DeclarationProperty {
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         }
     }
 }
@@ -1029,6 +1217,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
         if let CssValue::Color(color) = &self.actual {
+            let color = color.to_rgb();
             Some((color.r, color.g, color.b, color.a))
         } else {
             None
@@ -1189,7 +1378,7 @@ mod tests {
             value: CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
-                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0)),
+                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0).into()),
             ]),
             origin: CssOrigin::Author,
             important: false,
@@ -1197,6 +1386,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
 
         assert_eq!(
@@ -1204,7 +1395,7 @@ mod tests {
             &CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
-                CssValue::Color("red".into()),
+                CssValue::Color(RgbColor::from("red").into()),
             ])
         );
         assert!(prop.is_shorthand());
@@ -1225,9 +1416,13 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
 
-        assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
+        // The computed value of a colour keyword is the colour it names (css-color-4 §15). The
+        // keyword itself is the *specified* value, which is what `element.style` reads back.
+        assert_eq!(prop.compute_value(), &CssValue::Color(RgbColor::from("red").into()));
         assert!(!prop.is_shorthand());
         assert_eq!(prop.name, "color");
         // css-color-4 gives `color` an initial value of `canvastext`. This asserted `None`,
@@ -1256,6 +1451,8 @@ mod tests {
                 specificity: Specificity::new(1, 0, 0),
                 shadow_depth: 0,
                 order: 0,
+                layer: None,
+                attached: false,
             });
 
             assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
@@ -1292,6 +1489,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
         prop.compute_value().clone()
     }
@@ -1385,6 +1584,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let b = DeclarationProperty {
             value: CssValue::String("blue".into()),
@@ -1394,6 +1595,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let c = DeclarationProperty {
             value: CssValue::String("green".into()),
@@ -1403,6 +1606,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
@@ -1412,6 +1617,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let e = DeclarationProperty {
             value: CssValue::String("orange".into()),
@@ -1421,6 +1628,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let f = DeclarationProperty {
             value: CssValue::String("purple".into()),
@@ -1430,6 +1639,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
 
         assert_eq!(3, a.priority());

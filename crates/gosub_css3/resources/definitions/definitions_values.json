@@ -1057,7 +1057,7 @@
   },
   {
     "name": "<linear-gradient-syntax>",
-    "syntax": "[ <angle> | <zero> | to <side-or-corner> ]? ',' <color-stop-list>"
+    "syntax": "[ [ <angle> | <zero> | to <side-or-corner> ]? || <color-interpolation-method> ]? ',' <color-stop-list>"
   },
   {
     "name": "<log()>",
@@ -1069,7 +1069,7 @@
   },
   {
     "name": "<mask-layer>",
-    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <geometry-box> || [ <geometry-box> | no-clip ] || <compositing-operator> || <masking-mode>"
+    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <coord-box> || [ <coord-box> | no-clip ] || <compositing-operator> || <masking-mode>"
   },
   {
     "name": "<mask-position>",
@@ -1481,7 +1481,7 @@
   },
   {
     "name": "<radial-gradient-syntax>",
-    "syntax": "[ <radial-shape> || <radial-size> ]? [ at <position> ]? ',' <color-stop-list>"
+    "syntax": "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>"
   },
   {
     "name": "<radial-shape>",

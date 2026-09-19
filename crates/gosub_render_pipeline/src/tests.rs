@@ -112,6 +112,66 @@ mod rendertree_from_engine {
         assert!(matches!(c, Value::Color(0, 128, 0, _)), "inline color: {c:?}");
     }
 
+    /// The CSS-wide keywords are cascade instructions, not values (css-cascade-4 §7), and every
+    /// property takes all of them. They used to reach the value converters, which read a keyword
+    /// they did not recognise as "nothing declared" - so `width: inherit` silently behaved like
+    /// `width: initial`, and `revert` did nothing at all.
+    #[test]
+    fn the_css_wide_keywords_resolve_against_the_cascade() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>
+          #parent { width: 300px; color: rgb(1, 2, 3) }
+          #width-inherit { width: inherit }
+          #width-unset { width: 50px; width: unset }
+          #color-unset { color: rgb(9, 9, 9); color: unset }
+          #deep-color { color: inherit }
+          #reverted { margin-left: 40px; margin-left: revert }
+        </style></head>
+        <body><div id="parent">
+          <div id="width-inherit">a</div>
+          <div id="width-unset">b</div>
+          <div id="color-unset">c</div>
+          <div><div id="deep-color">d</div></div>
+          <div id="reverted">e</div>
+        </div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+
+        // `inherit` names the parent's computed value, for a property that does not inherit too.
+        let width = adapter.get_style(node("width-inherit"), &StyleProperty::Width);
+        assert!(
+            matches!(width, Value::Unit(v, Unit::Px) if (v - 300.0).abs() < 0.01),
+            "width: inherit should be the parent's 300px, got {width:?}"
+        );
+
+        // `unset` is `initial` for a property that does not inherit, so the earlier 50px goes.
+        let width = adapter.get_style(node("width-unset"), &StyleProperty::Width);
+        assert!(
+            !matches!(width, Value::Unit(v, Unit::Px) if (v - 50.0).abs() < 0.01),
+            "width: unset should drop the earlier 50px, got {width:?}"
+        );
+
+        // `unset` is `inherit` for a property that does inherit.
+        let color = adapter.get_style(node("color-unset"), &StyleProperty::Color);
+        assert!(matches!(color, Value::Color(1, 2, 3, _)), "color: unset -> {color:?}");
+
+        // Inheritance travels through an element that declares nothing itself.
+        let color = adapter.get_style(node("deep-color"), &StyleProperty::Color);
+        assert!(matches!(color, Value::Color(1, 2, 3, _)), "color: inherit -> {color:?}");
+
+        // `revert` drops its own origin's declarations, leaving the user-agent sheet's value.
+        let margin = adapter.get_style(node("reverted"), &StyleProperty::MarginLeft);
+        assert!(
+            !matches!(margin, Value::Unit(v, Unit::Px) if (v - 40.0).abs() < 0.01),
+            "margin-left: revert should drop the author 40px, got {margin:?}"
+        );
+    }
+
     /// A shorthand resets the longhands it does not mention (css-cascade-5 §2.5). An earlier
     /// `border-color: red` must not survive a later `border: 1px solid`, an earlier
     /// `font-weight: bold` must not survive `font: 12px serif`, and a `border` without a width
@@ -1645,13 +1705,20 @@ mod rendertree_from_engine {
         );
     }
 
-    /// Nested blocks must both hold, and the rules inside a `@media` still flatten out of an
-    /// enclosing `@layer`.
+    /// Nested `@media` blocks must both hold, and a `@media` inside a `@layer` still reaches the
+    /// cascade with its layer intact.
+    ///
+    /// The base rule sits in a layer of its own here. It used to be unlayered, from when `@layer`
+    /// was flattened away and the last rule written simply won; now that layers are sorted, an
+    /// unlayered rule beats every layer, so the layered rule could never have shown through.
     #[test]
     fn nested_and_layered_media_blocks() {
         let html = r#"
             <html><head><style>
-                #target { width: 100px; display: block; }
+                @layer base, desktop;
+                @layer base {
+                    #target { width: 100px; display: block; }
+                }
                 @media (min-width: 700px) {
                     @media (max-width: 900px) {
                         #target { width: 200px; }
@@ -1680,7 +1747,8 @@ mod rendertree_from_engine {
             "between the blocks: expected 100px, got {between}"
         );
 
-        // The rule inside `@layer` + `@media` is reachable.
+        // The rule inside `@layer` + `@media` is reachable, and its layer was declared after
+        // the base layer, so it wins.
         let widest = width_px_at_viewport(html, 1400.0, 600.0);
         assert!(
             (widest - 400.0).abs() < 0.5,
