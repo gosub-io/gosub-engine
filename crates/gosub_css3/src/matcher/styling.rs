@@ -576,6 +576,21 @@ pub struct DeclarationProperty {
     /// 1 for a sheet in a shadow tree hosted by a document element, and so on. Feeds the
     /// cross-tree half of the cascade; see [`DeclarationProperty::tree_rank`].
     pub shadow_depth: u16,
+    /// The cascade layer this declaration came from, as its rank within its origin: higher
+    /// means declared later. `None` for a declaration outside every layer.
+    ///
+    /// css-cascade-5 §6.4.1 sorts layers after the tree and before specificity, so a layer
+    /// settles the winner while the selectors are still unread. A normal declaration is
+    /// strongest when it sits in no layer at all and, failing that, in the latest one. For an
+    /// important declaration the whole order turns round: the earliest layer wins and unlayered
+    /// is weakest, which is what lets a reset layer keep an `!important` the page cannot undo.
+    pub layer: Option<u32>,
+    /// Whether the declaration came from the element's own `style` attribute.
+    ///
+    /// Element-attached styles are their own step of the cascade, above layers and specificity
+    /// both (css-cascade-5 §6.3). Ranking them by specificity alone was enough until layers
+    /// existed, because nothing else could reach that high; a rule in a late layer can.
+    pub attached: bool,
     /// Position of the declaration in document order, counted across every matched rule.
     /// The last step of the cascade: when origin, tree and specificity all tie, the
     /// declaration that comes later in the stylesheets wins.
@@ -620,6 +635,19 @@ impl DeclarationProperty {
             u16::MAX - self.shadow_depth
         }
     }
+
+    /// The cascade-layer step, as a number where higher wins (css-cascade-5 §6.4.1).
+    ///
+    /// Unlayered is the top of the order for a normal declaration and the bottom for an
+    /// important one, and the layers themselves run in opposite directions for the two.
+    fn layer_rank(&self) -> u32 {
+        match (self.layer, self.important) {
+            (None, false) => u32::MAX,
+            (None, true) => 0,
+            (Some(layer), false) => layer.saturating_add(1),
+            (Some(layer), true) => u32::MAX.saturating_sub(layer).saturating_sub(1),
+        }
+    }
 }
 
 impl PartialEq<Self> for DeclarationProperty {
@@ -641,6 +669,8 @@ impl Ord for DeclarationProperty {
         self.priority()
             .cmp(&other.priority())
             .then_with(|| self.tree_rank().cmp(&other.tree_rank()))
+            .then_with(|| self.attached.cmp(&other.attached))
+            .then_with(|| self.layer_rank().cmp(&other.layer_rank()))
             .then_with(|| self.specificity.cmp(&other.specificity))
             .then_with(|| self.order.cmp(&other.order))
     }
@@ -654,6 +684,7 @@ pub enum CssWide {
     Initial,
     Unset,
     Revert,
+    RevertLayer,
 }
 
 /// Which CSS-wide keyword `value` is, if any. The parser lowers all of them to a string, so the
@@ -669,7 +700,7 @@ pub fn css_wide_keyword(value: &CssValue) -> Option<CssWide> {
                 ("initial", CssWide::Initial),
                 ("unset", CssWide::Unset),
                 ("revert", CssWide::Revert),
-                ("revert-layer", CssWide::Revert),
+                ("revert-layer", CssWide::RevertLayer),
             ] {
                 if keyword.eq_ignore_ascii_case(name) {
                     return Some(kind);
@@ -679,10 +710,6 @@ pub fn css_wide_keyword(value: &CssValue) -> Option<CssWide> {
         }
         _ => None,
     }
-}
-
-fn is_revert(value: &CssValue) -> bool {
-    css_wide_keyword(value) == Some(CssWide::Revert)
 }
 
 /// A value entry contains all values for a single property for a single node. It contains the declared values, and
@@ -821,19 +848,28 @@ impl CssProperty {
     fn find_cascaded_value(&self) -> Option<CssValue> {
         let winner = self.declared.iter().max()?;
         // `revert` is not a value: it says to take the value this property would have had if
-        // the origin the winning declaration came from had said nothing at all (css-cascade-4
-        // §7.2). So drop that whole origin and cascade again. Without layers `revert-layer`
-        // asks the same question, since the layer it rolls back past is the only one there is.
-        if is_revert(&winner.value) {
-            let origin = winner.origin;
-            return self
-                .declared
-                .iter()
-                .filter(|declaration| declaration.origin != origin)
-                .max()
-                .map(|declaration| declaration.value.clone());
+        // the origin the winning declaration came from had said nothing at all (css-cascade-5
+        // §7.2). `revert-layer` asks the narrower question, about the layer rather than the
+        // whole origin. Either way the answer is the cascade run again over what is left.
+        match css_wide_keyword(&winner.value) {
+            Some(CssWide::Revert) => {
+                let origin = winner.origin;
+                self.declared
+                    .iter()
+                    .filter(|declaration| declaration.origin != origin)
+                    .max()
+                    .map(|declaration| declaration.value.clone())
+            }
+            Some(CssWide::RevertLayer) => {
+                let (origin, layer) = (winner.origin, winner.layer);
+                self.declared
+                    .iter()
+                    .filter(|declaration| declaration.origin != origin || declaration.layer != layer)
+                    .max()
+                    .map(|declaration| declaration.value.clone())
+            }
+            _ => Some(winner.value.clone()),
         }
-        Some(winner.value.clone())
     }
 
     /// The specified value: the cascaded value, or what the property falls back to when nothing
@@ -1050,6 +1086,8 @@ impl From<CssValue> for CssProperty {
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         }];
 
         this.calculate_value();
@@ -1068,6 +1106,8 @@ impl From<CssValue> for DeclarationProperty {
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         }
     }
 }
@@ -1280,6 +1320,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
 
         assert_eq!(
@@ -1308,6 +1350,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
 
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
@@ -1339,6 +1383,8 @@ mod tests {
                 specificity: Specificity::new(1, 0, 0),
                 shadow_depth: 0,
                 order: 0,
+                layer: None,
+                attached: false,
             });
 
             assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
@@ -1375,6 +1421,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         });
         prop.compute_value().clone()
     }
@@ -1468,6 +1516,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let b = DeclarationProperty {
             value: CssValue::String("blue".into()),
@@ -1477,6 +1527,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let c = DeclarationProperty {
             value: CssValue::String("green".into()),
@@ -1486,6 +1538,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
@@ -1495,6 +1549,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let e = DeclarationProperty {
             value: CssValue::String("orange".into()),
@@ -1504,6 +1560,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
         let f = DeclarationProperty {
             value: CssValue::String("purple".into()),
@@ -1513,6 +1571,8 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
             shadow_depth: 0,
             order: 0,
+            layer: None,
+            attached: false,
         };
 
         assert_eq!(3, a.priority());

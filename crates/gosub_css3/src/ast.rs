@@ -301,11 +301,13 @@ fn collect_rule(
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
     media: &[Arc<MediaQueryList>],
+    layer: Option<u32>,
 ) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
         declarations: vec![],
         media: (!media.is_empty()).then(|| media.to_vec()),
+        layer,
     };
 
     if let Some(node) = prelude {
@@ -476,6 +478,52 @@ fn collect_import(prelude: &CssNode) -> Option<ImportRule> {
     })
 }
 
+/// The layer names in an `@layer` prelude, in the order they were written.
+fn layer_names(prelude: &CssNode) -> Vec<String> {
+    let NodeType::LayerList { layers } = &prelude.node_type else {
+        return Vec::new();
+    };
+    layers
+        .iter()
+        .filter_map(|node| match &node.node_type {
+            NodeType::Ident { value } => Some(value.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A layer's full name: the one written, under the layer it was written inside.
+fn qualify_layer(outer: Option<&str>, name: &str) -> String {
+    match outer {
+        Some(outer) => format!("{outer}.{name}"),
+        None => name.to_string(),
+    }
+}
+
+/// Record a layer under its full name, returning its index. A name already declared keeps the
+/// place it first had: reopening a layer adds to it, it does not move it (css-cascade-5 §6.4.2).
+///
+/// Declaring `a.b` declares `a` as well, because `a` has to have a place of its own for `a.b` to
+/// sort inside it.
+fn register_layer(layers: &mut Vec<String>, name: &str) -> u32 {
+    let mut path = String::new();
+    let mut index = 0;
+    for part in name.split('.') {
+        if !path.is_empty() {
+            path.push('.');
+        }
+        path.push_str(part);
+        index = match layers.iter().position(|known| *known == path) {
+            Some(known) => known,
+            None => {
+                layers.push(path.clone());
+                layers.len() - 1
+            }
+        };
+    }
+    u32::try_from(index).unwrap_or(u32::MAX)
+}
+
 /// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
 ///
 /// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
@@ -487,11 +535,13 @@ fn collect_rules(
     font_faces: &mut Vec<FontFace>,
     imports: &mut Vec<ImportRule>,
     media: &mut Vec<Arc<MediaQueryList>>,
+    layers: &mut Vec<String>,
+    layer: Option<u32>,
 ) -> CssResult<()> {
     for node in nodes {
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(prelude, block, media)? {
+                if let Some(rule) = collect_rule(prelude, block, media, layer)? {
                     rules.push(rule);
                 }
             }
@@ -505,7 +555,7 @@ fn collect_rules(
                     // so the block's rules stay visible rather than disappearing.
                     let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
                     media.push(Arc::new(list));
-                    let result = collect_rules(children, rules, font_faces, imports, media);
+                    let result = collect_rules(children, rules, font_faces, imports, media, layers, layer);
                     media.pop();
                     result?;
                 }
@@ -544,17 +594,44 @@ fn collect_rules(
                 };
                 if holds {
                     if let NodeType::Block { children } = block.node_type {
-                        collect_rules(children, rules, font_faces, imports, media)?;
+                        collect_rules(children, rules, font_faces, imports, media, layers, layer)?;
                     }
                 }
             }
+            // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's rules are
+            // flattened into the sheet like any other conditional group, but they carry the
+            // layer with them: which layer a rule sits in decides the cascade before specificity
+            // is ever looked at (css-cascade-5 §6.4.1).
             NodeType::AtRule {
                 name,
+                prelude,
                 block: Some(block),
-                ..
             } if name.eq_ignore_ascii_case("layer") => {
+                // A nested `@layer b` inside `@layer a` is the layer `a.b`.
+                let outer = layer.and_then(|index| layers.get(index as usize)).cloned();
+                let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
+                // At most one name may be given when there is a block; an anonymous layer is
+                // its own layer every time, and cannot be reopened, so it gets a name no
+                // author-written `@layer` can collide with.
+                let name = match declared.first() {
+                    Some(name) => qualify_layer(outer.as_deref(), name),
+                    None => format!("%anonymous-{}", layers.len()),
+                };
+                let inner = register_layer(layers, &name);
                 if let NodeType::Block { children } = block.node_type {
-                    collect_rules(children, rules, font_faces, imports, media)?;
+                    collect_rules(children, rules, font_faces, imports, media, layers, Some(inner))?;
+                }
+            }
+            // `@layer a, b;` sets the order of layers before either is filled in. It carries no
+            // rules; naming them here is its whole purpose.
+            NodeType::AtRule {
+                name,
+                prelude,
+                block: None,
+            } if name.eq_ignore_ascii_case("layer") => {
+                let outer = layer.and_then(|index| layers.get(index as usize)).cloned();
+                for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
+                    register_layer(layers, &qualify_layer(outer.as_deref(), &declared));
                 }
             }
             NodeType::AtRule {
@@ -706,13 +783,17 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
 
     let mut sheet = CssStylesheet::new(origin, url);
 
+    let mut layers = Vec::new();
     collect_rules(
         children,
         &mut sheet.rules,
         &mut sheet.font_faces,
         &mut sheet.imports,
         &mut Vec::new(),
+        &mut layers,
+        None,
     )?;
+    sheet.layers = layers;
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached
     // computed values (see `CssStylesheet::uses_viewport_units`).

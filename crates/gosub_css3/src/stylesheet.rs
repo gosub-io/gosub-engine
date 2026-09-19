@@ -203,6 +203,13 @@ pub struct CssStylesheet {
     pub url: String,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// Cascade layers this sheet declares, by full dotted name, in the order they were first
+    /// declared - which is the order that decides which of them wins (css-cascade-5 §6.4).
+    ///
+    /// A layer is named here whether it was given rules or only announced by a bare
+    /// `@layer a, b;`, because announcing it is how a sheet fixes the order up front, before
+    /// either block is written. A rule points into this list by index.
+    pub layers: Vec<String>,
     /// Rule index by rightmost compound, built on first style computation and rebuilt when
     /// `rules` changed size since; see [`CssStylesheet::invalidate_index`] for other edits.
     pub(crate) index: parking_lot::RwLock<Option<SelectorIndex>>,
@@ -234,6 +241,7 @@ impl CssStylesheet {
             scope: None,
             url: url.to_string(),
             parse_log: Vec::new(),
+            layers: Vec::new(),
             index: parking_lot::RwLock::new(None),
         }
     }
@@ -249,6 +257,7 @@ impl CssStylesheet {
             scope: None,
             url: url.to_string(),
             parse_log: vec![],
+            layers: vec![],
             index: parking_lot::RwLock::new(None),
         }
     }
@@ -348,6 +357,10 @@ pub struct CssRule {
     ///
     /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
     pub media: Option<Vec<Arc<MediaQueryList>>>,
+    /// The cascade layer this rule sits in, as an index into its sheet's
+    /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
+    /// declaration is the strongest place to be.
+    pub layer: Option<u32>,
 }
 
 impl CssRule {
@@ -1585,6 +1598,7 @@ mod test {
     fn test_css_rule() {
         let rule = CssRule {
             media: None,
+            layer: None,
             selectors: vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
             declarations: vec![CssDeclaration {
                 property: "color".to_string(),

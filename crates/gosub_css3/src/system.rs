@@ -21,6 +21,35 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
+/// Where a custom property declaration sorts: the cascade's steps, in order, as one key.
+type CustomRank = (u8, u16, bool, u32, Specificity);
+
+/// A rule that matched the element, with everything the cascade needs to rank it.
+struct MatchedRule<'a> {
+    sheet: &'a CssStylesheet,
+    rule: &'a crate::stylesheet::CssRule,
+    /// The highest specificity among the rule's selectors that matched.
+    specificity: Specificity,
+    /// How many shadow boundaries deep the declaring sheet sits.
+    depth: u16,
+    /// The rule's cascade layer, as an index into its own sheet's list.
+    layer: Option<u32>,
+    /// Whether this is the element's `style` attribute rather than a stylesheet rule.
+    attached: bool,
+}
+
+/// A layer rank as the cascade sorts it: unlayered is the top of the order for a normal
+/// declaration and the bottom for an important one, and the layers run in opposite directions
+/// for the two (css-cascade-5 §6.4.1).
+fn layer_sort_key(layer: Option<u32>, important: bool) -> u32 {
+    match (layer, important) {
+        (None, false) => u32::MAX,
+        (None, true) => 0,
+        (Some(layer), false) => layer.saturating_add(1),
+        (Some(layer), true) => u32::MAX.saturating_sub(layer).saturating_sub(1),
+    }
+}
+
 /// Specificity of the `style` attribute: above any selector.
 const INLINE_SPECIFICITY: Specificity = Specificity::new(u32::MAX, 0, 0);
 
@@ -187,7 +216,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
         });
 
-    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity, u16)> = Vec::new();
+    let mut matched: Vec<MatchedRule<'_>> = Vec::new();
     // Media conditions hold for the whole pass, so read the environment once rather than per
     // rule. Unconditional rules never look at it.
     let media_env = crate::media_query::media_environment();
@@ -217,7 +246,14 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 })
                 .max();
             if let Some(specificity) = best {
-                matched.push((sheet, rule, specificity, depth));
+                matched.push(MatchedRule {
+                    sheet,
+                    rule,
+                    specificity,
+                    depth,
+                    layer: rule.layer,
+                    attached: false,
+                });
             }
         }
     }
@@ -225,25 +261,51 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
     // to the element's own tree, so it ranks at that tree's depth rather than the document's.
     if let Some((sheet, rule)) = inline_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
-        matched.push((sheet, rule, INLINE_SPECIFICITY, shadow_depth::<C>(doc, element_scope)));
+        matched.push(MatchedRule {
+            sheet,
+            rule,
+            specificity: INLINE_SPECIFICITY,
+            depth: shadow_depth::<C>(doc, element_scope),
+            layer: None,
+            attached: true,
+        });
     }
+
+    // Where each cascade layer sorts, merged across the sheets of each origin. Built only when
+    // some sheet actually declares one, which no page that does not use `@layer` ever does.
+    let sheet_refs: Vec<&CssStylesheet> = sheets.iter().collect();
+    let layer_order = crate::layers::LayerOrder::build(&sheet_refs);
+    let layer_rank = |matched: &MatchedRule<'_>| -> Option<u32> {
+        let order = layer_order.as_ref()?;
+        let name = matched.sheet.layers.get(matched.layer? as usize)?;
+        Some(order.rank(matched.sheet.origin, name))
+    };
 
     // Custom properties: the parent's scope with this node's own declarations cascaded on
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
     // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
-    let mut own_custom: HashMap<&str, ((u8, u16, Specificity), &CssValue)> = HashMap::new();
-    for (sheet, rule, specificity, depth) in &matched {
+    let mut own_custom: HashMap<&str, (CustomRank, &CssValue)> = HashMap::new();
+    for matched_rule in &matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
         for decl in rule.declarations() {
             if !decl.property.starts_with("--") {
                 continue;
             }
             // Same ordering as the regular cascade: origin/importance, then the cross-tree
-            // tiebreak, then specificity.
+            // tiebreak, then element-attached, then layer, then specificity.
             let rank = (
                 cascade_rank(sheet.origin, decl.important),
                 tree_rank(*depth, decl.important),
+                matched_rule.attached,
+                layer_sort_key(layer_rank(matched_rule), decl.important),
                 *specificity,
             );
             match own_custom.entry(decl.property.as_str()) {
@@ -282,7 +344,16 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // exactly the order the author wrote.
     let mut order: u32 = 0;
 
-    for (sheet, rule, specificity, depth) in matched {
+    for matched_rule in matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
+        let layer = layer_rank(&matched_rule);
+        let attached = matched_rule.attached;
         // Selector matched, so we add all declared values to the map
         for declaration in rule.declarations() {
             order += 1;
@@ -315,6 +386,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         specificity,
                         depth,
                         order,
+                        layer,
+                        attached,
                     ));
 
                     // Each CSS declaration starts with a fresh TRBL multiplier
@@ -354,6 +427,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                         },
                         depth,
                         order,
+                        layer,
+                        attached,
                     );
                 }
                 None => {
@@ -541,6 +616,7 @@ pub fn prop_is_inherit(name: &str) -> bool {
         .is_some_and(|def| def.inherited)
 }
 
+#[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
 pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &crate::stylesheet::CssStylesheet,
@@ -548,6 +624,8 @@ pub fn add_property_to_map(
     declaration: &CssDeclaration,
     shadow_depth: u16,
     order: u32,
+    layer: Option<u32>,
+    attached: bool,
 ) {
     let property_name = declaration.property.clone();
 
@@ -560,6 +638,8 @@ pub fn add_property_to_map(
         specificity,
         shadow_depth,
         order,
+        layer,
+        attached,
     };
 
     css_map_entry

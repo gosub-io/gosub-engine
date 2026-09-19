@@ -423,6 +423,90 @@ fn attr_reads_its_type_and_its_fallback() {
 }
 
 #[test]
+fn cascade_layers_sort_before_specificity() {
+    // css-cascade-5 §6.4.1. A layer is a way of saying "this whole group is weak" without
+    // touching specificity, so it is settled before the selectors are compared at all. Unlayered
+    // CSS beats every layer, and a layer declared later beats one declared earlier. The parser
+    // used to read `@layer` and throw the name away, flattening the rules into the sheet where
+    // they stood, so both of these came out as plain document order.
+    let unlayered_wins = eval(
+        "<style>p { color: rgb(0, 128, 0) } @layer base { p { color: rgb(255, 0, 0) } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(unlayered_wins, "rgb(0, 128, 0)");
+
+    // The order the layers were announced in wins over the order their blocks were written in.
+    let announced_order = eval(
+        "<style>@layer base, overrides; \
+                @layer overrides { p { color: rgb(0, 128, 0) } } \
+                @layer base { p { color: rgb(255, 0, 0) } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(announced_order, "rgb(0, 128, 0)");
+
+    // A layer beats a more specific selector outside it only when the unlayered rule is weaker
+    // in the cascade - which it never is. Specificity cannot rescue a layered rule.
+    let specificity_does_not_help = eval(
+        "<style>@layer base { p#t.c { color: rgb(255, 0, 0) } } p { color: rgb(0, 128, 0) }</style>\
+         <p id=t class=c>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(specificity_does_not_help, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn an_important_declaration_reverses_the_layer_order() {
+    // The reversal is what makes layers usable for a reset: an `!important` in the *first* layer
+    // wins, and an unlayered `!important` is the weakest of all (css-cascade-5 §6.4.1).
+    let value = eval(
+        "<style>@layer base, theme; \
+                @layer base { p { color: rgb(255, 0, 0) !important } } \
+                @layer theme { p { color: rgb(0, 0, 255) !important } } \
+                p { color: rgb(0, 128, 0) !important }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)");
+}
+
+#[test]
+fn a_nested_layer_sorts_inside_the_one_that_holds_it() {
+    // `@layer a { @layer b { } }` is the layer `a.b`, and a layer's own rules are unlayered
+    // within it, so they beat anything it nests.
+    let value = eval(
+        "<style>@layer a { @layer b { p { color: rgb(255, 0, 0) } } p { color: rgb(0, 128, 0) } }</style>\
+         <p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn the_style_attribute_outranks_a_layer() {
+    // Element-attached styles are their own step of the cascade, above layers and specificity
+    // both (css-cascade-5 §6.3). Ranking them by specificity alone was enough until layers
+    // existed, because nothing else could reach that high.
+    let value = eval(
+        "<style>@layer base { p { color: rgb(255, 0, 0) } }</style><p id=t style='color: rgb(0, 128, 0)'>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(0, 128, 0)");
+}
+
+#[test]
+fn revert_layer_rolls_back_only_its_own_layer() {
+    // `revert-layer` asks what the property would be if this layer had said nothing, which is
+    // the earlier layer's value - not the user-agent's, which is what `revert` gives. Both were
+    // the same keyword here until layers existed to tell them apart.
+    let value = eval(
+        "<style>@layer base, theme; \
+                @layer base { p { color: rgb(255, 0, 0) } } \
+                @layer theme { p { color: revert-layer } }</style><p id=t>x</p>",
+        "getComputedStyle(document.getElementById('t')).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)");
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",

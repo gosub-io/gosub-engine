@@ -140,10 +140,15 @@ pub struct FixListInfo {
     /// longhand declared *after* the shorthand still wins the cascade even though every
     /// expansion is applied after all the direct declarations.
     order: u32,
+    /// Cascade layer of the shorthand, carried through for the same reason as the depth.
+    layer: Option<u32>,
+    /// Whether the shorthand came from the element's `style` attribute.
+    attached: bool,
 }
 
 impl FixListInfo {
     #[must_use]
+    #[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
     pub fn new(
         origin: CssOrigin,
         important: bool,
@@ -151,6 +156,8 @@ impl FixListInfo {
         specificity: Specificity,
         shadow_depth: u16,
         order: u32,
+        layer: Option<u32>,
+        attached: bool,
     ) -> Self {
         Self {
             origin,
@@ -159,6 +166,8 @@ impl FixListInfo {
             specificity,
             shadow_depth,
             order,
+            layer,
+            attached,
         }
     }
 }
@@ -583,6 +592,8 @@ impl FixList {
                 location: info.location.clone(),
                 shadow_depth: info.shadow_depth,
                 order: info.order,
+                layer: info.layer,
+                attached: info.attached,
             }
         } else {
             DeclarationProperty {
@@ -602,6 +613,10 @@ impl FixList {
                 // a cross-tree comparison at all.
                 shadow_depth: u16::MAX,
                 order: 0,
+                // No layer and not element-attached: the same reasoning as the depth above
+                // puts a synthesized default at the losing end of every comparison it can be.
+                layer: None,
+                attached: false,
             }
         }
     }
@@ -698,6 +713,8 @@ impl FixList {
                 decl.specificity,
                 decl.shadow_depth,
                 decl.order,
+                decl.layer,
+                decl.attached,
             ));
 
             if prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list) {
@@ -926,6 +943,8 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
         Specificity::new(0, 0, 0),
         0,
         0,
+        None,
+        false,
     ));
     if !def.matches_and_shorthands(input, &mut fix_list) {
         return None;
@@ -1986,6 +2005,8 @@ mod tests {
             Specificity::new(0, 0, 0),
             0,
             1,
+            None,
+            false,
         ));
         assert!(
             def.matches_and_shorthands(&values, &mut fix_list),

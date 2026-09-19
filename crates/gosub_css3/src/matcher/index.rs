@@ -135,6 +135,7 @@ mod tests {
             selectors: vec![CssSelector::new(selectors)],
             declarations: vec![],
             media: None,
+            layer: None,
         }
     }
 

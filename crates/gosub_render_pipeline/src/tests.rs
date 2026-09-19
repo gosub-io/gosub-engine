@@ -1705,13 +1705,20 @@ mod rendertree_from_engine {
         );
     }
 
-    /// Nested blocks must both hold, and the rules inside a `@media` still flatten out of an
-    /// enclosing `@layer`.
+    /// Nested `@media` blocks must both hold, and a `@media` inside a `@layer` still reaches the
+    /// cascade with its layer intact.
+    ///
+    /// The base rule sits in a layer of its own here. It used to be unlayered, from when `@layer`
+    /// was flattened away and the last rule written simply won; now that layers are sorted, an
+    /// unlayered rule beats every layer, so the layered rule could never have shown through.
     #[test]
     fn nested_and_layered_media_blocks() {
         let html = r#"
             <html><head><style>
-                #target { width: 100px; display: block; }
+                @layer base, desktop;
+                @layer base {
+                    #target { width: 100px; display: block; }
+                }
                 @media (min-width: 700px) {
                     @media (max-width: 900px) {
                         #target { width: 200px; }
@@ -1740,7 +1747,8 @@ mod rendertree_from_engine {
             "between the blocks: expected 100px, got {between}"
         );
 
-        // The rule inside `@layer` + `@media` is reachable.
+        // The rule inside `@layer` + `@media` is reachable, and its layer was declared after
+        // the base layer, so it wins.
         let widest = width_px_at_viewport(html, 1400.0, 600.0);
         assert!(
             (widest - 400.0).abs() < 0.5,
