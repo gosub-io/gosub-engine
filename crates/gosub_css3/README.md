@@ -30,15 +30,25 @@ computed-value resolution for the rest of the engine.
 
 ## Known limitations
 
-- Most at-rules are dropped during AST → stylesheet conversion; only `@font-face` and
-  `@layer` survive (the latter without layer-cascade semantics), and `@media` is not
-  yet honored.
-- Not every longhand has a value-grammar definition, and the `background` shorthand is
-  only partially recovered.
+- At-rule coverage stops at five. `@media`, `@supports`, `@import`, `@layer` and
+  `@font-face` survive AST → stylesheet conversion; everything else is parsed and then
+  dropped by `collect_rules`, including `@keyframes`, `@page`, `@scope`, `@container`,
+  `@property`, `@counter-style` and `@starting-style`.
+- CSS Nesting parses, but does not reach the stylesheet: `collect_rule` keeps only the
+  declarations of a block, so a nested style rule is discarded rather than flattened
+  into its parent's selector.
+- A property with no entry in the embedded definitions is treated as invalid and its
+  declaration dropped, so a property from a spec the generated data does not cover is
+  unsupported even when its value is well-formed.
+- `calc()` terms carry a unit but no exponent, so an expression whose units only cancel
+  at the end (`calc(100px * 1px / 1px)`) is left unevaluated rather than answered wrongly.
+- Percentages never resolve at computed-value time - they need a containing block, which
+  is layout's to know - and neither do `ch`, `lh` or the container-query units.
 
 A recursion guard (`MAX_RECURSION_DEPTH = 64`) protects the parser against
-stack-overflowing input. The `unresolved_syntax` feature gates experimental
-syntax-matcher paths.
+stack-overflowing input. The `unresolved_syntax` feature exposes the definitions before
+reference expansion (`get_css_values`, `get_css_properties`), in declaration order, for
+tooling that needs the raw grammars rather than the resolved ones.
 
 ## Further reading
 
