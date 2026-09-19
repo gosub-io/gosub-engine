@@ -330,6 +330,26 @@ impl PropertyDefinition {
             .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
     }
 
+    /// Whether this property can take a `<color>` at all.
+    ///
+    /// A colour keyword is a keyword until something says otherwise: `red` is a colour on
+    /// `background-color` and a line name on `grid-row-start`. Asking the grammar is what tells
+    /// the two apart, and it only has to be asked once, when the computed value is worked out.
+    #[must_use]
+    pub fn takes_color(&self) -> bool {
+        // `<color>` is inlined into the grammar when the definitions load, so there is no node
+        // by that name left to look for. What the expansion always begins with is the hex form,
+        // and nothing else in CSS takes one, so its presence marks a colour slot.
+        fn walks(component: &SyntaxComponent) -> bool {
+            match component {
+                SyntaxComponent::Builtin { datatype, .. } => datatype == "hex-color",
+                SyntaxComponent::Group { components, .. } => components.iter().any(walks),
+                _ => false,
+            }
+        }
+        self.syntax.components.iter().any(walks)
+    }
+
     /// The range a computed value for this property has to lie in, if it has one.
     ///
     /// css-values-4 §10.12: a math function is *not* range-checked when it is parsed, because

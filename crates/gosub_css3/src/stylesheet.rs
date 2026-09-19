@@ -1126,7 +1126,7 @@ impl CssValue {
 fn is_color_function(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
-        "rgb" | "rgba" | "hsl" | "hsla" | "oklch" | "oklab" | "color"
+        "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "oklch" | "oklab" | "color"
     )
 }
 
@@ -1158,6 +1158,26 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
         return None;
     }
     let args = reduced.as_slice();
+
+    let name = name.cow_to_ascii_lowercase();
+    let has_comma = args.iter().any(|value| matches!(value, CssValue::Comma));
+    let has_missing = args
+        .iter()
+        .any(|value| matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("none")));
+
+    // `hsl()` and `hwb()` describe a colour in their own space, and a component written `none`
+    // stays missing there: css-color-4 §12.2 keeps such a colour in the notation it was written
+    // in rather than resolving it to sRGB, because sRGB has no way to say "missing". Folding it
+    // would answer `rgb(0, 0, 0)` where every browser answers `hwb(none none none)`. Leaving the
+    // function alone is the closest this can get until a colour value can carry its own space.
+    if has_missing && matches!(name.as_ref(), "hsl" | "hsla" | "hwb") {
+        return None;
+    }
+    // `hwb()` has no legacy comma form - it postdates them - so `hwb(90deg, 50%, 50%)` is not a
+    // colour at all, and folding it would accept CSS no browser does.
+    if has_comma && name == "hwb" {
+        return None;
+    }
 
     // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
     // and any string tokens (like the color-space name in `color(srgb ...)`).
@@ -1193,7 +1213,7 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
         })
         .collect();
 
-    match name.cow_to_ascii_lowercase().as_ref() {
+    match name.as_ref() {
         "oklch" if nums.len() >= 3 => {
             let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
             // Chroma: percentage 0-100 maps to ~0-0.4 max chroma.
@@ -1275,6 +1295,12 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
             let (r, g, b) = hsl_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
             Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
         }
+        // hwb(H W% B%): a hue with a proportion of white and of black mixed into it
+        // (css-color-4 §7). It resolves to sRGB like `hsl()` does, and serializes the same way.
+        "hwb" if nums.len() >= 3 => {
+            let (r, g, b) = hwb_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
+            Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
+        }
         _ => None,
     }
 }
@@ -1295,6 +1321,24 @@ fn parse_alpha(nums: &[f32], is_pct: &[bool], idx: usize) -> f32 {
 }
 
 /// Converts HSL (hue in degrees, saturation/lightness in 0-1) to sRGB channels in 0-255.
+/// Convert an HWB colour to sRGB (css-color-4 §7.2).
+///
+/// The hue is the fully saturated colour at that angle, and whiteness and blackness say how much
+/// of it is replaced by white and by black. The two are normalized when they would leave nothing
+/// of the hue at all: `hwb(0 60% 60%)` is grey, not a negative amount of red.
+#[must_use]
+fn hwb_to_srgb(hue: f32, white: f32, black: f32) -> (f32, f32, f32) {
+    let (mut white, mut black) = (white, black);
+    let total = white + black;
+    if total > 1.0 {
+        white /= total;
+        black /= total;
+    }
+    let (r, g, b) = hsl_to_srgb(hue, 1.0, 0.5);
+    let mix = |channel: f32| (channel / 255.0).mul_add(1.0 - white - black, white) * 255.0;
+    (mix(r), mix(g), mix(b))
+}
+
 fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
     let h = h.rem_euclid(360.0) / 360.0;
     if s <= 0.0 {

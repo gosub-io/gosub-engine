@@ -381,7 +381,7 @@ fn a_declaration_for_an_unknown_property_is_dropped() {
         "const s = getComputedStyle(document.getElementById('target')); \
          (s.getPropertyValue('dsiplay') || 'dropped') + '|' + s.color;",
     );
-    assert_eq!(value, "dropped|red");
+    assert_eq!(value, "dropped|rgb(255, 0, 0)");
 }
 
 #[test]
@@ -507,12 +507,62 @@ fn revert_layer_rolls_back_only_its_own_layer() {
 }
 
 #[test]
+fn a_color_keyword_computes_to_the_color_it_names() {
+    // css-color-4 §15: the computed value of a colour is the colour, not the word for it. The
+    // keyword is the *specified* value, which is what `element.style` reads back, and the two
+    // were the same thing here - so `getComputedStyle(el).color` answered `red`.
+    //
+    // Whether a keyword is a colour at all depends on the property. `red` names a grid line on
+    // `grid-row-start`, and must stay a name there.
+    let value = eval(
+        "<style>#a { color: red } #b { color: transparent } #c { grid-row-start: red }</style>\
+         <div id=a></div><div id=b></div><div id=c></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)); \
+         g('a').color + '|' + g('b').color + '|' + g('c').gridRowStart;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)|rgba(0, 0, 0, 0)|red");
+}
+
+#[test]
+fn currentcolor_on_color_is_the_inherited_color() {
+    // `currentcolor` stands for the element's own `color`, which on `color` itself means the
+    // one it inherits (css-color-4 §6.2).
+    let value = eval(
+        "<style>#parent { color: rgb(1, 2, 3) } #child { color: currentcolor }</style>\
+         <div id=parent><div id=child></div></div>",
+        "getComputedStyle(document.getElementById('child')).color;",
+    );
+    assert_eq!(value, "rgb(1, 2, 3)");
+}
+
+#[test]
+fn hwb_resolves_to_srgb_unless_a_component_is_missing() {
+    // `hwb()` is a hue with white and black mixed in (css-color-4 §7). It resolves to sRGB and
+    // serializes as `rgb()`, like `hsl()` - but only when every component is there. A component
+    // written `none` is missing, and sRGB has no way to say that, so such a colour stays in the
+    // notation it was written in.
+    let value = eval(
+        "<style>#a { color: hwb(120 30% 50%) } #b { color: hwb(none none none) } \
+                #c { color: hwb(90deg, 50%, 50%) }</style>\
+         <div id=a></div><div id=b></div><div id=c></div>",
+        "const g = id => getComputedStyle(document.getElementById(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c');",
+    );
+    // The third has commas, which `hwb()` has no legacy form for, so it is not a colour at all
+    // and the declaration is dropped. What is left is `color`'s initial value, the system
+    // colour `canvastext` - which stays a keyword, because the table that gives a system colour
+    // a value lives in the render pipeline rather than here.
+    assert_eq!(value, "rgb(77, 128, 77)|hwb(none none none)|canvastext");
+}
+
+#[test]
 fn the_style_attribute_outranks_a_stylesheet_rule() {
     let value = eval(
         "<style>#target { color: red }</style><div id=target style='color: blue'></div>",
         "getComputedStyle(document.getElementById('target')).color;",
     );
-    assert_eq!(value, "blue");
+    // A computed colour is the colour, not the keyword that named it.
+    assert_eq!(value, "rgb(0, 0, 255)");
 }
 
 #[test]
