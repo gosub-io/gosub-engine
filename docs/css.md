@@ -1,70 +1,188 @@
 # CSS internals (`gosub_css3`)
 
-How a stylesheet's text becomes the computed value the render pipeline reads for a node. The crate implements the `CssSystem` trait from [`gosub_interface`](interface.md); its parser is heavily based on the MIT-licensed [csstree](https://github.com/csstree/csstree) parser.
+How a stylesheet's text becomes the computed style the render pipeline reads for a node. The
+crate implements the `CssSystem` trait from [`gosub_interface`](interface.md); its parser is
+heavily based on the MIT-licensed [csstree](https://github.com/csstree/csstree) parser.
 
-The flow has four stages:
+The principle behind the lower half of the crate is: declare once, cascade by id, compute into a
+typed struct. Everything that depends only on a declaration's text is done once per rule.
+Everything that depends on the element is done per element, keyed by a generated property id
+rather than a name, and its product is one typed `ComputedStyle` that layout, paint and
+`getComputedStyle` all read.
 
 ``` text
-  text ──► tokenizer/parser ──► AST ──► CssStylesheet          (parse, once per sheet)
+  text ──► tokenizer/parser ──► AST ──► CssStylesheet               once per sheet
                                             │
-  node ──► selector matching ──► matched declarations          (per node)
+              validation + shorthand expansion (syntax matcher)     once per rule, lazily
                                             │
-           validation + shorthand expansion (syntax matcher)   (per declaration)
+  node ──► candidate rules (index, bloom filter) ──► match ──► cascade    per node
                                             │
-           cascade ──► specified ──► computed ──► actual       (per property, lazy)
+           specified ──► computed (property map, by id)             per declared property
+                                            │
+           ComputedStyle (typed, groups shared with the parent)     per node
 ```
 
 ## Parsing (`tokenizer.rs`, `parser/`, `ast.rs`, `stylesheet.rs`)
 
-The tokenizer and hand-written recursive-descent parser (one module per construct under `parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST; `convert_ast_to_stylesheet` flattens that into the `CssStylesheet` the rest of the engine uses: a list of `CssRule`s (selectors + declarations), plus extracted `@font-face` entries.
+The tokenizer and hand-written recursive-descent parser (one module per construct under
+`parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST;
+`convert_ast_to_stylesheet` flattens that into the `CssStylesheet` the rest of the engine uses: a
+list of `CssRule`s (selectors + declarations), the `@font-face` entries, the `@import` rules and
+the `@layer` names.
 
-Nothing about one rule can cost the sheet another. A selector part the converter has no arm for invalidates that style rule and only it, a value component that does not convert invalidates its declaration, and an at-rule that makes no sense is skipped where it stands, all per css-syntax-3 §9 and selectors-4 §3.9. The one failure that is still the whole sheet's is being handed an AST that is not a stylesheet at all.
+Five at-rules survive the conversion. `@media` conditions are attached to each rule inside them
+and evaluated at match time against the current `MediaEnvironment` (`media_query.rs`), so a
+viewport change is a restyle and never a re-parse. `@supports` asks about the engine, whose
+answer cannot change while it runs, so it is settled here and a false block contributes no rules
+(`supports.rs`). `@import` is recorded and resolved through a fetch callback the host supplies
+(`imports.rs`), with imported rules spliced ahead of the importing sheet's. `@layer` names are
+registered on the sheet and each rule carries its layer index; the order across sheets is built
+per origin when the cascade needs it (`layers.rs`). Everything else is parsed and dropped.
 
-Every stylesheet is tagged with a `CssOrigin` — `UserAgent`, `Author` (the page's own sheets), or `User` — which drives cascade priority later. The user-agent stylesheet ships embedded in the crate (`resources/useragent.css`, loaded by `load_default_useragent_stylesheet`).
+Nothing about one rule can cost the sheet another. A selector part the converter has no arm for
+invalidates that style rule and only it, a value component that does not convert invalidates its
+declaration, and an at-rule that makes no sense is skipped where it stands, all per css-syntax-3
+§9 and selectors-4 §3.9. The one failure that is still the whole sheet's is being handed an AST
+that is not a stylesheet at all.
 
-## Selector matching (`matcher/styling.rs`)
+Every stylesheet is tagged with a `CssOrigin` (`UserAgent`, `Author`, `User`) which drives cascade
+priority later. The user-agent stylesheet ships embedded in the crate (`resources/useragent.css`,
+loaded by `load_default_useragent_stylesheet`).
 
-`match_selector` matches one selector against one node, **right-to-left**: the rightmost compound must match the node itself, then combinators (`>`, ``, `+`, `~`) walk the tree looking for matches for the remaining compounds. Pseudo-element matching is explicit: when computing styles for `::before`/`::after`, only selectors that carry that pseudo-element part are considered, and the rest of the compound is matched against the originating element; conversely, a selector with a pseudo-element part never matches the element itself.
+## Validation and expansion, once per rule (`matcher/expansion.rs`)
 
-A successful match returns a `Specificity` — the classic `(id, class, element)` triple, compared lexicographically.
+Whether a declaration is valid and which longhands its shorthand sets depend on the declaration
+alone, so `CssRule::expanded()` works that out the first time an element needs the rule and keeps
+it. Each source declaration becomes one of:
+
+-   `Custom`: a `--*` property, which cascades in a pass of its own.
+-   `Invalid`: an unknown property, or a value its grammar rejects. A property with no entry in
+    the definitions is unsupported and its declaration invalid (css-syntax-3 §9); nothing is
+    passed through unvalidated.
+-   `Pending`: the value holds `var()`, `attr()` or `light-dark()` anywhere in it, so what it
+    says depends on the element. It is resolved, validated and expanded per element.
+-   `Resolved`: the declaration under its own name, followed by every longhand the shorthand
+    expansion produced, with the longhands a shorthand did not mention reset to their initial
+    value (css-cascade-5 §2.5) and nested shorthands (`border` -> `border-color`) expanded in
+    turn.
+
+The grammars come from `resources/definitions/*.json`, embedded at compile time, written in the
+specs' own value definition syntax (`<length> | <percentage> | auto`). `matcher/syntax.rs`
+parses that notation with nom into a `CssSyntaxTree`; `matcher/syntax_matcher.rs` matches a
+`CssValue` slice against it. Shorthand expansion rides on the same match: the matcher reports
+which input values landed on which `<'longhand'>` component, a `FixList` collects them, and a
+`layered` flag covers the comma-list shorthands (`background`, `transition`, `animation`) where
+each longhand collects one value per layer. A few shorthands whose pieces are placed by position
+rather than by grammar (`grid`, `grid-template`, `grid-area`, `background-position`, `font`) have
+hand-written expanders.
+
+## Property ids (`matcher/property_ids.rs`)
+
+Every property the definitions know has a generated id: `LonghandId` (567), `ShorthandId` (98),
+together `PropertyId`, dense and sorted by name, with static tables for the name, whether it
+inherits, its initial value, whether a percentage means a number, and a shorthand's longhands.
+`PropertyId::from_name` is ASCII case-insensitive, as css-syntax-3 requires of property names.
+The module is generated from the JSON by `cargo run -p generate_definitions -- --property-ids`
+and a test re-derives it from the embedded data, so the two cannot drift. Custom properties get
+no id; they are unbounded in number and live in a map of their own.
 
 ## Style collection (`system.rs::compute_properties`)
 
 This is the orchestrator behind `CssSystem::properties_from_node`. For one node it:
 
-1.  **Filters unrenderables** — `head`/`script`/`style`/`svg`/`noscript`/`title` elements and whitespace-only text nodes get no property map at all (`None` = "not renderable").
-2.  **Collects custom properties** — a first pass walks the ancestor chain root-first, gathering every `--*` declaration whose selector matches, so descendants override ancestors. This is a simplified custom-property inheritance model (re-matching selectors per ancestor rather than storing computed maps).
-3.  **Matches every rule** in every sheet and, for each matching declaration:
-    -   resolves functions: `var()` against the collected custom properties, `attr()` against the DOM, and `light-dark()` against the colour scheme (`functions/`). A reference is substituted wherever it stands, including inside another function's arguments (`rgb(var(--r) 0 0)`, `calc(var(--w) * 2)`), because css-variables-1 §3 substitutes on the token stream before the value is read. Resolved tokens are spliced *flat* into the list or argument list around them, so `border: 1px solid var(--c)` stays three top-level tokens, and the call they landed in is reduced the way the parser reduces one: a colour function becomes a colour, a math function is folded as far as it goes. An unresolvable reference with no fallback is the guaranteed-invalid value and drops the declaration;
-    -   normalizes vendor prefixes (`-webkit-x` → `x`) so values match the standard grammars;
-    -   looks up the property's grammar definition and validates the value (next section). A property *without* a definition entry is passed through unvalidated — deliberately, so valid-but-not-yet-defined longhands still reach consumers. `content` is also passed through verbatim: its grammar (strings, `attr()`, counters) isn't matcher-friendly, and the render pipeline resolves it itself.
-4.  **Applies the shorthand fix-list** — expansions collected during validation are merged into the map (see below).
+1.  **Filters unrenderables.** `head`, `script`, `style`, `svg` and `title` elements match no
+    selector, and whitespace-only text nodes get no property map at all.
+2.  **Gathers what the element itself carries.** Its HTML presentational hints
+    (`bgcolor`, `width`, `cellspacing`, `cellpadding`), which the HTML crate maps to declaration
+    text through `Document::presentational_hints`, and its `style` attribute. Both are parsed by
+    the real parser into one-rule sheets, cached by their text so identical attributes share one
+    sheet and one expansion.
+3.  **Finds the candidate rules.** Each sheet keeps a `SelectorIndex` (`matcher/index.rs`)
+    bucketing every selector by the most selective simple selector of its rightmost compound
+    (id, class, type, attribute name, universal) and split by pseudo-element, so a plain element
+    never looks at `::before` rules. An ancestor bloom filter (`matcher/bloom.rs`), built
+    incrementally from the parent's, then drops every candidate whose ancestor compounds name an
+    id, class, type or attribute no ancestor has, before the matcher walks. Both are superset
+    filters: the full matcher decides.
+4.  **Matches** (`matcher/styling.rs::match_selector`), right-to-left: the rightmost compound
+    against the node, then the combinators walk the tree, backtracking through descendant and
+    sibling combinators. A rule inside `@media` is checked against the environment first, since
+    that is cheaper than matching. A rule applies with the highest specificity among its matching
+    selectors. Pseudo-element requests (`::before`, `::after`) consider only selectors carrying
+    that pseudo-element and match the rest against the originating element.
+5.  **Cascades custom properties** in a pass of their own, over the parent's scope. The parent's
+    map is shared by `Arc` unless the element actually changes a value: on a utility-framework
+    page that resets fifty `--*` on `*`, copying them per element was once the dominant cost.
+6.  **Records the declarations.** For a `Resolved` declaration every entry is pushed with the
+    element's cascade facts; for a `Pending` one the substitution functions are resolved first,
+    wherever they stand, function arguments included (css-variables-1 §3), the value is reduced
+    the way the parser reduces one, then validated and expanded. An unresolvable reference with
+    no fallback drops the declaration.
+7.  **Resolves the font-size basis**, so `em` and `rem` have a value to resolve against.
 
-The output `CssProperties` map holds, per property name, a `CssProperty` with the full list of `DeclarationProperty`s that matched — value, origin, `!important`, source location, and specificity. Nothing is decided yet; the cascade runs lazily per property.
+## The cascade (`matcher/styling.rs`)
 
-## Validation and shorthands (`matcher/`)
+The output map (`CssProperties`) holds one `CssProperty` per declared property, keyed by id in
+a slot table, each with the full list of `DeclarationProperty`s that reached it. The cascaded
+value is their `max` under one comparison chain, read top to bottom, first difference wins:
 
-`resources/definitions/*.json` (embedded at compile time) define each property's grammar in the CSS **value definition syntax** — the notation used by the specs themselves, e.g. `<length> | <percentage> | auto`. `matcher/syntax.rs` parses that notation with nom into a `CssSyntaxTree` of `SyntaxComponent`s: groups with the four spec combinators (juxtaposition, `&&` all-any-order, `||` at-least-one, `|` exactly-one), multipliers (`?`, `*`, `+`, `{m,n}`, `#` comma-lists), literals, functions, and \~50 built-in data types (`<length>`, `<color>`, `<ident>`, ...). `matcher/syntax_matcher.rs` then matches a parsed `CssValue` slice against that tree — this is the formal grammar validator: a declaration whose value doesn't match its property's grammar is dropped (with a debug log), like a real browser discards invalid declarations.
+1.  origin and importance: UA `!important`, user `!important`, author `!important`, then
+    author, user, UA (css-cascade-5 §6.1);
+2.  tree rank: shadow depth, shallower wins for normal declarations and deeper for important
+    ones (§6.2);
+3.  the element's own `style` attribute (§6.3);
+4.  layer rank: unlayered is the top of the order for a normal declaration and the bottom for an
+    important one, and the layers run in opposite directions for the two (§6.4);
+5.  specificity;
+6.  document order, a running counter across the matched rules. Presentational hints take the
+    lowest orders, so they beat the user-agent sheet and lose to any author declaration. A
+    longhand produced by a shorthand inherits the shorthand's order.
 
-**Shorthand expansion** rides on the same match. A shorthand's definition lists its longhand properties; while matching, a `FixList` records which matched component corresponds to which longhand (e.g. `margin: 0 auto` → `margin-block-start: 0`, `margin-inline-start: auto`, ...). Two details matter:
+`revert` and `revert-layer` are not values: they re-run the cascade over the declarations that
+remain once the winning origin or layer is removed.
 
--   Each expansion is tagged (`FixListInfo`) with the *declaring* rule's origin, importance, and specificity, so an author `margin: 0` correctly outranks the UA `body { margin: 8px }` instead of losing on processing order.
--   The `background` shorthand's full `<bg-layer>` grammar is stricter than the matcher supports; instead of dropping `background: url(x) no-repeat` wholesale, the system recovers the parts consumers understand (`background-image` from the `url()`/gradient, `background-color` from the color) and emits those longhands.
+## The value stages
 
-## The cascade and value stages (`matcher/styling.rs`)
+`CssProperty::compute_value()` walks the spec's stages once per property:
 
-`CssProperty::compute_value()` runs lazily (a `dirty` flag) and walks the spec's value stages:
+1.  **Cascaded**, as above.
+2.  **Specified**: the cascaded value, or what the property falls back to. `inherit` and `unset`
+    name the inherited value, which comes from an `InheritedValues` chain: each element records
+    the computed values it settled itself, once, and shares that record with every child, so
+    "what does this element inherit for x" is a short walk up rather than a copy into every map.
+3.  **Computed**: `initial` becomes the property's initial value; a colour keyword becomes the
+    colour it names, and a colour function is folded; `font-size` percentages resolve against the
+    parent; `thin`/`medium`/`thick` become lengths; every unit with a known conversion becomes
+    canonical (`px`, `deg`, `s`) with `em` and `rem` measured against the element's and the
+    root's font-size; math functions are simplified; and the property's range clamps the result
+    (css-values-4 §10.12). Percentages, `ch`, `lh` and the container-query units survive as
+    written, because nothing here has a value for them.
 
-1.  **Cascaded** — the winning declaration is the `max` of the declared list, ordered by origin/importance priority, then specificity. The priority ranking (per the CSS cascade spec): UA `!important` (7) \> User `!important` (6) \> Author `!important` (5) \> Author (3) \> User (2) \> UA (1). Ties on both keys resolve to the *last* declaration — i.e. source order wins.
-2.  **Specified** — the cascaded value, else the inherited value (filled in by the consumer for inherited properties), else...
-3.  **Computed** — ...the property's initial value from its definition.
-4.  **Used → Actual** — absolute units (`px`, `pt`, `in`, `cm`, `mm`, `pc`, `q`) are rounded to whole values; relative units (`em`, `rem`, `%`, `vw`, `vh`) are deliberately *not* (rounding `1.5em` to `2em` would resize headings), and `opacity` keeps its fraction (rounding `0.15` to `0` would make elements vanish).
+There is no used or actual stage in this crate. Those belong to layout.
 
-Whether a property inherits, and its initial value, come from the same definitions files (`prop_is_inherit`, `PropertyDefinition::initial_value`).
+## The typed style (`matcher/computed_style.rs`, `gosub_interface::style`)
+
+`CssPropertyMap::computed_style(map, parent)` turns the map into the `ComputedStyle` the
+pipeline reads: eleven field groups (inherited: font and text; reset: box, size, margin, padding,
+border, outline, background, inset, flex, grid), each behind an `Arc`. A group the element
+declared nothing in shares the parent's `Arc` (inherited groups) or the process-wide initial
+(reset groups); border is the exception, since its colours default to `currentColor`, and shares
+the parent's only when the parent declared no border property either. A `DeclaredSet` bitset
+records which properties the element's own cascade produced, for the readers that ask "did the
+author set this". Percentages travel on as `LengthPercentage` and layout resolves them.
+
+Some of what this conversion does belongs in the computed stage above and is listed under the
+gaps: it is where the system colours, the `font-size` keyword scale, the `ch`/`ex`/`lh`/`ic`
+approximations, `currentColor` on a property other than `color`, `outline-color: auto` and the
+physical-to-logical inset mapping are still decided.
 
 ## Hover fingerprints (`system.rs`)
 
-`hover_fingerprints` scans all sheets once and records which element types, classes, and ids appear in a compound with `:hover` (or whether a bare `*:hover` exists). The engine uses this to skip style recalculation entirely for pointer movement that no hover rule could affect — and the scan lives in this crate because only the CSS system understands its own selector representation. See the trait notes in [interface.md](interface.md).
+`hover_fingerprints` scans all sheets once and records which element types, classes, and ids
+appear in a compound with `:hover` (or whether a bare `*:hover` exists). The engine uses this to
+skip style recalculation entirely for pointer movement that no hover rule could affect, and the
+scan lives in this crate because only the CSS system understands its own selector
+representation. See the trait notes in [interface.md](interface.md).
 
 ## Measuring
 
@@ -84,7 +202,8 @@ reported per styled element.
 
 Read `cascade` as the control when judging a `render-tree` number: it is the same code on both
 sides of a pipeline-only change, so whatever it reports is the machine's own drift between the
-two runs, which on a laptop is several percent.
+two runs, which on a shared workstation is several percent. Take the numbers that decide
+anything on a quiet, dedicated machine, back to back, with a target directory per source tree.
 
 To compare a change against the code before it, save a baseline first and name it:
 
@@ -94,10 +213,35 @@ cargo bench -p gosub_render_pipeline --bench style -- --save-baseline before
 cargo bench -p gosub_render_pipeline --bench style -- --baseline before
 ```
 
+Two examples in the pipeline crate are the correctness gate for any change here.
+`style_dump` writes every element's property map, declared and computed, for 30 fixture pages;
+`render_dump` writes the layout geometry and paint commands for the same pages. A change that
+should not alter output is checked by diffing both before and after; a change that should, such
+as a spec fix, is checked by attributing every differing line to the element, the declaration
+and the clause that makes the new value right.
+
 ## Known gaps
 
--   Four selector node types have no conversion arm, so a rule using one is dropped: a bare number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and all three are invalid selectors anyway) and the nesting selector `&`, which is valid CSS Nesting and unsupported here.
--   Not every longhand has a grammar definition yet; those skip validation (by design, see above).
--   The `background` shorthand is recovered partially (image + color; position/repeat/size are ignored).
--   Custom-property collection re-matches selectors along the ancestor chain per node, which is correct but not cheap.
--   At-rules are parsed into the AST, but during stylesheet conversion only two survive: `@font-face` (extracted into the sheet's font list) and `@layer` (its rules are flattened in, without layer-order cascade semantics). Everything else — including `@media` blocks and the rules inside them — is currently dropped.
+-   A pseudo-class with an argument is stored as its text and never matches: `:nth-child()` and
+    the rest of the nth family, `:is()`, `:where()`, `:has()`, `:lang()`. Only `:not()` is
+    evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
+    `:first-child` and `:last-child` count text nodes as siblings. `:active` is hardcoded false;
+    `:visited` deliberately so.
+-   Four selector node types have no conversion arm, so a rule using one is dropped: a bare
+    number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and
+    all three are invalid selectors anyway) and the nesting selector `&`. CSS Nesting parses but
+    its nested style rules are discarded by `collect_rule`.
+-   At-rule coverage stops at the five above.
+-   An unresolvable `var()` drops its declaration; css-variables-1 §3.1 says the property should
+    then compute to `inherit` or `initial`.
+-   The six computed-value questions still answered in the typed-style conversion (listed above).
+    One consequence: a relative `font-size` keyword (`smaller`) travels down as the keyword and
+    is re-applied on every descendant.
+-   `calc()` terms carry a unit but no exponent, so an expression whose units only cancel at the
+    end (`calc(100px * 1px / 1px)`) is left unevaluated rather than answered wrongly.
+-   Percentages, `ch`, `lh` and the container-query units never resolve at computed-value time.
+-   Presentational hints are unlayered, so they beat author rules inside an `@layer`; whether that
+    is what css-cascade-5 means by "as if at the start of the author style sheet" is undecided.
+-   `<svg>` is on the unrenderable list, so no selector reaches an SVG element.
+-   Subtree invalidation on restyle compares only custom properties, so an inherited change
+    through `:hover` can leave descendants stale.

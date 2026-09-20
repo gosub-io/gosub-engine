@@ -11,7 +11,13 @@ computed-value resolution for the rest of the engine.
 - `Css3::parse_str(data, config, origin, source_url)` / `Css3::parse_stream(...)` —
   stylesheet text → `CssStylesheet`.
 - `system::Css3System` — the `CssSystem` implementation; the main integration point
-  (`Stylesheet = CssStylesheet`, `Property = CssProperty`, `Value = CssValue`).
+  (`Stylesheet = CssStylesheet`, `PropertyMap = CssProperties`, `Property = CssProperty`,
+  `Value = CssValue`).
+- `CssPropertyMap::computed_style(map, parent)` — the one conversion from a property map into
+  the typed `ComputedStyle` (`gosub_interface::style`) that layout, paint and
+  `getComputedStyle` read.
+- `matcher::property_ids::PropertyId` — the generated id of every known property, with its
+  static tables; `from_name` is the only name lookup the cascade does.
 - `load_default_useragent_stylesheet()` — the embedded `resources/useragent.css`.
 - `matcher::syntax_matcher` — validates property values against their formal grammar
   (definitions embedded from `resources/definitions/*.json`).
@@ -22,10 +28,16 @@ computed-value resolution for the rest of the engine.
 |--------|------|
 | `tokenizer`, `parser` | CSS text → AST, one parser module per construct (selectors, at-rules, calc, ...) |
 | `ast`, `node` | The AST and `convert_ast_to_stylesheet` |
-| `stylesheet` | The flattened `CssStylesheet` model and `CssValue` |
-| `matcher` | Selector matching, cascade, shorthand expansion, value-grammar validation |
-| `system` | `Css3System`, property computation, vendor-prefix normalization |
-| `functions` | `var()`, `attr()`, and the math functions (`calc`, `clamp`, `min`, `max`) |
+| `stylesheet` | The flattened `CssStylesheet` model, `CssRule` with its lazily expanded declarations, and `CssValue` |
+| `media_query`, `supports`, `imports`, `layers` | The five at-rules that survive conversion: `@media` evaluated at match time, `@supports` settled at build time, `@import` resolved through a host callback, `@layer` ordered per origin |
+| `matcher::syntax`, `matcher::syntax_matcher`, `matcher::property_definitions` | The value definition syntax parser, the grammar matcher, and the embedded definitions |
+| `matcher::expansion`, `matcher::shorthands` | Validation and shorthand expansion, done once per rule |
+| `matcher::property_ids` | Generated `LonghandId`/`ShorthandId`/`PropertyId` and their static tables |
+| `matcher::index`, `matcher::bloom` | The selector index (by rightmost compound, split by pseudo-element and attribute) and the ancestor bloom filter; both superset filters ahead of the matcher |
+| `matcher::styling` | Selector matching, the cascade, the value stages, the property map and the inheritance chain |
+| `matcher::computed_style` | The property map to typed `ComputedStyle` conversion |
+| `system` | `Css3System` and `compute_properties`, the per-element orchestrator; presentational hints and the `style` attribute as cached one-rule sheets; hover fingerprints |
+| `functions` | `var()`, `attr()` and `calc()` arithmetic, with substitution reaching into function arguments |
 | `colors`, `walker` | Color parsing (named colors, hex, hsl, oklab/oklch) and an AST pretty-printer |
 
 ## Known limitations
@@ -58,7 +70,12 @@ tooling that needs the raw grammars rather than the resolved ones.
 
 ## Further reading
 
-- [docs/css.md](../../docs/css.md) — the full parse → match → cascade → computed-value flow
+- [docs/css.md](../../docs/css.md) — the full parse → match → cascade → computed-value flow,
+  the gates and the benchmarks
+- [docs/css_properties.md](docs/css_properties.md) — values, the value definition syntax and
+  where the definitions come from
+- [tools/generate_definitions/README.md](tools/generate_definitions/README.md) — regenerating
+  the definitions and the property ids
 - [docs/interface.md](../../docs/interface.md) — the `CssSystem` trait contract
 - [docs/binaries.md](../../docs/binaries.md) — the `css3-parser` tool (run from the repo
   root: `cargo run --bin css3-parser`; note it parses without validating values)

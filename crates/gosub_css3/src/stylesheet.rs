@@ -859,10 +859,10 @@ impl CssValue {
     pub fn uses_viewport_units(&self) -> bool {
         match self {
             CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
-            // `calc()` alone keeps its body as raw text (see `parse_ast_node`), so the units
-            // inside it never become `Unit` values and the arm above cannot see them. Scan the
-            // text instead. Other functions - `clamp()` included - parse their arguments into
-            // real values and are handled by the recursion below.
+            // A `calc()` body arrives parsed, so its units are `Unit` values and the recursion
+            // below sees them. The text arm covers a `calc()` built by hand with a raw body,
+            // which only tests do, and is scanned rather than ignored so such a value still
+            // reports its units.
             //
             // Only `calc()` is scanned, deliberately: a blanket string scan would also match
             // `url(https://example.org/100vw.png)` or `content: "100vw"`, and every one of those
@@ -1728,7 +1728,7 @@ mod test {
         assert_eq!(commas.to_string(), "a, b");
     }
 
-    /// `calc()` keeps its body as raw text, so the units in it never become `CssValue::Unit`.
+    /// A `calc()` built with a raw text body, as only a test does, has no `CssValue::Unit` in it.
     /// Missing them leaves `uses_viewport_units` false, the style fingerprint then omits the
     /// viewport, and a resize never invalidates the values resolved against the old one.
     #[test]
