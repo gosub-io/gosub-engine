@@ -316,20 +316,22 @@ impl CssStylesheet {
         *self.index.get_mut() = None;
     }
 
-    /// The rules that can possibly match an element with these keys, in stylesheet order.
-    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>) -> Vec<usize> {
+    /// Write the rules that can possibly match an element with these keys into `out`, in
+    /// stylesheet order. The buffer is the caller's so that a lookup costs no allocation.
+    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>, out: &mut Vec<usize>) {
         if let Some(index) = self
             .index
             .read()
             .as_ref()
             .filter(|index| index.rule_count() == self.rules.len())
         {
-            return index.candidates(keys);
+            index.candidates(keys, out);
+            return;
         }
         self.index
             .write()
             .insert(SelectorIndex::build(&self.rules))
-            .candidates(keys)
+            .candidates(keys, out);
     }
 }
 

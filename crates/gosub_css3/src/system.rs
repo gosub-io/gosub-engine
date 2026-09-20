@@ -52,6 +52,14 @@ fn layer_sort_key(layer: Option<u32>, important: bool) -> u32 {
     }
 }
 
+thread_local! {
+    /// The buffer [`compute_properties`] hands the selector index, kept between elements so
+    /// that styling a page allocates it once rather than once per element and sheet. Taken
+    /// out and put back rather than borrowed, so that a re-entrant call would merely get a
+    /// buffer of its own instead of failing.
+    static CANDIDATES: std::cell::Cell<Vec<usize>> = const { std::cell::Cell::new(Vec::new()) };
+}
+
 /// Specificity of the `style` attribute: above any selector.
 const INLINE_SPECIFICITY: Specificity = Specificity::new(u32::MAX, 0, 0);
 
@@ -288,6 +296,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         id: doc.attribute(id, "id"),
         classes: doc.attribute(id, "class").unwrap_or(""),
         tag: doc.tag_name(id),
+        attributes: doc.attributes(id),
+        pseudo,
     };
     // The `style` attribute, parsed as a one-rule stylesheet so it can join the cascade as a
     // rule like any other. Declared before `matched` so it outlives the borrows taken of it.
@@ -327,6 +337,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         });
     }
 
+    // One buffer for the index lookups of every sheet, borrowed from the thread rather than
+    // allocated: the list is read and forgotten inside the loop, so nothing but its capacity
+    // needs to outlive an element.
+    let mut candidates = CANDIDATES.take();
     for sheet in sheets {
         // A sheet from another tree contributes nothing, except through the two selectors
         // that are defined to reach across (`:host`, `::slotted()`).
@@ -334,7 +348,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             continue;
         };
         let depth = shadow_depth::<C>(doc, sheet.scope);
-        for rule_idx in sheet.candidate_rules(&keys) {
+        sheet.candidate_rules(&keys, &mut candidates);
+        for &rule_idx in &candidates {
             let rule = &sheet.rules[rule_idx];
             // Cheaper than selector matching, so it goes first: a rule inside a `@media` block
             // that does not apply to this device contributes nothing to the cascade.
@@ -362,6 +377,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             }
         }
     }
+    CANDIDATES.set(candidates);
 
     // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
     // to the element's own tree, so it ranks at that tree's depth rather than the document's.
