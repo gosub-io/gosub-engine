@@ -284,7 +284,12 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 continue;
             }
             other => {
-                return Err(CssError::new(format!("Unsupported selector part: {other:?}").as_str()));
+                // Both the text and the shape: the text says which selector an author has to
+                // look at, the shape which node type the converter is missing.
+                let part = CssNode::new(other, node.location);
+                return Err(CssError::new(
+                    format!("Unsupported selector part: {part} ({:?})", part.node_type).as_str(),
+                ));
             }
         };
         if let Some(x) = out.last_mut() {
@@ -297,17 +302,24 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
     Ok(())
 }
 
+/// Build one style rule from its prelude and block, or `None` when the rule is invalid.
+///
+/// Every way this returns `None` is a rule that contributes nothing and nothing more: an invalid
+/// selector list invalidates the style rule it belongs to and leaves the rest of the sheet
+/// standing (css-syntax-3 §9, selectors-4 §3.9). It used to abandon the whole stylesheet, so a
+/// single selector this converter has no arm for - a bare number, dimension or percentage in a
+/// compound, or the nesting selector `&` - cost a page every rule its sheet had.
 fn collect_rule(
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
     media: &[Arc<MediaQueryList>],
     layer: Option<u32>,
-) -> CssResult<Option<CssRule>> {
+) -> Option<CssRule> {
     let mut rule = CssRule::new(vec![], vec![], (!media.is_empty()).then(|| media.to_vec()), layer);
 
     if let Some(node) = prelude {
         let NodeType::SelectorList { selectors } = node.node_type else {
-            return Ok(None);
+            return None;
         };
 
         let mut parts: Vec<Vec<CssSelectorPart>> = vec![vec![]];
@@ -316,7 +328,12 @@ fn collect_rule(
                 continue;
             };
 
-            convert_selector_children(children, &mut parts)?;
+            if let Err(err) = convert_selector_children(children, &mut parts) {
+                // One member of a selector list being invalid invalidates the whole list, and so
+                // this rule - but only this rule.
+                log::debug!("Rule dropped: {err}");
+                return None;
+            }
         }
 
         // A compound with no parts matches every element vacuously, so an empty prelude
@@ -326,7 +343,7 @@ fn collect_rule(
         // and the rule with them if nothing is left.
         parts.retain(|part| !part.is_empty());
         if parts.is_empty() {
-            return Ok(None);
+            return None;
         }
 
         rule.selectors.push(CssSelector::new(parts));
@@ -334,7 +351,7 @@ fn collect_rule(
 
     if let Some(declaration) = block {
         let NodeType::Block { children } = declaration.node_type else {
-            return Ok(None);
+            return None;
         };
         for declaration in children {
             let NodeType::Declaration {
@@ -360,11 +377,19 @@ fn collect_rule(
                 continue;
             }
 
-            // Convert the nodes into CSS Values
-            let mut css_values = vec![];
+            // Convert the nodes into CSS Values. A component value that does not convert makes
+            // the declaration invalid (css-syntax-3 §9), so it is dropped whole: keeping the
+            // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
+            // `margin: 1px`, which is not what the author wrote.
+            let mut css_values = Vec::with_capacity(value.len());
             for node in value {
-                if let Ok(value) = CssValue::parse_ast_node(node) {
-                    css_values.push(value);
+                match CssValue::parse_ast_node(node) {
+                    Ok(value) => css_values.push(value),
+                    Err(err) => {
+                        log::debug!("Declaration dropped, {property}: {err}");
+                        css_values.clear();
+                        break;
+                    }
                 }
             }
 
@@ -394,7 +419,7 @@ fn collect_rule(
         }
     }
 
-    Ok(Some(rule))
+    Some(rule)
 }
 
 /// The prefixed `display` values the Compatibility Standard requires every engine to support,
@@ -532,11 +557,11 @@ fn collect_rules(
     media: &mut Vec<Arc<MediaQueryList>>,
     layers: &mut Vec<String>,
     layer: Option<u32>,
-) -> CssResult<()> {
+) {
     for node in nodes {
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(prelude, block, media, layer)? {
+                if let Some(rule) = collect_rule(prelude, block, media, layer) {
                     rules.push(rule);
                 }
             }
@@ -550,9 +575,8 @@ fn collect_rules(
                     // so the block's rules stay visible rather than disappearing.
                     let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
                     media.push(Arc::new(list));
-                    let result = collect_rules(children, rules, font_faces, imports, media, layers, layer);
+                    collect_rules(children, rules, font_faces, imports, media, layers, layer);
                     media.pop();
-                    result?;
                 }
             }
             NodeType::AtRule {
@@ -589,7 +613,7 @@ fn collect_rules(
                 };
                 if holds {
                     if let NodeType::Block { children } = block.node_type {
-                        collect_rules(children, rules, font_faces, imports, media, layers, layer)?;
+                        collect_rules(children, rules, font_faces, imports, media, layers, layer);
                     }
                 }
             }
@@ -614,7 +638,7 @@ fn collect_rules(
                 };
                 let inner = register_layer(layers, &name);
                 if let NodeType::Block { children } = block.node_type {
-                    collect_rules(children, rules, font_faces, imports, media, layers, Some(inner))?;
+                    collect_rules(children, rules, font_faces, imports, media, layers, Some(inner));
                 }
             }
             // `@layer a, b;` sets the order of layers before either is filled in. It carries no
@@ -643,7 +667,6 @@ fn collect_rules(
             _ => {}
         }
     }
-    Ok(())
 }
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
@@ -770,7 +793,13 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>
     }
 }
 
-/// Converts a CSS AST to a CSS stylesheet structure
+/// Converts a CSS AST to a CSS stylesheet structure.
+///
+/// Only one thing can fail here, and it is not about the CSS: being handed something that is not
+/// a stylesheet at all. Everything the sheet itself can get wrong - a selector this converter
+/// has no arm for, a value that does not convert, an at-rule that makes no sense - invalidates
+/// the rule, declaration or at-rule it belongs to and nothing else, which is what css-syntax-3 §9
+/// requires. A sheet used to be lost whole to any one of them.
 pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
     let NodeType::StyleSheet { children } = css_ast.node_type else {
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
@@ -787,7 +816,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
         &mut Vec::new(),
         &mut layers,
         None,
-    )?;
+    );
     sheet.layers = layers;
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached
@@ -829,6 +858,70 @@ mod tests {
     use crate::stylesheet::Specificity;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
+
+    /// A selector this converter has no arm for invalidates its own rule and nothing else
+    /// (css-syntax-3 §9). It used to fail the conversion of the whole stylesheet, so one
+    /// `.p-0.5` - a class name the tokenizer reads as `.p-0` followed by the number `.5` - cost
+    /// the page every rule the sheet had.
+    #[test]
+    fn an_unsupported_selector_drops_only_its_own_rule() {
+        let stylesheet = Css3::parse_str(
+            "a { color: red } .p-0.5 { color: green } b { color: blue }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 2, "both valid rules survive the invalid one");
+        let kept: Vec<String> = stylesheet
+            .rules
+            .iter()
+            .flat_map(|rule| rule.declarations())
+            .map(|declaration| declaration.value.to_string())
+            .collect();
+        assert_eq!(kept, vec!["red", "blue"], "the rules either side of it are untouched");
+    }
+
+    /// One invalid member makes the whole selector list invalid, and so the rule it heads -
+    /// but no other rule (selectors-4 §3.9). `h1` does not keep the declaration `h2` loses.
+    #[test]
+    fn an_invalid_member_drops_its_whole_selector_list() {
+        let stylesheet = Css3::parse_str(
+            "h1, .p-0.5, h2 { color: red } p { color: blue }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1, "the list goes whole, its neighbour stays");
+        assert_eq!(
+            stylesheet.rules[0].declarations.first().unwrap().value.to_string(),
+            "blue"
+        );
+    }
+
+    /// A value component that does not convert makes its declaration invalid, and only it.
+    /// `filter: progid:...` is IE's, and the tokenizer has a node type of its own for it.
+    #[test]
+    fn a_declaration_whose_value_does_not_convert_drops_only_itself() {
+        let stylesheet = Css3::parse_str(
+            "a { color: red; filter: progid:DXImageTransform.Microsoft.Alpha(opacity=65); display: block }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1);
+        let properties: Vec<&str> = stylesheet.rules[0]
+            .declarations()
+            .iter()
+            .map(|declaration| declaration.property.as_str())
+            .collect();
+        assert_eq!(properties, vec!["color", "display"]);
+    }
 
     #[test]
     fn rule_with_fully_commented_out_selector_is_dropped() {

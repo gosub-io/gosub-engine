@@ -36,7 +36,13 @@ computed-value resolution for the rest of the engine.
   `@property`, `@counter-style` and `@starting-style`.
 - CSS Nesting parses, but does not reach the stylesheet: `collect_rule` keeps only the
   declarations of a block, so a nested style rule is discarded rather than flattened
-  into its parent's selector.
+  into its parent's selector, and a selector carrying the nesting selector `&` is one of
+  the four shapes below.
+- Four selector node types have no arm in `convert_selector_children`, and a rule whose
+  selector uses one is dropped (the rest of the sheet is unaffected): a bare number,
+  dimension or percentage in a compound, which is how `.p-0.5` arrives once the tokenizer
+  has read it as `.p-0` followed by `.5`, and the nesting selector `&`. The first three are
+  invalid selectors in any engine; `&` is valid CSS Nesting this crate does not support.
 - A property with no entry in the embedded definitions is treated as invalid and its
   declaration dropped, so a property from a spec the generated data does not cover is
   unsupported even when its value is well-formed.

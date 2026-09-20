@@ -18,6 +18,8 @@ The flow has four stages:
 
 The tokenizer and hand-written recursive-descent parser (one module per construct under `parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST; `convert_ast_to_stylesheet` flattens that into the `CssStylesheet` the rest of the engine uses: a list of `CssRule`s (selectors + declarations), plus extracted `@font-face` entries.
 
+Nothing about one rule can cost the sheet another. A selector part the converter has no arm for invalidates that style rule and only it, a value component that does not convert invalidates its declaration, and an at-rule that makes no sense is skipped where it stands, all per css-syntax-3 §9 and selectors-4 §3.9. The one failure that is still the whole sheet's is being handed an AST that is not a stylesheet at all.
+
 Every stylesheet is tagged with a `CssOrigin` — `UserAgent`, `Author` (the page's own sheets), or `User` — which drives cascade priority later. The user-agent stylesheet ships embedded in the crate (`resources/useragent.css`, loaded by `load_default_useragent_stylesheet`).
 
 ## Selector matching (`matcher/styling.rs`)
@@ -94,6 +96,7 @@ cargo bench -p gosub_render_pipeline --bench style -- --baseline before
 
 ## Known gaps
 
+-   Four selector node types have no conversion arm, so a rule using one is dropped: a bare number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and all three are invalid selectors anyway) and the nesting selector `&`, which is valid CSS Nesting and unsupported here.
 -   Not every longhand has a grammar definition yet; those skip validation (by design, see above).
 -   The `background` shorthand is recovered partially (image + color; position/repeat/size are ignored).
 -   Custom-property collection re-matches selectors along the ancestor chain per node, which is correct but not cheap.
