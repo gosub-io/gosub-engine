@@ -3,10 +3,10 @@
 One section per component: what works, and what does not work yet. The README's Status list is
 the short version.
 
-Measured on 2026-09-17 against `main`. Where a number can be regenerated, the command is next to
-it. Anything without a command is a reading of the code and will drift.
+Measured on 2026-09-20 against `new-css-delcaration-design`. Where a number can be regenerated,
+the command is next to it. Anything without a command is a reading of the code and will drift.
 
-1,346 tests pass, none fail (`cargo test --workspace`).
+1,534 tests pass, none fail (`cargo test --workspace`).
 
 The CSS parser validates 666 properties against generated grammars. Only 92 reach layout and
 paint. Accepting a declaration and acting on it are different things, so the sections below say
@@ -39,12 +39,46 @@ fallbacks and nesting. Shorthands expand and reset the longhands they do not men
 functions are essentially complete: `calc()`, `min`/`max`/`clamp`, `round`/`mod`/`rem`, the trig
 family, `abs`/`sign`, `pow`/`sqrt`/`hypot`, `exp`/`log`, evaluated with correct type rules and
 range clamping at computed-value time. `@media` conditions evaluate, `calc()` included.
+`var()`, `attr()` and `light-dark()` substitute wherever they stand, inside another function's
+arguments included. HTML presentational hints (`bgcolor`, `width`, `cellspacing`, `cellpadding`)
+cascade as author-level, specificity-zero declarations ahead of the author sheets.
 
-**Not yet.** `:nth-child()` parses and then never matches: the matcher has no arm for it, so it
-falls to the catch-all and returns false (`crates/gosub_css3/src/matcher/styling.rs`). `:active`
-is hardcoded false. `:visited` is hardcoded false to avoid leaking browsing history. `:is()` and
-`:has()` are stored as raw text, so their specificity errs low. `getComputedStyle` does not
-exist; 156 of the 309 suites in the CSS WPT component need it.
+The bottom half of the crate was rebuilt in September 2026. A declaration is validated and its
+shorthand expanded once per rule, not once per matched element (`matcher/expansion.rs`). The
+cascade is keyed by generated property ids (`matcher/property_ids.rs`, regenerated with
+`cargo run -p generate_definitions -- --property-ids`). Its product is one typed `ComputedStyle`
+(`crates/gosub_interface/src/style.rs`), built once per element by `matcher/computed_style.rs`
+with its field groups shared with the parent where nothing was declared, and read directly by
+layout, paint and `getComputedStyle`. Inherited values travel by a chain, not by copying into
+every child. Candidate rules come from a selector index split by pseudo-element and attribute
+name, and an ancestor bloom filter drops the selectors whose ancestors an element does not have
+before the matcher walks. On the benchmark fixtures (`cargo bench -p gosub_render_pipeline
+--bench style`, measured on a dedicated Apple M1) the cascade on a 1,225-element page under an
+18,537-rule real-world sheet went from 183 ms to 21 ms, and the five-stage pipeline on the
+wikipedia fixture from 246 ms to 84 ms. The dev tools `style_dump` and `render_dump`
+(`cargo run -p gosub_render_pipeline --example ...`) write every element's property map and
+the layout and paint output for 30 fixture pages; every step of the rebuild was gated on those
+being byte-identical, or on each difference being attributed to a spec clause.
+
+**Not yet.** A pseudo-class with an argument is stored as its text and never matches:
+`:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all
+fall to the matcher's catch-all (`crates/gosub_css3/src/matcher/styling.rs`); only `:not()` is
+evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
+`:first-child` and `:last-child` count text nodes as siblings. `:active` is hardcoded false.
+`:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
+the one selector form the AST converter has no arm for, so a nested rule is dropped. An
+unresolvable `var()` drops its declaration where css-variables-1 says the property should compute
+to `inherit` or `initial`. Six computed-value questions are still answered when the typed struct
+is built rather than in the crate's computed stage - system colours, the `font-size` keyword
+scale, `ch`/`ex`/`lh`/`ic`, `currentColor` on a property other than `color`, `outline-color:
+auto` and the physical-to-logical inset mapping - so `getComputedStyle` reports the unresolved
+form for those, and a relative `font-size` keyword is re-applied on every descendant. A hovered
+element whose inherited `color` changes leaves its descendants' cached styles stale: subtree
+invalidation compares only custom properties. `<svg>` is on the list of elements that never get
+a computed style, so no selector reaches one. `getComputedStyle` exists and is cached per
+document; the CSS WPT component stands at 3,349 of 5,759 subtests
+(`WPT_ROOT=... make wpt-css`), the property-parsing suites at 15,543 of 22,832
+(`make wpt-css-parsing`).
 
 
 ## Layout and paint - `gosub_render_pipeline`
