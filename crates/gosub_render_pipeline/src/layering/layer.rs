@@ -1,7 +1,7 @@
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
 use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
 use crate::render::backend::{StickyConstraint, TileAnchor};
+use gosub_interface::style::{ComputedStyle, Display, LengthPercentageAuto, Position, Prop, ZIndex};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
@@ -173,17 +173,14 @@ impl LayerList {
     fn sticky_constraint(&self, el: &LayoutElementNode) -> Option<StickyConstraint> {
         let doc = &self.layout_tree.render_tree.doc;
 
-        let is_sticky = matches!(
-            doc.get_own_style(el.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if lookup(id) == "sticky"
-        );
-        if !is_sticky {
+        let style = doc.computed_style(el.dom_node_id);
+        if style.box_group.position != Position::Sticky {
             return None;
         }
 
-        // Physical `top`/`left` map to these logical inset properties (see inline_style.rs).
-        let inset_top = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetBlockStart));
-        let inset_left = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetInlineStart));
+        // Physical `top`/`left` are the logical insets in this writing mode.
+        let inset_top = read_px(&style, Prop::InsetBlockStart, style.inset.block_start);
+        let inset_left = read_px(&style, Prop::InsetInlineStart, style.inset.inline_start);
 
         let natural = el.box_model.margin_box;
         let cage = el
@@ -342,29 +339,25 @@ impl LayerList {
 
         // OWN (non-inherited) styles only: descendants inherit the group through the layer and
         // must not each re-promote.
-        let own_opacity = match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Opacity) {
-            Some(Value::Number(n)) | Some(Value::Unit(n, _)) => n,
-            _ => 1.0,
+        let style = doc.computed_style(layout_element.dom_node_id);
+        let own_opacity = if style.has(Prop::Opacity) {
+            style.box_group.opacity
+        } else {
+            1.0
         };
-        let is_fixed = matches!(
-            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if lookup(id) == "fixed"
-        );
+        let is_fixed = style.has(Prop::Position) && style.box_group.position == Position::Fixed;
         // Sticky promotes like `fixed`, but its offset is resolved from scroll at composite time.
         let sticky = self.sticky_constraint(layout_element);
 
         // `z-index` only takes effect on positioned elements; `auto`/non-positioned stays at 0.
-        let is_positioned = matches!(
-            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "relative" | "absolute" | "fixed" | "sticky")
-        );
-        let z_index: Option<isize> = if is_positioned {
-            match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::ZIndex) {
-                Some(Value::Number(n)) => Some(n as isize),
-                _ => None,
-            }
-        } else {
-            None
+        let is_positioned = style.has(Prop::Position)
+            && matches!(
+                style.box_group.position,
+                Position::Relative | Position::Absolute | Position::Fixed | Position::Sticky
+            );
+        let z_index: Option<isize> = match (is_positioned, style.box_group.z_index) {
+            (true, ZIndex::Index(index)) if style.has(Prop::ZIndex) => Some(index as isize),
+            _ => None,
         };
         // Stacking level for this element; the layer list is sorted by it after traversal, since
         // DOM order alone would put a `z-index: 0` layer on top of a `z-index: 1` one.
@@ -407,10 +400,7 @@ impl LayerList {
         // content they paint in Appendix E step 7, after in-flow block borders (step 4) -
         // including an enclosing table's collapsed borders (w3c/csswg-drafts#11570). Painting
         // strictly in DOM order would put a following block sibling's border on top of them.
-        let is_inline_table = matches!(
-            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Display),
-            Some(Value::Display(crate::common::document::style::Display::InlineTable))
-        );
+        let is_inline_table = style.has(Prop::Display) && style.box_group.display == Display::InlineTable;
         if (is_positioned && z_index.is_none() || is_inline_table) && !in_promoted_group {
             let positioned_layer_id = self.new_layer(order);
             self.add_to_layer(positioned_layer_id, layout_element.id);
@@ -450,12 +440,11 @@ impl LayerList {
     }
 }
 
-/// Read a CSS length inset as px, treating unitless numbers as px. `None` for `auto` and non-px
-/// units - percentage/em insets aren't resolved here yet.
-fn read_px(value: Option<Value>) -> Option<f64> {
-    match value {
-        Some(Value::Unit(v, Unit::Px)) => Some(v as f64),
-        Some(Value::Number(v)) => Some(v as f64),
-        _ => None,
+/// A declared inset as px. `None` for `auto` and for a percentage - a percentage inset on a
+/// sticky element is not resolved here yet, so it sticks to nothing.
+fn read_px(style: &ComputedStyle, prop: Prop, inset: LengthPercentageAuto) -> Option<f64> {
+    if !style.has(prop) {
+        return None;
     }
+    inset.to_px().map(f64::from)
 }

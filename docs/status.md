@@ -49,8 +49,8 @@ exist; 156 of the 309 suites in the CSS WPT component need it.
 
 ## Layout and paint - `gosub_render_pipeline`
 
-**Works.** 92 CSS properties reach layout and paint. The list is the `StyleProperty` enum in
-`crates/gosub_render_pipeline/src/common/document/style.rs` - grep that for the current set. It
+**Works.** 92 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
+in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
 covers the box model, flex, grid (including `grid-template-areas`), floats with document-order
 band resolution, absolute and fixed positioning, `position: sticky`, overflow and scrolling,
 borders and radii, backgrounds and gradients, outlines, opacity and `mix-blend-mode`, and the
@@ -58,11 +58,11 @@ text properties. Block layout, flex and grid come from Taffy; inline content is 
 anonymous flex containers; CSS tables go to `gosub_lattice` through the `TableTree` adapter.
 After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
-**Not yet.** No CSS transforms - `transform` is not a `StyleProperty`, so the declaration is
-parsed and then ignored. No transitions or animations; nothing in the pipeline reads either
-property. No writing modes, so vertical text and RTL block flow are absent (the logical
-`inset-*` properties exist, but only because physical `top`/`left`/`right`/`bottom` are stored
-in them - see `pipeline_doc.rs:2295`, which maps them back).
+**Not yet.** No CSS transforms beyond `translate` - the rest of the `transform` list is parsed
+and then ignored. No transitions or animations; nothing in the pipeline reads either property.
+No writing modes, so vertical text and RTL block flow are absent (the logical `inset-*`
+properties exist, but only because physical `top`/`left`/`right`/`bottom` are mapped onto them -
+see `resolve_insets` in `crates/gosub_css3/src/matcher/computed_style.rs`).
 
 
 ## Render backends

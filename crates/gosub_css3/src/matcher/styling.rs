@@ -10,6 +10,7 @@ use gosub_interface::css3;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap};
 use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
+use gosub_interface::style::ComputedStyle;
 use gosub_shared::node::NodeId;
 
 use crate::colors::{CssColor, RgbColor};
@@ -1438,6 +1439,10 @@ impl CssProperties {
 }
 
 impl CssPropertyMap<Css3System> for CssProperties {
+    fn computed_style(&self, parent: Option<&ComputedStyle>) -> ComputedStyle {
+        crate::matcher::computed_style::computed_style(self, parent)
+    }
+
     fn insert_inherited(&mut self, name: &str, value: CssProperty) {
         let Some(id) = PropertyId::from_name(name) else {
             return;

@@ -203,7 +203,7 @@ To drive lattice, implement [`TableTree`] over your tree and call `compute_table
 real integration in this workspace is `gosub_render_pipeline`'s `PipelineTableTree`, which:
 
 - maps the pipeline document's `Display` values to `TableRole`,
-- maps `CssProp` variants to `StyleProperty` and resolves them to `CssLength`,
+- maps `CssProp` variants onto `ComputedStyle` fields and resolves them to `CssLength`,
 - implements `layout_cell` and `cell_content_width` by reading back the heights and intrinsic
   widths the Taffy first pass already measured,
 - implements `set_layout` by buffering relative `CellLayout`s, converted to absolute positions

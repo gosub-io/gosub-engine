@@ -1,6 +1,5 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
@@ -425,33 +424,24 @@ impl TileList {
 /// How far a visible outline reaches beyond the box (width + positive offset). Must agree with
 /// the painter's ring geometry.
 fn outline_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
-    let width = doc.get_style_f32(node_id, &StyleProperty::OutlineWidth) as f64;
-    if width <= 0.0 {
+    let outline = doc.computed_style(node_id).outline.clone();
+    let width = f64::from(outline.width);
+    if width <= 0.0 || !outline.style.is_visible() {
         return 0.0;
     }
-    match doc.get_style(node_id, &StyleProperty::OutlineStyle) {
-        Value::BorderStyle(s)
-            if !matches!(
-                s,
-                crate::common::document::style::BorderStyle::None | crate::common::document::style::BorderStyle::Hidden
-            ) => {}
-        _ => return 0.0,
-    }
-    let offset = doc.get_style_f32(node_id, &StyleProperty::OutlineOffset) as f64;
-    width + offset.max(0.0)
+    width + f64::from(outline.offset).max(0.0)
 }
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {
     let node_id = node_id?;
-    match doc.get_style(node_id, &StyleProperty::BackgroundColor) {
-        Value::Color(r, g, b, a) => {
-            let af = a as f32 / 255.0;
-            if af > 0.0 {
-                Some((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, af))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+    let color = doc.computed_style(node_id).background.color;
+    let alpha = f32::from(color.a) / 255.0;
+    (alpha > 0.0).then(|| {
+        (
+            f32::from(color.r) / 255.0,
+            f32::from(color.g) / 255.0,
+            f32::from(color.b) / 255.0,
+            alpha,
+        )
+    })
 }

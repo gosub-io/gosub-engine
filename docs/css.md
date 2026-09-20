@@ -74,10 +74,15 @@ that is the one place that can reach the HTML parser, this crate and the adapter
 
 `style` reports two numbers per fixture. `cascade` walks the element tree top-down through
 `Css3System` alone, computing every property, which is this crate's cost in isolation.
-`render-tree` builds a cold adapter and the render tree over it, which adds the pipeline's
-string-to-typed conversion. The fixtures are a dozen-element floor, a generated utility-first
-page of about 3,000 class-heavy elements with several thousand rules, and the wikipedia fixture
-DOM under the 2.2 MB sheet. Throughput is reported per styled element.
+`render-tree` builds a cold adapter and the render tree over it, which adds the conversion from
+the property map into the typed `ComputedStyle` the pipeline reads. The fixtures are a
+dozen-element floor, a generated utility-first page of about 3,000 class-heavy elements with
+several thousand rules, and the wikipedia fixture DOM under the 2.2 MB sheet. Throughput is
+reported per styled element.
+
+Read `cascade` as the control when judging a `render-tree` number: it is the same code on both
+sides of a pipeline-only change, so whatever it reports is the machine's own drift between the
+two runs, which on a laptop is several percent.
 
 To compare a change against the code before it, save a baseline first and name it:
 

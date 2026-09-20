@@ -1,3 +1,4 @@
+pub mod computed_style;
 pub mod expansion;
 pub mod index;
 pub mod property_definitions;

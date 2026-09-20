@@ -1,8 +1,11 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{
-    lookup, Display as CssDisplay, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value,
+use gosub_interface::style::{
+    AlignValue, ComputedStyle, Display as CssDisplay, LengthPercentage as CssLengthPercentage,
+    LengthPercentageAuto as CssLengthPercentageAuto, Overflow as CssOverflow, Position as CssPosition, Prop,
+    TextAlign as CssTextAlign,
 };
+use std::sync::Arc;
 use taffy::prelude::{
     minmax, span, FromFr, FromLength, MaxTrackSizingFunction, MinTrackSizingFunction, TaffyAuto, TaffyGridLine,
     TaffyMaxContent, TaffyMinContent, TaffyZero,
@@ -17,39 +20,19 @@ use taffy::{
 pub struct CssTaffyConverter<'a> {
     node_id: NodeId,
     doc: &'a dyn PipelineDocument,
+    style: Arc<ComputedStyle>,
 }
 
 impl<'a> CssTaffyConverter<'a> {
     pub fn new(node_id: NodeId, doc: &'a dyn PipelineDocument) -> Self {
-        Self { node_id, doc }
+        let style = doc.computed_style(node_id);
+        Self { node_id, doc, style }
     }
 
-    fn get_own(&self, prop: &StyleProperty) -> Option<Value> {
-        self.doc.get_own_style(self.node_id, prop)
-    }
-
-    /// Returns this element's *computed* font-size in px (resolving inheritance and
-    /// em/rem), or 16px if unresolvable. Used to resolve font-relative lengths such as
-    /// `em`/`ch` on other properties (e.g. `max-width: 17ch`).
-    fn font_size_px(&self) -> f32 {
-        match self.doc.get_style(self.node_id, &StyleProperty::FontSize) {
-            Value::Unit(v, CssUnit::Px) => v,
-            _ => 16.0,
-        }
-    }
-
-    fn get_f32(&self, prop: StyleProperty, default: f32) -> f32 {
-        match self.get_own(&prop) {
-            Some(Value::Number(num)) => num,
-            _ => default,
-        }
-    }
-
-    fn get_f32_opt(&self, prop: StyleProperty, default: Option<f32>) -> Option<f32> {
-        match self.get_own(&prop) {
-            Some(Value::Number(num)) => Some(num),
-            _ => default,
-        }
+    /// The element's own `display`, or `None` when the cascade assigned it none - which the
+    /// display fixups below read as `inline`, the CSS initial value.
+    fn declared_display(&self) -> Option<CssDisplay> {
+        self.style.has(Prop::Display).then_some(self.style.box_group.display)
     }
 
     pub fn convert(&self, is_inline: bool) -> Style {
@@ -60,54 +43,76 @@ impl<'a> CssTaffyConverter<'a> {
         // Taffy's built-in default is BorderBox, but the CSS spec default is content-box.
         ts.box_sizing = self.get_box_sizing(BoxSizing::ContentBox);
         ts.overflow = Point {
-            x: self.get_overflow(StyleProperty::OverflowX, ts.overflow.x),
-            y: self.get_overflow(StyleProperty::OverflowY, ts.overflow.y),
+            x: self.get_overflow(Prop::OverflowX, self.style.box_group.overflow_x, ts.overflow.x),
+            y: self.get_overflow(Prop::OverflowY, self.style.box_group.overflow_y, ts.overflow.y),
         };
-        ts.scrollbar_width = self.get_f32(StyleProperty::ScrollbarWidth, ts.scrollbar_width);
+        ts.scrollbar_width = self.style.box_group.scrollbar_width.unwrap_or(ts.scrollbar_width);
         ts.position = self.get_position(ts.position);
 
+        let (margin, padding, size, border, flex, grid) = (
+            &self.style.margin,
+            &self.style.padding,
+            &self.style.size,
+            &self.style.border,
+            &self.style.flex,
+            &self.style.grid,
+        );
         ts.inset = self.get_inset(ts.inset);
-        ts.margin.top = self.get_lpa(StyleProperty::MarginTop, ts.margin.top);
-        ts.margin.right = self.get_lpa(StyleProperty::MarginRight, ts.margin.right);
-        ts.margin.bottom = self.get_lpa(StyleProperty::MarginBottom, ts.margin.bottom);
-        ts.margin.left = self.get_lpa(StyleProperty::MarginLeft, ts.margin.left);
-        ts.padding.top = self.get_lp(StyleProperty::PaddingTop, ts.padding.top);
-        ts.padding.right = self.get_lp(StyleProperty::PaddingRight, ts.padding.right);
-        ts.padding.bottom = self.get_lp(StyleProperty::PaddingBottom, ts.padding.bottom);
-        ts.padding.left = self.get_lp(StyleProperty::PaddingLeft, ts.padding.left);
-        ts.border.top = self.get_border_lp(StyleProperty::BorderTopWidth, ts.border.top);
-        ts.border.right = self.get_border_lp(StyleProperty::BorderRightWidth, ts.border.right);
-        ts.border.bottom = self.get_border_lp(StyleProperty::BorderBottomWidth, ts.border.bottom);
-        ts.border.left = self.get_border_lp(StyleProperty::BorderLeftWidth, ts.border.left);
-        ts.size.width = self.get_dimension(StyleProperty::Width, ts.size.width);
-        ts.size.height = self.get_dimension(StyleProperty::Height, ts.size.height);
-        ts.min_size.width = self.get_dimension(StyleProperty::MinWidth, ts.min_size.width);
-        ts.min_size.height = self.get_dimension(StyleProperty::MinHeight, ts.min_size.height);
-        ts.max_size.width = self.get_dimension(StyleProperty::MaxWidth, ts.max_size.width);
-        ts.max_size.height = self.get_dimension(StyleProperty::MaxHeight, ts.max_size.height);
-        ts.aspect_ratio = self.get_f32_opt(StyleProperty::AspectRatio, ts.aspect_ratio);
-        ts.gap = self.get_size_lp(StyleProperty::Gap, ts.gap);
-        ts.align_items = self.get_align_items(StyleProperty::AlignItems, ts.align_items);
-        ts.align_self = self.get_align_self(StyleProperty::AlignSelf, ts.align_self);
+        ts.margin.top = self.lpa(Prop::MarginTop, margin.top, ts.margin.top);
+        ts.margin.right = self.lpa(Prop::MarginRight, margin.right, ts.margin.right);
+        ts.margin.bottom = self.lpa(Prop::MarginBottom, margin.bottom, ts.margin.bottom);
+        ts.margin.left = self.lpa(Prop::MarginLeft, margin.left, ts.margin.left);
+        ts.padding.top = self.lp(Prop::PaddingTop, padding.top, ts.padding.top);
+        ts.padding.right = self.lp(Prop::PaddingRight, padding.right, ts.padding.right);
+        ts.padding.bottom = self.lp(Prop::PaddingBottom, padding.bottom, ts.padding.bottom);
+        ts.padding.left = self.lp(Prop::PaddingLeft, padding.left, ts.padding.left);
+        ts.border.top = Self::border_lp(border.top_width);
+        ts.border.right = Self::border_lp(border.right_width);
+        ts.border.bottom = Self::border_lp(border.bottom_width);
+        ts.border.left = Self::border_lp(border.left_width);
+        ts.size.width = self.dimension(Prop::Width, size.width, ts.size.width);
+        ts.size.height = self.dimension(Prop::Height, size.height, ts.size.height);
+        ts.min_size.width = self.dimension(Prop::MinWidth, size.min_width, ts.min_size.width);
+        ts.min_size.height = self.dimension(Prop::MinHeight, size.min_height, ts.min_size.height);
+        ts.max_size.width = self.dimension(Prop::MaxWidth, size.max_width, ts.max_size.width);
+        ts.max_size.height = self.dimension(Prop::MaxHeight, size.max_height, ts.max_size.height);
+        ts.aspect_ratio = self.style.box_group.aspect_ratio.or(ts.aspect_ratio);
+        ts.gap = self.get_gap(ts.gap);
+        ts.align_items = self.get_align_items(Prop::AlignItems, flex.align_items, ts.align_items);
+        ts.align_self = self.get_align_self(Prop::AlignSelf, flex.align_self, ts.align_self);
         // Default align-content to FlexStart rather than Taffy's None (= Stretch).
-        ts.align_content = self.get_align_content(StyleProperty::AlignContent, Some(AlignContent::FLEX_START));
-        ts.justify_items = self.get_align_items(StyleProperty::JustifyItems, ts.justify_items);
-        ts.justify_self = self.get_align_self(StyleProperty::JustifySelf, ts.justify_self);
-        ts.justify_content = self.get_align_content(StyleProperty::JustifyContent, ts.justify_content);
+        ts.align_content =
+            self.get_align_content(Prop::AlignContent, flex.align_content, Some(AlignContent::FLEX_START));
+        ts.justify_items = self.get_align_items(Prop::JustifyItems, flex.justify_items, ts.justify_items);
+        ts.justify_self = self.get_align_self(Prop::JustifySelf, flex.justify_self, ts.justify_self);
+        ts.justify_content = self.get_align_content(Prop::JustifyContent, flex.justify_content, ts.justify_content);
         ts.text_align = self.get_text_align(ts.text_align);
         ts.flex_direction = self.get_flex_direction(ts.flex_direction);
         ts.flex_wrap = self.get_flex_wrap(ts.flex_wrap);
-        ts.flex_grow = self.get_f32(StyleProperty::FlexGrow, ts.flex_grow);
-        ts.flex_shrink = self.get_f32(StyleProperty::FlexShrink, ts.flex_shrink);
+        ts.flex_grow = if self.style.has(Prop::FlexGrow) {
+            flex.grow
+        } else {
+            ts.flex_grow
+        };
+        ts.flex_shrink = if self.style.has(Prop::FlexShrink) {
+            flex.shrink
+        } else {
+            ts.flex_shrink
+        };
         ts.flex_basis = self.get_flex_basis(ts.flex_basis);
-        ts.grid_template_rows = self.get_grid_template(StyleProperty::GridTemplateRows, ts.grid_template_rows);
-        ts.grid_template_columns = self.get_grid_template(StyleProperty::GridTemplateColumns, ts.grid_template_columns);
-        ts.grid_auto_rows = self.get_grid_auto(StyleProperty::GridAutoRows, ts.grid_auto_rows);
-        ts.grid_auto_columns = self.get_grid_auto(StyleProperty::GridAutoColumns, ts.grid_auto_columns);
+        ts.grid_template_rows =
+            self.get_grid_template(Prop::GridTemplateRows, &grid.template_rows, ts.grid_template_rows);
+        ts.grid_template_columns = self.get_grid_template(
+            Prop::GridTemplateColumns,
+            &grid.template_columns,
+            ts.grid_template_columns,
+        );
+        ts.grid_auto_rows = self.get_grid_auto(Prop::GridAutoRows, &grid.auto_rows, ts.grid_auto_rows);
+        ts.grid_auto_columns = self.get_grid_auto(Prop::GridAutoColumns, &grid.auto_columns, ts.grid_auto_columns);
         ts.grid_auto_flow = self.get_grid_auto_flow(ts.grid_auto_flow);
         ts.grid_template_areas = self.get_grid_areas(ts.grid_template_areas);
-        ts.grid_row = self.get_grid_line(StyleProperty::GridRow, ts.grid_row);
-        ts.grid_column = self.get_grid_line(StyleProperty::GridColumn, ts.grid_column);
+        ts.grid_row = self.get_grid_line(Prop::GridRow, &grid.row, ts.grid_row);
+        ts.grid_column = self.get_grid_line(Prop::GridColumn, &grid.column, ts.grid_column);
         // `grid-area` is the shorthand for both axes. The CSS engine does not expand it into
         // longhands, so it is read here and applied after them - an element that sets both gets
         // the shorthand, which is the common case (`grid-area: content` with no `grid-row`).
@@ -122,56 +127,48 @@ impl<'a> CssTaffyConverter<'a> {
         }
 
         // Adjust display for table and inline elements.
-        match self.get_own(&StyleProperty::Display) {
-            Some(Value::Display(CssDisplay::Table | CssDisplay::InlineTable)) => {
+        match self.declared_display() {
+            Some(CssDisplay::Table | CssDisplay::InlineTable) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
-            Some(Value::Display(CssDisplay::TableRow)) => {
+            Some(CssDisplay::TableRow) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
             }
-            Some(Value::Display(CssDisplay::TableCell)) => {
+            Some(CssDisplay::TableCell) => {
                 // Block inner layout so child blocks stack vertically; flex_grow
                 // still applies to the cell as an item of its flex-row row.
                 ts.display = Display::Block;
                 ts.flex_grow = 1.0;
             }
-            Some(Value::Display(CssDisplay::TableFooterGroup)) => {
-                ts.display = Display::Flex;
-                ts.flex_direction = FlexDirection::Column;
-            }
-            Some(Value::Display(CssDisplay::TableHeaderGroup)) => {
-                ts.display = Display::Flex;
-                ts.flex_direction = FlexDirection::Column;
-            }
-            Some(Value::Display(CssDisplay::TableRowGroup)) => {
+            Some(CssDisplay::TableFooterGroup | CssDisplay::TableHeaderGroup | CssDisplay::TableRowGroup) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
             // <col>/<colgroup> generate no boxes; lattice reads their widths
             // straight from the DOM.
-            Some(Value::Display(CssDisplay::TableColumn | CssDisplay::TableColumnGroup)) => {
+            Some(CssDisplay::TableColumn | CssDisplay::TableColumnGroup) => {
                 ts.display = Display::None;
             }
-            Some(Value::Display(CssDisplay::InlineBlock)) => {
+            Some(CssDisplay::InlineBlock) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::NoWrap;
             }
             // CSS initial value for display is inline; treat unset the same as explicit inline.
-            None | Some(Value::Display(CssDisplay::Inline)) => {
+            None | Some(CssDisplay::Inline) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::Wrap;
                 ts.align_items = Some(AlignItems::BASELINE);
             }
             // inline-flex / inline-grid: internally flex/grid, but participates inline.
-            Some(Value::Display(CssDisplay::InlineFlex)) => {
+            Some(CssDisplay::InlineFlex) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
             }
-            Some(Value::Display(CssDisplay::InlineGrid)) => {
+            Some(CssDisplay::InlineGrid) => {
                 ts.display = Display::Grid;
             }
             _ => {}
@@ -198,8 +195,8 @@ impl<'a> CssTaffyConverter<'a> {
             // mapped `inline`, `inline-block` and every table part onto `Display::Flex` as well,
             // so the taffy value no longer distinguishes them from a real flex container.
             let keeps_its_formatting_context = matches!(
-                self.get_own(&StyleProperty::Display),
-                Some(Value::Display(
+                self.declared_display(),
+                Some(
                     CssDisplay::Flex
                         | CssDisplay::InlineFlex
                         | CssDisplay::Grid
@@ -211,7 +208,7 @@ impl<'a> CssTaffyConverter<'a> {
                         | CssDisplay::TableHeaderGroup
                         | CssDisplay::TableRow
                         | CssDisplay::TableRowGroup
-                ))
+                )
             );
             if !keeps_its_formatting_context {
                 ts.display = Display::Block;
@@ -237,322 +234,276 @@ impl<'a> CssTaffyConverter<'a> {
     }
 
     fn get_flex_wrap(&self, default: FlexWrap) -> FlexWrap {
-        match self.get_own(&StyleProperty::FlexWrap) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "nowrap" => FlexWrap::NoWrap,
-                "wrap" => FlexWrap::Wrap,
-                "wrap-reverse" => FlexWrap::WrapReverse,
-                _ => default,
-            },
-            _ => default,
+        if !self.style.has(Prop::FlexWrap) {
+            return default;
+        }
+        match self.style.flex.wrap {
+            gosub_interface::style::FlexWrap::NoWrap => FlexWrap::NoWrap,
+            gosub_interface::style::FlexWrap::Wrap => FlexWrap::Wrap,
+            gosub_interface::style::FlexWrap::WrapReverse => FlexWrap::WrapReverse,
         }
     }
 
     fn get_flex_basis(&self, default: Dimension) -> Dimension {
-        match self.get_own(&StyleProperty::FlexBasis) {
-            Some(Value::Unit(val, unit)) => match unit {
-                CssUnit::Percent => Dimension::percent(val / 100.0),
-                _ => Dimension::from_length(val),
-            },
-            Some(Value::Number(val)) => Dimension::from_length(val),
-            Some(Value::Keyword(id)) if lookup(id) == "auto" => Dimension::auto(),
-            _ => default,
-        }
+        self.dimension(Prop::FlexBasis, self.style.flex.basis, default)
     }
 
     fn get_flex_direction(&self, default: FlexDirection) -> FlexDirection {
-        match self.get_own(&StyleProperty::FlexDirection) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "row" => FlexDirection::Row,
-                "row-reverse" => FlexDirection::RowReverse,
-                "column" => FlexDirection::Column,
-                "column-reverse" => FlexDirection::ColumnReverse,
-                _ => default,
-            },
-            _ => default,
+        if !self.style.has(Prop::FlexDirection) {
+            return default;
+        }
+        match self.style.flex.direction {
+            gosub_interface::style::FlexDirection::Row => FlexDirection::Row,
+            gosub_interface::style::FlexDirection::RowReverse => FlexDirection::RowReverse,
+            gosub_interface::style::FlexDirection::Column => FlexDirection::Column,
+            gosub_interface::style::FlexDirection::ColumnReverse => FlexDirection::ColumnReverse,
         }
     }
 
     fn get_display(&self, default: Display) -> Display {
-        match self.get_own(&StyleProperty::Display) {
-            Some(Value::Display(val)) => match val {
-                CssDisplay::Block => Display::Block,
-                CssDisplay::InlineBlock => Display::Block, // We override this later
-                CssDisplay::Inline => Display::Block,      // We override this later
-                CssDisplay::Flex => Display::Flex,
-                CssDisplay::InlineFlex => Display::Flex, // We override to inline below
-                CssDisplay::Grid => Display::Grid,
-                CssDisplay::InlineGrid => Display::Grid, // We override to inline below
-                CssDisplay::None => Display::None,
-                _ => Display::Block,
-            },
-            _ => default,
+        match self.declared_display() {
+            Some(CssDisplay::Block) => Display::Block,
+            // Overridden below, once the CSS display is consulted again.
+            Some(CssDisplay::InlineBlock | CssDisplay::Inline) => Display::Block,
+            Some(CssDisplay::Flex | CssDisplay::InlineFlex) => Display::Flex,
+            Some(CssDisplay::Grid | CssDisplay::InlineGrid) => Display::Grid,
+            Some(CssDisplay::None) => Display::None,
+            Some(_) => Display::Block,
+            None => default,
         }
     }
 
     fn get_position(&self, default: Position) -> Position {
-        match self.get_own(&StyleProperty::Position) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "relative" => Position::Relative,
-                "absolute" => Position::Absolute,
-                "static" => Position::Relative,
-                "fixed" => Position::Absolute,
-                "sticky" => Position::Relative,
-                _ => default,
-            },
+        if !self.style.has(Prop::Position) {
+            return default;
+        }
+        match self.style.box_group.position {
+            CssPosition::Absolute | CssPosition::Fixed => Position::Absolute,
+            CssPosition::Relative | CssPosition::Static | CssPosition::Sticky => Position::Relative,
+        }
+    }
+
+    /// A declared `<length-percentage> | auto` as taffy's own, or the caller's default when the
+    /// element declared none.
+    fn lpa(&self, prop: Prop, value: CssLengthPercentageAuto, default: LengthPercentageAuto) -> LengthPercentageAuto {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            CssLengthPercentageAuto::Px(px) => LengthPercentageAuto::length(px),
+            CssLengthPercentageAuto::Percent(pct) => LengthPercentageAuto::percent(pct / 100.0),
+            CssLengthPercentageAuto::Auto => LengthPercentageAuto::auto(),
+        }
+    }
+
+    fn lp(&self, prop: Prop, value: CssLengthPercentage, default: LengthPercentage) -> LengthPercentage {
+        if !self.style.has(prop) {
+            return default;
+        }
+        Self::to_taffy_lp(value)
+    }
+
+    fn to_taffy_lp(value: CssLengthPercentage) -> LengthPercentage {
+        match value {
+            CssLengthPercentage::Px(px) => LengthPercentage::length(px),
+            CssLengthPercentage::Percent(pct) => LengthPercentage::percent(pct / 100.0),
+        }
+    }
+
+    /// A border width, which is always known: the initial value is `medium` and
+    /// `border-style: none` zeroes it, both of which the computed style has already settled.
+    fn border_lp(width: f32) -> LengthPercentage {
+        LengthPercentage::length(width)
+    }
+
+    fn dimension(&self, prop: Prop, value: CssLengthPercentageAuto, default: Dimension) -> Dimension {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            CssLengthPercentageAuto::Px(px) => Dimension::from_length(px),
+            CssLengthPercentageAuto::Percent(pct) => Dimension::percent(pct / 100.0),
+            CssLengthPercentageAuto::Auto => Dimension::auto(),
+        }
+    }
+
+    fn get_gap(&self, default: Size<LengthPercentage>) -> Size<LengthPercentage> {
+        if !self.style.has(Prop::Gap) {
+            return default;
+        }
+        match self.style.flex.gap {
+            CssLengthPercentage::Px(px) => Size::length(px),
+            CssLengthPercentage::Percent(pct) => Size::percent(pct / 100.0),
+        }
+    }
+
+    fn get_align_items(&self, prop: Prop, value: AlignValue, default: Option<AlignItems>) -> Option<AlignItems> {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            AlignValue::Start => Some(AlignItems::START),
+            AlignValue::End => Some(AlignItems::END),
+            AlignValue::FlexStart => Some(AlignItems::FLEX_START),
+            AlignValue::FlexEnd => Some(AlignItems::FLEX_END),
+            AlignValue::Center => Some(AlignItems::CENTER),
+            AlignValue::Baseline => Some(AlignItems::BASELINE),
+            AlignValue::Stretch => Some(AlignItems::STRETCH),
             _ => default,
         }
     }
 
-    fn get_lpa(&self, prop: StyleProperty, default: LengthPercentageAuto) -> LengthPercentageAuto {
-        match self.get_own(&prop) {
-            Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => LengthPercentageAuto::length(value),
-                CssUnit::Percent => LengthPercentageAuto::percent(value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentageAuto::length(value * self.font_size_px()),
-            },
-            Some(Value::Number(value)) => LengthPercentageAuto::length(value),
-            Some(Value::Keyword(id)) if lookup(id) == "auto" => LengthPercentageAuto::auto(),
+    fn get_align_self(&self, prop: Prop, value: AlignValue, default: Option<AlignSelf>) -> Option<AlignSelf> {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            AlignValue::Auto => None,
+            AlignValue::Start => Some(AlignSelf::START),
+            AlignValue::End => Some(AlignSelf::END),
+            AlignValue::FlexStart => Some(AlignSelf::FLEX_START),
+            AlignValue::FlexEnd => Some(AlignSelf::FLEX_END),
+            AlignValue::Center => Some(AlignSelf::CENTER),
+            AlignValue::Baseline => Some(AlignSelf::BASELINE),
+            AlignValue::Stretch => Some(AlignSelf::STRETCH),
             _ => default,
         }
     }
 
-    fn get_lp(&self, prop: StyleProperty, default: LengthPercentage) -> LengthPercentage {
-        match self.get_own(&prop) {
-            Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => LengthPercentage::length(value),
-                CssUnit::Percent => LengthPercentage::percent(value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(value * self.font_size_px()),
-            },
-            Some(Value::Number(value)) => LengthPercentage::length(value),
+    fn get_align_content(&self, prop: Prop, value: AlignValue, default: Option<AlignContent>) -> Option<AlignContent> {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            AlignValue::Normal => default,
+            AlignValue::Start => Some(AlignContent::START),
+            AlignValue::End => Some(AlignContent::END),
+            AlignValue::FlexStart => Some(AlignContent::FLEX_START),
+            AlignValue::FlexEnd => Some(AlignContent::FLEX_END),
+            AlignValue::Center => Some(AlignContent::CENTER),
+            AlignValue::Stretch => Some(AlignContent::STRETCH),
+            AlignValue::SpaceBetween => Some(AlignContent::SPACE_BETWEEN),
+            AlignValue::SpaceEvenly => Some(AlignContent::SPACE_EVENLY),
+            AlignValue::SpaceAround => Some(AlignContent::SPACE_AROUND),
             _ => default,
         }
     }
 
-    /// Border widths must resolve through the *computed* value: the initial width is `medium`
-    /// (3px) and `border-style: none` zeroes it, neither of which `get_own` can see.
-    fn get_border_lp(&self, prop: StyleProperty, default: LengthPercentage) -> LengthPercentage {
-        match self.doc.get_style(self.node_id, &prop) {
-            Value::Unit(value, unit) => match unit {
-                CssUnit::Px => LengthPercentage::length(value),
-                CssUnit::Percent => LengthPercentage::percent(value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(value * self.font_size_px()),
-            },
-            Value::Number(value) => LengthPercentage::length(value),
-            _ => default,
-        }
-    }
-
-    fn get_dimension(&self, prop: StyleProperty, default: Dimension) -> Dimension {
-        match self.get_own(&prop) {
-            Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => Dimension::from_length(value),
-                CssUnit::Percent => Dimension::percent(value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Dimension::from_length(value * self.font_size_px()),
-            },
-            Some(Value::Number(value)) => Dimension::from_length(value),
-            _ => default,
-        }
-    }
-
-    fn get_size_lp(&self, prop: StyleProperty, default: Size<LengthPercentage>) -> Size<LengthPercentage> {
-        match self.get_own(&prop) {
-            Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => Size::length(value),
-                CssUnit::Percent => Size::percent(value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Size::length(value * self.font_size_px()),
-            },
-            Some(Value::Number(value)) => Size::length(value),
-            _ => default,
-        }
-    }
-
-    fn get_align_items(&self, prop: StyleProperty, default: Option<AlignItems>) -> Option<AlignItems> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "start" => Some(AlignItems::START),
-                "end" => Some(AlignItems::END),
-                "flex-start" => Some(AlignItems::FLEX_START),
-                "flex-end" => Some(AlignItems::FLEX_END),
-                "center" => Some(AlignItems::CENTER),
-                "baseline" => Some(AlignItems::BASELINE),
-                "stretch" => Some(AlignItems::STRETCH),
-                _ => default,
-            },
-            _ => default,
-        }
-    }
-
-    fn get_align_self(&self, prop: StyleProperty, default: Option<AlignSelf>) -> Option<AlignSelf> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "auto" => None,
-                "start" => Some(AlignSelf::START),
-                "end" => Some(AlignSelf::END),
-                "flex-start" => Some(AlignSelf::FLEX_START),
-                "flex-end" => Some(AlignSelf::FLEX_END),
-                "center" => Some(AlignSelf::CENTER),
-                "baseline" => Some(AlignSelf::BASELINE),
-                "stretch" => Some(AlignSelf::STRETCH),
-                _ => default,
-            },
-            _ => default,
-        }
-    }
-
-    fn get_align_content(&self, prop: StyleProperty, default: Option<AlignContent>) -> Option<AlignContent> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "normal" => default,
-                "start" => Some(AlignContent::START),
-                "end" => Some(AlignContent::END),
-                "flex-start" => Some(AlignContent::FLEX_START),
-                "flex-end" => Some(AlignContent::FLEX_END),
-                "center" => Some(AlignContent::CENTER),
-                "stretch" => Some(AlignContent::STRETCH),
-                "space-between" => Some(AlignContent::SPACE_BETWEEN),
-                "space-evenly" => Some(AlignContent::SPACE_EVENLY),
-                "space-around" => Some(AlignContent::SPACE_AROUND),
-                _ => default,
-            },
-            _ => default,
-        }
-    }
-
-    /// `text-align` inherits, so this must read the computed value - `get_own` sees nothing on a
-    /// descendant that inherits it. `left`/`right` collapse onto `start`/`end` as elsewhere (LTR).
+    /// `text-align` inherits, so this reads the computed value rather than asking whether this
+    /// element declared one. `left`/`right` collapse onto `start`/`end` as elsewhere (LTR).
     fn get_text_align(&self, default: TextAlign) -> TextAlign {
-        match self.doc.get_style(self.node_id, &StyleProperty::TextAlign) {
-            Value::TextAlign(val) => match val {
-                CssTextAlign::Center => TextAlign::LegacyCenter,
-                CssTextAlign::Start | CssTextAlign::Left => TextAlign::LegacyLeft,
-                CssTextAlign::End | CssTextAlign::Right => TextAlign::LegacyRight,
-                _ => default,
-            },
+        match self.style.inherited.text_align {
+            CssTextAlign::Center => TextAlign::LegacyCenter,
+            CssTextAlign::Start | CssTextAlign::Left => TextAlign::LegacyLeft,
+            CssTextAlign::End | CssTextAlign::Right => TextAlign::LegacyRight,
             _ => default,
         }
     }
 
     fn get_inset(&self, default: Rect<LengthPercentageAuto>) -> Rect<LengthPercentageAuto> {
+        let inset = &self.style.inset;
         Rect {
-            top: self.get_lpa(StyleProperty::InsetBlockStart, default.top),
-            right: self.get_lpa(StyleProperty::InsetInlineEnd, default.right),
-            bottom: self.get_lpa(StyleProperty::InsetBlockEnd, default.bottom),
-            left: self.get_lpa(StyleProperty::InsetInlineStart, default.left),
+            top: self.lpa(Prop::InsetBlockStart, inset.block_start, default.top),
+            right: self.lpa(Prop::InsetInlineEnd, inset.inline_end, default.right),
+            bottom: self.lpa(Prop::InsetBlockEnd, inset.block_end, default.bottom),
+            left: self.lpa(Prop::InsetInlineStart, inset.inline_start, default.left),
         }
     }
 
-    fn get_overflow(&self, prop: StyleProperty, default: Overflow) -> Overflow {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "visible" => Overflow::Visible,
-                "hidden" => Overflow::Hidden,
-                "scroll" => Overflow::Scroll,
-                "clip" => Overflow::Clip,
-                _ => default,
-            },
-            _ => default,
+    fn get_overflow(&self, prop: Prop, value: CssOverflow, default: Overflow) -> Overflow {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            CssOverflow::Visible => Overflow::Visible,
+            CssOverflow::Hidden => Overflow::Hidden,
+            CssOverflow::Scroll => Overflow::Scroll,
+            CssOverflow::Clip => Overflow::Clip,
+            // Taffy has no `auto`; the scrollbar machinery is the engine's own.
+            CssOverflow::Auto => default,
         }
     }
 
     fn get_box_sizing(&self, default: BoxSizing) -> BoxSizing {
-        match self.get_own(&StyleProperty::BoxSizing) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "content-box" => BoxSizing::ContentBox,
-                "border-box" => BoxSizing::BorderBox,
-                _ => default,
-            },
-            _ => default,
+        if !self.style.has(Prop::BoxSizing) {
+            return default;
+        }
+        match self.style.box_group.box_sizing {
+            gosub_interface::style::BoxSizing::ContentBox => BoxSizing::ContentBox,
+            gosub_interface::style::BoxSizing::BorderBox => BoxSizing::BorderBox,
         }
     }
 
     fn get_grid_template(
         &self,
-        prop: StyleProperty,
+        prop: Prop,
+        value: &str,
         default: Vec<GridTemplateComponent<String>>,
     ) -> Vec<GridTemplateComponent<String>> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => {
-                let s = lookup(id);
-                match s.as_str() {
-                    "none" | "" => Vec::new(),
-                    _ => parse_grid_template(s.as_str()).unwrap_or(default),
-                }
-            }
-            _ => default,
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            "none" | "" => Vec::new(),
+            tracks => parse_grid_template(tracks).unwrap_or(default),
         }
     }
 
     fn get_grid_auto_flow(&self, default: GridAutoFlow) -> GridAutoFlow {
-        match self.get_own(&StyleProperty::GridAutoFlow) {
-            Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "row" => GridAutoFlow::Row,
-                "column" => GridAutoFlow::Column,
-                "row dense" => GridAutoFlow::RowDense,
-                "column dense" => GridAutoFlow::ColumnDense,
-                _ => default,
-            },
-            _ => default,
+        if !self.style.has(Prop::GridAutoFlow) {
+            return default;
+        }
+        match self.style.grid.auto_flow {
+            gosub_interface::style::GridAutoFlow::Row => GridAutoFlow::Row,
+            gosub_interface::style::GridAutoFlow::Column => GridAutoFlow::Column,
+            gosub_interface::style::GridAutoFlow::RowDense => GridAutoFlow::RowDense,
+            gosub_interface::style::GridAutoFlow::ColumnDense => GridAutoFlow::ColumnDense,
         }
     }
 
-    fn get_grid_line(&self, prop: StyleProperty, default: Line<GridPlacement>) -> Line<GridPlacement> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => {
-                let s = lookup(id);
-                parse_grid_placement(s.as_str()).unwrap_or(default)
-            }
-            Some(Value::Number(n)) => Line {
-                start: GridPlacement::from_line_index(n as i16),
-                end: GridPlacement::Auto,
-            },
-            _ => default,
+    fn get_grid_line(&self, prop: Prop, value: &str, default: Line<GridPlacement>) -> Line<GridPlacement> {
+        if !self.style.has(prop) {
+            return default;
         }
+        parse_grid_placement(value).unwrap_or(default)
     }
 
     /// `grid-template-areas`, as the rectangle each area name covers.
     fn get_grid_areas(&self, default: Vec<GridTemplateArea<String>>) -> Vec<GridTemplateArea<String>> {
-        match self.get_own(&StyleProperty::GridTemplateAreas) {
-            Some(Value::Keyword(id)) => {
-                let s = lookup(id);
-                match s.as_str() {
-                    "none" | "" => Vec::new(),
-                    _ => parse_grid_areas(s.as_str()),
-                }
-            }
-            _ => default,
+        if !self.style.has(Prop::GridTemplateAreas) {
+            return default;
+        }
+        match &*self.style.grid.template_areas {
+            "none" | "" => Vec::new(),
+            areas => parse_grid_areas(areas),
         }
     }
 
     /// `grid-area`, as `(grid-row, grid-column)`. `None` only when the property is not set, so the
     /// longhands the caller already resolved are kept.
     fn get_grid_area(&self) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
-        let Some(Value::Keyword(id)) = self.get_own(&StyleProperty::GridArea) else {
-            return None;
-        };
-        Some(declared_grid_area(lookup(id).as_str()))
+        self.style
+            .has(Prop::GridArea)
+            .then(|| declared_grid_area(&self.style.grid.area))
     }
 
-    fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
-        match self.get_own(&prop) {
-            Some(Value::Keyword(id)) => {
-                let s = lookup(id);
-                match s.as_str() {
-                    "auto" | "none" | "" => Vec::new(),
-                    _ => parse_grid_template(s.as_str())
-                        .map(|tracks| {
-                            tracks
-                                .into_iter()
-                                .filter_map(|t| match t {
-                                    GridTemplateComponent::Single(tsf) => Some(tsf),
-                                    _ => None,
-                                })
-                                .collect()
+    fn get_grid_auto(&self, prop: Prop, value: &str, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
+        if !self.style.has(prop) {
+            return default;
+        }
+        match value {
+            "auto" | "none" | "" => Vec::new(),
+            tracks => parse_grid_template(tracks)
+                .map(|tracks| {
+                    tracks
+                        .into_iter()
+                        .filter_map(|track| match track {
+                            GridTemplateComponent::Single(sizing) => Some(sizing),
+                            _ => None,
                         })
-                        .unwrap_or(default),
-                }
-            }
-            _ => default,
+                        .collect()
+                })
+                .unwrap_or(default),
         }
     }
 }

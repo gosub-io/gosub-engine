@@ -18,7 +18,6 @@ use url::Url;
 use cow_utils::CowUtils;
 use gosub_render_pipeline::common::document::node::NodeType;
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_render_pipeline::common::document::style::{lookup, StyleProperty, Unit, Value};
 use gosub_render_pipeline::rendertree_builder::{RenderNodeId, RenderTree};
 
 // ---- Engine config wiring gosub_html5 + gosub_css3 ----
@@ -122,16 +121,10 @@ fn node_label(rt: &RenderTree, id: RenderNodeId, depth: usize) -> Option<String>
             // Tag + selected CSS properties
             let mut parts: Vec<String> = vec![format!("<{}>", data.tag_name)];
 
-            for (label, prop) in [
-                ("display", StyleProperty::Display),
-                ("w", StyleProperty::Width),
-                ("h", StyleProperty::Height),
-                ("color", StyleProperty::Color),
-                ("bg", StyleProperty::BackgroundColor),
-            ] {
-                if let Some(v) = data.styles.get_own(&prop) {
-                    parts.push(format!("{}={}", label, fmt_value(v)));
-                }
+            // `display` is the one property a node carries; the rest of an element's style
+            // lives on its `ComputedStyle`, which this dump does not reach for.
+            if let Some(display) = data.display {
+                parts.push(format!("display={}", format!("{display:?}").cow_to_ascii_lowercase()));
             }
 
             // id / class attributes (useful for orientation)
@@ -148,18 +141,4 @@ fn node_label(rt: &RenderTree, id: RenderNodeId, depth: usize) -> Option<String>
     };
 
     Some(content)
-}
-
-fn fmt_value(v: &Value) -> String {
-    match v {
-        Value::Unit(n, Unit::Px) => format!("{n}px"),
-        Value::Unit(n, Unit::Percent) => format!("{n}%"),
-        Value::Unit(n, Unit::Em) => format!("{n}em"),
-        Value::Unit(n, Unit::Rem) => format!("{n}rem"),
-        Value::Number(n) => format!("{n}"),
-        Value::Keyword(id) => lookup(*id),
-        Value::Display(d) => format!("{d:?}").cow_to_ascii_lowercase().into_owned(),
-        Value::Color(r, g, b, a) => format!("rgba({r},{g},{b},{a})"),
-        _ => format!("{v:?}"),
-    }
 }

@@ -101,6 +101,7 @@ See [headless.md](headless.md) for how the tool drives the engine and how to bui
 | `cargo run -p gosub_lattice --bin table_console` | Table layout engine console demos |
 | `cargo run -p generate_definitions` | Regenerate the gosub_css3 CSS definition JSON (`-- --property-ids` regenerates the property-id module offline) |
 | `cargo run -p gosub_render_pipeline --example style_dump -- <out-dir>` | Dump every element's computed style for a set of page fixtures, so a change to the style system can be diffed against itself |
+| `cargo run -p gosub_render_pipeline --example render_dump -- <out-dir>` | Dump the laid-out boxes and paint commands of the same fixtures, so a change can be proved to move no pixel |
 
 For more detail on the component tools see [`binaries.md`](binaries.md).
 
@@ -123,3 +124,24 @@ The fixtures are the ones the `style` benchmark measures plus the page fixtures 
 and the pages themselves are shared with that benchmark, so the two describe one thing. Keys are
 property names and every list is sorted, so the output stays comparable across a change to how
 the engine keys itself internally.
+
+### render_dump
+
+`style_dump` proves the cascade decided the same thing; `render_dump` proves the pipeline made
+the same page of it. For each of the same fixtures it runs stages 1-5 and writes
+`<name>.layout.json` (tag, id, class, depth and border box of every element in document order,
+the layouter's own `GOSUB_DUMP_LAYOUT` output) and `<name>.paint.txt` (the paint commands of
+every tile of every layer, in layer and tile order).
+
+```bash
+cargo run --release -p gosub_render_pipeline --example render_dump -- /tmp/render/before
+# ... make the change ...
+cargo run --release -p gosub_render_pipeline --example render_dump -- /tmp/render/after
+diff -rq /tmp/render/before /tmp/render/after
+```
+
+One caveat: the two `stackoverflow` fixtures are not reproducible run to run. Their page has an
+`<img>` whose media cannot be fetched, and whether the second request for it finds the
+placeholder already installed depends on how fast the first fetch fails - so the image is
+sometimes 0x0 and sometimes the placeholder's 32x32, and the page below it shifts by 6px. The
+other 28 fixtures are stable.

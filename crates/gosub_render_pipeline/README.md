@@ -6,9 +6,10 @@ change re-runs only the stages it invalidates, so a pure scroll costs a re-compo
 instead of a re-render. The render backends (`gosub_renderer_cairo` / `_skia` / `_vello`)
 implement against the contracts surfaced here.
 
-The pipeline deliberately uses its own document/style/layout types, separate from the
-`gosub_interface` world where parsing happens; the adapter that joins the two sides is
-described in [docs/two-worlds.md](../../docs/two-worlds.md).
+The pipeline deliberately uses its own document and layout types, separate from the
+`gosub_interface` world where parsing happens; style is shared, as
+`gosub_interface::style::ComputedStyle`. The adapter that joins the two sides is described in
+[docs/two-worlds.md](../../docs/two-worlds.md).
 
 ## The stages
 
@@ -36,7 +37,7 @@ Backends implement two things:
 - `Rasterable` (this crate, `rasterizer`) — per-tile execution of paint commands, with a
   `RasterStrategy` (parallel-cached for CPU backends, sequential for Vello).
 
-`common` holds what the stages share: the pipeline's document/style types, geometry, the
+`common` holds what the stages share: the pipeline's document types, geometry, the
 media store (decoded images/SVG) and the texture store. Spatial queries (visible-element
 and hit tests) go through rstar R-trees.
 

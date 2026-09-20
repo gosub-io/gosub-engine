@@ -23,9 +23,9 @@
 
 use crate::common::document::node::NodeId as DomNodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{lookup, StyleProperty, Value};
 use crate::common::geo::Rect;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutTree};
+use gosub_interface::style::{Clear, Display, Float, Position, Prop};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -41,34 +41,34 @@ pub enum FloatSide {
 /// Per CSS 2.1 §9.7 `float` computes to `none` on an absolutely positioned box, so the caller is
 /// responsible for checking `position` first where that matters.
 pub fn float_side(doc: &dyn PipelineDocument, id: DomNodeId) -> Option<FloatSide> {
-    match doc.get_own_style(id, &StyleProperty::Float) {
-        Some(Value::Keyword(kw)) => match lookup(kw).as_str() {
-            "left" => Some(FloatSide::Left),
-            "right" => Some(FloatSide::Right),
-            _ => None,
-        },
-        _ => None,
+    let style = doc.computed_style(id);
+    if !style.has(Prop::Float) {
+        return None;
+    }
+    match style.box_group.float {
+        Float::Left => Some(FloatSide::Left),
+        Float::Right => Some(FloatSide::Right),
+        Float::None => None,
     }
 }
 
 /// True when `position` takes the box out of flow itself, in which case `float` does not apply.
 pub fn position_is_out_of_flow(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
-    match doc.get_own_style(id, &StyleProperty::Position) {
-        Some(Value::Keyword(kw)) => matches!(lookup(kw).as_str(), "absolute" | "fixed"),
-        _ => false,
-    }
+    let style = doc.computed_style(id);
+    style.has(Prop::Position) && matches!(style.box_group.position, Position::Absolute | Position::Fixed)
 }
 
 /// The sides a node clears, as `(left, right)`.
 fn clear_sides(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
-    match doc.get_own_style(id, &StyleProperty::Clear) {
-        Some(Value::Keyword(kw)) => match lookup(kw).as_str() {
-            "left" => (true, false),
-            "right" => (false, true),
-            "both" => (true, true),
-            _ => (false, false),
-        },
-        _ => (false, false),
+    let style = doc.computed_style(id);
+    if !style.has(Prop::Clear) {
+        return (false, false);
+    }
+    match style.box_group.clear {
+        Clear::Left => (true, false),
+        Clear::Right => (false, true),
+        Clear::Both => (true, true),
+        Clear::None => (false, false),
     }
 }
 
@@ -78,12 +78,9 @@ fn clear_sides(doc: &dyn PipelineDocument, id: DomNodeId) -> (bool, bool) {
 /// BFC roots are not modelled by this pipeline yet. The document root always contains its
 /// floats so the page scroll height includes them.
 fn establishes_bfc(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
-    [StyleProperty::OverflowX, StyleProperty::OverflowY]
-        .iter()
-        .any(|prop| match doc.get_own_style(id, prop) {
-            Some(Value::Keyword(kw)) => !matches!(lookup(kw).as_str(), "visible" | "clip"),
-            _ => false,
-        })
+    let style = doc.computed_style(id);
+    (style.has(Prop::OverflowX) && style.box_group.overflow_x.establishes_bfc())
+        || (style.has(Prop::OverflowY) && style.box_group.overflow_y.establishes_bfc())
 }
 
 /// A placed float, kept as the band of vertical space it occupies and the inner edge it pushes
@@ -818,13 +815,13 @@ fn holds_line_boxes(layout_tree: &LayoutTree, node: LayoutElementId) -> bool {
     let Some(el) = layout_tree.arena.get(&node) else {
         return false;
     };
-    !matches!(
-        layout_tree
-            .render_tree
-            .doc
-            .get_style(el.dom_node_id, &StyleProperty::Display),
-        Value::Display(crate::common::document::style::Display::Inline)
-    )
+    layout_tree
+        .render_tree
+        .doc
+        .computed_style(el.dom_node_id)
+        .box_group
+        .display
+        != Display::Inline
 }
 
 /// Whether `node` holds inline content directly (text, or an inline box), meaning it is the block

@@ -19,7 +19,6 @@ use gosub_interface::document::Document as _;
 use image::{ImageBuffer, Rgba, RgbaImage};
 
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_render_pipeline::common::document::style::{StyleProperty, Value};
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::{CanLayout, ElementContext};
@@ -100,9 +99,11 @@ fn main() {
                 let bg = layout_tree
                     .render_tree
                     .doc
-                    .get_style(el.dom_node_id, &StyleProperty::BackgroundColor);
-                if let Value::Color(r, g, b, a) = bg {
-                    let rgba = [r, g, b, a];
+                    .computed_style(el.dom_node_id)
+                    .background
+                    .color;
+                {
+                    let rgba = [bg.r, bg.g, bg.b, bg.a];
                     if rgba[3] > 0 {
                         let bb = &el.box_model.border_box;
                         fill_rect(

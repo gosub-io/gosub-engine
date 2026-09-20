@@ -2,12 +2,12 @@ use gosub_lattice::{BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableTr
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
 use crate::layouter::taffy::TaffyLayouter;
 use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
+use gosub_interface::style::{Display, LengthPercentage, LengthPercentageAuto, Position, Prop};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -62,12 +62,11 @@ impl<'a> PipelineTableTree<'a> {
         if let Some(&hit) = self.contains_table_cache.borrow().get(&id) {
             return hit;
         }
-        let hit = self.doc.children(id).iter().any(|&child| {
-            matches!(
-                self.doc.get_own_style(child, &StyleProperty::Display),
-                Some(Value::Display(Display::Table | Display::InlineTable))
-            ) || self.subtree_contains_table(child)
-        });
+        let hit = self
+            .doc
+            .children(id)
+            .iter()
+            .any(|&child| is_table_box(self.doc, child) || self.subtree_contains_table(child));
         self.contains_table_cache.borrow_mut().insert(id, hit);
         hit
     }
@@ -84,10 +83,7 @@ impl<'a> PipelineTableTree<'a> {
             let Some(child) = self.layout_tree.arena.get(&child_id) else {
                 continue;
             };
-            let is_table = matches!(
-                self.doc.get_own_style(child.dom_node_id, &StyleProperty::Display),
-                Some(Value::Display(Display::Table | Display::InlineTable))
-            );
+            let is_table = is_table_box(self.doc, child.dom_node_id);
             if is_table {
                 // Self-contained nested table - stop here, don't double-count its inner tables.
                 // MARGIN box: the table's margins are part of the content extent it occupies
@@ -108,10 +104,7 @@ impl<'a> PipelineTableTree<'a> {
         // the table's BORDER box origin - the table's own border joined the conflict
         // inside lattice and no longer insets the content. The box model read here is
         // still the taffy first-pass one, whose border/padding would inset wrongly.
-        let collapse = matches!(
-            self.doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
-            Value::Keyword(k) if lookup(k) == "collapse"
-        );
+        let collapse = borders_collapse(self.doc, table_dom_id);
         let table_abs = self
             .dom_to_layout
             .get(&table_dom_id)
@@ -227,8 +220,9 @@ fn apply_recursive(
                     && edge_owners.contains_key(&child_id)
                     && border_corrected.insert(child_id)
                 {
-                    let raw_left = doc.get_style_f32(child_id, &StyleProperty::BorderLeftWidth) as f64;
-                    let raw_top = doc.get_style_f32(child_id, &StyleProperty::BorderTopWidth) as f64;
+                    let child_border = &doc.computed_style(child_id).border;
+                    let raw_left = f64::from(child_border.left_width);
+                    let raw_top = f64::from(child_border.top_width);
                     let dl = cell_layout.border.left - raw_left;
                     let dt = cell_layout.border.top - raw_top;
                     if dl != 0.0 || dt != 0.0 {
@@ -307,73 +301,72 @@ impl TableTree for PipelineTableTree<'_> {
     }
 
     fn table_role(&self, id: DomNodeId) -> TableRole {
-        match self.doc.get_own_style(id, &StyleProperty::Display) {
-            Some(Value::Display(d)) => match d {
-                Display::Table | Display::InlineTable => TableRole::Table,
-                Display::TableCaption => TableRole::Caption,
-                Display::TableColumnGroup => TableRole::ColumnGroup,
-                Display::TableColumn => TableRole::Column,
-                Display::TableRowGroup => TableRole::RowGroup,
-                Display::TableHeaderGroup => TableRole::HeaderGroup,
-                Display::TableFooterGroup => TableRole::FooterGroup,
-                Display::TableRow => TableRole::Row,
-                Display::TableCell => TableRole::Cell,
-                _ => TableRole::Other,
-            },
+        let style = self.doc.computed_style(id);
+        if !style.has(Prop::Display) {
+            return TableRole::Other;
+        }
+        match style.box_group.display {
+            Display::Table | Display::InlineTable => TableRole::Table,
+            Display::TableCaption => TableRole::Caption,
+            Display::TableColumnGroup => TableRole::ColumnGroup,
+            Display::TableColumn => TableRole::Column,
+            Display::TableRowGroup => TableRole::RowGroup,
+            Display::TableHeaderGroup => TableRole::HeaderGroup,
+            Display::TableFooterGroup => TableRole::FooterGroup,
+            Display::TableRow => TableRole::Row,
+            Display::TableCell => TableRole::Cell,
             _ => TableRole::Other,
         }
     }
 
     fn css_length(&self, id: DomNodeId, prop: CssProp) -> CssLength {
-        let style_prop = match prop {
-            CssProp::Width => StyleProperty::Width,
-            CssProp::Height => StyleProperty::Height,
-            CssProp::MinWidth => StyleProperty::MinWidth,
-            CssProp::MinHeight => StyleProperty::MinHeight,
-            CssProp::MaxWidth => StyleProperty::MaxWidth,
-            CssProp::MaxHeight => StyleProperty::MaxHeight,
-            CssProp::BorderTopWidth => StyleProperty::BorderTopWidth,
-            CssProp::BorderRightWidth => StyleProperty::BorderRightWidth,
-            CssProp::BorderBottomWidth => StyleProperty::BorderBottomWidth,
-            CssProp::BorderLeftWidth => StyleProperty::BorderLeftWidth,
-            CssProp::PaddingTop => StyleProperty::PaddingTop,
-            CssProp::PaddingRight => StyleProperty::PaddingRight,
-            CssProp::PaddingBottom => StyleProperty::PaddingBottom,
-            CssProp::PaddingLeft => StyleProperty::PaddingLeft,
-            // border-spacing is inherited, so get_style (below) resolves it through
-            // the cascade down to the UA default (`table { border-spacing: 2px }`).
-            CssProp::BorderSpacingX => StyleProperty::BorderSpacingX,
-            CssProp::BorderSpacingY => StyleProperty::BorderSpacingY,
-            // Px(1.0) is the lattice sentinel for `table-layout: fixed`.
-            CssProp::TableLayout => {
-                return match self.doc.get_style(id, &StyleProperty::TableLayout) {
-                    Value::Keyword(k) if lookup(k) == "fixed" => CssLength::Px(1.0),
-                    _ => CssLength::Auto,
-                };
-            }
-            // Px(1.0) = `border-collapse: collapse` (inherited, so get_style walks up).
-            CssProp::BorderCollapse => {
-                return match self.doc.get_style(id, &StyleProperty::BorderCollapse) {
-                    Value::Keyword(k) if lookup(k) == "collapse" => CssLength::Px(1.0),
-                    _ => CssLength::Auto,
-                };
-            }
-            // Px(1.0) = `caption-side: bottom`.
-            CssProp::CaptionSide => {
-                return match self.doc.get_style(id, &StyleProperty::CaptionSide) {
-                    Value::Keyword(k) if lookup(k) == "bottom" => CssLength::Px(1.0),
-                    _ => CssLength::Auto,
-                };
-            }
-            // Resolved by the dedicated trait method, not css_length.
-            CssProp::VerticalAlign => return CssLength::Auto,
+        let style = self.doc.computed_style(id);
+        let (size, border, padding) = (&style.size, &style.border, &style.padding);
+        let length = |value: LengthPercentage| match value {
+            LengthPercentage::Px(px) => CssLength::Px(f64::from(px)),
+            LengthPercentage::Percent(pct) => CssLength::Percent(f64::from(pct)),
         };
-
-        match self.doc.get_style(id, &style_prop) {
-            Value::Unit(v, Unit::Px) => CssLength::Px(v as f64),
-            Value::Unit(v, Unit::Percent) => CssLength::Percent(v as f64),
-            Value::Unit(0.0, _) => CssLength::Zero,
-            _ => CssLength::Auto,
+        let length_auto = |value: LengthPercentageAuto| match value {
+            LengthPercentageAuto::Px(px) => CssLength::Px(f64::from(px)),
+            LengthPercentageAuto::Percent(pct) => CssLength::Percent(f64::from(pct)),
+            LengthPercentageAuto::Auto => CssLength::Auto,
+        };
+        match prop {
+            CssProp::Width => length_auto(size.width),
+            CssProp::Height => length_auto(size.height),
+            CssProp::MinWidth => length_auto(size.min_width),
+            CssProp::MinHeight => length_auto(size.min_height),
+            CssProp::MaxWidth => length_auto(size.max_width),
+            CssProp::MaxHeight => length_auto(size.max_height),
+            CssProp::BorderTopWidth => CssLength::Px(f64::from(border.top_width)),
+            CssProp::BorderRightWidth => CssLength::Px(f64::from(border.right_width)),
+            CssProp::BorderBottomWidth => CssLength::Px(f64::from(border.bottom_width)),
+            CssProp::BorderLeftWidth => CssLength::Px(f64::from(border.left_width)),
+            CssProp::PaddingTop => length(padding.top),
+            CssProp::PaddingRight => length(padding.right),
+            CssProp::PaddingBottom => length(padding.bottom),
+            CssProp::PaddingLeft => length(padding.left),
+            // border-spacing is inherited, so the computed value carries the cascade down to
+            // the user-agent default (`table { border-spacing: 2px }`).
+            CssProp::BorderSpacingX => CssLength::Px(f64::from(style.inherited.border_spacing_x)),
+            CssProp::BorderSpacingY => CssLength::Px(f64::from(style.inherited.border_spacing_y)),
+            // Px(1.0) is the lattice sentinel for `table-layout: fixed`.
+            CssProp::TableLayout => match style.box_group.table_layout {
+                gosub_interface::style::TableLayout::Fixed => CssLength::Px(1.0),
+                gosub_interface::style::TableLayout::Auto => CssLength::Auto,
+            },
+            // Px(1.0) = `border-collapse: collapse` (inherited, so it walks up).
+            CssProp::BorderCollapse => match style.inherited.border_collapse {
+                gosub_interface::style::BorderCollapse::Collapse => CssLength::Px(1.0),
+                gosub_interface::style::BorderCollapse::Separate => CssLength::Auto,
+            },
+            // Px(1.0) = `caption-side: bottom`.
+            CssProp::CaptionSide => match style.inherited.caption_side {
+                gosub_interface::style::CaptionSide::Bottom => CssLength::Px(1.0),
+                gosub_interface::style::CaptionSide::Top => CssLength::Auto,
+            },
+            // Resolved by the dedicated trait method, not css_length.
+            CssProp::VerticalAlign => CssLength::Auto,
         }
     }
 
@@ -450,18 +443,24 @@ impl TableTree for PipelineTableTree<'_> {
     /// `middle` on rows/sections, so the browser default falls out of the walk.
     /// `baseline` (and the inline-only keywords) approximate as Top.
     fn vertical_align(&self, id: DomNodeId) -> VerticalAlign {
+        use gosub_interface::style::VerticalAlign as CssVerticalAlign;
         let mut cur = Some(id);
         while let Some(node) = cur {
-            if let Some(Value::Keyword(k)) = self.doc.get_own_style(node, &StyleProperty::VerticalAlign) {
-                match lookup(k).as_str() {
-                    "top" => return VerticalAlign::Top,
-                    "middle" => return VerticalAlign::Middle,
-                    "bottom" => return VerticalAlign::Bottom,
+            let style = self.doc.computed_style(node);
+            if style.has(Prop::VerticalAlign) {
+                match style.box_group.vertical_align {
+                    CssVerticalAlign::Top => return VerticalAlign::Top,
+                    CssVerticalAlign::Middle => return VerticalAlign::Middle,
+                    CssVerticalAlign::Bottom => return VerticalAlign::Bottom,
                     // CSS 2 §17.5.3: cell values other than top/middle/bottom behave
                     // as baseline.
-                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => return VerticalAlign::Baseline,
-                    // "inherit" (or anything unrecognised): keep walking.
-                    _ => {}
+                    CssVerticalAlign::Baseline
+                    | CssVerticalAlign::TextTop
+                    | CssVerticalAlign::TextBottom
+                    | CssVerticalAlign::Sub
+                    | CssVerticalAlign::Super => return VerticalAlign::Baseline,
+                    // The `inherit` the user-agent sheet puts on cells, or a length: keep walking.
+                    CssVerticalAlign::Other => {}
                 }
             }
             if self.table_role(node) == TableRole::Table {
@@ -483,10 +482,7 @@ impl TableTree for PipelineTableTree<'_> {
             if matches!(el.context, ElementContext::Text(_)) {
                 return Some(id);
             }
-            if matches!(
-                doc.get_own_style(el.dom_node_id, &StyleProperty::Display),
-                Some(Value::Display(Display::Table | Display::InlineTable))
-            ) {
+            if is_table_box(doc, el.dom_node_id) {
                 return None;
             }
             for &c in &el.children {
@@ -599,10 +595,8 @@ fn subtree_min_content_width(
             }
             // An explicit width is as unbreakable as an image: the box will be that wide
             // whatever its words are.
-            let explicit = matches!(
-                doc.get_own_style(el.dom_node_id, &StyleProperty::Width),
-                Some(Value::Unit(w, Unit::Px)) if w > 0.0
-            );
+            let style = doc.computed_style(el.dom_node_id);
+            let explicit = style.has(Prop::Width) && style.size.width.to_px().is_some_and(|w| w > 0.0);
             if explicit {
                 from_children.max(el.box_model.border_box.width as f32)
             } else {
@@ -682,10 +676,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // table's last child. The paint-order DFS then emits the cells' border strips after
     // the whole subtree, so descendants (negative margins, abs boxes) cannot cover them.
     for (table_dom_id, table_layout_id) in table_nodes {
-        let collapse = matches!(
-            doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
-            Value::Keyword(k) if lookup(k) == "collapse"
-        );
+        let collapse = borders_collapse(&*doc, table_dom_id);
         if !collapse {
             continue;
         }
@@ -731,13 +722,7 @@ fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &
         if child.collapsed_borders.is_some() {
             out.push(child_id);
         }
-        let child_is_table = matches!(
-            layout_tree
-                .render_tree
-                .doc
-                .get_own_style(child.dom_node_id, &StyleProperty::Display),
-            Some(Value::Display(Display::Table | Display::InlineTable))
-        );
+        let child_is_table = is_table_box(&*layout_tree.render_tree.doc, child.dom_node_id);
         if !child_is_table {
             collect_collapsed_cells(layout_tree, child_id, out);
         }
@@ -765,10 +750,9 @@ fn lay_out_one_table(
     // An absolutely-positioned table is the exception: its width is constrained by its
     // insets (`left`/`right`), which taffy has already resolved in the first pass - the
     // parent's content width would ignore them (CSS 2 §10.3.7).
-    let table_is_abs = matches!(
-        doc.get_own_style(table_dom_id, &StyleProperty::Position),
-        Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "absolute" | "fixed")
-    );
+    let table_style = doc.computed_style(table_dom_id);
+    let table_is_abs = table_style.has(Prop::Position)
+        && matches!(table_style.box_group.position, Position::Absolute | Position::Fixed);
     let own_width = || {
         layout_tree
             .arena
@@ -801,10 +785,7 @@ fn lay_out_one_table(
             // Under border-collapse the table has no padding and its border joined the
             // perimeter conflict inside lattice (the resolved halves are part of the
             // returned extents), so nothing wraps around the grid.
-            let collapse = matches!(
-                doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
-                Value::Keyword(k) if lookup(k) == "collapse"
-            );
+            let collapse = borders_collapse(doc, table_dom_id);
             if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
                 let bb = el.box_model.border_box;
                 let (border, padding) = if collapse {
@@ -914,10 +895,7 @@ fn collect_tables_preorder(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     out: &mut Vec<(DomNodeId, LayoutElementId)>,
 ) {
-    if matches!(
-        doc.get_own_style(id, &StyleProperty::Display),
-        Some(Value::Display(Display::Table | Display::InlineTable))
-    ) {
+    if is_table_box(doc, id) {
         if let Some(&layout_id) = dom_to_layout.get(&id) {
             out.push((id, layout_id));
         }
@@ -925,4 +903,16 @@ fn collect_tables_preorder(
     for child in doc.children(id) {
         collect_tables_preorder(doc, child, dom_to_layout, out);
     }
+}
+
+/// Whether the element's own cascade made it a table box.
+fn is_table_box(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    let style = doc.computed_style(id);
+    style.has(Prop::Display) && matches!(style.box_group.display, Display::Table | Display::InlineTable)
+}
+
+/// Whether a table collapses its borders. Inherited, so the computed value is the answer
+/// wherever it is asked.
+fn borders_collapse(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    doc.computed_style(id).inherited.border_collapse == gosub_interface::style::BorderCollapse::Collapse
 }

@@ -1,7 +1,5 @@
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
-use crate::common::document::style::{
-    intern, lookup, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
-};
+use crate::common::document::presentation_hints;
 use crate::painter::commands::color::Color;
 use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
 use cow_utils::CowUtils;
@@ -9,433 +7,11 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
+use gosub_interface::style::{ComputedStyle, Display, LengthPercentage, Prop};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-// ── Bridge: CssProperty -> Value ──────────────────────────────────────────────
-
-/// `None` when the property carries no usable value (e.g. `CssValue::None`).
-fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) -> Option<Value> {
-    match prop {
-        // ── Color properties ───────────────────────────────────────────────
-        StyleProperty::Color
-        | StyleProperty::BackgroundColor
-        | StyleProperty::BorderTopColor
-        | StyleProperty::BorderRightColor
-        | StyleProperty::BorderBottomColor
-        | StyleProperty::BorderLeftColor
-        | StyleProperty::OutlineColor => {
-            if let Some(s) = p.as_string() {
-                // `transparent` tokenises as a plain identifier, so the colour parser does not
-                // recognise it and the property would be left unset - which the painter reads as
-                // "no colour given" and falls back to black. CSS defines it as rgba(0, 0, 0, 0),
-                // and the CSS-triangle idiom (`border-color: transparent transparent green`)
-                // depends on it, so an unresolved `transparent` paints a solid black box.
-                if s.eq_ignore_ascii_case("transparent") {
-                    return Some(Value::Color(0, 0, 0, 0));
-                }
-                // CSS-wide keywords: unset the declaration so the property's initial value applies
-                // (the colour parser would otherwise read them as black).
-                if matches!(
-                    s.cow_to_ascii_lowercase().as_ref(),
-                    "initial" | "unset" | "revert" | "revert-layer" | "inherit"
-                ) {
-                    return None;
-                }
-                if let Some((r, g, b, a)) = css_system_color(s) {
-                    return Some(Value::Color(r, g, b, a));
-                }
-            }
-            // parse_color returns 0..255 range - matches Value::Color(u8, u8, u8, u8)
-            let (r, g, b, a) = p.parse_color()?;
-            Some(Value::Color(r as u8, g as u8, b as u8, a as u8))
-        }
-
-        // ── Display ────────────────────────────────────────────────────────
-        StyleProperty::Display => {
-            let s = p.as_string()?;
-            let d = match s {
-                "block" => Display::Block,
-                "inline" => Display::Inline,
-                "inline-block" => Display::InlineBlock,
-                "none" => Display::None,
-                "flex" => Display::Flex,
-                "inline-flex" => Display::InlineFlex,
-                "grid" => Display::Grid,
-                "inline-grid" => Display::InlineGrid,
-                "table" => Display::Table,
-                "inline-table" => Display::InlineTable,
-                "table-caption" => Display::TableCaption,
-                "table-cell" => Display::TableCell,
-                "table-footer-group" => Display::TableFooterGroup,
-                "table-header-group" => Display::TableHeaderGroup,
-                "table-row" => Display::TableRow,
-                "table-row-group" => Display::TableRowGroup,
-                "table-column" => Display::TableColumn,
-                "table-column-group" => Display::TableColumnGroup,
-                _ => Display::Block,
-            };
-            Some(Value::Display(d))
-        }
-
-        // ── FontWeight ─────────────────────────────────────────────────────
-        StyleProperty::FontWeight => {
-            let fw = if let Some(n) = p.as_number() {
-                FontWeight::Number(n)
-            } else {
-                match p.as_string()? {
-                    "bold" => FontWeight::Bold,
-                    "bolder" => FontWeight::Bolder,
-                    "lighter" => FontWeight::Lighter,
-                    _ => FontWeight::Normal,
-                }
-            };
-            Some(Value::FontWeight(fw))
-        }
-
-        // ── TextAlign ──────────────────────────────────────────────────────
-        StyleProperty::TextAlign => {
-            let ta = match p.as_string()? {
-                "left" => TextAlign::Left,
-                "right" => TextAlign::Right,
-                // `-webkit-center` is what the HTML rendering spec's UA sheet
-                // uses for `<caption>`; treat it as plain center.
-                "center" | "-webkit-center" => TextAlign::Center,
-                "justify" => TextAlign::Justify,
-                "start" => TextAlign::Start,
-                "end" => TextAlign::End,
-                "match-parent" => TextAlign::MatchParent,
-                "initial" => TextAlign::Initial,
-                "inherit" => TextAlign::Inherit,
-                "revert" => TextAlign::Revert,
-                "unset" => TextAlign::Unset,
-                _ => TextAlign::Left,
-            };
-            Some(Value::TextAlign(ta))
-        }
-
-        // ── TextWrap ───────────────────────────────────────────────────────
-        StyleProperty::TextWrap => {
-            let tw = match p.as_string()? {
-                "nowrap" => TextWrap::NoWrap,
-                "balance" => TextWrap::Balance,
-                "pretty" => TextWrap::Pretty,
-                "stable" => TextWrap::Stable,
-                "initial" => TextWrap::Initial,
-                "inherit" => TextWrap::Inherit,
-                "revert" => TextWrap::Revert,
-                "revert-layer" => TextWrap::RevertLayer,
-                "unset" => TextWrap::Unset,
-                _ => TextWrap::Wrap,
-            };
-            Some(Value::TextWrap(tw))
-        }
-
-        // ── Border styles ──────────────────────────────────────────────────
-        StyleProperty::BorderTopStyle
-        | StyleProperty::BorderRightStyle
-        | StyleProperty::BorderBottomStyle
-        | StyleProperty::BorderLeftStyle => {
-            let s = p.as_string()?;
-            Some(Value::BorderStyle(str_to_border_style(s)))
-        }
-        // `auto` (the UA focus ring) paints as solid.
-        StyleProperty::OutlineStyle => {
-            let s = p.as_string()?;
-            Some(Value::BorderStyle(if s.eq_ignore_ascii_case("auto") {
-                BorderStyle::Solid
-            } else {
-                str_to_border_style(s)
-            }))
-        }
-
-        // ── Numeric properties ─────────────────────────────────────────────
-        StyleProperty::FlexGrow
-        | StyleProperty::FlexShrink
-        | StyleProperty::AspectRatio
-        | StyleProperty::ScrollbarWidth => Some(Value::Number(p.as_number()?)),
-
-        // ── line-height: unitless number is a multiplier, not pixels ───────
-        StyleProperty::LineHeight => {
-            if let Some((v, unit)) = p.as_unit() {
-                // `em` needs the element's font-size, unknown here - defer to `get_style`
-                // (`unit_to_px` would resolve it against a hardcoded 16px).
-                if unit == "em" {
-                    return Some(Value::Unit(v, Unit::Em));
-                }
-                Some(Value::Unit(p.unit_to_px(), Unit::Px))
-            } else if let Some(pct) = p.as_percentage() {
-                // Percentages resolve against the element's own font-size, i.e. exactly `em`
-                // semantics - and `get_style` resolves `em` at the declaring element, giving the
-                // spec's inherit-as-computed-px behaviour for free.
-                Some(Value::Unit(pct / 100.0, Unit::Em))
-            } else if let Some(n) = p.as_number() {
-                Some(Value::Number(n))
-            } else {
-                Some(Value::Keyword(intern(p.as_string()?)))
-            }
-        }
-
-        // ── font-family: single string or comma-separated list ─────────────
-        StyleProperty::FontFamily => {
-            if let Some(s) = p.as_string() {
-                return Some(Value::Keyword(intern(s)));
-            }
-            if let Some(list) = p.as_list() {
-                // The list is flat: `DejaVu Sans` arrives as two identifier tokens, and `Comma`
-                // separates alternative families. Rejoin adjacent tokens with a space so the name
-                // survives intact instead of splitting into "DejaVu, Sans", which matches no font.
-                let mut names = String::new();
-                let mut need_space = false;
-                for v in list {
-                    if v.is_comma() {
-                        names.push_str(", ");
-                        need_space = false;
-                        continue;
-                    }
-                    let Some(s) = v.as_string() else { continue };
-                    if need_space {
-                        names.push(' ');
-                    }
-                    names.push_str(s);
-                    need_space = true;
-                }
-                if !names.is_empty() {
-                    return Some(Value::Keyword(intern(&names)));
-                }
-            }
-            None
-        }
-
-        // ── z-index: an integer (stacking order) or the `auto` keyword ─────
-        StyleProperty::ZIndex => {
-            if let Some(n) = p.as_number() {
-                Some(Value::Number(n))
-            } else {
-                Some(Value::Keyword(intern(p.as_string()?)))
-            }
-        }
-
-        // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, ... ─────
-        // Stored as a `Function` (repeat/minmax) or a `List` - neither of which `as_string()`
-        // returns - and a bare `1fr` is a `Unit`, so the default branch would drop or mis-type
-        // them. Re-serialize to canonical CSS text for the layouter's `parse_grid_template`.
-        StyleProperty::GridTemplateColumns
-        | StyleProperty::GridTemplateRows
-        | StyleProperty::GridAutoColumns
-        | StyleProperty::GridAutoRows => {
-            let s = if let Some(str) = p.as_string() {
-                str.to_string()
-            } else if let Some((name, args)) = p.as_function() {
-                format!("{name}({})", join_grid_args::<S>(args))
-            } else if let Some(list) = p.as_list() {
-                list.iter().map(grid_value_to_string::<S>).collect::<Vec<_>>().join(" ")
-            } else if let Some((val, unit)) = p.as_unit() {
-                format!("{val}{unit}")
-            } else {
-                let pct = p.as_percentage()?;
-                format!("{pct}%")
-            };
-            Some(Value::Keyword(intern(&s)))
-        }
-
-        // ── border-spacing: one length (both axes) or two (horizontal vertical) ──
-        StyleProperty::BorderSpacingX | StyleProperty::BorderSpacingY => {
-            if let Some(list) = p.as_list() {
-                let lengths: Vec<f32> = list
-                    .iter()
-                    .filter_map(|v| {
-                        if v.as_unit().is_some() {
-                            Some(v.unit_to_px())
-                        } else {
-                            // Bare `0` is a valid length.
-                            v.as_number()
-                        }
-                    })
-                    .collect();
-                let px = match (prop, lengths.as_slice()) {
-                    (StyleProperty::BorderSpacingY, [_, y, ..]) => *y,
-                    (_, [x, ..]) => *x,
-                    _ => return None,
-                };
-                return Some(Value::Unit(px, Unit::Px));
-            }
-            if p.as_unit().is_some() {
-                return Some(Value::Unit(p.unit_to_px(), Unit::Px));
-            }
-            p.as_number().map(|n| Value::Unit(n, Unit::Px))
-        }
-
-        // ── `grid-template-areas`: one quoted string per row ───────────────
-        // `'siteNotice siteNotice' 'columnStart pageContent'` is a *list* of strings, and the
-        // row boundaries carry the meaning - joining on a space would merge every row into one.
-        // Rows are joined with '\n' (which cannot occur inside an area name) and re-split by
-        // the layouter's `parse_grid_areas`.
-        StyleProperty::GridTemplateAreas => {
-            let rows: Vec<&str> = match p.as_list() {
-                Some(list) => list.iter().filter_map(|v| v.as_string()).collect(),
-                None => vec![p.as_string()?],
-            };
-            let joined = rows
-                .iter()
-                .map(|row| row.trim_matches(['"', '\'']))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Some(Value::Keyword(intern(&joined)))
-        }
-
-        // ── Grid placements: a name, a line number, or `<start> / <end>` ──
-        // The slash form arrives as a list (`[1, "/", 3]`) which `as_string()` does not return,
-        // so without this `grid-column: 1 / 3` was dropped and the item never spanned.
-        StyleProperty::GridArea | StyleProperty::GridRow | StyleProperty::GridColumn => {
-            let s = match p.as_string() {
-                Some(str) => str.to_string(),
-                None => p
-                    .as_list()?
-                    .iter()
-                    .map(grid_value_to_string::<S>)
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            };
-            Some(Value::Keyword(intern(&s)))
-        }
-
-        // ── Default: unit-based or keyword ────────────────────────────────
-        _ => {
-            if let Some((v, unit)) = p.as_unit() {
-                // Font-relative units must scale with the *element's* font-size, which we
-                // don't know here. Express them as `em` (with an approximate factor for the
-                // ones that aren't already font-multiples) and let `get_style` resolve them
-                // against the computed font-size. Absolute and viewport units resolve to px
-                // immediately. The factors are coarse stand-ins for real font metrics:
-                // `ch` ≈ width of "0", `ex` ≈ x-height, `lh` ≈ line box.
-                let value = match unit {
-                    "em" => Value::Unit(v, Unit::Em),
-                    // 0.55em, not the spec's 0.5em fallback: real proportional fonts sit nearer
-                    // 0.52-0.6em, so 0.5em makes `ch` widths (`max-width: 17ch`) over-wrap.
-                    "ch" => Value::Unit(v * 0.55, Unit::Em),
-                    "ex" => Value::Unit(v * 0.5, Unit::Em),
-                    "ic" => Value::Unit(v, Unit::Em),
-                    "lh" => Value::Unit(v * 1.4, Unit::Em),
-                    // `rem` is root-relative (always 16px here) and everything else is
-                    // absolute/viewport - resolve straight to px, no element context needed.
-                    _ => Value::Unit(p.unit_to_px(), Unit::Px),
-                };
-                Some(value)
-            } else if let Some(pct) = p.as_percentage() {
-                Some(Value::Unit(pct, Unit::Percent))
-            } else if let Some(n) = p.as_number() {
-                Some(Value::Unit(n, Unit::Px))
-            } else {
-                Some(Value::Keyword(intern(p.as_string()?)))
-            }
-        }
-    }
-}
-
-/// Serializes one grid track-list value back to canonical CSS text (`1fr`, `minmax(100px, 1fr)`,
-/// ...), reconstructing a `grid-template-*` string the layouter can parse.
-fn grid_value_to_string<S: CssSystem>(v: &S::Value) -> String {
-    if let Some(s) = v.as_string() {
-        return s.to_string();
-    }
-    if let Some((val, unit)) = v.as_unit() {
-        return format!("{val}{unit}");
-    }
-    if let Some(pct) = v.as_percentage() {
-        return format!("{pct}%");
-    }
-    if v.is_comma() {
-        return ",".to_string();
-    }
-    if let Some((name, args)) = v.as_function() {
-        return format!("{name}({})", join_grid_args::<S>(args));
-    }
-    if let Some(list) = v.as_list() {
-        return list.iter().map(grid_value_to_string::<S>).collect::<Vec<_>>().join(" ");
-    }
-    if let Some(n) = v.as_number() {
-        return format!("{n}");
-    }
-    String::new()
-}
-
-/// Joins grid function args (`repeat(3, 1fr)`), rendering commas as `, ` and the rest
-/// space-separated.
-fn join_grid_args<S: CssSystem>(args: &[S::Value]) -> String {
-    let mut out = String::new();
-    for arg in args {
-        if arg.is_comma() {
-            out.push_str(", ");
-        } else {
-            if !out.is_empty() && !out.ends_with(' ') {
-                out.push(' ');
-            }
-            out.push_str(&grid_value_to_string::<S>(arg));
-        }
-    }
-    out.trim().to_string()
-}
-
-/// Recursively search a CSS value tree for the first `url(...)` token and return its
-/// (unresolved) target, stripping any quotes. Used for `background-image`.
-fn css_value_url<S: CssSystem>(v: &S::Value) -> Option<String> {
-    if let Some((name, args)) = v.as_function() {
-        if name.eq_ignore_ascii_case("url") {
-            if let Some(s) = args.iter().find_map(|a| a.as_string()) {
-                return Some(s.trim_matches(['"', '\'']).to_string());
-            }
-        }
-    }
-    if let Some(list) = v.as_list() {
-        return list.iter().find_map(css_value_url::<S>);
-    }
-    None
-}
-
-/// First `url(...)` in a property value - handles both the `background-image` longhand (a bare
-/// `url()` function) and the `background` shorthand (a list like `[url(...), no-repeat]`).
-fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
-    if let Some((name, args)) = p.as_function() {
-        if name.eq_ignore_ascii_case("url") {
-            if let Some(s) = args.iter().find_map(|a| a.as_string()) {
-                return Some(s.trim_matches(['"', '\'']).to_string());
-            }
-        }
-    }
-    if let Some(list) = p.as_list() {
-        return list.iter().find_map(css_value_url::<S>);
-    }
-    None
-}
-
-/// First colour token of a `background` shorthand (`#fff url(...) no-repeat`), components 0..=255.
-fn css_property_bg_color<S: CssSystem>(p: &S::Property) -> Option<(u8, u8, u8, u8)> {
-    // Single-value shorthand: a bare `<color>` (hex/function collapse to a concrete colour at
-    // parse time; a named/system colour arrives as a string).
-    if let Some(s) = p.as_string() {
-        if let Some(c) = css_system_color(s) {
-            return Some(c);
-        }
-    }
-    if let Some((r, g, b, a)) = p.parse_color() {
-        return Some((r as u8, g as u8, b as u8, a as u8));
-    }
-    // Multi-token shorthand: pick the first token that is a concrete colour.
-    if let Some(list) = p.as_list() {
-        for v in list {
-            if let Some((r, g, b, a)) = v.as_color() {
-                return Some((r as u8, g as u8, b as u8, a as u8));
-            }
-            if let Some(c) = v.as_string().and_then(css_system_color) {
-                return Some(c);
-            }
-        }
-    }
-    None
-}
 
 // ── Gradient parsing ──────────────────────────────────────────────────────────
 
@@ -923,8 +499,14 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
-    /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
-    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
+    /// The node's computed style: one typed field per property, every one of them holding a
+    /// value - the element's own, the one it inherited, or the property's initial.
+    ///
+    /// [`ComputedStyle::has`] answers the separate question of whether the element's own
+    /// cascade said anything about a property, which a handful of readers need: an element with
+    /// no `display` of its own falls back to what its tag name means, and an undeclared
+    /// `z-index` stacks differently from `z-index: auto`.
+    fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle>;
 
     /// `background-image` gradient layers in source order (first listed paints on top), each
     /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
@@ -977,7 +559,7 @@ pub trait PipelineDocument: Send + Sync {
 
     /// The translation part of CSS `transform` (`translate`/`translateX`/`translateY`), each axis
     /// in px or a percentage of the element's own box. Other transform functions are ignored.
-    fn transform_translate(&self, _id: NodeId) -> Option<(Value, Value)> {
+    fn transform_translate(&self, _id: NodeId) -> Option<(LengthPercentage, LengthPercentage)> {
         None
     }
 
@@ -987,166 +569,6 @@ pub trait PipelineDocument: Send + Sync {
 
     /// Cheaper than `clear_style_cache` for hover repaints where only a few elements changed.
     fn invalidate_style_for_nodes(&self, _ids: &[NodeId]) {}
-
-    /// Returns the computed value for `prop` on node `id`:
-    ///  1. own value if set,
-    ///  2. parent's computed value if the property is inherited,
-    ///  3. the CSS-spec initial value otherwise.
-    fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
-        // A border whose style is none/hidden computes to zero width regardless of the declared or
-        // initial width. Enforced here so layout and paint can't disagree about the box.
-        if let Some(style_prop) = border_width_peer_style(prop) {
-            if let Value::BorderStyle(s) = self.get_style(id, &style_prop) {
-                if matches!(s, BorderStyle::None | BorderStyle::Hidden) {
-                    return Value::Unit(0.0, Unit::Px);
-                }
-            }
-        }
-
-        let raw = if let Some(v) = self.get_own_style(id, prop) {
-            v
-        } else {
-            // border-*-color's initial value is `currentColor`, not black: an undeclared
-            // border color renders in the element's computed `color`
-            // (`td { border: solid; color: blue }` draws blue borders).
-            if matches!(
-                prop,
-                StyleProperty::BorderTopColor
-                    | StyleProperty::BorderRightColor
-                    | StyleProperty::BorderBottomColor
-                    | StyleProperty::BorderLeftColor
-            ) {
-                return self.get_style(id, &StyleProperty::Color);
-            }
-            // Monospace default-size quirk (Chrome/Firefox both do this): the default
-            // font-size is 13px instead of 16px for elements whose font-family is the bare
-            // generic `monospace`. Browsers keep the `medium` keyword identity through
-            // inheritance and re-evaluate it per family; we approximate by applying the
-            // quirk when no ancestor declares a font-size at all.
-            if matches!(prop, StyleProperty::FontSize) {
-                let family_is_monospace = match self.get_style(id, &StyleProperty::FontFamily) {
-                    Value::Keyword(fam) => lookup(fam)
-                        .split(',')
-                        .next()
-                        .is_some_and(|f| f.trim().eq_ignore_ascii_case("monospace")),
-                    _ => false,
-                };
-                if family_is_monospace {
-                    let mut cur = self.parent(id);
-                    let mut declared = false;
-                    while let Some(p) = cur {
-                        if self.get_own_style(p, prop).is_some() {
-                            declared = true;
-                            break;
-                        }
-                        cur = self.parent(p);
-                    }
-                    if !declared {
-                        return Value::Unit(13.0, Unit::Px);
-                    }
-                }
-            }
-            let meta = prop.meta();
-            if meta.inherited {
-                if let Some(parent) = self.parent(id) {
-                    return self.get_style(parent, prop);
-                }
-            }
-            meta.initial_value()
-        };
-
-        // Resolve font-relative units (em/rem) to px. `rem` is relative to the root element's
-        // computed font-size; `em` is relative to the *parent's* computed font-size for
-        // `font-size` itself, and to the element's *own* computed font-size for every other
-        // property (e.g. `max-width: 17ch` lands here as `em`).
-        //
-        // A `rem` from a stylesheet is already px by the time it arrives - `resolve_computed`
-        // in gosub_css3 does it, where css-values says it belongs. What reaches here is the
-        // `style` attribute, which `inline_style` parses on its own and which therefore has no
-        // computed stage behind it.
-        //
-        // A `font-size` written as a percentage or a keyword could not be turned into pixels
-        // either, so `font_size_px` fell back to its 16px default and the element rendered at
-        // full body size - every `<sup>` on Wikipedia, whose rule is `font-size: 80%`, and
-        // anything using the UA's `sup { font-size: smaller }` or `<small>`.
-        //
-        // A percentage is against the *parent's* computed size, as are `smaller`/`larger`, which
-        // step by the spec's suggested 1.2 factor. The absolute keywords are the CSS scale with
-        // `medium` at 16px.
-        if matches!(prop, StyleProperty::FontSize) {
-            let parent_size = || match self.parent(id) {
-                Some(parent) => self.font_size_px(parent),
-                None => 16.0,
-            };
-            if let Value::Unit(pct, Unit::Percent) = &raw {
-                return Value::Unit(parent_size() * pct / 100.0, Unit::Px);
-            }
-            if let Value::Keyword(kw) = &raw {
-                let px = match crate::common::document::style::lookup(*kw).as_str() {
-                    "xx-small" => Some(9.0),
-                    "x-small" => Some(10.0),
-                    "small" => Some(13.0),
-                    "medium" => Some(16.0),
-                    "large" => Some(18.0),
-                    "x-large" => Some(24.0),
-                    "xx-large" => Some(32.0),
-                    "xxx-large" => Some(48.0),
-                    "smaller" => Some(parent_size() / 1.2),
-                    "larger" => Some(parent_size() * 1.2),
-                    _ => None,
-                };
-                if let Some(px) = px {
-                    return Value::Unit(px, Unit::Px);
-                }
-            }
-        }
-
-        match &raw {
-            Value::Unit(v, Unit::Rem) => Value::Unit(v * self.root_font_size_px(id), Unit::Px),
-            Value::Unit(v, Unit::Em) => {
-                let basis = if matches!(prop, StyleProperty::FontSize) {
-                    match self.parent(id) {
-                        Some(parent) => self.font_size_px(parent),
-                        None => 16.0,
-                    }
-                } else {
-                    self.font_size_px(id)
-                };
-                Value::Unit(v * basis, Unit::Px)
-            }
-            _ => raw,
-        }
-    }
-
-    /// The font-size a `rem` on `id` resolves against: the root element's computed font-size.
-    ///
-    /// On the root itself it is the *initial* font-size instead (css-values-4 §5.1.1). The
-    /// root's own `font-size` is what defines a `rem`, so it cannot be expressed in one - and
-    /// saying so here is also what stops `html { font-size: 2rem }` recursing forever.
-    fn root_font_size_px(&self, id: NodeId) -> f32 {
-        match self.root() {
-            Some(root) if root != id => self.font_size_px(root),
-            _ => 16.0,
-        }
-    }
-
-    /// The computed `font-size` of `id` in px, or 16px if unresolvable. Resolving
-    /// `font-size` only ever recurses to the *parent* (never to `id` itself), so this is
-    /// safe to call while resolving font-relative units on other properties of `id`.
-    fn font_size_px(&self, id: NodeId) -> f32 {
-        match self.get_style(id, &StyleProperty::FontSize) {
-            Value::Unit(px, Unit::Px) => px,
-            _ => 16.0,
-        }
-    }
-
-    fn get_style_f32(&self, id: NodeId, prop: &StyleProperty) -> f32 {
-        match self.get_style(id, prop) {
-            Value::Unit(v, _) => v,
-            Value::Number(v) => v,
-            _ => 0.0,
-        }
-    }
 }
 
 // ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
@@ -1469,8 +891,10 @@ where
     pub doc: Arc<C::Document>,
     /// Per-node computed-style cache (from CSS selector matching). Populated lazily.
     style_cache: Mutex<HashMap<NodeId, CachedStyles<C>>>,
-    /// Per-node inline-style cache (from the `style` attribute, highest specificity).
-    inline_style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
+    /// The typed style each node resolved to, built from `style_cache` and the parent's struct.
+    /// This is what the pipeline reads; the map behind it stays for the cascade's own questions
+    /// (custom-property scope, which origin won a declaration) and for `getComputedStyle`.
+    computed_cache: Mutex<HashMap<NodeId, Arc<ComputedStyle>>>,
     /// Materialized `::before` / `::after` pseudo-boxes, keyed by `(owner, is_after)`.
     /// `None` means "no generated box". Populated lazily.
     #[allow(clippy::type_complexity)]
@@ -1577,7 +1001,7 @@ where
         Self {
             doc,
             style_cache: Mutex::new(HashMap::new()),
-            inline_style_cache: Mutex::new(HashMap::new()),
+            computed_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
             parent_cache: Mutex::new(HashMap::new()),
             slots,
@@ -1633,20 +1057,7 @@ where
     /// tell the UA default apart from an authored `display: block`. The raw declared keyword
     /// can, so read that: only `contents` (or nothing at all) makes the slot transparent.
     fn slot_generates_a_box(&self, slot: NodeId) -> bool {
-        // Compute first, ask afterwards. `inline_style_cache` is only ever filled as a side
-        // effect of `cached_styles`, so reading it before this call misses on the first visit to
-        // a slot - the lookup falls through to the cascaded map, finds the UA `display: contents`
-        // and splices the slot away, while a later call with the cache warm keeps it. That made
-        // the flat tree depend on what had already been styled.
         let arc = self.cached_styles(slot);
-
-        // An inline `style` attribute is already mapped onto the `Display` enum, so its raw
-        // keyword is gone; any inline `display` at all is taken to mean "give me a box".
-        if let Some(inline) = self.inline_style_cache.lock().get(&slot) {
-            if inline.get_own(&StyleProperty::Display).is_some() {
-                return true;
-            }
-        }
 
         match <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "display").and_then(|p| p.as_string()) {
             Some("contents") | None => false,
@@ -1735,12 +1146,16 @@ where
     /// Drop every cached style below `id` (not `id` itself), pseudo-boxes included.
     fn invalidate_subtree(&self, id: NodeId) {
         let mut cache = self.style_cache.lock();
-        let mut inline_cache = self.inline_style_cache.lock();
+        let mut computed_cache = self.computed_cache.lock();
         let mut pseudo_cache = self.pseudo_cache.lock();
         let mut stack: Vec<NodeId> = self.doc.children(id).to_vec();
         while let Some(node) = stack.pop() {
             cache.remove(&node);
-            inline_cache.remove(&node);
+            computed_cache.remove(&node);
+            computed_cache.remove(&encode_pseudo(node, ROLE_BEFORE_ELEM));
+            computed_cache.remove(&encode_pseudo(node, ROLE_AFTER_ELEM));
+            computed_cache.remove(&encode_pseudo(node, ROLE_BEFORE_TEXT));
+            computed_cache.remove(&encode_pseudo(node, ROLE_AFTER_TEXT));
             pseudo_cache.remove(&(node, false));
             pseudo_cache.remove(&(node, true));
             stack.extend_from_slice(self.doc.children(node));
@@ -1753,17 +1168,142 @@ where
                 return arc.clone();
             }
         }
-        let (prop_map, inline_ns) = self.compute_styles(id);
-        let arc = Arc::new(prop_map);
+        let arc = Arc::new(self.compute_styles(id));
         self.style_cache.lock().insert(id, arc.clone());
-        self.inline_style_cache.lock().insert(id, inline_ns);
         arc
     }
 
-    fn compute_styles(&self, id: NodeId) -> (<C::CssSystem as CssSystem>::PropertyMap, NodeStyle) {
+    /// The typed style of `id`, computed on first use and kept.
+    fn cached_computed_style(&self, id: NodeId) -> Arc<ComputedStyle> {
+        {
+            if let Some(style) = self.computed_cache.lock().get(&id) {
+                return style.clone();
+            }
+        }
+        let style = Arc::new(self.build_computed_style(id));
+        self.computed_cache.lock().insert(id, style.clone());
+        style
+    }
+
+    /// The typed style of the node the inherited values come from: the flat-tree parent when it
+    /// is an element, and nothing above the root.
+    fn inherited_from(&self, id: NodeId) -> Option<Arc<ComputedStyle>> {
+        self.flat_parent(id)
+            .filter(|&parent| self.doc.node_type(parent) == GosubNodeType::ElementNode)
+            .map(|parent| self.cached_computed_style(parent))
+    }
+
+    fn build_computed_style(&self, id: NodeId) -> ComputedStyle {
+        let raw = u64::from(id);
+
+        // An anonymous table box IS its display and has nothing else of its own; everything
+        // that inherits comes from the real parent it was generated inside.
+        if let Some(display) = anon_box_display(raw) {
+            let parent = self
+                .doc
+                .parent(decode_anon_box(id))
+                .map(|parent| self.cached_computed_style(parent));
+            let mut style = ComputedStyle::inherit_from(parent.as_deref());
+            style.box_group.display = display;
+            style.declared.set(Prop::Display);
+            return style;
+        }
+
+        if is_pseudo_id(raw) {
+            let (owner, role) = decode_pseudo(id);
+            if role_is_text(role) {
+                // Generated text has no style of its own; it inherits from the pseudo-element
+                // that generated it, exactly as a real text node does from its element.
+                let element = encode_pseudo(
+                    owner,
+                    if role_is_after(role) {
+                        ROLE_AFTER_ELEM
+                    } else {
+                        ROLE_BEFORE_ELEM
+                    },
+                );
+                let parent = self.cached_computed_style(element);
+                return ComputedStyle::inherit_from(Some(&parent));
+            }
+            let owner_style = self.cached_computed_style(owner);
+            return match self.pseudo_box(owner, role_is_after(role)) {
+                Some(pseudo) => pseudo.styles.computed_style(Some(&owner_style)),
+                None => ComputedStyle::inherit_from(Some(&owner_style)),
+            };
+        }
+
+        let parent = self.inherited_from(id);
+        let map = self.cached_styles(id);
+        let mut style = map.computed_style(parent.as_deref());
+
+        // The presentational attributes, at the two precedences they have today. Both are
+        // pending step 3b, where they join the cascade as the origin the HTML spec gives them.
+        if self.doc.node_type(id) == GosubNodeType::ElementNode {
+            presentation_hints::apply_table_hints(&mut style, self.table_hints(id, map.as_ref()));
+            if let Some(attrs) = self.doc.attributes(id) {
+                presentation_hints::apply_presentation_attrs(&mut style, attrs);
+            }
+        }
+        style
+    }
+
+    /// The `cellspacing`/`cellpadding` this element picks up, with the author declarations that
+    /// outrank them already taken out.
+    fn table_hints(
+        &self,
+        id: NodeId,
+        map: &<C::CssSystem as CssSystem>::PropertyMap,
+    ) -> presentation_hints::TableHints {
+        let author_declared = |name: &str| {
+            <_ as CssPropertyMap<C::CssSystem>>::get(map, name)
+                .and_then(|property| property.winning_origin())
+                .is_some_and(|origin| matches!(origin, CssOrigin::Author))
+        };
+        let attr_px = |node: NodeId, attr: &str| -> Option<f32> {
+            presentation_hints::attr_px(self.doc.attributes(node)?.get(attr)?)
+        };
+        let tag_is = |node: NodeId, tag: &str| self.doc.tag_name(node).is_some_and(|t| t.eq_ignore_ascii_case(tag));
+
+        let mut hints = presentation_hints::TableHints::default();
+
+        if tag_is(id, "table") && !author_declared("border-spacing") {
+            hints.border_spacing = attr_px(id, "cellspacing");
+        }
+
+        if tag_is(id, "td") || tag_is(id, "th") {
+            // The hint applies to in-table cells only; a parentless cell keeps the UA default.
+            let mut table = None;
+            let mut current = self.doc.parent(id);
+            while let Some(node) = current {
+                if tag_is(node, "table") {
+                    table = Some(node);
+                    break;
+                }
+                current = self.doc.parent(node);
+            }
+            if let Some(table) = table {
+                let padding = attr_px(table, "cellpadding").unwrap_or(presentation_hints::DEFAULT_CELL_PADDING);
+                let sides = ["padding-top", "padding-right", "padding-bottom", "padding-left"];
+                for (slot, side) in hints.cell_padding.iter_mut().zip(sides) {
+                    if !author_declared(side) && !author_declared("padding") {
+                        *slot = Some(padding);
+                    }
+                }
+            }
+        }
+
+        hints
+    }
+
+    /// The cascaded property map of `id`.
+    ///
+    /// The `style` attribute is not read here: the cascade already ranks it at inline
+    /// specificity, through the real CSS parser, so a second hand-written parser on top of it
+    /// could only disagree with the first.
+    fn compute_styles(&self, id: NodeId) -> <C::CssSystem as CssSystem>::PropertyMap {
         // CSS selectors cannot target text nodes - only elements.
         if self.doc.node_type(id) == GosubNodeType::TextNode {
-            return (Default::default(), NodeStyle::new());
+            return Default::default();
         }
         let sheets = self.doc.stylesheets();
         // Styles resolve top-down: the parent's map carries the inherited custom properties.
@@ -1779,44 +1319,24 @@ where
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
-
-        // Inline `style` attribute has highest specificity - store separately.
-        let inline_ns = if let Some(attrs) = self.doc.attributes(id) {
-            if let Some(style_attr) = attrs.get("style") {
-                crate::common::document::inline_style::parse_inline_style_attr(style_attr)
-            } else {
-                NodeStyle::new()
-            }
-        } else {
-            NodeStyle::new()
-        };
-
-        (prop_map, inline_ns)
-    }
-
-    /// Own style for a pseudo-element id, read from its generated style map.
-    fn pseudo_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
-        let (owner, role) = decode_pseudo(id);
-        // Generated text nodes carry no own style; inheritance flows from the pseudo-element.
-        if role_is_text(role) {
-            return None;
-        }
-        let pb = self.pseudo_box(owner, role_is_after(role))?;
-        self.style_from_map(id, prop, pb.styles.as_ref())
+        prop_map
     }
 
     // ── Anonymous table synthesis ─────────────────────────────────────────────
 
     /// The node's computed `display`, if the cascade assigned one.
     fn display_of(&self, id: NodeId) -> Option<Display> {
-        match self.get_own_style(id, &StyleProperty::Display) {
-            // Inline-table differs from table only in OUTER display (how it participates in
-            // its parent's formatting context); every display_of consumer asks about table
-            // structure, so normalize here and keep the inline-ness at the Node level.
-            Some(Value::Display(Display::InlineTable)) => Some(Display::Table),
-            Some(Value::Display(d)) => Some(d),
-            _ => None,
+        let style = self.cached_computed_style(id);
+        if !style.has(Prop::Display) {
+            return None;
         }
+        // Inline-table differs from table only in OUTER display (how it participates in
+        // its parent's formatting context); every display_of consumer asks about table
+        // structure, so normalize here and keep the inline-ness at the Node level.
+        Some(match style.box_group.display {
+            Display::InlineTable => Display::Table,
+            display => display,
+        })
     }
 
     /// Children skipped silently when collecting anonymous runs: whitespace-only text,
@@ -1839,8 +1359,9 @@ where
                 // `run_skippable` - a cycle.
                 let mut cur = self.doc.parent(id);
                 while let Some(p) = cur {
-                    if let Some(Value::Keyword(k)) = self.get_own_style(p, &StyleProperty::WhiteSpace) {
-                        return !matches!(lookup(k).as_str(), "pre" | "pre-wrap");
+                    let style = self.cached_computed_style(p);
+                    if style.has(Prop::WhiteSpace) {
+                        return !style.inherited.white_space.preserves_spaces();
                     }
                     cur = self.doc.parent(p);
                 }
@@ -2061,7 +1582,7 @@ where
             parent_display,
             Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
         ) {
-            let pd = parent_display.clone().unwrap_or(Display::Table);
+            let pd = parent_display.unwrap_or(Display::Table);
             if !self.needy_for_row(id, &pd) {
                 return None;
             }
@@ -2125,7 +1646,7 @@ where
             parent_display,
             Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
         ) {
-            let pd = parent_display.clone().unwrap_or(Display::Table);
+            let pd = parent_display.unwrap_or(Display::Table);
             let rstart = self
                 .run_start_containing(parent, id, |c| self.needy_for_row(c, &pd))
                 .unwrap_or(id);
@@ -2169,180 +1690,6 @@ where
         }
         let rmembers = self.row_run_members_for(first);
         self.members_sub_run(&rmembers, first, |c| self.needy_for_cell(c))
-    }
-
-    /// HTML `cellspacing` (on the table -> border-spacing) and `cellpadding` (on the table ->
-    /// in-table td/th padding, defaulting to 1px like WebKit's
-    /// `HTMLTableCellElement::additionalPresentationAttributeStyle` - see the UA sheet comment
-    /// at `td:not(table td)`). Returns `None` whenever an author declaration exists for the
-    /// property: author styles always beat presentational markup, UA rules never do.
-    fn table_attr_hint(
-        &self,
-        id: NodeId,
-        prop: &StyleProperty,
-        map: &<C::CssSystem as CssSystem>::PropertyMap,
-    ) -> Option<Value> {
-        let author_declared = |name: &str| {
-            <_ as CssPropertyMap<C::CssSystem>>::get(map, name)
-                .and_then(|p| p.winning_origin())
-                .is_some_and(|o| matches!(o, CssOrigin::Author))
-        };
-        let attr_px = |node: NodeId, attr: &str| -> Option<f32> {
-            self.doc
-                .attributes(node)?
-                .get(attr)?
-                .trim()
-                .parse::<f32>()
-                .ok()
-                .map(|v| v.max(0.0))
-        };
-
-        match prop {
-            StyleProperty::BorderSpacingX | StyleProperty::BorderSpacingY => {
-                if !self.doc.tag_name(id).is_some_and(|t| t.eq_ignore_ascii_case("table")) {
-                    return None;
-                }
-                if author_declared("border-spacing") {
-                    return None;
-                }
-                attr_px(id, "cellspacing").map(|v| Value::Unit(v, Unit::Px))
-            }
-            StyleProperty::PaddingTop
-            | StyleProperty::PaddingRight
-            | StyleProperty::PaddingBottom
-            | StyleProperty::PaddingLeft => {
-                if !self
-                    .doc
-                    .tag_name(id)
-                    .is_some_and(|t| t.eq_ignore_ascii_case("td") || t.eq_ignore_ascii_case("th"))
-                {
-                    return None;
-                }
-                // The hint applies to in-table cells only; a parentless td keeps the UA default.
-                let mut table = None;
-                let mut cur = self.doc.parent(id);
-                while let Some(p) = cur {
-                    if self.doc.tag_name(p).is_some_and(|t| t.eq_ignore_ascii_case("table")) {
-                        table = Some(p);
-                        break;
-                    }
-                    cur = self.doc.parent(p);
-                }
-                let table = table?;
-                if author_declared(prop.css_name()) || author_declared("padding") {
-                    return None;
-                }
-                Some(Value::Unit(attr_px(table, "cellpadding").unwrap_or(1.0), Unit::Px))
-            }
-            _ => None,
-        }
-    }
-
-    /// Bridges a computed `PropertyMap` to a single `Value`, shared by real elements and
-    /// pseudo-elements. Handles the `text-decoration` / `background[-image]` shorthands and
-    /// `currentColor`. `id` is only used to resolve `currentColor` against the node's `color`.
-    fn style_from_map(
-        &self,
-        id: NodeId,
-        prop: &StyleProperty,
-        map: &<C::CssSystem as CssSystem>::PropertyMap,
-    ) -> Option<Value> {
-        let css_name = prop.css_name();
-
-        // For `text-decoration-line`, check the `text-decoration` shorthand FIRST when it
-        // is `none` (the shorthand is stored under its own key, not expanded to longhands).
-        if matches!(prop, StyleProperty::TextDecorationLine) {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "text-decoration") {
-                if p.is_none() {
-                    return Some(Value::Keyword(intern("none")));
-                }
-                if let Some(s) = p.as_string() {
-                    if s == "none" || s == "initial" || s == "unset" {
-                        return Some(Value::Keyword(intern("none")));
-                    }
-                    if s.contains("underline") {
-                        return Some(Value::Keyword(intern("underline")));
-                    }
-                    if s.contains("line-through") {
-                        return Some(Value::Keyword(intern("line-through")));
-                    }
-                }
-            }
-        }
-
-        // background-image: accept the `background-image` longhand or a `url(...)` inside the
-        // `background` shorthand. The returned keyword is the unresolved URL.
-        if matches!(prop, StyleProperty::BackgroundImage) {
-            for key in ["background-image", "background"] {
-                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
-                    if let Some(url) = css_property_url::<C::CssSystem>(p) {
-                        return Some(Value::Keyword(intern(&url)));
-                    }
-                }
-            }
-            return None;
-        }
-
-        // `currentColor` on any color property except `color` itself resolves to the node's
-        // computed `color`. (`color: currentColor` would be self-referential, so it is left to
-        // resolve via the normal cascade.)
-        if matches!(
-            prop,
-            StyleProperty::BackgroundColor
-                | StyleProperty::BorderTopColor
-                | StyleProperty::BorderRightColor
-                | StyleProperty::BorderBottomColor
-                | StyleProperty::BorderLeftColor
-                | StyleProperty::OutlineColor
-        ) {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
-                // `outline-color: auto` (the initial value) follows the text color too.
-                if p.as_string().is_some_and(|s| {
-                    s.eq_ignore_ascii_case("currentcolor")
-                        || (matches!(prop, StyleProperty::OutlineColor) && s.eq_ignore_ascii_case("auto"))
-                }) {
-                    return Some(self.get_style(id, &StyleProperty::Color));
-                }
-            }
-        }
-
-        // Inset properties are modelled with logical variants, but pages usually write the
-        // physical `top`/`right`/`bottom`/`left`. Accept either key (the physical aliasing is valid
-        // for the default horizontal-tb, ltr writing mode this engine assumes).
-        let inset_physical = match prop {
-            StyleProperty::InsetBlockStart => Some("top"),
-            StyleProperty::InsetBlockEnd => Some("bottom"),
-            StyleProperty::InsetInlineStart => Some("left"),
-            StyleProperty::InsetInlineEnd => Some("right"),
-            _ => None,
-        };
-        if let Some(physical) = inset_physical {
-            for key in [css_name, physical] {
-                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
-                    if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
-                        return Some(v);
-                    }
-                }
-            }
-            return None;
-        }
-
-        if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
-            if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
-                return Some(v);
-            }
-        }
-
-        // The `background` shorthand is stored under its own key and never expanded to longhands,
-        // so extract the colour token from it when the longhand is absent.
-        if matches!(prop, StyleProperty::BackgroundColor) {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background") {
-                if let Some((r, g, b, a)) = css_property_bg_color::<C::CssSystem>(p) {
-                    return Some(Value::Color(r, g, b, a));
-                }
-            }
-        }
-        None
     }
 
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
@@ -2478,7 +1825,7 @@ where
         self.doc.control_size(id)
     }
 
-    fn transform_translate(&self, id: NodeId) -> Option<(Value, Value)> {
+    fn transform_translate(&self, id: NodeId) -> Option<(LengthPercentage, LengthPercentage)> {
         let arc = if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
             if role_is_text(role) {
@@ -2493,10 +1840,8 @@ where
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
-        matches!(
-            self.get_own_style(id, &StyleProperty::Display),
-            Some(Value::Display(Display::None))
-        )
+        let style = self.cached_computed_style(id);
+        style.has(Prop::Display) && style.box_group.display == Display::None
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
@@ -2508,43 +1853,8 @@ where
         parent
     }
 
-    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
-        // An anonymous table box IS its display (table / table-row) and has no other own
-        // styles; inherited properties resolve through its (real) parent.
-        if let Some(d) = anon_box_display(u64::from(id)) {
-            return matches!(prop, StyleProperty::Display).then(|| Value::Display(d));
-        }
-        // Generated content (::before / ::after) draws its styles from a separate map.
-        if is_pseudo_id(u64::from(id)) {
-            return self.pseudo_own_style(id, prop);
-        }
-
-        let arc = self.cached_styles(id);
-
-        // Inline styles (from `style` attribute) have highest specificity.
-        if let Some(inline) = self.inline_style_cache.lock().get(&id) {
-            if let Some(v) = inline.get_own(prop) {
-                return Some(v.clone());
-            }
-        }
-
-        // `cellspacing`/`cellpadding` are presentational hints that sit BETWEEN origins: they
-        // beat user-agent rules (notably the UA `table { border-spacing: 2px }`) but lose to
-        // any author declaration, so they must be consulted before the cascaded map.
-        if let Some(v) = self.table_attr_hint(id, prop, arc.as_ref()) {
-            return Some(v);
-        }
-
-        if let Some(v) = self.style_from_map(id, prop, arc.as_ref()) {
-            return Some(v);
-        }
-
-        // HTML presentation attributes (bgcolor, width, ...) as lowest-specificity fallback.
-        if let Some(attrs) = self.doc.attributes(id) {
-            return crate::common::document::inline_style::html_presentation_attr(attrs, prop);
-        }
-
-        None
+    fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle> {
+        self.cached_computed_style(id)
     }
 
     fn background_layers(&self, id: NodeId, box_size: (f32, f32)) -> Vec<Gradient> {
@@ -2690,7 +2000,7 @@ where
 
     fn clear_style_cache(&self) {
         self.style_cache.lock().clear();
-        self.inline_style_cache.lock().clear();
+        self.computed_cache.lock().clear();
         self.pseudo_cache.lock().clear();
         self.parent_cache.lock().clear();
     }
@@ -2698,11 +2008,16 @@ where
     fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
         let previous: Vec<(NodeId, Option<CachedStyles<C>>)> = {
             let mut cache = self.style_cache.lock();
-            let mut inline_cache = self.inline_style_cache.lock();
+            let mut computed_cache = self.computed_cache.lock();
             let mut pseudo_cache = self.pseudo_cache.lock();
             ids.iter()
                 .map(|id| {
-                    inline_cache.remove(id);
+                    computed_cache.remove(id);
+                    // The pseudo-elements' own structs hang off the owner's id too.
+                    computed_cache.remove(&encode_pseudo(*id, ROLE_BEFORE_ELEM));
+                    computed_cache.remove(&encode_pseudo(*id, ROLE_AFTER_ELEM));
+                    computed_cache.remove(&encode_pseudo(*id, ROLE_BEFORE_TEXT));
+                    computed_cache.remove(&encode_pseudo(*id, ROLE_AFTER_TEXT));
                     // Drop both pseudo-boxes belonging to this owner.
                     pseudo_cache.remove(&(*id, false));
                     pseudo_cache.remove(&(*id, true));
@@ -2751,11 +2066,10 @@ where
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
         // Synthetic anonymous-table wrapper: a tagless `display: table` / `table-row` element.
         if let Some(d) = anon_box_display(u64::from(id)) {
-            let mut style = NodeStyle::new();
             // An anonymous table generated in INLINE context is an inline-table (CSS 2.1
             // §17.2.1). We have no inline-table display; marking the synthetic NODE
             // inline-block makes the layouter's line grouping keep it (and the whitespace
-            // around it) in the line box, while the cascade via get_own_style still reports
+            // around it) in the line box, while the computed style still reports
             // `table` to the converter, lattice, and painter.
             let node_display = if matches!(d, Display::Table) {
                 let parent_inline = self.parent(id).is_some_and(|p| {
@@ -2772,12 +2086,15 @@ where
             } else {
                 d
             };
-            style.set(StyleProperty::Display, Value::Display(node_display));
             return Some(Node {
                 node_id: id,
                 parent_id: self.parent(id),
                 children: self.children(id),
-                node_type: NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(style))),
+                node_type: NodeType::Element(ElementData::new(
+                    String::new(),
+                    Some(AttrMap::new()),
+                    Some(node_display),
+                )),
             });
         }
         // Synthetic pseudo nodes: build a transient Element (the box) or Text (its content).
@@ -2792,9 +2109,8 @@ where
                 // Carry the computed `display` on the synthetic element so the layouter's
                 // inline-vs-block grouping (which is tag-name based and would see an empty tag)
                 // treats the pseudo-element correctly. ::before/::after default to inline.
-                let mut style = NodeStyle::new();
-                style.set(StyleProperty::Display, self.get_style(id, &StyleProperty::Display));
-                NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(style)))
+                let display = self.cached_computed_style(id).box_group.display;
+                NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(display)))
             };
             return Some(Node {
                 node_id: id,
@@ -2829,26 +2145,22 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                // Styles are normally read via `doc.get_own_style()`, but the layouter's
-                // inline-vs-block grouping reads the local NodeStyle only - so carry the cascaded
-                // `display` onto the Node for rules like `figcaption b { display: block }`.
+                // Style is normally read through `computed_style`, but the layouter's
+                // inline-vs-block grouping reads the node alone - so carry the cascaded
+                // `display` onto it for rules like `figcaption b { display: block }`.
                 // Only when the cascade assigned one: `None` preserves the intrinsic tag-name
-                // fallback, since the incomplete UA stylesheet makes get_style()'s `inline`
+                // fallback, since the incomplete user-agent stylesheet makes the `inline`
                 // initial value the wrong answer here.
-                let styles = self.get_own_style(id, &StyleProperty::Display).map(|display| {
-                    // Same trick as anonymous inline-context tables: the Node carries
-                    // inline-block so line grouping keeps the element in the line box,
-                    // while the cascade (display_of + explicit matches) reports table
-                    // structure to the converter, lattice, and painter.
-                    let display = match display {
-                        Value::Display(Display::InlineTable) => Value::Display(Display::InlineBlock),
-                        d => d,
-                    };
-                    let mut style = NodeStyle::new();
-                    style.set(StyleProperty::Display, display);
-                    style
+                let style = self.cached_computed_style(id);
+                // Same trick as anonymous inline-context tables: the Node carries
+                // inline-block so line grouping keeps the element in the line box,
+                // while the computed style (display_of and the explicit matches) reports
+                // table structure to the converter, lattice, and painter.
+                let display = style.has(Prop::Display).then(|| match style.box_group.display {
+                    Display::InlineTable => Display::InlineBlock,
+                    display => display,
                 });
-                let element_data = ElementData::new(tag_name, Some(attr_map), styles);
+                let element_data = ElementData::new(tag_name, Some(attr_map), display);
                 NodeType::Element(element_data)
             }
             _ => return None,
@@ -2865,47 +2177,21 @@ where
 
 // ── Helpers used by the bridge ────────────────────────────────────────────────
 
-/// The `border-*-style` governing `prop`, or None if `prop` isn't a border width.
-fn border_width_peer_style(prop: &StyleProperty) -> Option<StyleProperty> {
-    Some(match prop {
-        StyleProperty::BorderTopWidth => StyleProperty::BorderTopStyle,
-        StyleProperty::BorderRightWidth => StyleProperty::BorderRightStyle,
-        StyleProperty::BorderBottomWidth => StyleProperty::BorderBottomStyle,
-        StyleProperty::BorderLeftWidth => StyleProperty::BorderLeftStyle,
-        StyleProperty::OutlineWidth => StyleProperty::OutlineStyle,
-        _ => return None,
-    })
-}
-
-fn str_to_border_style(s: &str) -> BorderStyle {
-    match s {
-        "hidden" => BorderStyle::Hidden,
-        "solid" => BorderStyle::Solid,
-        "dashed" => BorderStyle::Dashed,
-        "dotted" => BorderStyle::Dotted,
-        "double" => BorderStyle::Double,
-        "groove" => BorderStyle::Groove,
-        "ridge" => BorderStyle::Ridge,
-        "inset" => BorderStyle::Inset,
-        "outset" => BorderStyle::Outset,
-        _ => BorderStyle::None,
-    }
-}
-
 /// Sum the translate functions of a `transform` list; `None` when there is no translation.
-fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(Value, Value)> {
-    fn length<S: CssSystem>(v: &S::Value) -> Option<Value> {
+fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(LengthPercentage, LengthPercentage)> {
+    fn length<S: CssSystem>(v: &S::Value) -> Option<LengthPercentage> {
         if let Some(pct) = v.as_percentage() {
-            return Some(Value::Unit(pct, Unit::Percent));
+            return Some(LengthPercentage::Percent(pct));
         }
         if v.as_unit().is_some() {
-            return Some(Value::Unit(v.unit_to_px(), Unit::Px));
+            return Some(LengthPercentage::Px(v.unit_to_px()));
         }
-        v.as_number().map(|n| Value::Unit(n, Unit::Px))
+        v.as_number().map(LengthPercentage::Px)
     }
-    fn add(a: Value, b: Value) -> Value {
+    fn add(a: LengthPercentage, b: LengthPercentage) -> LengthPercentage {
         match (a, b) {
-            (Value::Unit(x, ux), Value::Unit(y, uy)) if ux == uy => Value::Unit(x + y, ux),
+            (LengthPercentage::Px(x), LengthPercentage::Px(y)) => LengthPercentage::Px(x + y),
+            (LengthPercentage::Percent(x), LengthPercentage::Percent(y)) => LengthPercentage::Percent(x + y),
             // Mixed px/% can't be summed without the box; keep the later one.
             (_, b) => b,
         }
@@ -2914,23 +2200,17 @@ fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(Value, Value)> {
         Some(f) => vec![f],
         None => p.as_list()?.iter().filter_map(|v| v.as_function()).collect(),
     };
-    let mut out: Option<(Value, Value)> = None;
+    let mut out: Option<(LengthPercentage, LengthPercentage)> = None;
     for (name, args) in funcs {
         let args: Vec<&S::Value> = args.iter().filter(|a| !a.is_comma()).collect();
-        let zero = Value::Unit(0.0, Unit::Px);
+        let zero = LengthPercentage::ZERO;
         let (dx, dy) = match name.cow_to_ascii_lowercase().as_ref() {
             "translate" => (
-                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
-                args.get(1).and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero),
+                args.get(1).and_then(|a| length::<S>(a)).unwrap_or(zero),
             ),
-            "translatex" => (
-                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
-                zero.clone(),
-            ),
-            "translatey" => (
-                zero.clone(),
-                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
-            ),
+            "translatex" => (args.first().and_then(|a| length::<S>(a)).unwrap_or(zero), zero),
+            "translatey" => (zero, args.first().and_then(|a| length::<S>(a)).unwrap_or(zero)),
             _ => continue,
         };
         out = Some(match out {
@@ -2939,35 +2219,6 @@ fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(Value, Value)> {
         });
     }
     out
-}
-
-/// Intercepts system color keywords before the normal parse path, since `RgbColor::from` returns
-/// black for any string it doesn't recognise.
-fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
-    match name.cow_to_ascii_lowercase().as_ref() {
-        // Highlight / mark
-        "mark" => Some((255, 255, 0, 255)),
-        "marktext" => Some((0, 0, 0, 255)),
-        // Form fields
-        "field" | "canvas" => Some((255, 255, 255, 255)),
-        "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
-        "buttonface" | "threedface" => Some((240, 240, 240, 255)),
-        "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
-        // Gosub blue; the cascade strips the vendor prefix before we see it.
-        "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x23, 0x82, 0xeb, 255)),
-        // Selection / highlights
-        "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),
-        "highlighttext" | "selecteditemtext" | "captiontext" => Some((255, 255, 255, 255)),
-        // Links
-        "linktext" | "activetext" => Some((0, 0, 238, 255)),
-        "visitedtext" => Some((85, 26, 139, 255)),
-        // Misc
-        "accentcolor" => Some((0, 120, 215, 255)),
-        "accentcolortext" => Some((255, 255, 255, 255)),
-        "window" | "appworkspace" | "scrollbar" | "background" | "menu" => Some((240, 240, 240, 255)),
-        "windowtext" | "menutext" | "infotext" | "inactivecaptiontext" => Some((0, 0, 0, 255)),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

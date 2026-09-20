@@ -122,10 +122,17 @@ impl RenderTree {
 
             let id_attr = element.attributes.get("id").cloned().unwrap_or_default();
             let class_attr = element.attributes.get("class").cloned().unwrap_or_default();
-            let style_pairs = element.styles.to_string_map();
-            let styles: serde_json::Map<String, serde_json::Value> = style_pairs
+            // `display` is the one property the node carries; everything else about an
+            // element's style is read through the document, which this dump does not walk.
+            let styles: serde_json::Map<String, serde_json::Value> = element
+                .display
+                .map(|display| {
+                    (
+                        "display".to_string(),
+                        serde_json::Value::String(format!("{display:?}").cow_to_ascii_lowercase().into_owned()),
+                    )
+                })
                 .into_iter()
-                .map(|(k, v)| (k, serde_json::Value::String(v)))
                 .collect();
 
             entries.push(serde_json::json!({

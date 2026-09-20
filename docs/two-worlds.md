@@ -23,10 +23,9 @@ This is the world where **parsing happens**. When a tab loads a page, the engine
 `gosub_render_pipeline` — everything documented under [render-pipeline/](render-pipeline/README.md) — has its **own, self-contained document model** under `src/common/document/`:
 
 -   its own `Node` / `NodeType` / element data (`node.rs`);
--   its own style model (`style.rs`): a closed `StyleProperty` enum and `Value` type with interned keywords, per-property metadata (inherited? initial value?), and its own inheritance + `em`/`rem` resolution;
--   its own inline-style parsing (`inline_style.rs`).
+-   its own HTML presentational-attribute handling (`presentation_hints.rs`, pending step 3b).
 
-None of these types implement `gosub_interface` traits. The pipeline's style model is small and rendering-oriented (exactly the properties the painter needs, as plain enums), where the css3 world's property maps are fully general. This is what makes the pipeline independently testable — its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
+It no longer owns a style model. Style is `gosub_interface::style::ComputedStyle`, a typed struct with one field per property the pipeline reads, built once per element by the CSS crate. Neither the pipeline's `Node` nor its presentational hints implement `gosub_interface` traits, which is what makes the pipeline independently testable — its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
 
 The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.rs`'s `TaffyLayouter`, behind the pipeline-local `CanLayout` trait (documented in [render-pipeline/layout.md](render-pipeline/layout.md)), plus its `gosub_lattice` table bridge in `layouter/table.rs`. There is no counterpart in world 1 anymore, so a search for `TaffyLayouter` now has exactly one answer.
 
@@ -34,13 +33,13 @@ The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.r
 
 The two worlds meet in one file: [`common/document/pipeline_doc.rs`](../crates/gosub_render_pipeline/src/common/document/pipeline_doc.rs).
 
-**`PipelineDocument`** is the narrow trait the whole pipeline consumes: tree navigation (`root`/`children`/`parent`), node classification (`node_kind`/`tag_name`), and styles — `get_own_style(id, prop) -> Option<Value>` plus a provided `get_style` that layers inheritance, initial values, and `em`/`rem` → px resolution on top.
+**`PipelineDocument`** is the narrow trait the whole pipeline consumes: tree navigation (`root`/`children`/`parent`), node classification (`node_kind`/`tag_name`), and style — `computed_style(id) -> Arc<ComputedStyle>`, one struct in which every field already holds a value: the element's own, the one it inherited, or the property's initial. A `declared` set on the side answers the separate question of whether the element's own cascade said anything about a property, which a handful of readers need.
 
 **`GosubDocumentAdapter<C: HasDocument>`** implements that trait over an `Arc<C::Document>` from world 1. It is where all the translation lives:
 
--   **Lazy computed styles**: on first `get_own_style` for a node, the adapter runs world 1's CSS selector matching (`C::CssSystem`) and caches the resulting property map per node. Nothing is computed for nodes the pipeline never asks about.
--   **Value translation**: `css_property_to_value` maps each generic `CssProperty` into the pipeline's closed `Value` enum (colors, display keywords, lengths, gradients, ...).
--   **Inline styles**: the `style=""` attribute is parsed and cached separately, taking precedence as highest-specificity.
+-   **Lazy computed styles**: on first `computed_style` for a node, the adapter runs world 1's CSS selector matching (`C::CssSystem`), caches the resulting property map, and converts it into a `ComputedStyle` against the parent's. Nothing is computed for nodes the pipeline never asks about. The map is kept alongside the struct: the cascade's own questions (custom-property scope, which origin won a declaration) and `getComputedStyle` still read it.
+-   **Value translation**: `CssPropertyMap::computed_style` in gosub_css3 is the one place a CSS value becomes a typed field — colours, display keywords, lengths, grid track lists.
+-   **Inline styles**: the `style=""` attribute is an ordinary stylesheet at inline specificity, cascaded by the CSS crate like any other.
 -   **Generated content**: `::before` / `::after` have no DOM node, so the adapter mints *synthetic* `NodeId`s (bit-encoded: flag + role + owner id) and materializes pseudo-boxes lazily. The rest of the pipeline treats them as ordinary nodes.
 -   **Invalidation**: `invalidate_style_for_nodes` / `clear_style_cache` let hover repaints re-run selector matching (`:hover`) for just the affected nodes.
 
@@ -70,7 +69,7 @@ Everything upstream of that line is world 1; everything downstream is world 2.
 | Concept | World 1 | World 2 |
 |---------|---------|---------|
 | Document model | `C::Document` — the arena DOM | own `Node`/`NodeType` under `common/document/` |
-| Style representation | `CssSystem` property maps; general | `StyleProperty`/`Value` enums; closed, render-oriented |
+| Style representation | `CssSystem` property maps; general | `ComputedStyle`, one typed field per property; closed, render-oriented |
 | Node identity | `gosub_shared::node::NodeId` | same `NodeId`, plus synthetic pseudo-element ids |
 | Layout | *(none)* | `layouter/taffy.rs`, `CanLayout`, `PipelineTableTree` |
 
@@ -78,4 +77,4 @@ Layout is listed only to head off an old assumption: `gosub_interface` has **no*
 
 ## Why it is this way (and where it might go)
 
-The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter a closed style enum it can match on exhaustively; the cost is a translation layer on every rebuild and two places to teach about any new CSS property — `css_property_to_value` in the adapter as well as `StyleProperty` in the pipeline. Collapsing the models further would mean either the pipeline consuming `CssProperty` directly (losing exhaustive matching) or the parse side producing pipeline values (losing generality); the adapter is the deliberate middle.
+The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter closed enums it can match on exhaustively; the cost is a conversion on every rebuild and one place to teach about any new CSS property — a field on `ComputedStyle` and the arm that fills it. The style half of the duplication is gone: the conversion lives in gosub_css3 and answers to `gosub_interface::style`, so there is no second property table, no second inheritance walk and no second parser of the `style` attribute.
