@@ -1,5 +1,5 @@
 use crate::functions::attr::resolve_attr;
-use crate::functions::var::resolve_var;
+use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
@@ -10,7 +10,7 @@ use crate::matcher::styling::{
     cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
     DEFAULT_FONT_SIZE_PX,
 };
-use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
+use crate::stylesheet::{reduce_function, CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
@@ -899,61 +899,234 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
     }
 }
 
+/// Resolve every substitution function in a declaration's value against this element.
+///
+/// css-variables-1 §3 substitutes a `var()` on the token stream *before* the value is parsed, so
+/// a reference anywhere in the value - including inside another function's arguments - is
+/// replaced by the custom property's tokens and the result is then read as if the author had
+/// written it that way. `attr()` (css-values-5 §12.1) and `light-dark()` substitute the same way.
+///
+/// An empty result is the guaranteed-invalid value: the declaration matches no grammar and is
+/// dropped by the caller.
 pub fn resolve_functions<C: HasDocument>(
     value: &CssValue,
     doc: &C::Document,
     id: NodeId,
     custom_props: &HashMap<String, CssValue>,
 ) -> CssValue {
-    fn resolve<C: HasDocument>(
-        val: &CssValue,
-        doc: &C::Document,
-        id: NodeId,
-        custom_props: &HashMap<String, CssValue>,
-    ) -> CssValue {
-        match val {
-            CssValue::Function(func, values) => {
-                let resolved = match func.as_str() {
-                    "attr" => resolve_attr::<C>(values, doc, id),
-                    "var" => resolve_var(values, custom_props),
-                    // Unresolved, the whole declaration fails validation - the UA sheet uses it
-                    // on form controls.
-                    "light-dark" | "-internal-light-dark" => values
-                        .split(|v| matches!(v, CssValue::Comma))
+    resolve_substitutions(value, custom_props, &|args| resolve_attr::<C>(args, doc, id))
+}
+
+/// How an `attr()` is answered: what its arguments stand for on this element. Taking it as a
+/// callback keeps the substitution walk itself free of the document, so what a value substitutes
+/// to can be asked without building one.
+type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Vec<CssValue>;
+
+fn resolve_substitutions(
+    value: &CssValue,
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+) -> CssValue {
+    match value {
+        // Only a function or a list can hold a reference; a plain token substitutes to itself,
+        // and is handed back in the shape it arrived in.
+        CssValue::Function(..) | CssValue::List(_) => {
+            CssValue::List(resolve_value(value, custom_props, attr, 0).unwrap_or_default())
+        }
+        other => other.clone(),
+    }
+}
+
+/// The tokens `value` substitutes to, or `None` when a substitution function in it is invalid at
+/// computed-value time - which makes the whole declaration invalid (css-variables-1 §3.1).
+///
+/// A result is a list of tokens rather than a single value because a `var()` may stand for
+/// several (`--rule: 1px solid red`). They are spliced into the surrounding list or argument
+/// list rather than nested as a sub-list: the grammar matcher reads a flat sequence, so
+/// `border: 1px solid var(--rule)` has to arrive as the five tokens it would have been written
+/// as, not as three with a list in the middle.
+///
+/// `depth` bounds how many rounds of substitution feed each other - a custom property holding an
+/// `attr()` whose fallback holds a `var()`, and so on - and shares its bound with the chain of
+/// custom-property references [`resolve_var`] follows.
+fn resolve_value(
+    value: &CssValue,
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+    depth: usize,
+) -> Option<Vec<CssValue>> {
+    match value {
+        CssValue::List(list) => resolve_list(list, custom_props, attr, depth),
+        CssValue::Function(name, args) => {
+            if depth >= MAX_VAR_DEPTH {
+                return None;
+            }
+            let substituted = if name.eq_ignore_ascii_case("var") {
+                Some(resolve_var(args, custom_props))
+            } else if name.eq_ignore_ascii_case("attr") {
+                Some(attr(args))
+            } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
+                // Unresolved, the whole declaration fails validation - the UA sheet uses it on
+                // form controls.
+                Some(
+                    args.split(|v| matches!(v, CssValue::Comma))
                         .nth(usize::from(crate::stylesheet::prefers_dark()))
                         .map_or_else(Vec::new, <[CssValue]>::to_vec),
-                    // `min`/`max`/`clamp` are deliberately *not* evaluated here. Their operands
-                    // may be font-relative, and this runs while declarations are still being
-                    // collected - before the element's font-size is known - so an `em` would be
-                    // measured against the default 16px. `min(2em, 50px)` came out as 32px on an
-                    // element with `font-size: 20px`, where it should be 40px. The computed
-                    // stage evaluates them instead, once the basis exists.
-                    _ => vec![val.clone()],
-                };
+                )
+            } else {
+                None
+            };
 
-                CssValue::List(resolved)
+            match substituted {
+                // Nothing to substitute: the reference is undefined with no usable fallback, or
+                // cyclic. The declaration is invalid at computed-value time.
+                Some(tokens) if tokens.is_empty() => None,
+                // What one substitution produced may itself hold another - a custom property
+                // holding `attr(data-w px)`, an `attr()` fallback holding a `var()`.
+                Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
+                // Any other function keeps its own meaning and is rebuilt around its substituted
+                // arguments, so that `rgb(var(--r) 0 0)` and `calc(var(--w) * 2)` reach the
+                // grammar as the colour and the length they name.
+                //
+                // `min`/`max`/`clamp` are still not *evaluated* against this element. Their
+                // operands may be font-relative, and this runs while declarations are still being
+                // collected - before the element's font-size is known - so an `em` would be
+                // measured against the default 16px. `min(2em, 50px)` came out as 32px on an
+                // element with `font-size: 20px`, where it should be 40px. The computed stage
+                // evaluates them instead, once the basis exists; `reduce_function` reduces only
+                // what the parser itself could have, knowing no more than it did.
+                None => {
+                    let args = resolve_list(args, custom_props, attr, depth)?;
+                    Some(vec![reduce_function(name.clone(), args)])
+                }
             }
-            _ => val.clone(),
+        }
+        other => Some(vec![other.clone()]),
+    }
+}
+
+/// Resolve every value in a sequence, splicing what each one substitutes to into one flat list.
+fn resolve_list(
+    values: &[CssValue],
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+    depth: usize,
+) -> Option<Vec<CssValue>> {
+    let mut resolved = Vec::with_capacity(values.len());
+    for value in values {
+        resolved.extend(resolve_value(value, custom_props, attr, depth)?);
+    }
+    Some(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::colors::RgbColor;
+
+    /// The value of the one declaration in `a { <declaration> }`, as the parser produces it - so
+    /// a test is written against the text an author types and reads the shapes a stylesheet
+    /// really carries.
+    fn declared(declaration: &str) -> CssValue {
+        let sheet = Css3::parse_str(
+            &format!("a {{ {declaration} }}"),
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "",
+        )
+        .expect("the test declaration parses");
+        sheet.rules[0].declarations()[0].value.clone()
+    }
+
+    /// The custom properties `pairs` declares, each written as it would be in a rule.
+    fn custom(pairs: &[(&str, &str)]) -> HashMap<String, CssValue> {
+        pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), declared(&format!("{name}: {value}"))))
+            .collect()
+    }
+
+    /// `attr()` as a document with `data-w="4"` would answer it, which is all these tests need
+    /// of one: the walk is what is under test, not the reading of an attribute.
+    fn attr(args: &[CssValue]) -> Vec<CssValue> {
+        match args.first() {
+            Some(CssValue::String(name)) if name == "data-w" => vec![CssValue::Unit(4.0, "px".to_string())],
+            _ => vec![],
         }
     }
 
-    if let CssValue::List(list) = value {
-        // Flatten each element's resolution back into this list. `resolve` wraps a function's
-        // result in a `CssValue::List`, so without this a `var()`/`attr()` used *inside* a
-        // multi-token value (e.g. `border: 1px solid var(--rule)`) would nest as
-        // `[1px, solid, [color]]`. The `<color>` component of the shorthand matcher only sees a
-        // top-level `Color`, so the nested list is dropped and the border falls back to black.
-        // Splicing the inner tokens in keeps `border-color` (and any other shorthand part that
-        // comes from a variable) matchable.
-        let mut resolved = Vec::with_capacity(list.len());
-        for val in list {
-            match resolve::<C>(val, doc, id, custom_props) {
-                CssValue::List(inner) => resolved.extend(inner),
-                other => resolved.push(other),
-            }
-        }
-        CssValue::List(resolved)
-    } else {
-        resolve::<C>(value, doc, id, custom_props)
+    fn resolve(declaration: &str, props: &[(&str, &str)]) -> CssValue {
+        single_value(resolve_substitutions(&declared(declaration), &custom(props), &attr))
+    }
+
+    #[test]
+    fn a_var_inside_a_colour_function_makes_a_colour() {
+        // The substituted value is read as if it had been written that way (css-variables-1 §3),
+        // so what comes back is the colour, not a function the `<color>` grammar cannot match.
+        let value = resolve("color: rgb(var(--r) 0 0)", &[("--r", "59")]);
+        assert_eq!(value, CssValue::Color(RgbColor::from("#3b0000").into()));
+    }
+
+    #[test]
+    fn a_var_inside_a_calc_is_folded() {
+        // `calc()` reaches here as a call with its body as arguments, so the substitution goes
+        // into the body and the arithmetic is done on the way out.
+        let value = resolve("width: calc(var(--w) * 2)", &[("--w", "10px")]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(20.0, "px")]));
+    }
+
+    #[test]
+    fn a_var_two_functions_deep_is_substituted() {
+        let value = resolve(
+            "background: linear-gradient(rgb(var(--r) 0 0), white)",
+            &[("--r", "59")],
+        );
+        let CssValue::Function(name, args) = value else {
+            panic!("expected the gradient to survive as a function");
+        };
+        assert_eq!(name, "linear-gradient");
+        assert_eq!(args[0], CssValue::Color(RgbColor::from("#3b0000").into()));
+    }
+
+    #[test]
+    fn a_fallback_inside_a_function_is_used() {
+        let value = resolve("width: calc(var(--missing, 10px) * 2)", &[]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(20.0, "px")]));
+    }
+
+    #[test]
+    fn an_unresolvable_var_inside_a_function_invalidates_the_declaration() {
+        // No fallback and nothing to substitute is the guaranteed-invalid value, and that makes
+        // the whole declaration invalid at computed-value time (css-variables-1 §3.1) - not just
+        // the function it sits in.
+        assert_eq!(resolve("color: rgb(var(--nope) 0 0)", &[]), CssValue::List(vec![]));
+    }
+
+    #[test]
+    fn a_cycle_inside_a_function_terminates() {
+        let props = custom(&[("--a", "var(--b)"), ("--b", "var(--a)")]);
+        let value = resolve_substitutions(&declared("color: rgb(var(--a) 0 0)"), &props, &attr);
+        assert_eq!(value, CssValue::List(vec![]));
+    }
+
+    #[test]
+    fn an_attr_inside_a_function_is_substituted() {
+        let value = resolve("width: calc(attr(data-w px) * 2)", &[]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(8.0, "px")]));
+    }
+
+    #[test]
+    fn a_var_holding_several_tokens_splices_into_an_argument_list() {
+        // The tokens go into the argument list flat: a nested list would be a single argument,
+        // which is not what `rgb(59 130 246)` is.
+        let value = resolve("color: rgb(var(--channels))", &[("--channels", "59 130 246")]);
+        assert_eq!(value, CssValue::Color(RgbColor::from("#3b82f6").into()));
+    }
+
+    fn unit(value: f64, unit: &str) -> CssValue {
+        CssValue::Unit(value, unit.to_string())
     }
 }

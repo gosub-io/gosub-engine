@@ -1114,10 +1114,7 @@ impl CssValue {
                 for token in tokens {
                     body.push(CssValue::parse_ast_node(token)?);
                 }
-                Ok(
-                    crate::functions::calc::evaluate_call("calc", &body, &crate::functions::calc::Units::none(), false)
-                        .unwrap_or(CssValue::Function("calc".to_string(), body)),
-                )
+                Ok(reduce_function("calc".to_string(), body))
             }
             crate::node::NodeType::Url { url } => {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
@@ -1127,25 +1124,7 @@ impl CssValue {
                 for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }
-                // Color functions (rgb/rgba/hsl/hsla/oklch/…) collapse to a concrete `Color`
-                // at parse time. This lets `<color>` syntax matching (which only recognises
-                // `Color`/hex) accept them inside shorthands like `border`/`background`, and
-                // avoids re-parsing the function on every style lookup.
-                if is_color_function(&name) {
-                    if let Some(color) = parse_css_color_function(&name, &list) {
-                        return Ok(CssValue::Color(color));
-                    }
-                }
-                // A math function is simplified here for the same reason a `calc()` body is, and
-                // as far as the same knowledge allows. What reduces serializes as `calc()` -
-                // `min(1px, 2px)` is `calc(1px)` - and what does not (`min(1em, 2px)`, before
-                // there is a font-size) stays exactly as written.
-                if let Some(reduced) =
-                    crate::functions::calc::evaluate_call(&name, &list, &crate::functions::calc::Units::none(), false)
-                {
-                    return Ok(reduced);
-                }
-                Ok(CssValue::Function(name, list))
+                Ok(reduce_function(name, list))
             }
 
             crate::node::NodeType::Comma => Ok(CssValue::Comma),
@@ -1200,6 +1179,33 @@ impl CssValue {
 
         Ok(CssValue::String(value.to_string()))
     }
+}
+
+/// A function call reduced as far as the parse can take it.
+///
+/// Colour functions (`rgb`/`hsl`/`oklch`/…) collapse to a concrete `Color`, which is what lets
+/// `<color>` syntax matching (it only recognises `Color`/hex) accept one inside a shorthand like
+/// `border` or `background`, and saves re-parsing the function on every style lookup. A math
+/// function is simplified as far as knowing no element allows: what reduces serializes as
+/// `calc()` - `min(1px, 2px)` is `calc(1px)` - and what does not (`min(1em, 2px)`, before there
+/// is a font-size) stays exactly as written. Anything else is the call it was.
+///
+/// It is shared with `var()` substitution, which happens after the value was parsed and so
+/// leaves behind a call that never went past this point: `rgb(var(--r) 0 0)` would stay a
+/// function where `rgb(1 0 0)` is a `Color`. css-variables-1 §3 says the substituted value is
+/// read as if the author had written it, so it is reduced here the same way.
+pub(crate) fn reduce_function(name: String, args: Vec<CssValue>) -> CssValue {
+    if is_color_function(&name) {
+        if let Some(color) = parse_css_color_function(&name, &args) {
+            return CssValue::Color(color);
+        }
+    }
+    if let Some(reduced) =
+        crate::functions::calc::evaluate_call(&name, &args, &crate::functions::calc::Units::none(), false)
+    {
+        return reduced;
+    }
+    CssValue::Function(name, args)
 }
 
 /// Parse a CSS color function like `oklch()`, `oklab()`, or `color()` into an RgbColor.

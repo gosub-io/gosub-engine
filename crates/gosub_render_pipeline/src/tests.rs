@@ -1005,6 +1005,35 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A `var()` inside a function's arguments is substituted like any other, so the
+    /// Tailwind-shaped `rgb(<channels> / var(--tw-text-opacity))` paints the colour it names.
+    ///
+    /// It used to reach the `<color>` grammar as an unsubstituted `rgb()` call, which matches
+    /// nothing, so the declaration was dropped and the text stayed black. css-variables-1 §3
+    /// substitutes on the token stream before the value is read, which is what makes the
+    /// substituted value a colour.
+    #[test]
+    fn a_var_inside_a_colour_function_paints_that_colour() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::Color;
+
+        let html = r#"<html><head><style>
+          * { --tw-text-opacity: 1 }
+          .text-blue-500 { color: rgb(59 130 246 / var(--tw-text-opacity)) }
+        </style></head>
+        <body><div class="text-blue-500" id="target">x</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        assert_eq!(
+            adapter.computed_style(target).inherited.color,
+            Color::rgba(59, 130, 246, 255)
+        );
+    }
+
     /// What the ancestor bloom filter may and may not drop.
     ///
     /// Every rule here reaches `#target` through the selector index, so each one is decided by
