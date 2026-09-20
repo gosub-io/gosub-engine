@@ -1005,6 +1005,60 @@ mod rendertree_from_engine {
         );
     }
 
+    /// What the ancestor bloom filter may and may not drop.
+    ///
+    /// Every rule here reaches `#target` through the selector index, so each one is decided by
+    /// the filter and then by the matcher. Three of them must apply and one must not, and the
+    /// two that reach across a sibling combinator are the shapes the ancestor rule is easiest
+    /// to get wrong on.
+    #[test]
+    fn ancestor_conditions_survive_the_filter() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::Color;
+
+        let html = r#"<html><head><style>
+          /* The class is on the grandparent: applies. */
+          .wrapper .target { color: rgb(1, 2, 3) }
+          /* No ancestor carries it, and no element on the page does: never applies. */
+          .absent .target { background-color: rgb(4, 5, 6) }
+          /* `.wrapper` and `.sibling` are both ancestors, `.middle` is not: applies. */
+          .wrapper > .middle ~ .sibling .target { border-top-color: rgb(7, 8, 9) }
+          /* `.first` is a sibling of an ancestor rather than one, so it must not be required:
+             applies, and a filter that demanded `.first` of an ancestor would lose it. */
+          .first ~ .wrapper .target { border-bottom-color: rgb(10, 11, 12) }
+        </style></head>
+        <body>
+          <div class="first"></div>
+          <div class="wrapper">
+            <div class="middle"></div>
+            <div class="sibling"><div class="target" id="target">x</div></div>
+          </div>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+        let style = adapter.computed_style(target);
+
+        assert_eq!(style.inherited.color, Color::rgba(1, 2, 3, 255), "ancestor class");
+        assert_ne!(
+            style.background.color,
+            Color::rgba(4, 5, 6, 255),
+            "a class no ancestor has must not apply"
+        );
+        assert_eq!(
+            style.border.top_color,
+            Color::rgba(7, 8, 9, 255),
+            "ancestor across a child and a sibling combinator"
+        );
+        assert_eq!(
+            style.border.bottom_color,
+            Color::rgba(10, 11, 12, 255),
+            "a sibling of an ancestor is not an ancestor requirement"
+        );
+    }
+
     fn find_node_by_id_attr(
         doc: &DocumentImpl<Config>,
         node: gosub_shared::node::NodeId,

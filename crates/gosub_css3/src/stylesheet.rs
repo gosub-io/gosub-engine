@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use crate::colors::{ColorSyntax, CssColor, PredefinedSpace, RgbColor};
+use crate::matcher::bloom::ancestor_keys;
 use crate::matcher::expansion::{expand_declarations, ExpandedDeclaration};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
 use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
@@ -413,6 +414,13 @@ impl CssRule {
         &self.selectors
     }
 
+    /// Whether any selector of this rule places a condition on an ancestor of the element. A
+    /// rule that does not can be matched without an ancestor filter, which is what keeps a page
+    /// whose sheets are all single-compound selectors from building one at all.
+    pub(crate) fn asks_about_ancestors(&self) -> bool {
+        self.selectors.iter().any(CssSelector::asks_about_ancestors)
+    }
+
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
@@ -463,13 +471,40 @@ pub struct CssSelector {
     /// elements walked its parts a thousand times for the same answer. Both vectors are
     /// private so the two cannot drift apart.
     specificity: Vec<Specificity>,
+    /// What each entry in `parts` needs of the element's ancestors, hashed here rather than per
+    /// element; see [`crate::matcher::bloom`]. Nearly every entry is empty, and an empty boxed
+    /// slice owns nothing, so a sheet of selectors that ask nothing of an ancestor costs one
+    /// allocation each.
+    ancestor_keys: Box<[Box<[u32]>]>,
+    /// Whether any entry of `ancestor_keys` is non-empty, so that a rule can be matched without
+    /// an ancestor filter being built at all.
+    asks_about_ancestors: bool,
 }
 
 impl CssSelector {
     #[must_use]
     pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
         let specificity = parts.iter().map(|part| Specificity::from(part.as_slice())).collect();
-        Self { parts, specificity }
+        let ancestor_keys: Box<[Box<[u32]>]> = parts.iter().map(|complex| ancestor_keys(complex)).collect();
+        let asks_about_ancestors = ancestor_keys.iter().any(|keys| !keys.is_empty());
+        Self {
+            parts,
+            specificity,
+            ancestor_keys,
+            asks_about_ancestors,
+        }
+    }
+
+    /// What every complex selector of this list needs of the element's ancestors, in the same
+    /// order as [`CssSelector::parts`].
+    pub(crate) fn ancestor_keys(&self) -> &[Box<[u32]>] {
+        &self.ancestor_keys
+    }
+
+    /// Whether this selector places any condition at all on an ancestor. `false` means the
+    /// ancestor filter would answer "maybe" whatever it held, so it need not exist.
+    pub(crate) fn asks_about_ancestors(&self) -> bool {
+        self.asks_about_ancestors
     }
 
     /// The complex selectors making up this selector list.

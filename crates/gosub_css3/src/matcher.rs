@@ -1,3 +1,4 @@
+pub(crate) mod bloom;
 pub mod computed_style;
 pub mod expansion;
 pub mod index;

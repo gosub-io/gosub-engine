@@ -15,6 +15,7 @@ use gosub_shared::node::NodeId;
 
 use crate::colors::{CssColor, RgbColor};
 use crate::functions::calc;
+use crate::matcher::bloom::AncestorFilter;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
@@ -29,16 +30,33 @@ use crate::tokenizer::NumberKind;
 //   * `Some("before")` - match the `::before` pseudo-element of `node_id`. Only selectors that
 //                        explicitly carry the matching `::before` part match; the rest of the
 //                        compound is matched against the originating element as usual.
+//
+// `ancestors` summarises what the elements above `node_id` carry, so that a complex selector
+// asking for an ancestor nothing above this element has can be dropped without the walk that
+// would discover the same thing. It decides nothing: a filter that says "maybe" leads to
+// exactly the match that would have run anyway. `None` matches without it.
 pub(crate) fn match_selector<C: HasDocument>(
     document: &C::Document,
     node_id: NodeId,
     selector: &CssSelector,
     pseudo: Option<&str>,
     scope: ScopeContext,
+    ancestors: Option<&AncestorFilter>,
 ) -> (bool, Specificity) {
-    // A selector list (`a, b`) matches with the highest specificity of its matching parts.
+    // A selector list (`a, b`) matches with the highest specificity of its matching parts, and
+    // the filter answers each of them separately - a list is commonly one selector that reaches
+    // deep and several that do not.
+    let ancestor_keys = ancestors.map(|_| selector.ancestor_keys());
     let mut best: Option<Specificity> = None;
-    for (part, specificity) in selector.complex() {
+    for (index, (part, specificity)) in selector.complex().enumerate() {
+        // No ancestor carries something this selector requires of one, so the walk can only
+        // fail. Cheapest test there is, so it goes first.
+        if let (Some(filter), Some(keys)) = (ancestors, ancestor_keys.and_then(|table| table.get(index))) {
+            if !filter.may_match(keys) {
+                continue;
+            }
+        }
+
         // When matching a pseudo-element, the selector must explicitly target it.
         if let Some(target) = pseudo {
             if !part
@@ -1350,6 +1368,17 @@ pub struct CssProperties {
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
     pub custom: Arc<HashMap<String, CssValue>>,
+    /// The node this map was computed for, so that the next element down can tell whether the
+    /// map it was handed is really its parent's.
+    pub(crate) node: Option<NodeId>,
+    /// What the elements *above* `node` carry, as the ancestor filter summarises them.
+    ///
+    /// Kept here so the next element down does not walk and re-hash the whole ancestor chain:
+    /// given the parent's map, a child's filter is the parent's plus the parent element's own
+    /// keys, and a pseudo-element's is its originating element's unchanged. `None` when no
+    /// candidate selector ever asked about an ancestor, in which case nothing was built - see
+    /// [`crate::matcher::bloom::ancestor_filter`].
+    pub(crate) ancestors: Option<Arc<AncestorFilter>>,
     /// What the parent element handed down, which is what this element inherits.
     inherited_from: Option<Arc<InheritedValues>>,
     /// What this element hands down, built the first time a child asks and shared from then on.
@@ -1389,6 +1418,8 @@ impl CssProperties {
             root_font_size_px: DEFAULT_FONT_SIZE_PX,
             inherited_from: None,
             handed_down: OnceLock::new(),
+            node: None,
+            ancestors: None,
         }
     }
 

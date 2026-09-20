@@ -1,5 +1,6 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::var::resolve_var;
+use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
@@ -319,6 +320,15 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     let media_env = crate::media_query::media_environment();
     // Which tree this element lives in decides which sheets may reach it at all.
     let element_scope = tree_scope::<C>(doc, id);
+    // What the elements above this one carry, so that a selector requiring an ancestor class or
+    // id that none of them has is dropped before the matcher walks the chain to find that out.
+    //
+    // Built at most once per element, and only when some candidate rule actually asks about an
+    // ancestor: on a page whose sheets are all single-compound selectors the filter would answer
+    // "maybe" whatever it held, and building it would be pure cost. `inherited` is what lets the
+    // build be a copy and one node's keys rather than a walk of the whole chain.
+    let known = inherited.and_then(|map| Some((map.node?, map.ancestors.as_ref()?)));
+    let mut ancestors: Option<Arc<AncestorFilter>> = None;
 
     // Presentational hints go in first, and nothing else has been collected yet, so they take
     // the lowest document-order positions of the pass. That is where HTML §15.3.1 puts them:
@@ -356,14 +366,21 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             if !rule.media_matches(&media_env) {
                 continue;
             }
+            // The filter is only worth having for a rule that asks about an ancestor, and the
+            // first such rule is what builds it.
+            let filter = rule
+                .asks_about_ancestors()
+                .then(|| &**ancestors.get_or_insert_with(|| ancestor_filter::<C>(doc, id, known)));
             // A rule applies with the highest specificity among its matching selectors.
             let best = rule
                 .selectors()
                 .iter()
-                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo, scope) {
-                    (true, specificity) => Some(specificity),
-                    (false, _) => None,
-                })
+                .filter_map(
+                    |selector| match match_selector::<C>(doc, id, selector, pseudo, scope, filter) {
+                        (true, specificity) => Some(specificity),
+                        (false, _) => None,
+                    },
+                )
                 .max();
             if let Some(specificity) = best {
                 matched.push(MatchedRule {
@@ -378,6 +395,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         }
     }
     CANDIDATES.set(candidates);
+    // Hand the filter on. The element below this one gets its own by copying this and adding
+    // this element's keys, instead of walking and re-hashing the chain from the top.
+    css_map_entry.node = Some(id);
+    css_map_entry.ancestors = ancestors;
 
     // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
     // to the element's own tree, so it ranks at that tree's depth rather than the document's.
