@@ -280,10 +280,11 @@ pub enum WhiteSpace {
 }
 
 impl WhiteSpace {
-    /// Whether the value preserves the source's spaces and newlines as content.
+    /// Whether the value preserves the source's spaces and newlines as content
+    /// (css-text-4 §3.1: `pre`, `pre-wrap` and `break-spaces` do; the rest collapse).
     #[must_use]
     pub fn preserves_spaces(self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap)
+        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces)
     }
 }
 

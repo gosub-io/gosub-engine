@@ -22,10 +22,9 @@ This is the world where **parsing happens**. When a tab loads a page, the engine
 
 `gosub_render_pipeline` — everything documented under [render-pipeline/](render-pipeline/README.md) — has its **own, self-contained document model** under `src/common/document/`:
 
--   its own `Node` / `NodeType` / element data (`node.rs`);
--   its own HTML presentational-attribute handling (`presentation_hints.rs`, pending step 3b).
+-   its own `Node` / `NodeType` / element data (`node.rs`).
 
-It no longer owns a style model. Style is `gosub_interface::style::ComputedStyle`, a typed struct with one field per property the pipeline reads, built once per element by the CSS crate. Neither the pipeline's `Node` nor its presentational hints implement `gosub_interface` traits, which is what makes the pipeline independently testable — its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
+It no longer owns a style model, and it no longer handles HTML presentational attributes: `bgcolor`, `width`, `cellspacing` and `cellpadding` are mapped to CSS declaration text by the HTML crate (`Document::presentational_hints`, implemented in `gosub_html5`) and cascaded by the CSS crate like any other author-level declaration. Style is `gosub_interface::style::ComputedStyle`, a typed struct with one field per property the pipeline reads, built once per element by the CSS crate. The pipeline's `Node` does not implement `gosub_interface` traits, which is what makes the pipeline independently testable — its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
 
 The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.rs`'s `TaffyLayouter`, behind the pipeline-local `CanLayout` trait (documented in [render-pipeline/layout.md](render-pipeline/layout.md)), plus its `gosub_lattice` table bridge in `layouter/table.rs`. There is no counterpart in world 1 anymore, so a search for `TaffyLayouter` now has exactly one answer.
 

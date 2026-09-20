@@ -117,13 +117,15 @@ fn legacy_color(raw: &str) -> Option<String> {
         }
     }
 
-    // Anything outside the BMP counts as two characters, and only the first 128 are read.
-    let mut text: String = input
+    // Anything outside the BMP counts as two characters, and only the first 128 are read. The
+    // cut is made in characters, not bytes: a byte cut lands inside a multi-byte character for
+    // input like forty-three euro signs and panics.
+    let text: String = input
         .chars()
         .flat_map(|c| if c as u32 > 0xffff { ['0', '0'] } else { [c, '\0'] })
         .filter(|&c| c != '\0')
+        .take(128)
         .collect();
-    text.truncate(128);
     let mut digits: Vec<u8> = text
         .strip_prefix('#')
         .unwrap_or(&text)
@@ -274,6 +276,18 @@ mod tests {
         // The algorithm's party trick: every non-hex character becomes a zero, which leaves
         // `chucknorris` a shade of red.
         assert_eq!(legacy_color("chucknorris").as_deref(), Some("#c00000"));
+    }
+
+    /// The 128-character cut is made in characters. Forty-three euro signs are 129 bytes, and a
+    /// byte cut at 128 would land inside the last one and panic.
+    #[test]
+    fn a_long_multibyte_colour_is_cut_in_characters() {
+        let euros: String = std::iter::repeat_n('\u{20ac}', 43).collect();
+        assert_eq!(legacy_color(&euros).as_deref(), Some("#000000"));
+        // Hex digits at the front are pushed out of each component's last eight characters by
+        // the zeros the euro signs become, so this too is black - and, again, not a panic.
+        let mixed = format!("abc{euros}");
+        assert_eq!(legacy_color(&mixed).as_deref(), Some("#000000"));
     }
 
     /// A hint is CSS text, so a value that could end the declaration is dropped rather than

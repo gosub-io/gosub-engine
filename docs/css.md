@@ -134,9 +134,12 @@ value is their `max` under one comparison chain, read top to bottom, first diffe
 4.  layer rank: unlayered is the top of the order for a normal declaration and the bottom for an
     important one, and the layers run in opposite directions for the two (§6.4);
 5.  specificity;
-6.  document order, a running counter across the matched rules. Presentational hints take the
-    lowest orders, so they beat the user-agent sheet and lose to any author declaration. A
-    longhand produced by a shorthand inherits the shorthand's order.
+6.  document order, a running counter across the matched rules. Presentational hints are
+    normal, unlayered author-origin declarations with zero specificity that take the lowest
+    orders, so they beat the user-agent sheet and, being unlayered, beat author declarations
+    inside an `@layer`; any unlayered author declaration beats them on specificity or order,
+    and any important declaration outranks them. A longhand produced by a shorthand inherits
+    the shorthand's order.
 
 `revert` and `revert-layer` are not values: they re-run the cascade over the declarations that
 remain once the winning origin or layer is removed.
