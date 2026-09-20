@@ -79,7 +79,20 @@ thread_local! {
     /// environment, so its results belong to that thread.
     static INLINE_SHEETS: std::cell::RefCell<HashMap<String, Arc<CssStylesheet>>> =
         std::cell::RefCell::new(HashMap::new());
+
+    /// Parsed presentational hints, by the declaration text the document produced.
+    ///
+    /// A sibling of `INLINE_SHEETS` rather than the same table: the two are the same kind of
+    /// thing - a declaration block parsed once per distinct text - but a page has a handful of
+    /// distinct hint texts against thousands of `style` attributes, and sharing the table would
+    /// let the attributes evict the hints.
+    static HINT_SHEETS: std::cell::RefCell<HashMap<String, Arc<CssStylesheet>>> =
+        std::cell::RefCell::new(HashMap::new());
 }
+
+/// Specificity of a presentational hint: zero, so any selector at all outranks it
+/// (HTML §15.3.1).
+const HINT_SPECIFICITY: Specificity = Specificity::new(0, 0, 0);
 
 /// The `style` attribute as a one-rule stylesheet, so it can join the cascade like any other
 /// rule. Parsed once per distinct attribute text.
@@ -95,6 +108,28 @@ fn inline_stylesheet(style: &str) -> Option<Arc<CssStylesheet>> {
             cache.clear();
         }
         cache.insert(style.to_string(), Arc::clone(&sheet));
+        Some(sheet)
+    })
+}
+
+/// An element's presentational hints as a one-rule stylesheet, so they join the cascade like
+/// any other rule.
+///
+/// The document writes them as CSS and the real parser reads them back, which is what keeps the
+/// HTML mapping table out of here: this only has to rank what it is handed. Parsed once per
+/// distinct text, of which a page has very few - every `<td>` in a table produces the same one.
+fn hint_stylesheet(hints: &str) -> Option<Arc<CssStylesheet>> {
+    HINT_SHEETS.with(|cache| {
+        if let Some(sheet) = cache.borrow().get(hints) {
+            return Some(Arc::clone(sheet));
+        }
+        let sheet =
+            Arc::new(Css3::parse_str(&format!("*{{{hints}}}"), inline_parser_config(), CssOrigin::Author, "").ok()?);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= INLINE_SHEET_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(hints.to_string(), Arc::clone(&sheet));
         Some(sheet)
     })
 }
@@ -223,11 +258,27 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 ) -> Option<CssProperties> {
     let mut css_map_entry = CssProperties::new();
 
+    // The element's presentational attributes, as CSS the document wrote. Declared before
+    // `matched`, which borrows from it, and before the unrenderable check, which it survives.
+    let hint_sheet = pseudo
+        .is_none()
+        .then(|| doc.presentational_hints(id))
+        .flatten()
+        .and_then(|hints| hint_stylesheet(&hints));
+
     // The unrenderable check applies to real elements only; a pseudo-element is generated
     // content hanging off a (renderable) originating element.
-    if pseudo.is_none() && node_is_unrenderable::<C>(doc, id) {
+    //
+    // A hint outlives it. What the check skips is *selector matching* - no rule is expected to
+    // reach a `<head>` or a `<title>` - but an element's own attributes describe it whatever
+    // the sheets say, and `<svg>` is on the list while still being laid out. That used to work
+    // because the presentational attributes were applied to the computed style after the
+    // cascade had run, so an element with no map at all still got them.
+    let matches_rules = pseudo.is_some() || !node_is_unrenderable::<C>(doc, id);
+    if !matches_rules && hint_sheet.is_none() {
         return None;
     }
+    let sheets: &[CssStylesheet] = if matches_rules { sheets } else { &[] };
 
     let definitions = get_css_definitions();
 
@@ -246,8 +297,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // cascade entirely. Anything else asking the cascade what an element computes to - which is
     // to say `getComputedStyle` - therefore could not see a single thing set through
     // `element.style`.
-    let inline_sheet = pseudo
-        .is_none()
+    let inline_sheet = matches_rules
         .then(|| doc.attribute(id, "style"))
         .flatten()
         .filter(|style| !style.trim().is_empty())
@@ -259,6 +309,24 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     let media_env = crate::media_query::media_environment();
     // Which tree this element lives in decides which sheets may reach it at all.
     let element_scope = tree_scope::<C>(doc, id);
+
+    // Presentational hints go in first, and nothing else has been collected yet, so they take
+    // the lowest document-order positions of the pass. That is where HTML §15.3.1 puts them:
+    // author-origin declarations at specificity zero, ordered as if they stood at the start of
+    // the first author sheet. Origin alone settles the user-agent sheet, which they beat, and
+    // any author declaration for the same property ties on specificity at best and comes later
+    // in the order, so it wins.
+    if let Some((sheet, rule)) = hint_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
+        matched.push(MatchedRule {
+            sheet,
+            rule,
+            specificity: HINT_SPECIFICITY,
+            depth: shadow_depth::<C>(doc, element_scope),
+            layer: None,
+            attached: false,
+        });
+    }
+
     for sheet in sheets {
         // A sheet from another tree contributes nothing, except through the two selectors
         // that are defined to reach across (`:host`, `::slotted()`).

@@ -7,6 +7,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use url::Url;
 
+use crate::document::presentation_hints;
 use crate::document::task_queue::is_valid_id_attribute_value;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
@@ -274,6 +275,22 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
+    fn presentational_hints(&self, id: NodeId) -> Option<String> {
+        let tag = self.tag_name(id)?;
+        // Only the cells need the tree walked, and only up to the table they sit in - so the
+        // walk is skipped for every other element, which is nearly all of them.
+        let cell = tag.eq_ignore_ascii_case("td") || tag.eq_ignore_ascii_case("th");
+        let table = cell.then(|| self.enclosing_table(id)).flatten();
+        let svg = self.namespace(id) == Some(crate::node::SVG_NAMESPACE);
+        presentation_hints::hints_for(
+            tag,
+            svg,
+            |name| self.attribute(id, name),
+            |name| table.and_then(|table| self.attribute(table, name)),
+            table.is_some(),
+        )
+    }
+
     fn template_contents(&self, id: NodeId) -> Option<NodeId> {
         match self.arena.node_ref(id)?.data {
             NodeDataTypeInternal::Element(ref e) => e.template_contents,
@@ -534,6 +551,21 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 // ── Internal helpers (not part of Document trait) ───────────────────────────
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
+    /// The `<table>` a cell sits in, if it sits in one at all.
+    ///
+    /// A `<td>` written outside a table is an ordinary element as far as the tree is concerned,
+    /// and gets none of the padding a table gives its cells.
+    fn enclosing_table(&self, id: NodeId) -> Option<NodeId> {
+        let mut current = self.parent(id);
+        while let Some(node) = current {
+            if self.tag_name(node).is_some_and(|tag| tag.eq_ignore_ascii_case("table")) {
+                return Some(node);
+            }
+            current = self.parent(node);
+        }
+        None
+    }
+
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
         let mut set = self.hovered_nodes.write();
         set.clear();

@@ -141,6 +141,7 @@ impl GosubNode {
             doc.detach(child_id);
             doc.attach(child_id, self.id, None);
         }
+        crate::style_cache::invalidate();
         if self.doc.borrow().parent(child_id) != Some(self.id) {
             // `attach_node` refuses to build a cycle instead of throwing HierarchyRequestError.
             return Err(Exception::throw_message(&ctx, "appendChild would create a cycle"));
@@ -154,11 +155,13 @@ impl GosubNode {
             return Err(Exception::throw_message(&ctx, "NotFoundError: node is not a child"));
         }
         self.doc.borrow_mut().detach(child_id);
+        crate::style_cache::invalidate();
         wrap(&ctx, &self.doc, child_id)
     }
 
     pub fn remove(&self) {
         self.doc.borrow_mut().detach(self.id);
+        crate::style_cache::invalidate();
     }
 
     pub fn has_child_nodes(&self) -> bool {
@@ -197,12 +200,14 @@ impl GosubNode {
         self.doc
             .borrow_mut()
             .set_attribute(self.id, &name.cow_to_ascii_lowercase(), &value);
+        crate::style_cache::invalidate();
     }
 
     pub fn remove_attribute(&self, name: String) {
         self.doc
             .borrow_mut()
             .remove_attribute(self.id, &name.cow_to_ascii_lowercase());
+        crate::style_cache::invalidate();
     }
 
     pub fn has_attribute(&self, name: String) -> bool {
@@ -216,10 +221,12 @@ impl GosubNode {
     pub fn set_attribute_ns(&self, namespace: Option<String>, name: String, value: String) {
         match namespace {
             None => self.set_attribute(name, value),
-            Some(ns) => self
-                .doc
-                .borrow_mut()
-                .set_attribute(self.id, &Self::ns_key(&ns, &name), &value),
+            Some(ns) => {
+                self.doc
+                    .borrow_mut()
+                    .set_attribute(self.id, &Self::ns_key(&ns, &name), &value);
+                crate::style_cache::invalidate();
+            }
         }
     }
 
@@ -332,6 +339,8 @@ impl GosubNode {
             let text = doc.create_text(&value, Location::default());
             doc.attach(text, self.id, None);
         }
+        drop(doc);
+        crate::style_cache::invalidate();
     }
 
     #[qjs(get, rename = "outerHTML")]

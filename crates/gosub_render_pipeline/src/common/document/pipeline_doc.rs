@@ -1,10 +1,9 @@
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
-use crate::common::document::presentation_hints;
 use crate::painter::commands::color::Color;
 use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
-use gosub_interface::css3::{CssOrigin, CssProperty, CssPropertyMap, CssSystem, CssValue};
+use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
 use gosub_interface::style::{ComputedStyle, Display, LengthPercentage, Prop};
@@ -1234,65 +1233,7 @@ where
 
         let parent = self.inherited_from(id);
         let map = self.cached_styles(id);
-        let mut style = map.computed_style(parent.as_deref());
-
-        // The presentational attributes, at the two precedences they have today. Both are
-        // pending step 3b, where they join the cascade as the origin the HTML spec gives them.
-        if self.doc.node_type(id) == GosubNodeType::ElementNode {
-            presentation_hints::apply_table_hints(&mut style, self.table_hints(id, map.as_ref()));
-            if let Some(attrs) = self.doc.attributes(id) {
-                presentation_hints::apply_presentation_attrs(&mut style, attrs);
-            }
-        }
-        style
-    }
-
-    /// The `cellspacing`/`cellpadding` this element picks up, with the author declarations that
-    /// outrank them already taken out.
-    fn table_hints(
-        &self,
-        id: NodeId,
-        map: &<C::CssSystem as CssSystem>::PropertyMap,
-    ) -> presentation_hints::TableHints {
-        let author_declared = |name: &str| {
-            <_ as CssPropertyMap<C::CssSystem>>::get(map, name)
-                .and_then(|property| property.winning_origin())
-                .is_some_and(|origin| matches!(origin, CssOrigin::Author))
-        };
-        let attr_px = |node: NodeId, attr: &str| -> Option<f32> {
-            presentation_hints::attr_px(self.doc.attributes(node)?.get(attr)?)
-        };
-        let tag_is = |node: NodeId, tag: &str| self.doc.tag_name(node).is_some_and(|t| t.eq_ignore_ascii_case(tag));
-
-        let mut hints = presentation_hints::TableHints::default();
-
-        if tag_is(id, "table") && !author_declared("border-spacing") {
-            hints.border_spacing = attr_px(id, "cellspacing");
-        }
-
-        if tag_is(id, "td") || tag_is(id, "th") {
-            // The hint applies to in-table cells only; a parentless cell keeps the UA default.
-            let mut table = None;
-            let mut current = self.doc.parent(id);
-            while let Some(node) = current {
-                if tag_is(node, "table") {
-                    table = Some(node);
-                    break;
-                }
-                current = self.doc.parent(node);
-            }
-            if let Some(table) = table {
-                let padding = attr_px(table, "cellpadding").unwrap_or(presentation_hints::DEFAULT_CELL_PADDING);
-                let sides = ["padding-top", "padding-right", "padding-bottom", "padding-left"];
-                for (slot, side) in hints.cell_padding.iter_mut().zip(sides) {
-                    if !author_declared(side) && !author_declared("padding") {
-                        *slot = Some(padding);
-                    }
-                }
-            }
-        }
-
-        hints
+        map.computed_style(parent.as_deref())
     }
 
     /// The cascaded property map of `id`.

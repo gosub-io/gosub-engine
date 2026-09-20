@@ -11,81 +11,31 @@
 
 use cow_utils::CowUtils;
 use gosub_css3::matcher::property_definitions::get_css_definitions;
+use gosub_css3::matcher::property_ids::PropertyId;
 use gosub_css3::matcher::styling::CssProperties;
 use gosub_css3::stylesheet::CssValue;
-use gosub_css3::system::{prop_is_inherit, Css3System};
-use gosub_interface::css3::{CssPropertyMap, CssSystem};
-use gosub_interface::document::Document as _;
-use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 use rquickjs::class::Trace;
 use rquickjs::{Ctx, Function, JsLifetime, Result, Value};
 
-use crate::{DocHandle, DomConfig};
+use crate::{style_cache, DocHandle};
 
-/// Compute the cascade for `id`, walking the ancestors first so inheritance has a parent to
-/// inherit from.
+/// The computed value of `name` for `map`, the element's own resolved cascade.
 ///
-/// `properties_from_node` takes the parent's map, so a single element cannot be computed on its
-/// own - an inherited property would come back as its initial value. The walk is root-first for
-/// that reason, carrying the last map that resolved.
+/// Three questions in order, which is what a computed value is: what this element's cascade
+/// settled, else what it inherits for a property that inherits, else the property's initial
+/// value. The map answers the middle one itself - it carries the chain of what its ancestors
+/// handed down - so nothing here has to walk the tree.
 ///
-/// Only elements go in the chain. The document node is an ancestor of `<html>` but not an
-/// element, and the cascade reads "no parent map" as "this is the root element" - which is what
-/// makes a `rem` on `<html>` resolve against its own font-size rather than the initial one.
-fn chain_maps(doc: &crate::Doc, id: NodeId, pseudo: Option<&str>) -> Vec<CssProperties> {
-    let sheets = doc.stylesheets();
-
-    let mut chain = vec![id];
-    let mut current = id;
-    while let Some(parent) = doc.parent(current) {
-        if doc.node_type(parent) == NodeType::ElementNode {
-            chain.push(parent);
-        }
-        current = parent;
-    }
-    chain.reverse();
-
-    let mut maps: Vec<CssProperties> = Vec::with_capacity(chain.len());
-    for node in chain {
-        // The previous map is passed along because custom properties are scoped through it;
-        // ordinary inheritance is not applied here (see `value_of`).
-        let previous = maps.last();
-        if let Some(mut map) = Css3System::properties_from_node::<DomConfig>(doc, node, sheets, previous) {
-            // Resolve this map before the next element inherits from it: what a child inherits
-            // is its parent's *computed* value, and the cascade reads it straight off the map.
-            for (_, property) in map.iter_mut() {
-                property.compute_value();
-            }
-            maps.push(map);
-        }
-    }
-
-    if let Some(pseudo) = pseudo {
-        // A pseudo-element's own cascade, with the originating element's map as its owner.
-        let owner = maps.last();
-        match Css3System::pseudo_properties_from_node::<DomConfig>(doc, id, sheets, pseudo, owner) {
-            Some(map) => maps.push(map),
-            // No pseudo box here; the element's own cascade is not its computed style.
-            None => return Vec::new(),
-        }
-    }
-    maps
-}
-
-/// The computed value of `name` for the last element in `maps`.
-///
-/// Mirrors how the render pipeline resolves a property: the element's own cascaded value, else
-/// the parent's when the property inherits, else the spec's initial value. `properties_from_node`
-/// returns only what was *declared* for an element - `insert_inherited` has no callers - so
-/// inheritance has to happen at lookup, walking back up the chain the cascade was computed over.
-fn value_of(maps: &mut [CssProperties], name: &str) -> Option<String> {
+/// `None` for a map is an answer as well: an element the cascade has nothing for, and a
+/// pseudo-element that generates no box, both report the initial value, the way a browser does
+/// for an element no rule has touched.
+fn value_of(map: Option<&CssProperties>, name: &str) -> Option<String> {
     // Blockification (css-display-3 §2.7): an absolutely positioned or floated element's
-    // computed `display` is the block-level form of what it specified. Decided before the walk
-    // below, which borrows the maps.
+    // computed `display` is the block-level form of what it specified.
     let blockify = name == "display" && {
-        let position = value_of(maps, "position").unwrap_or_default();
-        let float = value_of(maps, "float").unwrap_or_default();
+        let position = value_of(map, "position").unwrap_or_default();
+        let float = value_of(map, "float").unwrap_or_default();
         matches!(position.as_str(), "absolute" | "fixed") || matches!(float.as_str(), "left" | "right")
     };
     let finish = |values: Vec<CssValue>| -> String {
@@ -96,32 +46,40 @@ fn value_of(maps: &mut [CssProperties], name: &str) -> Option<String> {
         };
         CssValue::from_vec(values).to_string()
     };
+    // Serialized in canonical form where the grammar knows one (`block flow` reads as `block`);
+    // a computed value the grammar does not match, such as one already resolved past the
+    // specified syntax, serializes as it is.
+    let serialize = |computed: &CssValue| -> String {
+        get_css_definitions()
+            .find_property(name)
+            .and_then(|definition| definition.canonical(computed.to_slice()))
+            .map_or_else(|| computed.to_string(), &finish)
+    };
 
-    let inherits = prop_is_inherit(name);
-
-    for (depth, map) in maps.iter_mut().enumerate().rev() {
-        if let Some(property) = map.get_mut(name) {
-            // `compute_value` is what walks cascaded -> specified -> computed -> used -> actual.
-            // A freshly cascaded property has all of those still `None` and is marked dirty, so
-            // reading it without this reports "none" for everything.
-            // Serialized in canonical form where the grammar knows one (`block flow` reads as
-            // `block`); a computed value the grammar does not match, such as one already
-            // resolved past the specified syntax, serializes as it is.
-            let computed = property.compute_value().clone();
-            let value = get_css_definitions()
-                .find_property(name)
-                .and_then(|definition| definition.canonical(computed.to_slice()))
-                .map_or_else(|| computed.to_string(), &finish);
-            // A declared value is the answer even when it is `none`: `display: none` is a
-            // value, not an absence. This used to skip any "none" as if nothing had been
-            // declared and report the initial `inline` for it.
-            if !value.is_empty() && !property.declared.is_empty() {
-                return Some(value);
+    if let Some((map, id)) = map.zip(PropertyId::from_name(name)) {
+        // A declared value is the answer even when it is `none`: `display: none` is a value,
+        // not an absence. This used to skip any "none" as if nothing had been declared and
+        // report the initial `inline` for it.
+        if let Some(property) = map.get_id(id) {
+            if !property.declared.is_empty() {
+                let value = serialize(&property.computed);
+                if !value.is_empty() {
+                    return Some(value);
+                }
             }
         }
-        // Only an inherited property may take its value from an ancestor.
-        if !inherits || depth == 0 {
-            break;
+        // Only a property that inherits by default may take its value from an ancestor, and
+        // the map knows which ancestor settled it. The test has to be here: what the map hands
+        // down carries the non-inheriting values too, because `inherit` and `unset` name them,
+        // and reading one of those as an inherited value would give a `<div>` its parent's
+        // width.
+        if id.inherited() {
+            if let Some(inherited) = map.inherited_value(id) {
+                let value = serialize(inherited);
+                if !value.is_empty() {
+                    return Some(value);
+                }
+            }
         }
     }
 
@@ -157,8 +115,11 @@ impl GosubComputedStyle {
     pub fn get_property_value(&self, name: String) -> String {
         let name = name.cow_to_ascii_lowercase();
         let doc = self.doc.borrow();
-        let mut maps = chain_maps(&doc, self.id, self.pseudo.as_deref());
-        value_of(&mut maps, &name).unwrap_or_default()
+        let map = match self.pseudo.as_deref() {
+            Some(pseudo) => style_cache::pseudo_style(&doc, self.id, pseudo),
+            None => style_cache::element_style(&doc, self.id),
+        };
+        value_of(map.as_deref(), &name).unwrap_or_default()
     }
 
     /// Whether the engine knows this property at all.

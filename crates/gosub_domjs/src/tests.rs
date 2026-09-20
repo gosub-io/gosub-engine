@@ -852,3 +852,69 @@ fn css_text_replaces_the_block_and_drops_what_the_engine_refuses() {
     );
     assert_eq!(value, "width: 10px;");
 }
+
+/// A presentational attribute is a declaration, and it cascades where HTML §15.3.1 puts it:
+/// author origin, specificity zero, ahead of every author sheet. So it beats the user-agent
+/// sheet's `border-spacing: 2px` and loses to a rule the page wrote, however weak that rule is.
+/// It used to be applied to the computed style after the cascade had finished, which put it out
+/// of reach of `getComputedStyle` entirely.
+#[test]
+fn a_presentational_hint_beats_the_user_agent_sheet_and_loses_to_the_author() {
+    let value = eval(
+        "<style>#beaten { border-spacing: 9px }</style>\
+         <table id=hinted cellspacing=4></table><table id=beaten cellspacing=4></table>\
+         <table><tr><td id=cell>x</td></tr></table>",
+        "const g = id => getComputedStyle(document.getElementById(id)); \
+         g('hinted').borderSpacing + '|' + g('beaten').borderSpacing + '|' + g('cell').paddingLeft;",
+    );
+    assert_eq!(value, "4px|9px|1px");
+}
+
+/// The cascade runs once per element per read, so a mutation between two reads has to throw the
+/// answer away. Every binding that writes to the document says so.
+#[test]
+fn a_mutation_between_two_reads_is_seen() {
+    let value = eval(
+        "<style>.red { color: rgb(255, 0, 0) } .blue { color: rgb(0, 0, 255) }</style>\
+         <div id=outer class=red><span id=target></span></div>",
+        "const target = document.getElementById('target'); \
+         const before = getComputedStyle(target).color; \
+         document.getElementById('outer').className = 'blue'; \
+         const after = getComputedStyle(target).color; \
+         target.setAttribute('style', 'color: rgb(0, 255, 0)'); \
+         const own = getComputedStyle(target).color; \
+         target.style.color = 'rgb(1, 2, 3)'; \
+         before + '|' + after + '|' + own + '|' + getComputedStyle(target).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)|rgb(0, 0, 255)|rgb(0, 255, 0)|rgb(1, 2, 3)");
+}
+
+/// Moving an element to a new parent changes what it inherits, and the cached map of everything
+/// below it with it.
+#[test]
+fn a_tree_change_is_seen() {
+    let value = eval(
+        "<style>#a { color: rgb(255, 0, 0) } #b { color: rgb(0, 0, 255) }</style>\
+         <div id=a><span id=target></span></div><div id=b></div>",
+        "const target = document.getElementById('target'); \
+         const before = getComputedStyle(target).color; \
+         document.getElementById('b').appendChild(target); \
+         before + '|' + getComputedStyle(target).color;",
+    );
+    assert_eq!(value, "rgb(255, 0, 0)|rgb(0, 0, 255)");
+}
+
+/// A property that does not inherit takes its initial value when the element declares none,
+/// whatever the parent said. What an element hands down carries the non-inheriting values as
+/// well - `inherit` and `unset` name them - so reading that record without asking whether the
+/// property inherits gave a child its parent's width.
+#[test]
+fn a_property_that_does_not_inherit_does_not_come_from_the_parent() {
+    let value = eval(
+        "<style>#top { width: 300px; color: rgb(1, 2, 3) }</style>\
+         <div id=top><div id=child></div></div>",
+        "const s = getComputedStyle(document.getElementById('child')); \
+         s.width + '|' + s.color;",
+    );
+    assert_eq!(value, "auto|rgb(1, 2, 3)");
+}

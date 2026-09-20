@@ -29,6 +29,7 @@ pub mod event;
 mod node;
 mod select;
 mod style;
+mod style_cache;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -68,6 +69,12 @@ pub fn parse_document(html: &str, url: Option<Url>) -> anyhow::Result<(DocHandle
     // engine. The parser has already collected any `<style>` elements into the document;
     // `<link>` sheets are out of reach here, there being no network.
     doc.add_stylesheet(gosub_css3::load_default_useragent_stylesheet());
+
+    // A new document, so nothing resolved against the last one still applies. This is what
+    // makes the style cache safe: it tells documents apart by address, and an address is only
+    // unique among the documents that are alive at once - a run of tests drops each document
+    // before parsing the next, and the allocator hands the same address straight back.
+    style_cache::invalidate();
 
     let messages = errors.into_iter().map(|e| e.message).collect();
     Ok((Rc::new(RefCell::new(doc)), messages))

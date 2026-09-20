@@ -1271,10 +1271,6 @@ impl css3::CssProperty<Css3System> for CssProperty {
     fn is_none(&self) -> bool {
         matches!(self.computed, CssValue::None)
     }
-
-    fn winning_origin(&self) -> Option<CssOrigin> {
-        self.declared.iter().max().map(|d| d.origin)
-    }
 }
 
 /// What one element hands down to everything below it: the values its own cascade settled,

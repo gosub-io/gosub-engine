@@ -81,6 +81,21 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn add_class(&mut self, id: NodeId, class: &str);
     fn has_class(&self, id: NodeId, name: &str) -> bool;
 
+    /// The element's presentational hints, as the body of a declaration block.
+    ///
+    /// A markup language may give some of its attributes a meaning the style system has to
+    /// honour - `<table cellspacing=4>` is `border-spacing: 4px`. Which attribute means what
+    /// belongs to the language, so the document answers it and the cascade only has to rank
+    /// what comes back (HTML §15.3). The text is CSS, so the cascade parses it with the real
+    /// parser rather than trusting a second one here, and the declarations it yields join the
+    /// author origin at specificity zero, ahead of every author sheet.
+    ///
+    /// `None` for an element with no such attribute, which is nearly all of them. A document
+    /// for a language that has no presentational hints keeps the default.
+    fn presentational_hints(&self, _id: NodeId) -> Option<String> {
+        None
+    }
+
     /// Contents of a `<template>` element (points to a fragment root node)
     fn template_contents(&self, id: NodeId) -> Option<NodeId>;
     fn set_template_contents(&mut self, id: NodeId, fragment: NodeId);

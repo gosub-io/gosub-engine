@@ -268,6 +268,8 @@ impl GosubCssStyleDeclaration {
         } else {
             doc.set_attribute(self.id, "style", &join_declarations(declarations));
         }
+        drop(doc);
+        crate::style_cache::invalidate();
     }
 }
 
