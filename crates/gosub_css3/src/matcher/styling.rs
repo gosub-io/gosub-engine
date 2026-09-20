@@ -3,7 +3,7 @@ use cow_utils::CowUtils;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3;
@@ -735,11 +735,15 @@ pub struct CssProperty {
     pub cascaded: Option<CssValue>,
     // Specified value from the cascaded value (if any), or inherited value, or initial value
     pub specified: CssValue,
-    // Computed value from the specified value (needs viewport size etc.)
+    /// Computed value from the specified value: the last stage the style system settles.
+    ///
+    /// The used and actual values used to sit here too, as two more fields the chain copied
+    /// into, and neither did anything. A used value needs a containing block and an actual
+    /// value needs the device pixel grid; both belong to layout and paint, which have them.
+    /// Nothing is rounded here in particular - snapping to the pixel grid is the renderer's
+    /// job, and `0.14em` against a 20px font-size is exactly 2.8px, which is what a computed
+    /// value has to report.
     pub computed: CssValue,
-    pub used: CssValue,
-    // Actual value used in the rendering (after rounding, clipping etc.)
-    pub actual: CssValue,
     pub inherited: CssValue,
     /// The px value an `em` in this property resolves against.
     ///
@@ -766,8 +770,8 @@ pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 ///
 /// What survives is what genuinely cannot be decided yet: a percentage, which needs a containing
 /// block, and the units nothing has a value for (`ch`, `lh`, the container-query units).
-fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
-    let recurse = |v: &CssValue| resolve_computed(v, em_basis, rem_basis);
+fn resolve_computed(value: CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
+    let recurse = |v: CssValue| resolve_computed(v, em_basis, rem_basis);
     match value {
         // Every unit with a known conversion becomes the canonical one - px for a length, deg
         // for an angle, s for a time. That is what a computed value is: `margin: 12cm` computes
@@ -776,37 +780,40 @@ fn resolve_computed(value: &CssValue, em_basis: f32, rem_basis: f32) -> CssValue
         // be done here, so a bare `12cm` and a `round(10cm, 6cm)` that equals it disagreed.
         CssValue::Unit(val, unit) => {
             let units = calc::Units::computed(em_basis, rem_basis);
-            match calc::to_canonical(*val, unit, &units) {
+            match calc::to_canonical(val, &unit, &units) {
                 Some((canonical, converted)) => CssValue::Unit(converted, canonical),
                 // `ch`, `lh` and the container-query units have no value here, and a percentage
                 // needs a containing block. They travel on as written.
-                None => value.clone(),
+                None => CssValue::Unit(val, unit),
             }
         }
-        CssValue::List(values) => CssValue::List(values.iter().map(recurse).collect()),
+        CssValue::List(values) => CssValue::List(values.into_iter().map(recurse).collect()),
         // A `calc()` body is arithmetic, not a list of arguments, so it is evaluated as a whole
         // rather than recursed into. A body that comes down to a single value *is* that value:
         // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
             let units = calc::Units::computed(em_basis, rem_basis);
-            calc::evaluate(args, &units, true).unwrap_or_else(|| value.clone())
+            match calc::evaluate(&args, &units, true) {
+                Some(reduced) => reduced,
+                None => CssValue::Function(name, args),
+            }
         }
         CssValue::Function(name, args) => {
-            let args: Vec<CssValue> = args.iter().map(recurse).collect();
+            let args: Vec<CssValue> = args.into_iter().map(recurse).collect();
             // A math function is evaluated here rather than when the declaration was collected,
             // because only now is an `em` among its arguments worth anything. Parsing tries the
             // same thing with less to go on, and what it could not reduce lands here.
             let units = calc::Units::computed(em_basis, rem_basis);
-            if let Some(reduced) = calc::evaluate_call(name, &args, &units, true) {
+            if let Some(reduced) = calc::evaluate_call(&name, &args, &units, true) {
                 return reduced;
             }
             // What the evaluator cannot reduce here has a unit nothing can resolve yet - `ch`,
             // `lh`, a container unit - or a percentage. It stays as written. It used to fall to
             // `resolve_math`, which reduces through `unit_to_px`, and that treats an unknown
             // unit as px: `min(1ch, 2px)` came out as `1px`.
-            CssValue::Function(name.clone(), args)
+            CssValue::Function(name, args)
         }
-        other => other.clone(),
+        other => other,
     }
 }
 
@@ -842,8 +849,6 @@ impl CssProperty {
             cascaded: None,
             specified: CssValue::None,
             computed: CssValue::None,
-            used: CssValue::None,
-            actual: CssValue::None,
             inherited: CssValue::None,
             font_size_basis: DEFAULT_FONT_SIZE_PX,
             root_font_size_basis: DEFAULT_FONT_SIZE_PX,
@@ -858,22 +863,20 @@ impl CssProperty {
         self.dirty = false;
     }
 
-    /// Returns the actual value of the property. Will compute the value when needed
+    /// Returns the computed value of the property. Will compute the value when needed
     pub fn compute_value(&mut self) -> &CssValue {
         if self.dirty {
             self.calculate_value();
             self.dirty = false;
         }
 
-        &self.actual
+        &self.computed
     }
 
     fn calculate_value(&mut self) {
         self.cascaded = self.find_cascaded_value();
         self.specified = self.find_specified_value();
         self.computed = self.find_computed_value();
-        self.used = self.find_used_value();
-        self.actual = self.find_actual_value();
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
@@ -957,7 +960,7 @@ impl CssProperty {
         //
         // The whole value is walked, not just its top: the stops of a gradient are colours too,
         // and `linear-gradient(30deg, red, blue)` computes with each of them resolved.
-        let specified = self.resolve_colors(&specified);
+        let specified = self.resolve_colors(specified);
 
         // The computed value of `font-size` is an absolute length (css-fonts-4 §3.5), so a
         // percentage resolves here rather than travelling on. It is the one percentage that can:
@@ -989,37 +992,39 @@ impl CssProperty {
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
         // containing block, and the units nothing has a value for.
-        let computed = resolve_computed(&specified, self.font_size_basis, self.root_font_size_basis);
+        let computed = resolve_computed(specified, self.font_size_basis, self.root_font_size_basis);
 
         self.clamp_to_range(computed)
     }
 
     /// Resolve every colour in a value: a keyword to the colour it names, and a colour already
     /// parsed to its computed form. Recurses, because a colour can sit inside a function.
-    fn resolve_colors(&self, value: &CssValue) -> CssValue {
+    ///
+    /// Takes the value rather than borrowing it: most of a stylesheet is not a colour, and a
+    /// value this leaves alone is handed straight back instead of being cloned to say so.
+    fn resolve_colors(&self, value: CssValue) -> CssValue {
         match value {
-            CssValue::String(keyword) => match self.color_keyword(keyword) {
+            CssValue::String(keyword) => match self.color_keyword(&keyword) {
                 Some(mut color) => {
                     color.computed = true;
                     CssValue::Color(color)
                 }
-                None => value.clone(),
+                None => CssValue::String(keyword),
             },
-            CssValue::Color(color) => {
-                let mut color = *color;
+            CssValue::Color(mut color) => {
                 color.computed = true;
                 CssValue::Color(color)
             }
             CssValue::Function(name, args) => {
                 // A colour function still standing is folded here, where its `calc()` can be.
-                if let Some(mut color) = crate::stylesheet::fold_color_function(name, args, true) {
+                if let Some(mut color) = crate::stylesheet::fold_color_function(&name, &args, true) {
                     color.computed = true;
                     return CssValue::Color(color);
                 }
-                CssValue::Function(name.clone(), args.iter().map(|a| self.resolve_colors(a)).collect())
+                CssValue::Function(name, args.into_iter().map(|a| self.resolve_colors(a)).collect())
             }
-            CssValue::List(items) => CssValue::List(items.iter().map(|item| self.resolve_colors(item)).collect()),
-            other => other.clone(),
+            CssValue::List(items) => CssValue::List(items.into_iter().map(|item| self.resolve_colors(item)).collect()),
+            other => other,
         }
     }
 
@@ -1116,23 +1121,6 @@ impl CssProperty {
         }
     }
 
-    fn find_used_value(&self) -> CssValue {
-        self.computed.clone()
-    }
-
-    fn find_actual_value(&self) -> CssValue {
-        // @TODO: stuff like clipping and such should occur as well
-        //
-        // No rounding happens here. This used to snap absolute lengths to whole values, a
-        // leftover from when every value was rounded; the carve-outs for bare numbers
-        // (`opacity: 0.15` must not become 0) and for relative units (`1.5em` must not become
-        // `2em`) were added one at a time until only absolute lengths were left. Those turn
-        // fractional too the moment a font-relative length resolves - `0.14em` against a 20px
-        // font-size is exactly 2.8px, and that is what a computed value has to report.
-        // Snapping to the device pixel grid is the renderer's job, not the value's.
-        self.used.clone()
-    }
-
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
     #[must_use]
     pub fn is_shorthand(&self) -> bool {
@@ -1203,7 +1191,7 @@ impl From<CssValue> for DeclarationProperty {
 
 impl Display for CssProperty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.actual, f)
+        Display::fmt(&self.computed, f)
     }
 }
 
@@ -1212,11 +1200,11 @@ impl css3::CssProperty<Css3System> for CssProperty {
         self.compute_value();
     }
     fn unit_to_px(&self) -> f32 {
-        self.actual.unit_to_px()
+        self.computed.unit_to_px()
     }
 
     fn as_string(&self) -> Option<&str> {
-        if let CssValue::String(str) = &self.actual {
+        if let CssValue::String(str) = &self.computed {
             Some(str)
         } else {
             None
@@ -1224,7 +1212,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_percentage(&self) -> Option<f32> {
-        if let CssValue::Percentage(percent) = &self.actual {
+        if let CssValue::Percentage(percent) = &self.computed {
             Some(*percent as f32)
         } else {
             None
@@ -1232,7 +1220,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_unit(&self) -> Option<(f32, &str)> {
-        if let CssValue::Unit(value, unit) = &self.actual {
+        if let CssValue::Unit(value, unit) = &self.computed {
             Some((*value as f32, unit))
         } else {
             None
@@ -1240,7 +1228,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
-        if let CssValue::Color(color) = &self.actual {
+        if let CssValue::Color(color) = &self.computed {
             let color = color.to_rgb();
             Some((color.r, color.g, color.b, color.a))
         } else {
@@ -1249,11 +1237,13 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn parse_color(&self) -> Option<(f32, f32, f32, f32)> {
-        self.actual.to_color().map(|color| (color.r, color.g, color.b, color.a))
+        self.computed
+            .to_color()
+            .map(|color| (color.r, color.g, color.b, color.a))
     }
 
     fn as_number(&self) -> Option<f32> {
-        match &self.actual {
+        match &self.computed {
             CssValue::Number(num, _) => Some(*num as f32),
             // A bare `0` parses to the dedicated `Zero` variant; surface it as the number 0 so
             // consumers (e.g. unitless `top: 0`, `margin: 0`) see it instead of dropping the value.
@@ -1263,7 +1253,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_list(&self) -> Option<&[CssValue]> {
-        if let CssValue::List(list) = &self.actual {
+        if let CssValue::List(list) = &self.computed {
             Some(list)
         } else {
             None
@@ -1271,7 +1261,7 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_function(&self) -> Option<(&str, &[CssValue])> {
-        if let CssValue::Function(name, args) = &self.actual {
+        if let CssValue::Function(name, args) = &self.computed {
             Some((name.as_str(), args))
         } else {
             None
@@ -1279,11 +1269,60 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn is_none(&self) -> bool {
-        matches!(self.actual, CssValue::None)
+        matches!(self.computed, CssValue::None)
     }
 
     fn winning_origin(&self) -> Option<CssOrigin> {
         self.declared.iter().max().map(|d| d.origin)
+    }
+}
+
+/// What one element hands down to everything below it: the values its own cascade settled,
+/// layered over what its parent handed it.
+///
+/// This is what `inherit` and `unset` resolve against. It used to be carried by writing the
+/// parent's computed value into the child's map for every property that inherits, which gave a
+/// deep element an entry for everything any ancestor had ever declared - and cost a value clone
+/// per property per element, for values almost nothing ever reads. Here each element records
+/// only what it settled itself, once, and shares it with all its children; the answer to "what
+/// does this element inherit for x" is a walk up a list that is a handful of entries at each
+/// step.
+#[derive(Debug)]
+pub struct InheritedValues {
+    /// What the element above handed down, if there is one.
+    parent: Option<Arc<InheritedValues>>,
+    /// The properties that inherit which this element settled. Kept apart from the rest
+    /// because these are the ones a walk up the chain reads at every level, and a level holds
+    /// a handful of them where it holds dozens of properties in all.
+    inheriting: Vec<(PropertyId, CssValue)>,
+    /// Everything else this element settled, which only the element directly below can ask
+    /// for.
+    rest: Vec<(PropertyId, CssValue)>,
+}
+
+impl InheritedValues {
+    /// What an element whose parent handed this down inherits for `id`.
+    ///
+    /// A property that inherits keeps travelling until some ancestor settled it. One that does
+    /// not inherit stops at the first level: `inherit` on a `width` names the parent's computed
+    /// value, and for a parent that declared none that is the initial value, not the
+    /// grandparent's.
+    #[must_use]
+    pub fn get(&self, id: PropertyId) -> Option<&CssValue> {
+        fn find(entries: &[(PropertyId, CssValue)], id: PropertyId) -> Option<&CssValue> {
+            entries.iter().find(|(own, _)| *own == id).map(|(_, value)| value)
+        }
+        if !id.inherited() {
+            return find(&self.rest, id);
+        }
+        let mut level = Some(self);
+        while let Some(current) = level {
+            if let Some(value) = find(&current.inheriting, id) {
+                return Some(value);
+            }
+            level = current.parent.as_deref();
+        }
+        None
     }
 }
 
@@ -1315,6 +1354,11 @@ pub struct CssProperties {
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
     pub custom: Arc<HashMap<String, CssValue>>,
+    /// What the parent element handed down, which is what this element inherits.
+    inherited_from: Option<Arc<InheritedValues>>,
+    /// What this element hands down, built the first time a child asks and shared from then on.
+    /// A leaf never builds one.
+    handed_down: OnceLock<Arc<InheritedValues>>,
 }
 
 impl Default for CssProperties {
@@ -1347,6 +1391,8 @@ impl CssProperties {
             custom: Arc::new(HashMap::new()),
             font_size_px: DEFAULT_FONT_SIZE_PX,
             root_font_size_px: DEFAULT_FONT_SIZE_PX,
+            inherited_from: None,
+            handed_down: OnceLock::new(),
         }
     }
 
@@ -1364,6 +1410,67 @@ impl CssProperties {
     pub fn get_id_mut(&mut self, id: PropertyId) -> Option<&mut CssProperty> {
         let slot = self.slot(id)?;
         self.props.get_mut(slot)
+    }
+
+    /// What this element inherits for `id`: the nearest ancestor's computed value, or `None`
+    /// when nothing up the chain ever settled one and the property falls back to its initial
+    /// value.
+    ///
+    /// Asked rather than read off the entry so a caller does not have to know whether the
+    /// element has an entry for `id` at all - which depends on how inheritance is carried down,
+    /// not on what the cascade decided.
+    #[must_use]
+    pub fn inherited_value(&self, id: PropertyId) -> Option<&CssValue> {
+        self.inherited_from.as_ref()?.get(id)
+    }
+
+    /// What this element hands down to its children.
+    ///
+    /// Built from the computed values, so every caller resolves an element's map before styling
+    /// the elements below it - which is what the cascade's top-down order means. Built once:
+    /// every child of the same element shares the one record.
+    #[must_use]
+    pub fn handed_down(&self) -> Arc<InheritedValues> {
+        Arc::clone(self.handed_down.get_or_init(|| {
+            let (inheriting, rest) = self
+                .props
+                .iter()
+                .filter_map(|property| {
+                    let id = property.id?;
+                    if matches!(property.computed, CssValue::None) {
+                        return None;
+                    }
+                    Some((id, property.computed.clone()))
+                })
+                .partition(|(id, _)| id.inherited());
+            Arc::new(InheritedValues {
+                parent: self.inherited_from.clone(),
+                inheriting,
+                rest,
+            })
+        }))
+    }
+
+    /// Point this element at what its parent hands down, and fill in the inherited value of
+    /// every entry that can read one.
+    ///
+    /// Only two things ever read it: the CSS-wide keywords, which is what `inherit` and `unset`
+    /// name, and `currentcolor` on `color`, which means the inherited colour. Every other entry
+    /// is left alone rather than given a copy of a value nothing will ask for.
+    pub fn inherit_from(&mut self, parent: &CssProperties) {
+        let chain = parent.handed_down();
+        for property in &mut self.props {
+            let Some(id) = property.id else { continue };
+            let wanted = id == COLOR || property.declared.iter().any(|d| css_wide_keyword(&d.value).is_some());
+            if !wanted {
+                continue;
+            }
+            if let Some(value) = chain.get(id) {
+                property.inherited = value.clone();
+                property.mark_dirty();
+            }
+        }
+        self.inherited_from = Some(chain);
     }
 
     /// The entry for `id`, added with nothing declared if it is not there yet.

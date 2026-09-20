@@ -3,9 +3,9 @@
 //! The cascade has a lot of moving parts and very little of it is observable from the outside:
 //! a refactor that keeps the tests green can still quietly drop a declaration on a page no test
 //! covers. This writes down everything the cascade decided - every declaration that reached each
-//! property with its cascade facts, and the cascaded, specified, computed, used, actual and
-//! inherited value it settled on - for every element of a set of real pages. Run it before a
-//! change and after, and diff the two directories.
+//! property with its cascade facts, and the cascaded, specified, computed and inherited value it
+//! settled on - for every element of a set of real pages. Run it before a change and after, and
+//! diff the two directories.
 //!
 //! ```sh
 //! cargo run -p gosub_render_pipeline --example style_dump -- /tmp/style/before
@@ -14,10 +14,20 @@
 //! diff -r /tmp/style/before /tmp/style/after
 //! ```
 //!
+//! With `--stats` after the directory it also prints, per fixture, how much the maps cost: how
+//! many elements got one, how many property entries they hold between them, and how many
+//! declarations reached those entries.
+//!
 //! Two files per fixture: `<name>.computed.txt` has the resolved values, `<name>.declared.txt`
 //! the declarations behind them. Both are keyed by property *name* even where the engine keys
 //! itself by something else, and every list is sorted, so the output is comparable across a
 //! change to the engine's own keys and stable from run to run.
+//!
+//! The computed dump has a line per property the element's own cascade declared, and then a
+//! line per property it inherits a value for. Those are two different questions - what this
+//! element said, and what it takes from above - and asking them separately is what makes the
+//! dump comparable across a change to *how* inheritance is carried down, which is an engine
+//! detail rather than something the cascade decided.
 //!
 //! The fixtures are the benchmark's three pages plus the page fixtures in `tests/data`: the
 //! wikipedia and stackoverflow DOMs with and without the 2.2 MB real-world sheet, the table
@@ -26,6 +36,7 @@
 
 use std::fmt::Write as _;
 
+use gosub_css3::matcher::property_ids::{PropertyId, PROPERTY_COUNT};
 use gosub_css3::matcher::styling::CssProperties;
 use gosub_css3::stylesheet::{set_layout_viewport, CssStylesheet, CssValue};
 use gosub_css3::system::Css3System;
@@ -131,6 +142,17 @@ fn fixtures() -> Vec<Fixture> {
     fixtures
 }
 
+/// What one fixture's property maps cost, for `--stats`.
+#[derive(Default)]
+struct Stats {
+    /// Elements that got a map of their own.
+    elements: usize,
+    /// Property entries across all of those maps.
+    entries: usize,
+    /// Declarations recorded on those entries.
+    declarations: usize,
+}
+
 /// Style one element and write down everything the cascade decided about it.
 fn dump_element(
     doc: &DocumentImpl<Config>,
@@ -138,16 +160,21 @@ fn dump_element(
     map: &mut CssProperties,
     computed: &mut String,
     declared: &mut String,
+    stats: &mut Stats,
 ) {
     let tag = doc.tag_name(id).unwrap_or_default();
     let _ = writeln!(computed, "#{} <{tag}>", usize::from(id));
     let _ = writeln!(declared, "#{} <{tag}>", usize::from(id));
 
-    // Resolving is what fills in cascaded/specified/computed/used/actual, so it happens before
-    // anything is read - exactly as the render pipeline's adapter does it.
+    // Resolving is what fills in cascaded/specified/computed, so it happens before anything is
+    // read - exactly as the render pipeline's adapter does it.
     for (_, property) in map.iter_mut() {
         property.compute_value();
     }
+
+    stats.elements += 1;
+    stats.entries += map.len();
+    stats.declarations += map.iter().map(|(_, property)| property.declared.len()).sum::<usize>();
 
     let mut names: Vec<String> = map.iter().map(|(name, _)| name.to_string()).collect();
     names.sort();
@@ -156,15 +183,21 @@ fn dump_element(
         let Some(property) = <CssProperties as CssPropertyMap<Css3System>>::get(map, name) else {
             continue;
         };
+        // An entry with no declaration behind it is not something this element's cascade
+        // decided - it is inheritance, which the next block reports for every property at once.
+        if property.declared.is_empty() {
+            continue;
+        }
+        // The inherited value is asked of the map, not read off the entry: whether an entry
+        // carries one is an engine detail, and what the element inherits is not.
+        let inherited = PropertyId::from_name(name).and_then(|id| map.inherited_value(id));
         let _ = writeln!(
             computed,
-            "  {name} = {:?} | cascaded {:?} | specified {:?} | computed {:?} | used {:?} | inherited {:?} | em {} rem {}",
-            property.actual,
+            "  {name} | cascaded {:?} | specified {:?} | computed {:?} | inherited {:?} | em {} rem {}",
             property.cascaded,
             property.specified,
             property.computed,
-            property.used,
-            property.inherited,
+            inherited.unwrap_or(&CssValue::None),
             property.font_size_basis,
             property.root_font_size_basis
         );
@@ -182,6 +215,24 @@ fn dump_element(
                 declaration.attached,
                 declaration.location
             );
+        }
+    }
+
+    // What the element takes from above, for every property that has an answer - asked of the
+    // map rather than read off an entry, since whether an entry exists is an engine detail.
+    for index in 0..PROPERTY_COUNT {
+        let Some(id) = PropertyId::from_index(index) else {
+            continue;
+        };
+        // A property that does not inherit still has an inherited value - that is what
+        // `inherit` names on a `width` - but only where the element declared it does anything
+        // ever ask for it, so only there is it part of what the cascade decided.
+        let wanted = id.inherited() || map.get_id(id).is_some_and(|property| !property.declared.is_empty());
+        if !wanted {
+            continue;
+        }
+        if let Some(value) = map.inherited_value(id) {
+            let _ = writeln!(computed, "  inherits {} = {value:?}", id.name());
         }
     }
 
@@ -205,11 +256,12 @@ fn dump_subtree(
     parent: Option<&CssProperties>,
     computed: &mut String,
     declared: &mut String,
+    stats: &mut Stats,
 ) {
     let own = if doc.node_type(id) == NodeType::ElementNode {
         let mut map = Css3System::properties_from_node::<Config>(doc, id, sheets, parent);
         if let Some(map) = map.as_mut() {
-            dump_element(doc, id, map, computed, declared);
+            dump_element(doc, id, map, computed, declared, stats);
         }
         map
     } else {
@@ -220,15 +272,16 @@ fn dump_subtree(
     // children inherit from - the same flat-parent rule the render pipeline's adapter uses.
     let inherited = own.as_ref().or(parent);
     for &child in doc.children(id) {
-        dump_subtree(doc, child, sheets, inherited, computed, declared);
+        dump_subtree(doc, child, sheets, inherited, computed, declared, stats);
     }
 }
 
 fn main() {
     let Some(out_dir) = std::env::args().nth(1) else {
-        eprintln!("usage: cargo run -p gosub_render_pipeline --example style_dump -- <out-dir>");
+        eprintln!("usage: cargo run -p gosub_render_pipeline --example style_dump -- <out-dir> [--stats]");
         std::process::exit(2);
     };
+    let want_stats = std::env::args().any(|arg| arg == "--stats");
     std::fs::create_dir_all(&out_dir).expect("output directory");
 
     for fixture in fixtures() {
@@ -238,6 +291,7 @@ fn main() {
 
         let mut computed = String::new();
         let mut declared = String::new();
+        let mut stats = Stats::default();
         let root = fixture.doc.root();
         dump_subtree(
             &fixture.doc,
@@ -246,7 +300,17 @@ fn main() {
             None,
             &mut computed,
             &mut declared,
+            &mut stats,
         );
+
+        // Printed rather than written into the output directory, so a `diff -r` of two runs
+        // still compares the dumps and nothing else.
+        if want_stats {
+            println!(
+                "{} elements={} entries={} declarations={}",
+                fixture.name, stats.elements, stats.entries, stats.declarations
+            );
+        }
 
         std::fs::write(format!("{out_dir}/{}.computed.txt", fixture.name), computed).expect("write");
         std::fs::write(format!("{out_dir}/{}.declared.txt", fixture.name), declared).expect("write");

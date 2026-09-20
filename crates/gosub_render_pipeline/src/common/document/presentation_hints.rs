@@ -48,18 +48,23 @@ pub fn attr_px(raw: &str) -> Option<f32> {
 /// [`TableHints`].
 pub fn apply_table_hints(style: &mut ComputedStyle, hints: TableHints) {
     if let Some(spacing) = hints.border_spacing {
-        style.inherited.border_spacing_x = spacing;
-        style.inherited.border_spacing_y = spacing;
+        let inherited = style.inherited_mut();
+        inherited.border_spacing_x = spacing;
+        inherited.border_spacing_y = spacing;
         style.declared.set(Prop::BorderSpacingX);
         style.declared.set(Prop::BorderSpacingY);
     }
-    let sides: [(&mut LengthPercentage, Prop); 4] = [
-        (&mut style.padding.top, Prop::PaddingTop),
-        (&mut style.padding.right, Prop::PaddingRight),
-        (&mut style.padding.bottom, Prop::PaddingBottom),
-        (&mut style.padding.left, Prop::PaddingLeft),
-    ];
+    if hints.cell_padding.iter().all(Option::is_none) {
+        return;
+    }
     let mut declared = style.declared;
+    let padding = style.padding_mut();
+    let sides: [(&mut LengthPercentage, Prop); 4] = [
+        (&mut padding.top, Prop::PaddingTop),
+        (&mut padding.right, Prop::PaddingRight),
+        (&mut padding.bottom, Prop::PaddingBottom),
+        (&mut padding.left, Prop::PaddingLeft),
+    ];
     for ((field, prop), hint) in sides.into_iter().zip(hints.cell_padding) {
         if let Some(padding) = hint {
             *field = LengthPercentage::Px(padding);
@@ -74,13 +79,13 @@ pub fn apply_table_hints(style: &mut ComputedStyle, hints: TableHints) {
 pub fn apply_presentation_attrs(style: &mut ComputedStyle, attrs: &HashMap<String, String>) {
     if !style.has(Prop::BackgroundColor) {
         if let Some(color) = attrs.get("bgcolor").and_then(|raw| legacy_color(raw.trim())) {
-            style.background.color = color;
+            style.background_mut().color = color;
             style.declared.set(Prop::BackgroundColor);
         }
     }
     if !style.has(Prop::Width) {
         if let Some(width) = attrs.get("width").and_then(|raw| legacy_width(raw.trim())) {
-            style.size.width = width;
+            style.size_mut().width = width;
             style.declared.set(Prop::Width);
         }
     }

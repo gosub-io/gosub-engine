@@ -15,7 +15,7 @@
 //! the map reports, and this step changes nothing a map says.
 
 use cow_utils::CowUtils as _;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use gosub_interface::style::{
     AlignValue, BorderCollapse, BorderStyle, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
@@ -24,7 +24,7 @@ use gosub_interface::style::{
     TextWrap, VerticalAlign, WhiteSpace, ZIndex,
 };
 
-use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId};
+use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
 
@@ -40,9 +40,24 @@ const fn shorthand(id: ShorthandId) -> PropertyId {
 /// entry never resolved to anything.
 fn value(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
     match map.get_id(id) {
-        Some(property) if !matches!(property.actual, CssValue::None) => Some(&property.actual),
+        Some(property) if !matches!(property.computed, CssValue::None) => Some(&property.computed),
         _ => None,
     }
+}
+
+/// The same, falling back to what the element inherits for `id`.
+///
+/// Only the properties that inherit are read this way, and only because this conversion has
+/// always seen them: an element used to be given an entry for every inherited property any
+/// ancestor had settled, so "what the cascade settled here" and "what this element inherits"
+/// were one question. They are two now, and this keeps the answer the one it was.
+///
+/// What that answer is, for the relative `font-size` keywords, is wrong: `small { font-size:
+/// smaller }` travels down as the keyword rather than as the length it computes to, and every
+/// element below re-applies it. Fixing that is not this change - it moves pixels on real pages
+/// - so it stays, and is reported.
+fn value_or_inherited(map: &CssProperties, id: PropertyId) -> Option<&CssValue> {
+    value(map, id).or_else(|| map.inherited_value(id))
 }
 
 // ── Value readers, one per shape the cascade produces ────────────────────────
@@ -427,10 +442,233 @@ const MONOSPACE_DEFAULT_FONT_SIZE: f32 = 13.0;
 
 /// Read one property and, when it says something, write it to a field and record that the
 /// element's own cascade had a value for it.
+///
+/// `$group` names the group's accessor rather than its field, because writing is what clones a
+/// shared group: a group whose properties this element never declared is never reached for
+/// writing and stays the one its parent or the initial style already holds.
 macro_rules! apply {
-    ($map:expr, $style:expr, $id:expr, $prop:ident, $($path:ident).+, $read:expr) => {
+    ($map:expr, $style:expr, $id:expr, $prop:ident, $group:ident, $field:ident, $read:expr) => {
         if let Some(read_value) = value($map, $id).and_then($read) {
-            $style.$($path).+ = read_value;
+            $style.$group().$field = read_value;
+            $style.declared.set(Prop::$prop);
+        }
+    };
+}
+
+// ── Which field group each property belongs to ───────────────────────────────
+
+const G_INHERITED: u16 = 1 << 0;
+const G_BOX: u16 = 1 << 1;
+const G_SIZE: u16 = 1 << 2;
+const G_MARGIN: u16 = 1 << 3;
+const G_PADDING: u16 = 1 << 4;
+const G_BORDER: u16 = 1 << 5;
+const G_OUTLINE: u16 = 1 << 6;
+const G_BACKGROUND: u16 = 1 << 7;
+const G_INSET: u16 = 1 << 8;
+const G_FLEX: u16 = 1 << 9;
+const G_GRID: u16 = 1 << 10;
+
+/// Every property each group is built from, which is what decides whether an element's cascade
+/// can have changed that group at all.
+static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
+    (
+        G_INHERITED,
+        &[
+            PropertyId::Longhand(LonghandId::FontFamily),
+            PropertyId::Longhand(LonghandId::FontSize),
+            PropertyId::Longhand(LonghandId::Color),
+            PropertyId::Longhand(LonghandId::FontStyle),
+            PropertyId::Longhand(LonghandId::FontWeight),
+            PropertyId::Longhand(LonghandId::LineHeight),
+            PropertyId::Longhand(LonghandId::TextAlign),
+            PropertyId::Longhand(LonghandId::TextTransform),
+            PropertyId::Longhand(LonghandId::WhiteSpace),
+            PropertyId::Longhand(LonghandId::LetterSpacing),
+            PropertyId::Longhand(LonghandId::CaptionSide),
+            PropertyId::Longhand(LonghandId::BorderCollapse),
+            PropertyId::Shorthand(ShorthandId::TextDecoration),
+            PropertyId::Longhand(LonghandId::TextDecorationLine),
+            PropertyId::Longhand(LonghandId::BorderSpacing),
+        ],
+    ),
+    (
+        G_BOX,
+        &[
+            PropertyId::Longhand(LonghandId::Display),
+            PropertyId::Longhand(LonghandId::Position),
+            PropertyId::Longhand(LonghandId::Float),
+            PropertyId::Longhand(LonghandId::Clear),
+            PropertyId::Longhand(LonghandId::BoxSizing),
+            PropertyId::Longhand(LonghandId::OverflowX),
+            PropertyId::Longhand(LonghandId::OverflowY),
+            PropertyId::Longhand(LonghandId::ZIndex),
+            PropertyId::Longhand(LonghandId::Opacity),
+            PropertyId::Longhand(LonghandId::MixBlendMode),
+            PropertyId::Longhand(LonghandId::Resize),
+            PropertyId::Longhand(LonghandId::ScrollbarWidth),
+            PropertyId::Longhand(LonghandId::AspectRatio),
+            PropertyId::Shorthand(ShorthandId::TextWrap),
+            PropertyId::Longhand(LonghandId::TableLayout),
+            PropertyId::Longhand(LonghandId::VerticalAlign),
+        ],
+    ),
+    (
+        G_SIZE,
+        &[
+            PropertyId::Longhand(LonghandId::Width),
+            PropertyId::Longhand(LonghandId::Height),
+            PropertyId::Longhand(LonghandId::MinWidth),
+            PropertyId::Longhand(LonghandId::MinHeight),
+            PropertyId::Longhand(LonghandId::MaxWidth),
+            PropertyId::Longhand(LonghandId::MaxHeight),
+        ],
+    ),
+    (
+        G_MARGIN,
+        &[
+            PropertyId::Longhand(LonghandId::MarginTop),
+            PropertyId::Longhand(LonghandId::MarginRight),
+            PropertyId::Longhand(LonghandId::MarginBottom),
+            PropertyId::Longhand(LonghandId::MarginLeft),
+        ],
+    ),
+    (
+        G_PADDING,
+        &[
+            PropertyId::Longhand(LonghandId::PaddingTop),
+            PropertyId::Longhand(LonghandId::PaddingRight),
+            PropertyId::Longhand(LonghandId::PaddingBottom),
+            PropertyId::Longhand(LonghandId::PaddingLeft),
+        ],
+    ),
+    (
+        G_BORDER,
+        &[
+            PropertyId::Longhand(LonghandId::BorderTopStyle),
+            PropertyId::Longhand(LonghandId::BorderRightStyle),
+            PropertyId::Longhand(LonghandId::BorderBottomStyle),
+            PropertyId::Longhand(LonghandId::BorderLeftStyle),
+            PropertyId::Longhand(LonghandId::BorderTopWidth),
+            PropertyId::Longhand(LonghandId::BorderRightWidth),
+            PropertyId::Longhand(LonghandId::BorderBottomWidth),
+            PropertyId::Longhand(LonghandId::BorderLeftWidth),
+            PropertyId::Longhand(LonghandId::BorderTopColor),
+            PropertyId::Longhand(LonghandId::BorderRightColor),
+            PropertyId::Longhand(LonghandId::BorderBottomColor),
+            PropertyId::Longhand(LonghandId::BorderLeftColor),
+            PropertyId::Longhand(LonghandId::BorderTopLeftRadius),
+            PropertyId::Longhand(LonghandId::BorderTopRightRadius),
+            PropertyId::Longhand(LonghandId::BorderBottomLeftRadius),
+            PropertyId::Longhand(LonghandId::BorderBottomRightRadius),
+        ],
+    ),
+    (
+        G_OUTLINE,
+        &[
+            PropertyId::Longhand(LonghandId::OutlineStyle),
+            PropertyId::Longhand(LonghandId::OutlineWidth),
+            PropertyId::Longhand(LonghandId::OutlineColor),
+            PropertyId::Longhand(LonghandId::OutlineOffset),
+        ],
+    ),
+    (
+        G_BACKGROUND,
+        &[
+            PropertyId::Longhand(LonghandId::BackgroundColor),
+            PropertyId::Shorthand(ShorthandId::Background),
+            PropertyId::Longhand(LonghandId::BackgroundImage),
+        ],
+    ),
+    (
+        G_INSET,
+        &[
+            PropertyId::Longhand(LonghandId::InsetBlockStart),
+            PropertyId::Longhand(LonghandId::Top),
+            PropertyId::Longhand(LonghandId::InsetBlockEnd),
+            PropertyId::Longhand(LonghandId::Bottom),
+            PropertyId::Longhand(LonghandId::InsetInlineStart),
+            PropertyId::Longhand(LonghandId::Left),
+            PropertyId::Longhand(LonghandId::InsetInlineEnd),
+            PropertyId::Longhand(LonghandId::Right),
+        ],
+    ),
+    (
+        G_FLEX,
+        &[
+            PropertyId::Longhand(LonghandId::FlexBasis),
+            PropertyId::Longhand(LonghandId::FlexDirection),
+            PropertyId::Longhand(LonghandId::FlexGrow),
+            PropertyId::Longhand(LonghandId::FlexShrink),
+            PropertyId::Longhand(LonghandId::FlexWrap),
+            PropertyId::Shorthand(ShorthandId::Gap),
+            PropertyId::Longhand(LonghandId::AlignItems),
+            PropertyId::Longhand(LonghandId::AlignSelf),
+            PropertyId::Longhand(LonghandId::AlignContent),
+            PropertyId::Longhand(LonghandId::JustifyItems),
+            PropertyId::Longhand(LonghandId::JustifySelf),
+            PropertyId::Longhand(LonghandId::JustifyContent),
+        ],
+    ),
+    (
+        G_GRID,
+        &[
+            PropertyId::Longhand(LonghandId::GridTemplateRows),
+            PropertyId::Longhand(LonghandId::GridTemplateColumns),
+            PropertyId::Longhand(LonghandId::GridAutoRows),
+            PropertyId::Longhand(LonghandId::GridAutoColumns),
+            PropertyId::Shorthand(ShorthandId::GridRow),
+            PropertyId::Shorthand(ShorthandId::GridColumn),
+            PropertyId::Shorthand(ShorthandId::GridArea),
+            PropertyId::Longhand(LonghandId::GridTemplateAreas),
+            PropertyId::Longhand(LonghandId::GridAutoFlow),
+        ],
+    ),
+];
+
+/// One group bitmask per [`PropertyId::index`], so asking which group a declaration can reach
+/// is an array index.
+fn group_table() -> &'static [u16; PROPERTY_COUNT] {
+    static TABLE: LazyLock<[u16; PROPERTY_COUNT]> = LazyLock::new(|| {
+        let mut table = [0u16; PROPERTY_COUNT];
+        for (group, ids) in GROUP_PROPERTIES {
+            for id in *ids {
+                if let Some(slot) = table.get_mut(id.index()) {
+                    *slot |= *group;
+                }
+            }
+        }
+        table
+    });
+    &TABLE
+}
+
+/// The groups this element's own cascade can have changed.
+///
+/// A group nothing declared is exactly the group the parent already has, or the initial one,
+/// so it is not built at all. Read off the map's entries rather than by comparing values, so
+/// the answer costs one pass over what the element actually declared.
+///
+/// An entry that carries no declaration is skipped where the property inherits: what an
+/// element inherits is not something it said, and the inherited group of an element that said
+/// nothing is its parent's.
+fn touched_groups(map: &CssProperties) -> u16 {
+    let table = group_table();
+    let mut touched = 0;
+    for (id, property) in map.iter_ids() {
+        if property.declared.is_empty() && id.inherited() {
+            continue;
+        }
+        touched |= table.get(id.index()).copied().unwrap_or(0);
+    }
+    touched
+}
+
+/// The same, for a property that inherits: what the element settled, or what it inherits.
+macro_rules! apply_inherited {
+    ($map:expr, $style:expr, $id:expr, $prop:ident, $group:ident, $field:ident, $read:expr) => {
+        if let Some(read_value) = value_or_inherited($map, $id).and_then($read) {
+            $style.$group().$field = read_value;
             $style.declared.set(Prop::$prop);
         }
     };
@@ -449,52 +687,84 @@ pub fn computed_style(map: &CssProperties, parent: Option<&ComputedStyle>) -> Co
         return ComputedStyle::inherit_from(parent);
     }
 
+    let touched = touched_groups(map);
     let mut style = ComputedStyle::inherit_from(parent);
 
-    resolve_font(map, &mut style, parent);
+    if touched & G_INHERITED != 0 {
+        resolve_font(map, &mut style, parent);
+        let font_size = style.inherited.font_size;
+        resolve_inherited(map, &mut style, font_size);
+        // The border colours name `currentColor`, and the colour they name only just became
+        // known. Where the borders are built below they are resolved there instead.
+        if touched & G_BORDER == 0 {
+            style.default_border_colors();
+        }
+    }
     let font_size = style.inherited.font_size;
 
-    resolve_inherited(map, &mut style, font_size);
-    resolve_box(map, &mut style);
-    resolve_sizes(map, &mut style, font_size);
-    resolve_borders(map, &mut style, font_size);
-    resolve_outline(map, &mut style, font_size);
-    resolve_background(map, &mut style);
-    resolve_insets(map, &mut style, font_size);
-    resolve_flex(map, &mut style, font_size);
-    resolve_grid(map, &mut style);
+    if touched & G_BOX != 0 {
+        resolve_box(map, &mut style);
+    }
+    if touched & G_SIZE != 0 {
+        resolve_sizes(map, &mut style, font_size);
+    }
+    if touched & G_MARGIN != 0 {
+        resolve_margin(map, &mut style, font_size);
+    }
+    if touched & G_PADDING != 0 {
+        resolve_padding(map, &mut style, font_size);
+    }
+    if touched & G_BORDER != 0 {
+        resolve_borders(map, &mut style, font_size);
+    }
+    if touched & G_OUTLINE != 0 {
+        resolve_outline(map, &mut style, font_size);
+    }
+    if touched & G_BACKGROUND != 0 {
+        resolve_background(map, &mut style);
+    }
+    if touched & G_INSET != 0 {
+        resolve_insets(map, &mut style, font_size);
+    }
+    if touched & G_FLEX != 0 {
+        resolve_flex(map, &mut style, font_size);
+    }
+    if touched & G_GRID != 0 {
+        resolve_grid(map, &mut style);
+    }
 
     style
 }
 
 /// `font-family` and `font-size`, which everything else is measured against.
 fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&ComputedStyle>) {
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::FontFamily),
         FontFamily,
-        inherited.font_family,
+        inherited_mut,
+        font_family,
         font_family
     );
 
     let parent_font_size = parent.map_or(16.0, |parent| parent.inherited.font_size);
 
-    let Some(declared) = value(map, longhand(LonghandId::FontSize)) else {
+    let Some(declared) = value_or_inherited(map, longhand(LonghandId::FontSize)) else {
         // Nothing anywhere up the chain declared a size, so a bare generic `monospace` family
         // gets the smaller default browsers give it.
         if !style.inherited.font_size_declared_in_chain && family_is_monospace(&style.inherited.font_family) {
-            style.inherited.font_size = MONOSPACE_DEFAULT_FONT_SIZE;
+            style.inherited_mut().font_size = MONOSPACE_DEFAULT_FONT_SIZE;
         }
         return;
     };
-    style.inherited.font_size_declared_in_chain = true;
+    style.inherited_mut().font_size_declared_in_chain = true;
     style.declared.set(Prop::FontSize);
 
     // An `em` on `font-size` is a multiple of the *parent's* size, which is the basis the
     // cascade already resolved it against. What is left is the keywords, and a percentage on
     // the off chance the computed stage did not settle it.
-    style.inherited.font_size = if let Some((number, unit)) = as_unit(declared) {
+    style.inherited_mut().font_size = if let Some((number, unit)) = as_unit(declared) {
         match font_relative_factor(unit) {
             Some(factor) => number * factor * parent_font_size,
             None => declared.unit_to_px(),
@@ -552,14 +822,23 @@ fn family_is_monospace(family: &str) -> bool {
 }
 
 fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    apply!(map, style, longhand(LonghandId::Color), Color, inherited.color, color);
+    apply_inherited!(
+        map,
+        style,
+        longhand(LonghandId::Color),
+        Color,
+        inherited_mut,
+        color,
+        color
+    );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::FontStyle),
         FontStyle,
-        inherited.font_style,
+        inherited_mut,
+        font_style,
         |value| as_string(value).map(|keyword| match keyword {
             "italic" => FontStyle::Italic,
             "oblique" => FontStyle::Oblique,
@@ -567,12 +846,13 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         })
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::FontWeight),
         FontWeight,
-        inherited.font_weight,
+        inherited_mut,
+        font_weight,
         |value| {
             if let Some(number) = as_number(value) {
                 return Some(FontWeight::Number(number));
@@ -589,12 +869,13 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     // A percentage `line-height` is a fraction of the element's own font-size, which is exactly
     // what an `em` means here, so both land as pixels. A unitless number stays a number: it
     // inherits as a multiplier rather than as the length it happens to be worth here.
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::LineHeight),
         LineHeight,
-        inherited.line_height,
+        inherited_mut,
+        line_height,
         |value| {
             if let Some((number, unit)) = as_unit(value) {
                 return Some(LineHeight::Px(match font_relative_factor(unit) {
@@ -613,12 +894,13 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         }
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::TextAlign),
         TextAlign,
-        inherited.text_align,
+        inherited_mut,
+        text_align,
         |value| as_string(value).map(|keyword| match keyword {
             "right" => TextAlign::Right,
             // `-webkit-center` is what the HTML rendering spec's user-agent sheet gives
@@ -632,12 +914,13 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         })
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::TextTransform),
         TextTransform,
-        inherited.text_transform,
+        inherited_mut,
+        text_transform,
         |value| as_string(value).map(|keyword| match keyword {
             "uppercase" => TextTransform::Uppercase,
             "lowercase" => TextTransform::Lowercase,
@@ -648,12 +931,13 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
 
     resolve_text_decoration(map, style);
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::WhiteSpace),
         WhiteSpace,
-        inherited.white_space,
+        inherited_mut,
+        white_space,
         |value| as_string(value).map(|keyword| match keyword {
             "pre" => WhiteSpace::Pre,
             "nowrap" => WhiteSpace::NoWrap,
@@ -664,36 +948,39 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         })
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::LetterSpacing),
         LetterSpacing,
-        inherited.letter_spacing,
+        inherited_mut,
+        letter_spacing,
         |value| Some(match length_percentage(value, font_size) {
             Some(length) => LetterSpacing::Length(length),
             None => LetterSpacing::Normal,
         })
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::CaptionSide),
         CaptionSide,
-        inherited.caption_side,
+        inherited_mut,
+        caption_side,
         |value| as_string(value).map(|keyword| match keyword {
             "bottom" | "block-end" => CaptionSide::Bottom,
             _ => CaptionSide::Top,
         })
     );
 
-    apply!(
+    apply_inherited!(
         map,
         style,
         longhand(LonghandId::BorderCollapse),
         BorderCollapse,
-        inherited.border_collapse,
+        inherited_mut,
+        border_collapse,
         |value| as_string(value).map(|keyword| match keyword {
             "collapse" => BorderCollapse::Collapse,
             _ => BorderCollapse::Separate,
@@ -708,12 +995,12 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
 /// only visible there.
 fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
     if let Some(property) = map.get_id(shorthand(ShorthandId::TextDecoration)) {
-        if matches!(property.actual, CssValue::None) {
-            style.inherited.text_decoration_line = TextDecorationLine::NONE;
+        if matches!(property.computed, CssValue::None) {
+            style.inherited_mut().text_decoration_line = TextDecorationLine::NONE;
             style.declared.set(Prop::TextDecorationLine);
             return;
         }
-        if let Some(keyword) = as_string(&property.actual) {
+        if let Some(keyword) = as_string(&property.computed) {
             let line = if keyword == "none" || keyword == "initial" || keyword == "unset" {
                 Some(TextDecorationLine::NONE)
             } else if keyword.contains("underline") {
@@ -730,7 +1017,7 @@ fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
                 None
             };
             if let Some(line) = line {
-                style.inherited.text_decoration_line = line;
+                style.inherited_mut().text_decoration_line = line;
                 style.declared.set(Prop::TextDecorationLine);
                 return;
             }
@@ -742,7 +1029,8 @@ fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::TextDecorationLine),
         TextDecorationLine,
-        inherited.text_decoration_line,
+        inherited_mut,
+        text_decoration_line,
         |value| as_string(value).map(|keyword| TextDecorationLine {
             underline: keyword.contains("underline"),
             line_through: keyword.contains("line-through"),
@@ -753,7 +1041,7 @@ fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
 /// `border-spacing` is one declaration feeding two axes: one length applies to both, two are
 /// horizontal then vertical (CSS 2 §17.6.1).
 fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    let Some(declared) = value(map, longhand(LonghandId::BorderSpacing)) else {
+    let Some(declared) = value_or_inherited(map, longhand(LonghandId::BorderSpacing)) else {
         return;
     };
     let (x, y) = if let Some(list) = as_list(declared) {
@@ -767,12 +1055,12 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
         (length_px(declared, font_size), None)
     };
     if let Some(x) = x {
-        style.inherited.border_spacing_x = x;
+        style.inherited_mut().border_spacing_x = x;
         style.declared.set(Prop::BorderSpacingX);
     }
     // A single length applies to both axes; with two, the second is the vertical one.
     if let Some(y) = y.or(x) {
-        style.inherited.border_spacing_y = y;
+        style.inherited_mut().border_spacing_y = y;
         style.declared.set(Prop::BorderSpacingY);
     }
 }
@@ -783,7 +1071,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Display),
         Display,
-        box_group.display,
+        box_mut,
+        display,
         |value| as_string(value).map(display_of)
     );
 
@@ -792,7 +1081,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Position),
         Position,
-        box_group.position,
+        box_mut,
+        position,
         |value| as_string(value).map(|keyword| match keyword {
             "relative" => Position::Relative,
             "absolute" => Position::Absolute,
@@ -807,7 +1097,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Float),
         Float,
-        box_group.float,
+        box_mut,
+        float,
         |value| {
             as_string(value).map(|keyword| match keyword {
                 "left" => Float::Left,
@@ -822,7 +1113,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Clear),
         Clear,
-        box_group.clear,
+        box_mut,
+        clear,
         |value| {
             as_string(value).map(|keyword| match keyword {
                 "left" => Clear::Left,
@@ -838,7 +1130,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::BoxSizing),
         BoxSizing,
-        box_group.box_sizing,
+        box_mut,
+        box_sizing,
         |value| as_string(value).map(|keyword| match keyword {
             "border-box" => BoxSizing::BorderBox,
             _ => BoxSizing::ContentBox,
@@ -850,7 +1143,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::OverflowX),
         OverflowX,
-        box_group.overflow_x,
+        box_mut,
+        overflow_x,
         |value| as_string(value).map(overflow_of)
     );
     apply!(
@@ -858,7 +1152,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::OverflowY),
         OverflowY,
-        box_group.overflow_y,
+        box_mut,
+        overflow_y,
         |value| as_string(value).map(overflow_of)
     );
 
@@ -867,7 +1162,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::ZIndex),
         ZIndex,
-        box_group.z_index,
+        box_mut,
+        z_index,
         |value| {
             if let Some(number) = as_number(value) {
                 return Some(ZIndex::Index(number));
@@ -881,7 +1177,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Opacity),
         Opacity,
-        box_group.opacity,
+        box_mut,
+        opacity,
         as_number
     );
 
@@ -890,7 +1187,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::MixBlendMode),
         MixBlendMode,
-        box_group.mix_blend_mode,
+        box_mut,
+        mix_blend_mode,
         |value| as_string(value).map(Arc::from)
     );
 
@@ -899,7 +1197,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::Resize),
         Resize,
-        box_group.resize,
+        box_mut,
+        resize,
         |value| { as_string(value).map(Arc::from) }
     );
 
@@ -908,7 +1207,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::ScrollbarWidth),
         ScrollbarWidth,
-        box_group.scrollbar_width,
+        box_mut,
+        scrollbar_width,
         |value| as_number(value).map(Some)
     );
 
@@ -917,7 +1217,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::AspectRatio),
         AspectRatio,
-        box_group.aspect_ratio,
+        box_mut,
+        aspect_ratio,
         |value| as_number(value).map(Some)
     );
 
@@ -926,7 +1227,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         shorthand(ShorthandId::TextWrap),
         TextWrap,
-        box_group.text_wrap,
+        box_mut,
+        text_wrap,
         |value| as_string(value).map(|keyword| match keyword {
             "nowrap" => TextWrap::NoWrap,
             "balance" => TextWrap::Balance,
@@ -941,7 +1243,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::TableLayout),
         TableLayout,
-        box_group.table_layout,
+        box_mut,
+        table_layout,
         |value| as_string(value).map(|keyword| match keyword {
             "fixed" => TableLayout::Fixed,
             _ => TableLayout::Auto,
@@ -953,7 +1256,8 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::VerticalAlign),
         VerticalAlign,
-        box_group.vertical_align,
+        box_mut,
+        vertical_align,
         |value| as_string(value).map(|keyword| match keyword {
             "baseline" => VerticalAlign::Baseline,
             "sub" => VerticalAlign::Sub,
@@ -982,16 +1286,16 @@ fn overflow_of(keyword: &str) -> Overflow {
 
 fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lpa = |value: &CssValue| Some(length_percentage_auto(value, font_size));
-    let lp = |value: &CssValue| length_percentage(value, font_size);
 
-    apply!(map, style, longhand(LonghandId::Width), Width, size.width, lpa);
-    apply!(map, style, longhand(LonghandId::Height), Height, size.height, lpa);
+    apply!(map, style, longhand(LonghandId::Width), Width, size_mut, width, lpa);
+    apply!(map, style, longhand(LonghandId::Height), Height, size_mut, height, lpa);
     apply!(
         map,
         style,
         longhand(LonghandId::MinWidth),
         MinWidth,
-        size.min_width,
+        size_mut,
+        min_width,
         lpa
     );
     apply!(
@@ -999,7 +1303,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::MinHeight),
         MinHeight,
-        size.min_height,
+        size_mut,
+        min_height,
         lpa
     );
     apply!(
@@ -1007,7 +1312,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::MaxWidth),
         MaxWidth,
-        size.max_width,
+        size_mut,
+        max_width,
         lpa
     );
     apply!(
@@ -1015,17 +1321,31 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::MaxHeight),
         MaxHeight,
-        size.max_height,
+        size_mut,
+        max_height,
         lpa
     );
+}
 
-    apply!(map, style, longhand(LonghandId::MarginTop), MarginTop, margin.top, lpa);
+fn resolve_margin(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
+    let lpa = |value: &CssValue| Some(length_percentage_auto(value, font_size));
+
+    apply!(
+        map,
+        style,
+        longhand(LonghandId::MarginTop),
+        MarginTop,
+        margin_mut,
+        top,
+        lpa
+    );
     apply!(
         map,
         style,
         longhand(LonghandId::MarginRight),
         MarginRight,
-        margin.right,
+        margin_mut,
+        right,
         lpa
     );
     apply!(
@@ -1033,7 +1353,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::MarginBottom),
         MarginBottom,
-        margin.bottom,
+        margin_mut,
+        bottom,
         lpa
     );
     apply!(
@@ -1041,16 +1362,22 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::MarginLeft),
         MarginLeft,
-        margin.left,
+        margin_mut,
+        left,
         lpa
     );
+}
+
+fn resolve_padding(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
+    let lp = |value: &CssValue| length_percentage(value, font_size);
 
     apply!(
         map,
         style,
         longhand(LonghandId::PaddingTop),
         PaddingTop,
-        padding.top,
+        padding_mut,
+        top,
         lp
     );
     apply!(
@@ -1058,7 +1385,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::PaddingRight),
         PaddingRight,
-        padding.right,
+        padding_mut,
+        right,
         lp
     );
     apply!(
@@ -1066,7 +1394,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::PaddingBottom),
         PaddingBottom,
-        padding.bottom,
+        padding_mut,
+        bottom,
         lp
     );
     apply!(
@@ -1074,7 +1403,8 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
         style,
         longhand(LonghandId::PaddingLeft),
         PaddingLeft,
-        padding.left,
+        padding_mut,
+        left,
         lp
     );
 }
@@ -1086,7 +1416,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderTopStyle),
         BorderTopStyle,
-        border.top_style,
+        border_mut,
+        top_style,
         bstyle
     );
     apply!(
@@ -1094,7 +1425,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderRightStyle),
         BorderRightStyle,
-        border.right_style,
+        border_mut,
+        right_style,
         bstyle
     );
     apply!(
@@ -1102,7 +1434,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderBottomStyle),
         BorderBottomStyle,
-        border.bottom_style,
+        border_mut,
+        bottom_style,
         bstyle
     );
     apply!(
@@ -1110,7 +1443,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderLeftStyle),
         BorderLeftStyle,
-        border.left_style,
+        border_mut,
+        left_style,
         bstyle
     );
 
@@ -1135,18 +1469,19 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     // A border whose style is `none` or `hidden` is zero wide whatever was declared
     // (css-backgrounds-3 §4.3), so layout and paint cannot disagree about the box.
     let width_or_zero = |visible: bool, id: LonghandId| if visible { width_of(id) } else { 0.0 };
-    style.border.top_width = width_or_zero(style.border.top_style.is_visible(), LonghandId::BorderTopWidth);
-    style.border.right_width = width_or_zero(style.border.right_style.is_visible(), LonghandId::BorderRightWidth);
-    style.border.bottom_width = width_or_zero(style.border.bottom_style.is_visible(), LonghandId::BorderBottomWidth);
-    style.border.left_width = width_or_zero(style.border.left_style.is_visible(), LonghandId::BorderLeftWidth);
+    style.border_mut().top_width = width_or_zero(style.border.top_style.is_visible(), LonghandId::BorderTopWidth);
+    style.border_mut().right_width = width_or_zero(style.border.right_style.is_visible(), LonghandId::BorderRightWidth);
+    style.border_mut().bottom_width =
+        width_or_zero(style.border.bottom_style.is_visible(), LonghandId::BorderBottomWidth);
+    style.border_mut().left_width = width_or_zero(style.border.left_style.is_visible(), LonghandId::BorderLeftWidth);
 
     // `currentColor` is the initial value of every border colour, so an undeclared one renders
     // in the element's own text colour: `td { border: solid; color: blue }` draws blue borders.
     let current = style.inherited.color;
-    style.border.top_color = current;
-    style.border.right_color = current;
-    style.border.bottom_color = current;
-    style.border.left_color = current;
+    style.border_mut().top_color = current;
+    style.border_mut().right_color = current;
+    style.border_mut().bottom_color = current;
+    style.border_mut().left_color = current;
     let border_color = move |value: &CssValue| {
         if is_current_color(value) {
             return Some(current);
@@ -1158,7 +1493,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderTopColor),
         BorderTopColor,
-        border.top_color,
+        border_mut,
+        top_color,
         border_color
     );
     apply!(
@@ -1166,7 +1502,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderRightColor),
         BorderRightColor,
-        border.right_color,
+        border_mut,
+        right_color,
         border_color
     );
     apply!(
@@ -1174,7 +1511,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderBottomColor),
         BorderBottomColor,
-        border.bottom_color,
+        border_mut,
+        bottom_color,
         border_color
     );
     apply!(
@@ -1182,7 +1520,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderLeftColor),
         BorderLeftColor,
-        border.left_color,
+        border_mut,
+        left_color,
         border_color
     );
 
@@ -1192,7 +1531,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderTopLeftRadius),
         BorderTopLeftRadius,
-        border.top_left_radius,
+        border_mut,
+        top_left_radius,
         lp
     );
     apply!(
@@ -1200,7 +1540,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderTopRightRadius),
         BorderTopRightRadius,
-        border.top_right_radius,
+        border_mut,
+        top_right_radius,
         lp
     );
     apply!(
@@ -1208,7 +1549,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderBottomLeftRadius),
         BorderBottomLeftRadius,
-        border.bottom_left_radius,
+        border_mut,
+        bottom_left_radius,
         lp
     );
     apply!(
@@ -1216,7 +1558,8 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::BorderBottomRightRadius),
         BorderBottomRightRadius,
-        border.bottom_right_radius,
+        border_mut,
+        bottom_right_radius,
         lp
     );
 }
@@ -1227,7 +1570,8 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::OutlineStyle),
         OutlineStyle,
-        outline.style,
+        outline_mut,
+        style,
         |value| as_string(value).map(|keyword| {
             // `auto`, the user-agent focus ring, paints as a solid line.
             if keyword.eq_ignore_ascii_case("auto") {
@@ -1245,7 +1589,7 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     let width = declared_width
         .and_then(|value| length_px(value, font_size))
         .unwrap_or(MEDIUM_BORDER_WIDTH);
-    style.outline.width = if style.outline.style.is_visible() { width } else { 0.0 };
+    style.outline_mut().width = if style.outline.style.is_visible() { width } else { 0.0 };
 
     // Unlike the border colours, an undeclared `outline-color` has always been plain black
     // here. Only the keywords follow the text colour: `currentColor`, and the `auto` that is
@@ -1256,7 +1600,8 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::OutlineColor),
         OutlineColor,
-        outline.color,
+        outline_mut,
+        color,
         move |value: &CssValue| {
             if is_current_color(value) || as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
                 return Some(current);
@@ -1270,7 +1615,8 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         style,
         longhand(LonghandId::OutlineOffset),
         OutlineOffset,
-        outline.offset,
+        outline_mut,
+        offset,
         |value| length_px(value, font_size)
     );
 }
@@ -1282,7 +1628,8 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::BackgroundColor),
         BackgroundColor,
-        background.color,
+        background_mut,
+        color,
         move |value: &CssValue| {
             if is_current_color(value) {
                 return Some(current);
@@ -1298,7 +1645,8 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
             style,
             shorthand(ShorthandId::Background),
             BackgroundColor,
-            background.color,
+            background_mut,
+            color,
             shorthand_background_color
         );
     }
@@ -1308,7 +1656,7 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         shorthand(ShorthandId::Background),
     ] {
         if let Some(url) = value(map, id).and_then(first_url) {
-            style.background.image = Some(Arc::from(url));
+            style.background_mut().image = Some(Arc::from(url));
             style.declared.set(Prop::BackgroundImage);
             break;
         }
@@ -1342,10 +1690,10 @@ fn resolve_insets(map: &CssProperties, style: &mut ComputedStyle, font_size: f32
         };
         let resolved = length_percentage_auto(declared, font_size);
         match slot {
-            0 => style.inset.block_start = resolved,
-            1 => style.inset.block_end = resolved,
-            2 => style.inset.inline_start = resolved,
-            _ => style.inset.inline_end = resolved,
+            0 => style.inset_mut().block_start = resolved,
+            1 => style.inset_mut().block_end = resolved,
+            2 => style.inset_mut().inline_start = resolved,
+            _ => style.inset_mut().inline_end = resolved,
         }
         style.declared.set(prop);
     }
@@ -1357,7 +1705,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::FlexBasis),
         FlexBasis,
-        flex.basis,
+        flex_mut,
+        basis,
         |value| Some(length_percentage_auto(value, font_size))
     );
 
@@ -1366,7 +1715,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::FlexDirection),
         FlexDirection,
-        flex.direction,
+        flex_mut,
+        direction,
         |value| as_string(value).map(|keyword| match keyword {
             "row-reverse" => FlexDirection::RowReverse,
             "column" => FlexDirection::Column,
@@ -1380,7 +1730,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::FlexGrow),
         FlexGrow,
-        flex.grow,
+        flex_mut,
+        grow,
         as_number
     );
     apply!(
@@ -1388,7 +1739,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::FlexShrink),
         FlexShrink,
-        flex.shrink,
+        flex_mut,
+        shrink,
         as_number
     );
 
@@ -1397,7 +1749,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::FlexWrap),
         FlexWrap,
-        flex.wrap,
+        flex_mut,
+        wrap,
         |value| as_string(value).map(|keyword| match keyword {
             "wrap" => FlexWrap::Wrap,
             "wrap-reverse" => FlexWrap::WrapReverse,
@@ -1405,7 +1758,7 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         })
     );
 
-    apply!(map, style, shorthand(ShorthandId::Gap), Gap, flex.gap, |value| {
+    apply!(map, style, shorthand(ShorthandId::Gap), Gap, flex_mut, gap, |value| {
         length_percentage(value, font_size)
     });
 
@@ -1415,7 +1768,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::AlignItems),
         AlignItems,
-        flex.align_items,
+        flex_mut,
+        align_items,
         align
     );
     apply!(
@@ -1423,7 +1777,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::AlignSelf),
         AlignSelf,
-        flex.align_self,
+        flex_mut,
+        align_self,
         align
     );
     apply!(
@@ -1431,7 +1786,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::AlignContent),
         AlignContent,
-        flex.align_content,
+        flex_mut,
+        align_content,
         align
     );
     apply!(
@@ -1439,7 +1795,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::JustifyItems),
         JustifyItems,
-        flex.justify_items,
+        flex_mut,
+        justify_items,
         align
     );
     apply!(
@@ -1447,7 +1804,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::JustifySelf),
         JustifySelf,
-        flex.justify_self,
+        flex_mut,
+        justify_self,
         align
     );
     apply!(
@@ -1455,7 +1813,8 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         style,
         longhand(LonghandId::JustifyContent),
         JustifyContent,
-        flex.justify_content,
+        flex_mut,
+        justify_content,
         align
     );
 }
@@ -1467,7 +1826,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridTemplateRows),
         GridTemplateRows,
-        grid.template_rows,
+        grid_mut,
+        template_rows,
         track_list
     );
     apply!(
@@ -1475,7 +1835,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridTemplateColumns),
         GridTemplateColumns,
-        grid.template_columns,
+        grid_mut,
+        template_columns,
         track_list
     );
     apply!(
@@ -1483,7 +1844,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridAutoRows),
         GridAutoRows,
-        grid.auto_rows,
+        grid_mut,
+        auto_rows,
         track_list
     );
     apply!(
@@ -1491,7 +1853,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridAutoColumns),
         GridAutoColumns,
-        grid.auto_columns,
+        grid_mut,
+        auto_columns,
         track_list
     );
 
@@ -1501,7 +1864,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         shorthand(ShorthandId::GridRow),
         GridRow,
-        grid.row,
+        grid_mut,
+        row,
         placement
     );
     apply!(
@@ -1509,7 +1873,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         shorthand(ShorthandId::GridColumn),
         GridColumn,
-        grid.column,
+        grid_mut,
+        column,
         placement
     );
     apply!(
@@ -1517,7 +1882,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         shorthand(ShorthandId::GridArea),
         GridArea,
-        grid.area,
+        grid_mut,
+        area,
         placement
     );
 
@@ -1526,7 +1892,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridTemplateAreas),
         GridTemplateAreas,
-        grid.template_areas,
+        grid_mut,
+        template_areas,
         |value| grid_areas(value).map(Arc::from)
     );
 
@@ -1535,7 +1902,8 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style,
         longhand(LonghandId::GridAutoFlow),
         GridAutoFlow,
-        grid.auto_flow,
+        grid_mut,
+        auto_flow,
         |value| as_string(value).map(|keyword| match keyword {
             "column" => GridAutoFlow::Column,
             "row dense" => GridAutoFlow::RowDense,
@@ -1605,6 +1973,23 @@ mod tests {
         assert_eq!(child.size.width, LengthPercentageAuto::Auto);
         assert!(!child.has(Prop::Color));
         assert!(!child.has(Prop::Width));
+    }
+
+    /// A group the element declared nothing in is not built: it is the group the parent has, or
+    /// the one process-wide group holding that group's initial values. Asserted by pointer,
+    /// because equal values would pass whether or not any of this works.
+    #[test]
+    fn an_untouched_group_is_the_one_above_it() {
+        let parent = computed_style(&map(&[("color", keyword("red")), ("width", px(100.0))]), None);
+        let child = computed_style(&map(&[("width", px(50.0))]), Some(&parent));
+
+        // Nothing inherited was declared, so the inherited group is the parent's own.
+        assert!(Arc::ptr_eq(&child.inherited, &parent.inherited));
+        // The size group was, so it is this element's.
+        assert!(!Arc::ptr_eq(&child.size, &parent.size));
+        assert_eq!(child.size.width, LengthPercentageAuto::Px(50.0));
+        // Neither element declared a margin, so both point at the initial one.
+        assert!(Arc::ptr_eq(&child.margin, &ComputedStyle::initial().margin));
     }
 
     /// `transparent` is a colour with zero alpha, not "no colour". The CSS-triangle idiom

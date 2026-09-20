@@ -509,50 +509,13 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
-    inherit_from_parent(&mut css_map_entry, inherited);
+    if let Some(parent) = inherited {
+        css_map_entry.inherit_from(parent);
+    }
 
     resolve_font_size_basis(&mut css_map_entry, inherited);
 
     Some(css_map_entry)
-}
-
-/// Carry the parent's computed values down for every property that inherits.
-///
-/// An element that declares nothing for an inherited property computes to its parent's computed
-/// value (css-cascade-4 §4.4), and the value is written into this element's map rather than
-/// looked up later for two reasons. It is what `inherit` and `unset` resolve against, and
-/// without it those keywords could only see a parent that happened to declare the property
-/// itself - `body { color: red }` with a plain `<div>` between would leave `color: inherit` on
-/// the element below computing to black. And because every element's map then holds the
-/// inherited state in full, one level of lookup is all any element ever needs.
-///
-/// A property the element declares itself is left alone; only `inherited` is filled in, since
-/// that is what `inherit` names even when there is a cascaded value to override it.
-fn inherit_from_parent(map: &mut CssProperties, inherited: Option<&CssProperties>) {
-    let Some(parent) = inherited else {
-        return;
-    };
-    for (id, parent_property) in parent.iter_ids() {
-        // The parent's computed value is the inherited value. A parent map that was never
-        // computed has nothing to give, and the property falls back to its initial value.
-        if matches!(parent_property.computed, CssValue::None) {
-            continue;
-        }
-        // A property that inherits gets an entry here whether or not this element mentions it,
-        // so the value keeps travelling down. One that does not inherit gets the value recorded
-        // only where the element already has an entry: nothing is inherited by default, but
-        // `inherit` names the parent's value for *any* property, `width` included.
-        let property = if id.inherited() {
-            Some(map.entry(id))
-        } else {
-            map.get_id_mut(id)
-        };
-        let Some(property) = property else {
-            continue;
-        };
-        property.inherited = parent_property.computed.clone();
-        property.mark_dirty();
-    }
 }
 
 /// Work out what an `em` and a `rem` mean on this element, and tell every property.

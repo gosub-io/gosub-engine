@@ -1204,7 +1204,7 @@ where
                 .parent(decode_anon_box(id))
                 .map(|parent| self.cached_computed_style(parent));
             let mut style = ComputedStyle::inherit_from(parent.as_deref());
-            style.box_group.display = display;
+            style.box_mut().display = display;
             style.declared.set(Prop::Display);
             return style;
         }

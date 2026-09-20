@@ -6,9 +6,11 @@
 //! resolves all three against the parent's struct once, and everything downstream is a field
 //! read.
 //!
-//! The fields are grouped by what they inherit and what they belong to, and each group is its
-//! own struct so a later step can put the untouched ones behind an `Arc` and share them between
-//! siblings.
+//! The fields are grouped by what they inherit and what they belong to, and each group sits
+//! behind an `Arc`. An element that declared nothing in a group does not build one: it points
+//! at the group its parent already has, or at the one process-wide group holding that group's
+//! initial values. Building all eleven for every element is what the struct used to cost, and
+//! on a real page almost every element leaves almost every group alone.
 //!
 //! Percentages are deliberately still here. A percentage needs a containing block, which style
 //! resolution does not have, so [`LengthPercentage`] and [`LengthPercentageAuto`] carry it
@@ -545,6 +547,31 @@ const DECLARED_WORDS: usize = 2;
 pub struct DeclaredSet([u64; DECLARED_WORDS]);
 
 impl DeclaredSet {
+    /// The set holding exactly `props`, for asking about a whole field group at once.
+    #[must_use]
+    pub const fn of(props: &[Prop]) -> Self {
+        let mut words = [0u64; DECLARED_WORDS];
+        let mut i = 0;
+        while i < props.len() {
+            #[expect(
+                clippy::indexing_slicing,
+                reason = "i is bounded by the slice and a Prop by DECLARED_WORDS"
+            )]
+            {
+                let bit = props[i] as usize;
+                words[bit / 64] |= 1u64 << (bit % 64);
+            }
+            i += 1;
+        }
+        Self(words)
+    }
+
+    /// Whether any property is in both sets.
+    #[must_use]
+    pub fn intersects(self, other: Self) -> bool {
+        self.0.iter().zip(other.0).any(|(a, b)| a & b != 0)
+    }
+
     #[must_use]
     pub fn has(self, prop: Prop) -> bool {
         let bit = prop as usize;
@@ -725,20 +752,44 @@ pub struct GridGroup {
 /// Everything the render pipeline reads about one element's style.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComputedStyle {
-    pub inherited: InheritedGroup,
-    pub box_group: BoxGroup,
-    pub size: SizeGroup,
-    pub margin: MarginGroup,
-    pub padding: PaddingGroup,
-    pub border: BorderGroup,
-    pub outline: OutlineGroup,
-    pub background: BackgroundGroup,
-    pub inset: InsetGroup,
-    pub flex: FlexGroup,
-    pub grid: GridGroup,
+    pub inherited: Arc<InheritedGroup>,
+    pub box_group: Arc<BoxGroup>,
+    pub size: Arc<SizeGroup>,
+    pub margin: Arc<MarginGroup>,
+    pub padding: Arc<PaddingGroup>,
+    pub border: Arc<BorderGroup>,
+    pub outline: Arc<OutlineGroup>,
+    pub background: Arc<BackgroundGroup>,
+    pub inset: Arc<InsetGroup>,
+    pub flex: Arc<FlexGroup>,
+    pub grid: Arc<GridGroup>,
     /// Which properties this element's own cascade produced a value for.
     pub declared: DeclaredSet,
 }
+
+/// The border properties, for asking whether an element declared any of them.
+///
+/// A border group nothing declared holds the initial values with the border colours resolved
+/// against this element's `color`, so a parent that declared none of them has a group its child
+/// can point straight at.
+pub const BORDER_PROPS: DeclaredSet = DeclaredSet::of(&[
+    Prop::BorderTopWidth,
+    Prop::BorderRightWidth,
+    Prop::BorderBottomWidth,
+    Prop::BorderLeftWidth,
+    Prop::BorderTopStyle,
+    Prop::BorderRightStyle,
+    Prop::BorderBottomStyle,
+    Prop::BorderLeftStyle,
+    Prop::BorderTopColor,
+    Prop::BorderRightColor,
+    Prop::BorderBottomColor,
+    Prop::BorderLeftColor,
+    Prop::BorderTopLeftRadius,
+    Prop::BorderTopRightRadius,
+    Prop::BorderBottomLeftRadius,
+    Prop::BorderBottomRightRadius,
+]);
 
 impl Default for ComputedStyle {
     fn default() -> Self {
@@ -764,16 +815,41 @@ impl ComputedStyle {
     pub fn inherit_from(parent: Option<&ComputedStyle>) -> Self {
         let mut style = Self::initial();
         if let Some(parent) = parent {
-            style.inherited = parent.inherited.clone();
+            style.inherited = Arc::clone(&parent.inherited);
             // `currentColor` is the initial value of the border colours, and the colour it names
-            // is this element's - which, with nothing declared, is the inherited one.
-            let color = style.inherited.color;
-            style.border.top_color = color;
-            style.border.right_color = color;
-            style.border.bottom_color = color;
-            style.border.left_color = color;
+            // is this element's - which, with nothing declared, is the inherited one. A parent
+            // that declared no border property of its own has already resolved them against
+            // that same colour, so its group is this element's group too.
+            if parent.declared.intersects(BORDER_PROPS) {
+                style.default_border_colors();
+            } else {
+                style.border = Arc::clone(&parent.border);
+            }
         }
         style
+    }
+
+    /// Resolve `currentColor` - the initial value of every border colour - against this
+    /// element's own `color`.
+    ///
+    /// Checked before it writes, so a group that already says the right thing is left shared
+    /// rather than cloned: on a page where the text is one colour throughout, that is every
+    /// element.
+    pub fn default_border_colors(&mut self) {
+        let color = self.inherited.color;
+        let border = &self.border;
+        if border.top_color == color
+            && border.right_color == color
+            && border.bottom_color == color
+            && border.left_color == color
+        {
+            return;
+        }
+        let border = self.border_mut();
+        border.top_color = color;
+        border.right_color = color;
+        border.bottom_color = color;
+        border.left_color = color;
     }
 
     /// The element's own `display`, or `None` when the cascade assigned it none.
@@ -791,9 +867,45 @@ impl ComputedStyle {
         self.declared.has(prop)
     }
 
+    /// The groups, to write to. Each one clones the shared group on its first write and is a
+    /// plain borrow after that, so a group this element leaves alone stays shared.
+    pub fn inherited_mut(&mut self) -> &mut InheritedGroup {
+        Arc::make_mut(&mut self.inherited)
+    }
+    pub fn box_mut(&mut self) -> &mut BoxGroup {
+        Arc::make_mut(&mut self.box_group)
+    }
+    pub fn size_mut(&mut self) -> &mut SizeGroup {
+        Arc::make_mut(&mut self.size)
+    }
+    pub fn margin_mut(&mut self) -> &mut MarginGroup {
+        Arc::make_mut(&mut self.margin)
+    }
+    pub fn padding_mut(&mut self) -> &mut PaddingGroup {
+        Arc::make_mut(&mut self.padding)
+    }
+    pub fn border_mut(&mut self) -> &mut BorderGroup {
+        Arc::make_mut(&mut self.border)
+    }
+    pub fn outline_mut(&mut self) -> &mut OutlineGroup {
+        Arc::make_mut(&mut self.outline)
+    }
+    pub fn background_mut(&mut self) -> &mut BackgroundGroup {
+        Arc::make_mut(&mut self.background)
+    }
+    pub fn inset_mut(&mut self) -> &mut InsetGroup {
+        Arc::make_mut(&mut self.inset)
+    }
+    pub fn flex_mut(&mut self) -> &mut FlexGroup {
+        Arc::make_mut(&mut self.flex)
+    }
+    pub fn grid_mut(&mut self) -> &mut GridGroup {
+        Arc::make_mut(&mut self.grid)
+    }
+
     fn build_initial() -> Self {
         ComputedStyle {
-            inherited: InheritedGroup {
+            inherited: Arc::new(InheritedGroup {
                 color: Color::BLACK,
                 font_size: 16.0,
                 font_family: Arc::from("serif"),
@@ -810,8 +922,8 @@ impl ComputedStyle {
                 border_spacing_y: 0.0,
                 border_collapse: BorderCollapse::Separate,
                 font_size_declared_in_chain: false,
-            },
-            box_group: BoxGroup {
+            }),
+            box_group: Arc::new(BoxGroup {
                 display: Display::Inline,
                 position: Position::Static,
                 float: Float::None,
@@ -828,8 +940,8 @@ impl ComputedStyle {
                 text_wrap: TextWrap::Wrap,
                 table_layout: TableLayout::Auto,
                 vertical_align: VerticalAlign::Baseline,
-            },
-            size: SizeGroup {
+            }),
+            size: Arc::new(SizeGroup {
                 width: LengthPercentageAuto::Auto,
                 height: LengthPercentageAuto::Auto,
                 // Not the spec's `auto`: this engine has always treated the initial minimum as
@@ -838,20 +950,20 @@ impl ComputedStyle {
                 min_height: LengthPercentageAuto::ZERO,
                 max_width: LengthPercentageAuto::Auto,
                 max_height: LengthPercentageAuto::Auto,
-            },
-            margin: MarginGroup {
+            }),
+            margin: Arc::new(MarginGroup {
                 top: LengthPercentageAuto::ZERO,
                 right: LengthPercentageAuto::ZERO,
                 bottom: LengthPercentageAuto::ZERO,
                 left: LengthPercentageAuto::ZERO,
-            },
-            padding: PaddingGroup {
+            }),
+            padding: Arc::new(PaddingGroup {
                 top: LengthPercentage::ZERO,
                 right: LengthPercentage::ZERO,
                 bottom: LengthPercentage::ZERO,
                 left: LengthPercentage::ZERO,
-            },
-            border: BorderGroup {
+            }),
+            border: Arc::new(BorderGroup {
                 // The initial `border-*-width` is `medium`, but the initial `border-*-style` is
                 // `none`, which zeroes it.
                 top_width: 0.0,
@@ -870,24 +982,24 @@ impl ComputedStyle {
                 top_right_radius: LengthPercentage::ZERO,
                 bottom_left_radius: LengthPercentage::ZERO,
                 bottom_right_radius: LengthPercentage::ZERO,
-            },
-            outline: OutlineGroup {
+            }),
+            outline: Arc::new(OutlineGroup {
                 width: 0.0,
                 style: BorderStyle::None,
                 color: Color::BLACK,
                 offset: 0.0,
-            },
-            background: BackgroundGroup {
+            }),
+            background: Arc::new(BackgroundGroup {
                 color: Color::TRANSPARENT,
                 image: None,
-            },
-            inset: InsetGroup {
+            }),
+            inset: Arc::new(InsetGroup {
                 block_start: LengthPercentageAuto::Auto,
                 block_end: LengthPercentageAuto::Auto,
                 inline_start: LengthPercentageAuto::Auto,
                 inline_end: LengthPercentageAuto::Auto,
-            },
-            flex: FlexGroup {
+            }),
+            flex: Arc::new(FlexGroup {
                 basis: LengthPercentageAuto::Auto,
                 direction: FlexDirection::Row,
                 grow: 0.0,
@@ -900,8 +1012,8 @@ impl ComputedStyle {
                 justify_items: AlignValue::Legacy,
                 justify_self: AlignValue::Auto,
                 justify_content: AlignValue::Normal,
-            },
-            grid: GridGroup {
+            }),
+            grid: Arc::new(GridGroup {
                 row: Arc::from("auto"),
                 column: Arc::from("auto"),
                 area: Arc::from("auto"),
@@ -911,7 +1023,7 @@ impl ComputedStyle {
                 auto_columns: Arc::from("auto"),
                 template_areas: Arc::from("none"),
                 auto_flow: GridAutoFlow::Row,
-            },
+            }),
             declared: DeclaredSet::default(),
         }
     }

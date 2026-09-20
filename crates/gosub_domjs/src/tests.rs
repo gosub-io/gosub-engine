@@ -536,6 +536,34 @@ fn currentcolor_on_color_is_the_inherited_color() {
 }
 
 #[test]
+fn inherit_reaches_through_an_element_that_declares_nothing() {
+    // `inherit` names the parent's computed value, and a parent that declared nothing for an
+    // inherited property has what *it* inherited. The cascade used to guarantee that by writing
+    // every ancestor's computed value into every element's map; it walks what each element
+    // settled instead, which has to reach just as far.
+    let value = eval(
+        "<style>#top { color: rgb(1, 2, 3) } #leaf { color: inherit }</style>\
+         <div id=top><div><div><span id=leaf></span></div></div></div>",
+        "getComputedStyle(document.getElementById('leaf')).color;",
+    );
+    assert_eq!(value, "rgb(1, 2, 3)");
+}
+
+#[test]
+fn inherit_on_a_property_that_does_not_inherit_stops_at_the_parent() {
+    // `inherit` on a `width` names the parent's computed value, and a parent that declared no
+    // width computes to `auto` - not to the grandparent's width. The walk that answers the
+    // inherited value has to stop at the first level for these, where it keeps climbing for the
+    // properties that inherit.
+    let value = eval(
+        "<style>#top { width: 300px } #leaf { width: inherit }</style>\
+         <div id=top><div id=mid><div id=leaf></div></div></div>",
+        "getComputedStyle(document.getElementById('leaf')).width;",
+    );
+    assert_eq!(value, "auto");
+}
+
+#[test]
 fn hwb_resolves_to_srgb_unless_a_component_is_missing() {
     // `hwb()` is a hue with white and black mixed in (css-color-4 §7). It resolves to sRGB and
     // serializes as `rgb()`, like `hsl()` - but only when every component is there. A component
