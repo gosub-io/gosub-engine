@@ -1734,6 +1734,7 @@ impl CssDefinitions {
     }
 
     pub fn index_shorthands(&mut self) {
+        self.reload_released_syntax();
         let mut shorthands = Vec::new();
 
         for prop in self.properties.values() {

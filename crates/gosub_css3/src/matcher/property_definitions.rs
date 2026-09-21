@@ -490,6 +490,12 @@ pub struct CssDefinitions {
     pub properties: HashMap<String, PropertyDefinition>,
     /// List of syntax elements for resolving the properties
     pub syntax: HashMap<String, SyntaxDefinition>,
+    /// Whether the builtin named types have been freed after the initial load.
+    ///
+    /// They are load-time scaffolding - resolution inlines them into the property trees and
+    /// nothing reads them afterwards - but a caller that adds a property later and resolves
+    /// again needs them back, so this records that they must be reloaded first.
+    syntax_released: bool,
     /// Datatypes currently being resolved, used to break reference cycles in
     /// self-referential grammars (e.g. the calc() family). Transient during `resolve`.
     resolving: std::collections::HashSet<String>,
@@ -510,6 +516,7 @@ impl CssDefinitions {
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
+            syntax_released: false,
             resolving: std::collections::HashSet::new(),
         }
     }
@@ -527,6 +534,21 @@ impl CssDefinitions {
     /// Add a new syntax definition
     pub fn add_syntax(&mut self, name: &str, syntax: SyntaxDefinition) {
         self.syntax.insert(name.to_string(), syntax);
+    }
+
+    /// Bring the builtin named types back if they were freed after the initial load.
+    ///
+    /// Entries the caller added themselves win: this fills in what is missing rather than
+    /// replacing the map, so adding a type of your own and resolving behaves as it always did.
+    pub(crate) fn reload_released_syntax(&mut self) {
+        if !self.syntax_released {
+            return;
+        }
+        let builtin: HashMap<String, SyntaxDefinition> = get_values();
+        for (name, definition) in builtin {
+            self.syntax.entry(name).or_insert(definition);
+        }
+        self.syntax_released = false;
     }
 
     /// Find a specific property by name. The name-keyed door into the definitions, for the
@@ -587,6 +609,7 @@ impl CssDefinitions {
 
     /// Resolves all elements in the definitions
     pub fn resolve(&mut self) {
+        self.reload_released_syntax();
         let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
         names.sort();
 
@@ -974,11 +997,24 @@ fn parse_definition_files() -> CssDefinitions {
         resolved_properties: HashMap::new(),
         properties,
         syntax,
+        syntax_released: false,
         resolving: std::collections::HashSet::new(),
     };
 
     definitions.index_shorthands();
     definitions.resolve();
+
+    // Load-time scaffolding, freed now that it has done its work.
+    //
+    // `syntax` holds the named types (`<color>`, `<length-percentage>`, ...), each one resolved
+    // in its own right, and resolution copies whatever a property references into that
+    // property's tree. So by this point every reference has been inlined and nothing reads the
+    // map again - `index_shorthands` and `resolve`, both above, are its only readers in the
+    // engine. Keeping it cost 525 entries holding 164,000 grammar nodes for the life of the
+    // process, against 0 reads. `resolving` is the cycle guard, empty here by construction.
+    definitions.syntax = HashMap::new();
+    definitions.syntax_released = true;
+    definitions.resolving = std::collections::HashSet::new();
 
     definitions
 }

@@ -183,11 +183,22 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
             gosub_shared::memory::format_bytes(resident),
             gosub_shared::memory::format_bytes(growth),
         );
-        println!(
-            "Accounted for above: {} ({:.0}% of what the page cost).",
-            gosub_shared::memory::format_bytes(accounted),
-            100.0 * accounted as f64 / growth.max(1) as f64,
-        );
+        if accounted <= growth {
+            println!(
+                "Accounted for above: {} ({:.0}% of what the page cost).",
+                gosub_shared::memory::format_bytes(accounted),
+                100.0 * accounted as f64 / growth.max(1) as f64,
+            );
+        } else {
+            // Resident growth is not allocation: the definition tables free their scaffolding
+            // after loading, and the page is handed those pages back rather than asking the
+            // kernel for new ones. So a page can hold more than the process grew by.
+            println!(
+                "Accounted for above: {}, which is more than the process grew by - the page is \
+                 reusing memory freed after the definitions loaded.",
+                gosub_shared::memory::format_bytes(accounted),
+            );
+        }
         assert!(
             accounted <= resident,
             "the report claims more than the process occupies, so something is counted twice"
