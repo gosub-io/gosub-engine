@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod shape_cache;
 pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
@@ -29,6 +30,7 @@ use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
+use crate::painter::shape_cache::ShapeCache;
 use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
 use gosub_interface::document::ControlEditState;
@@ -93,6 +95,11 @@ pub struct Painter {
     /// its commands once per tile; they don't depend on the tile (page coordinates), and shaping
     /// a textarea's text six times per keystroke is what made typing feel slow.
     memo: Mutex<std::collections::HashMap<LayoutElementId, Vec<PaintCommand>>>,
+    /// Shaped runs shared with the passes before and after this one. The per-pass `memo` above
+    /// stops at the pass boundary, and a scrolling page keeps handing the next pass the runs at
+    /// the window edge that the last one already shaped. `None` when the caller has no grid to
+    /// hang a cache on (a one-shot whole-page paint), and then every run is shaped here.
+    shape_cache: Option<Arc<ShapeCache>>,
 }
 
 impl Painter {
@@ -101,19 +108,34 @@ impl Painter {
             layer_list,
             font_system,
             memo: Mutex::new(std::collections::HashMap::new()),
+            shape_cache: None,
         }
     }
 
+    /// Share `cache` with the other passes over the same tile grid, so a run at the window edge
+    /// is shaped by the first pass that reaches it and read by the rest.
+    #[must_use]
+    pub fn with_shape_cache(mut self, cache: Arc<ShapeCache>) -> Painter {
+        self.shape_cache = Some(cache);
+        self
+    }
+
     /// Shape `text` into the positioned glyph runs a glyph-based rasterizer will paint.
-    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> ShapedText {
+    ///
+    /// Shared rather than copied: the same run reaches every tile the element covers, and with a
+    /// grid cache every pass over those tiles as well.
+    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> Arc<ShapedText> {
         let Some(ref fs) = self.font_system else {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         };
         if text.is_empty() || font_info.size <= 0.0 {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         }
         let style = paint_text_style(font_info, rect_width, available_width);
-        fs.lock().shape(text, &style)
+        match self.shape_cache {
+            Some(ref cache) => cache.get_or_shape(text, &style, || fs.lock().shape(text, &style)),
+            None => Arc::new(fs.lock().shape(text, &style)),
+        }
     }
 
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {

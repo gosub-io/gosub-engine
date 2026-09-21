@@ -2,6 +2,7 @@ use crate::common::font::FontInfo;
 use crate::common::geo::Rect;
 use crate::painter::commands::brush::Brush;
 use gosub_interface::font_system::ShapedText;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Text {
@@ -15,7 +16,10 @@ pub struct Text {
     /// Shaped by the same `FontSystem` instance the layouter measured with, so painted glyphs are
     /// by construction the measured ones. Glyph-based rasterizers paint these runs; engine-native
     /// ones (Pango, Parley, Skia textlayout) re-shape from `text` + `font_info` and ignore this.
-    pub shaped: ShapedText,
+    ///
+    /// Shared: an element straddling tiles hands the same runs to each of them, and the painter's
+    /// shape cache hands them to the next pass as well.
+    pub shaped: Arc<ShapedText>,
 }
 
 impl Text {
@@ -25,7 +29,7 @@ impl Text {
         font_info: &FontInfo,
         brush: Brush,
         available_width: f64,
-        shaped: ShapedText,
+        shaped: Arc<ShapedText>,
     ) -> Self {
         Text {
             rect,

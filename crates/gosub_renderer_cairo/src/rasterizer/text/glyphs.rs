@@ -179,7 +179,7 @@ mod tests {
         let mut style = TextStyle::new("sans-serif", 24.0);
         style.line_height = Some(28.0);
         style.max_width = Some(180.0);
-        let shaped = fs.shape("Hello", &style);
+        let shaped = std::sync::Arc::new(fs.shape("Hello", &style));
         let cmd = Text::new(
             GeoRect::new(10.0, 10.0, 180.0, 40.0),
             "Hello",

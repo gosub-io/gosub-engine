@@ -2302,7 +2302,8 @@ fn paint_dirty_tiles(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
+    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()))
+        .with_shape_cache(Arc::clone(&tile_list.shape_cache));
 
     let mut painted = Vec::new();
     for &layer_id in layer_ids {

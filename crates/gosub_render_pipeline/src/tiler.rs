@@ -5,6 +5,7 @@ use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
 use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::PaintCommand;
+use crate::painter::shape_cache::ShapeCache;
 use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
 use rstar::AABB;
@@ -152,6 +153,12 @@ pub struct TileList {
     next_node_id: Arc<RwLock<TileId>>,
 
     pub default_tile_dimension: Dimension,
+    /// Text shaped by the passes over this grid. It belongs to the grid because that is exactly
+    /// how long a shaped run stays valid: anything that can move a box builds a new grid, and
+    /// web fonts are registered before the first layout, so no grid outlives the font set its
+    /// runs were shaped against. A scroll that only extends the raster window keeps the grid,
+    /// and that is the case the cache exists for.
+    pub shape_cache: Arc<ShapeCache>,
 }
 
 impl Debug for TileList {
@@ -161,6 +168,7 @@ impl Debug for TileList {
             .field("arena", &self.arena)
             .field("next_node_id", &self.next_node_id)
             .field("default_tile_dimension", &self.default_tile_dimension)
+            .field("shape_cache", &self.shape_cache)
             .finish()
     }
 }
@@ -252,6 +260,7 @@ impl TileList {
             painted: Vec::new(),
             next_node_id: Arc::new(RwLock::new(TileId::new(0))),
             default_tile_dimension: dimension,
+            shape_cache: Arc::new(ShapeCache::new()),
         }
     }
 
@@ -265,6 +274,7 @@ impl TileList {
             painted: Vec::new(),
             next_node_id: Arc::new(RwLock::new(TileId::new(0))),
             default_tile_dimension: dimension,
+            shape_cache: Arc::new(ShapeCache::new()),
         }
     }
 
