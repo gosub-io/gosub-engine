@@ -367,11 +367,11 @@ impl PangoFontSystem {
 
     /// [`Self::find_available_font`] for a caller that is already holding `fontconfig_lock`.
     fn find_available_font_locked(&self, families: &str, ctx: &pango::Context) -> String {
-        let available_fonts: Vec<String> = ctx
-            .list_families()
-            .iter()
-            .map(|f| f.name().cow_to_ascii_lowercase().into_owned())
-            .collect();
+        // Listed on the first concrete name that needs it, rather than up front. `system-ui`, a
+        // webfont alias and a CSS generic each answer without reading the font map, and a generic
+        // is what most family lists on a page end on, so the common call never lists at all.
+        // Listing is every family fontconfig knows, on every measure and every shape.
+        let mut listed: Option<Vec<pango::FontFamily>> = None;
 
         for font in families.split(',') {
             let font_name = font.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
@@ -399,8 +399,14 @@ impl PangoFontSystem {
                 return generic.to_string();
             }
 
-            let normalized = font_name.cow_to_ascii_lowercase();
-            if available_fonts.contains(&normalized.into_owned()) {
+            // Compared against the listing directly: the lowercased copy of every family name
+            // it used to build was an allocation per family to answer one case-insensitive
+            // comparison.
+            let available = listed.get_or_insert_with(|| ctx.list_families());
+            if available
+                .iter()
+                .any(|family| family.name().eq_ignore_ascii_case(&font_name))
+            {
                 return font_name;
             }
         }
