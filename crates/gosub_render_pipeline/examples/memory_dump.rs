@@ -28,6 +28,21 @@ use gosub_shared::config::ParserConfig;
 use gosub_shared::memory::{record, HeapSize, Row, Walk};
 use gosub_shared::node::NodeId;
 
+/// Resident memory of this process, in bytes, read from the kernel rather than from the report.
+///
+/// This is the check on the report. The report walks values and adds up what it believes they
+/// hold; this is what the process actually occupies. The report must stay below it - a report
+/// claiming more than the process has is double-counting - and the gap is everything no row
+/// covers yet, plus the allocator's own rounding and free lists, which no walk can see.
+///
+/// Field 2 of `/proc/self/statm` is resident pages. Linux only; elsewhere the check is skipped
+/// rather than guessed at.
+fn resident_bytes() -> Option<usize> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: usize = statm.split_whitespace().nth(1)?.parse().ok()?;
+    Some(pages * 4096)
+}
+
 #[path = "../benches/common/pages.rs"]
 mod pages;
 
@@ -130,20 +145,85 @@ fn record_computed_styles(styles: &[ComputedStyle], walk: &mut Walk) {
     );
 }
 
-fn report(name: &str, doc: DocumentImpl<Config>) {
+fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
     let (maps, styles) = style_everything(&doc);
 
     gosub_shared::memory::begin(format!("{name}, after styling every element"));
+    // What the report costs to produce, which is worth knowing before anyone runs it on a live
+    // page: the walk holds a set of the shared allocations it has already counted, and that set
+    // is the only thing it allocates.
+    let before_walk = resident_bytes();
     let mut walk = Walk::new();
 
     gosub_html5::memory::record_document(&doc, &mut walk);
     gosub_css3::memory::record_property_maps(|| maps.iter(), &mut walk);
     record_computed_styles(&styles, &mut walk);
 
+    // Read the kernel's number before printing, so the printing's own allocations are not in it.
+    let resident = resident_bytes();
+    let walk_cost = match (before_walk, resident) {
+        (Some(before), Some(after)) => Some(after.saturating_sub(before)),
+        _ => None,
+    };
+    let accounted: usize = gosub_shared::memory::rows()
+        .iter()
+        .map(gosub_shared::memory::Row::total)
+        .sum();
+
     gosub_shared::memory::dump();
+
+    if let (Some(resident), Some(baseline)) = (resident, baseline) {
+        // What the page cost, not what the process costs: the definition tables, the binary and
+        // the allocator's own arenas are there before any page is parsed, and on a small page
+        // they dwarf it.
+        let growth = resident.saturating_sub(baseline);
+        println!(
+            "Resident: {} with the definitions loaded and no page, {} at the snapshot, so this page cost {}.",
+            gosub_shared::memory::format_bytes(baseline),
+            gosub_shared::memory::format_bytes(resident),
+            gosub_shared::memory::format_bytes(growth),
+        );
+        println!(
+            "Accounted for above: {} ({:.0}% of what the page cost).",
+            gosub_shared::memory::format_bytes(accounted),
+            100.0 * accounted as f64 / growth.max(1) as f64,
+        );
+        assert!(
+            accounted <= resident,
+            "the report claims more than the process occupies, so something is counted twice"
+        );
+    }
+    if let Some(cost) = walk_cost {
+        println!(
+            "Producing the report cost {} of that, all of it the set of shared allocations \
+             already counted.",
+            gosub_shared::memory::format_bytes(cost),
+        );
+    }
+    println!(
+        "The difference is what no row covers yet: parsed stylesheets and their value trees, the\n\
+         selector index, layout and tiles - plus the allocator's\n\
+         own rounding and free lists, which no walk can see.\n"
+    );
 }
 
 fn main() {
+    // Three readings, because "what does a page cost" has a large answer that is not the page.
+    // The property definitions - every CSS property's grammar, parsed into syntax trees - are
+    // loaded once, lazily, on the first styling. They are charged to whichever page happens to
+    // be first, so they are forced here and measured separately instead.
+    let start = resident_bytes();
+    let _ = gosub_css3::matcher::property_definitions::get_css_definitions();
+    let baseline = resident_bytes();
+    if let (Some(start), Some(baseline)) = (start, baseline) {
+        println!(
+            "\nProcess: {} before the CSS definitions are loaded, {} after - so the definition \
+             tables cost {}, once, whatever page is opened.",
+            gosub_shared::memory::format_bytes(start),
+            gosub_shared::memory::format_bytes(baseline),
+            gosub_shared::memory::format_bytes(baseline.saturating_sub(start)),
+        );
+    }
     let wanted = std::env::args().nth(1);
     let data_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/data");
 
@@ -174,6 +254,6 @@ fn main() {
                 continue;
             }
         }
-        report(name, make());
+        report(name, make(), baseline);
     }
 }
