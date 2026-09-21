@@ -145,3 +145,40 @@ One caveat: the two `stackoverflow` fixtures are not reproducible run to run. Th
 placeholder already installed depends on how fast the first fetch fails - so the image is
 sometimes 0x0 and sometimes the placeholder's 32x32, and the page below it shifts by 6px. The
 other 28 fixtures are stable.
+
+## Benchmarks
+
+Two benchmarks in the render pipeline crate, both Criterion, both gating a different half of the
+work a page costs. They share their fixtures with the dump tools above, so a number and a dump
+describe the same page.
+
+```bash
+cargo bench -p gosub_render_pipeline --bench style -- --save-baseline before
+cargo bench -p gosub_render_pipeline --bench scroll -- --save-baseline before
+# ... make the change ...
+cargo bench -p gosub_render_pipeline --bench style -- --baseline before
+cargo bench -p gosub_render_pipeline --bench scroll -- --baseline before
+```
+
+`style` measures giving every element its computed style: `cascade` is the CSS crate alone,
+`render-tree` is stage 1 of the pipeline over it.
+
+`scroll` measures what a laid-out page costs to keep painted while it scrolls, which re-runs
+neither styling nor layout: `first-window` builds the tile grid and paints the first raster
+window, `scroll-through` walks the page in 300px steps, each step doing what the engine's extend
+path does - reuse the grid, keep what earlier passes painted, park what is outside the raster
+window, paint the rest.
+
+Two things to know before reading a `scroll` number. It runs on the layouter's own Parley font
+system, because the render pipeline has no backend of its own, while the browser shares the
+rasterizer's - which on the Cairo path is Pango, and far dearer. A scroll step measures around
+0.6 ms here against roughly 39 ms through the Cairo screenshot tool, so this is a regression gate
+for tiling, painting and cache logic rather than a model of absolute scroll cost. For the latter,
+use `gosub-screenshot --viewport-height 800 --timings` with replayed `-i scroll:0,300`
+interactions. And the fixtures do not lay out identically on every platform, since the layouter
+measures with whatever system fonts the machine has, so a baseline is only comparable on the
+machine that recorded it.
+
+Baselines are per target directory as well as per machine, so a tree that shares
+`CARGO_TARGET_DIR` with another shares its baselines too. Take numbers that decide anything on a
+quiet, dedicated machine, back to back, with a target directory per source tree.
