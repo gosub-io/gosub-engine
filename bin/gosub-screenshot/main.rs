@@ -84,6 +84,13 @@ struct Args {
     /// would be lost, so reftest runners pass the comparison-canvas height here.
     #[arg(long, default_value = "0")]
     min_height: u32,
+    /// Viewport height in CSS pixels used for layout and rasterization. The default lays the
+    /// page out in one tall viewport, so every tile is rastered up front and a replayed scroll
+    /// never has to extend the raster window. Pass a realistic height (e.g. 800) to exercise
+    /// the scroll/extend path; regions the engine never rastered stay the background white of
+    /// the capture buffer.
+    #[arg(long, default_value_t = INITIAL_VIEWPORT_HEIGHT)]
+    viewport_height: u32,
     /// Print the aggregated pipeline timing table (per stage) after the capture
     #[arg(long)]
     timings: bool,
@@ -237,10 +244,11 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
 
-/// Initial viewport height used for layout, in CSS pixels. Tall enough to trigger
-/// below-the-fold / lazily-loaded content; the captured image uses the page's *true*
-/// height, not this value. CPU rasterization has no GPU texture limit, so there is no
-/// cap on how tall the final screenshot can be.
+/// Default viewport height used for layout, in CSS pixels; `--viewport-height` overrides it.
+/// Tall enough to trigger below-the-fold / lazily-loaded content, and tall enough that the
+/// raster window covers the whole page, so the capture holds every tile. The captured image
+/// uses the page's *true* height, not this value. CPU rasterization has no GPU texture limit,
+/// so there is no cap on how tall the final screenshot can be.
 const INITIAL_VIEWPORT_HEIGHT: u32 = 16384;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -267,6 +275,7 @@ fn main() {
     };
     let output = args.output;
     let viewport_w = args.width;
+    let viewport_h = args.viewport_height.max(1);
 
     eprintln!("gosub-screenshot {BUILD_VERSION} — headless full-page screenshot via the gosub render pipeline (CPU rasterization)");
 
@@ -334,7 +343,7 @@ fn main() {
                 x: 0,
                 y: 0,
                 width: viewport_w,
-                height: INITIAL_VIEWPORT_HEIGHT,
+                height: viewport_h,
             })
             .await;
         let _ = tab_nav.send(TabCommand::Navigate { url: url.to_string() }).await;
@@ -347,7 +356,7 @@ fn main() {
     let mut nav_done = false;
     let mut first_render_done = false;
 
-    eprintln!("Loading {url_str} (viewport width={viewport_w})…");
+    eprintln!("Loading {url_str} (viewport {viewport_w}x{viewport_h})…");
 
     // ── Phase 1: wait for navigation + first full render ─────────────────────
     loop {
@@ -615,6 +624,21 @@ fn main() {
         page_h,
         tiles.len()
     );
+
+    // With a realistic `--viewport-height` the engine only rasters a window around the scroll
+    // position, so the tile cache covers part of the page. Composite what exists; the rest of
+    // the buffer keeps the opaque white it is initialised to below, and the line here says how
+    // far the tiles reach, so a short capture is never mistaken for a blank page.
+    let covered = tiles
+        .iter()
+        .map(|t| f64::from(t.page_y) + f64::from(t.height))
+        .fold(0.0_f64, f64::max);
+    if covered.ceil() < f64::from(page_h) {
+        eprintln!(
+            "Only the rastered window is present: tiles reach y={} of {page_h} px; the rest stays blank.",
+            covered.ceil() as u32
+        );
+    }
 
     // Fill with opaque white, then alpha-blend each tile (premultiplied). The height can now
     // come from the command line, so the size arithmetic is checked: `page_w * page_h * 4`
