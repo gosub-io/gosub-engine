@@ -1626,6 +1626,92 @@ impl CssPropertyMap<Css3System> for CssProperties {
     }
 }
 
+// ── Memory reporting ─────────────────────────────────────────────────────────
+//
+// These sit beside the types rather than in `crate::memory` because the fields they walk are
+// private, and because a field added later should be obvious to whoever adds it that it needs
+// counting. The collector that turns them into report rows is in `crate::memory`.
+
+impl gosub_shared::memory::HeapSize for DeclarationProperty {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.value.heap_size(walk);
+        // One `Arc<str>` per stylesheet, shared by every declaration that came from it. Counting
+        // it once is the whole reason it is an `Arc` - it used to be a `String` per declaration.
+        walk.shared_once(Arc::as_ptr(&self.location).cast::<u8>() as usize, |walk| {
+            walk.bytes(self.location.len() + 2 * size_of::<usize>());
+        });
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssProperty {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.declared.heap_size(walk);
+        self.cascaded.heap_size(walk);
+        self.specified.heap_size(walk);
+        self.computed.heap_size(walk);
+        self.inherited.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for InheritedValues {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        walk.bytes(self.inheriting.capacity() * size_of::<(PropertyId, CssValue)>());
+        walk.bytes(self.rest.capacity() * size_of::<(PropertyId, CssValue)>());
+        for (_, value) in &self.inheriting {
+            value.heap_size(walk);
+        }
+        for (_, value) in &self.rest {
+            value.heap_size(walk);
+        }
+        // Walking up the chain costs nothing after the first element to reach each level: the
+        // `Arc` impl counts a record once per snapshot, which is what makes this row honest.
+        if let Some(parent) = &self.parent {
+            parent.heap_size(walk);
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssProperties {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.props.heap_size(walk);
+        walk.bytes(size_of_val(&*self.slots));
+        self.custom.heap_size(walk);
+        if let Some(filter) = &self.ancestors {
+            filter.heap_size(walk);
+        }
+        if let Some(record) = &self.inherited_from {
+            record.heap_size(walk);
+        }
+        if let Some(record) = self.handed_down.get() {
+            record.heap_size(walk);
+        }
+    }
+}
+
+/// Accessors the memory collector needs to report a map's parts as separate rows. Nothing else
+/// uses them, and they hand out shared references only.
+impl CssProperties {
+    pub(crate) fn props_slice(&self) -> &[CssProperty] {
+        &self.props
+    }
+
+    pub(crate) fn slot_len(&self) -> usize {
+        self.slots.len()
+    }
+
+    pub(crate) fn inherited_record(&self) -> Option<&Arc<InheritedValues>> {
+        self.inherited_from.as_ref()
+    }
+
+    pub(crate) fn handed_down_record(&self) -> Option<&Arc<InheritedValues>> {
+        self.handed_down.get()
+    }
+
+    pub(crate) fn ancestor_filter(&self) -> Option<&Arc<crate::matcher::bloom::AncestorFilter>> {
+        self.ancestors.as_ref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::colors::RgbColor;

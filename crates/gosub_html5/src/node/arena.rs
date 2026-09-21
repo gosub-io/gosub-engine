@@ -98,6 +98,14 @@ impl NodeArena {
         id
     }
 
+    /// How many slots the arena holds, filled or not.
+    ///
+    /// A slot is kept for every id ever issued, so a document that removed nodes still pays for
+    /// the holes. The memory report wants the slots rather than the live count.
+    pub fn slot_count(&self) -> usize {
+        self.nodes.len()
+    }
+
     /// Iterate over all registered nodes with their ids.
     pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &NodeImpl)> {
         self.nodes

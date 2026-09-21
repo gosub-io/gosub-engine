@@ -847,6 +847,29 @@ pub enum CssValue {
     List(Vec<CssValue>),
 }
 
+impl gosub_shared::memory::HeapSize for CssValue {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        match self {
+            CssValue::String(text) => text.heap_size(walk),
+            CssValue::Unit(_, unit) => unit.heap_size(walk),
+            CssValue::Function(name, args) => {
+                name.heap_size(walk);
+                args.heap_size(walk);
+            }
+            CssValue::List(values) => values.heap_size(walk),
+            // The rest are numbers, keywords and a parsed colour: nothing on the heap.
+            CssValue::None
+            | CssValue::Color(_)
+            | CssValue::Zero
+            | CssValue::Number(_, _)
+            | CssValue::Percentage(_)
+            | CssValue::Initial
+            | CssValue::Inherit
+            | CssValue::Comma => {}
+        }
+    }
+}
+
 /// The viewport-relative length units, which resolve against the layout viewport when a
 /// declaration is computed rather than when it is used. Kept in step with the `unit_to_px`
 /// match below.

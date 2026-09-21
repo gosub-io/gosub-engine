@@ -1029,3 +1029,81 @@ impl ComputedStyle {
         }
     }
 }
+
+// ── Memory reporting ─────────────────────────────────────────────────────────
+//
+// What a `ComputedStyle` costs is almost entirely a question of how much of it is shared, so
+// these walk through the `Arc`s and let `gosub_shared::memory` count each group once. A group
+// an element did not touch points at its parent's or at the one process-wide initial group, and
+// so adds nothing on the second and later elements to reach it - which is the whole design.
+
+use gosub_shared::memory::{HeapSize, Walk};
+
+macro_rules! flat_group {
+    ($($ty:ty),* $(,)?) => {
+        $(impl HeapSize for $ty {
+            fn heap_size(&self, _walk: &mut Walk) {}
+        })*
+    };
+}
+
+// Lengths, colours and keywords: everything inline in the group's own allocation.
+flat_group!(
+    SizeGroup,
+    MarginGroup,
+    PaddingGroup,
+    BorderGroup,
+    OutlineGroup,
+    InsetGroup,
+    FlexGroup,
+);
+
+impl HeapSize for InheritedGroup {
+    fn heap_size(&self, walk: &mut Walk) {
+        self.font_family.heap_size(walk);
+    }
+}
+
+impl HeapSize for BoxGroup {
+    fn heap_size(&self, walk: &mut Walk) {
+        self.mix_blend_mode.heap_size(walk);
+        self.resize.heap_size(walk);
+    }
+}
+
+impl HeapSize for BackgroundGroup {
+    fn heap_size(&self, walk: &mut Walk) {
+        if let Some(image) = &self.image {
+            image.heap_size(walk);
+        }
+    }
+}
+
+impl HeapSize for GridGroup {
+    fn heap_size(&self, walk: &mut Walk) {
+        self.row.heap_size(walk);
+        self.column.heap_size(walk);
+        self.area.heap_size(walk);
+        self.template_rows.heap_size(walk);
+        self.template_columns.heap_size(walk);
+        self.auto_rows.heap_size(walk);
+        self.auto_columns.heap_size(walk);
+        self.template_areas.heap_size(walk);
+    }
+}
+
+impl HeapSize for ComputedStyle {
+    fn heap_size(&self, walk: &mut Walk) {
+        self.inherited.heap_size(walk);
+        self.box_group.heap_size(walk);
+        self.size.heap_size(walk);
+        self.margin.heap_size(walk);
+        self.padding.heap_size(walk);
+        self.border.heap_size(walk);
+        self.outline.heap_size(walk);
+        self.background.heap_size(walk);
+        self.inset.heap_size(walk);
+        self.flex.heap_size(walk);
+        self.grid.heap_size(walk);
+    }
+}

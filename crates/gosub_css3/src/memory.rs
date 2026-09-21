@@ -1,0 +1,96 @@
+//! What styling costs an element, with the sharing made visible.
+//!
+//! The style system's memory story is that elements share. A `ComputedStyle` is eleven `Arc`s of
+//! which most point at the parent's groups or at one process-wide initial group; the inheritance
+//! chain is one record per element rather than a copy per child; ancestor filters and
+//! custom-property scopes are handed down too. A report that walked every `Arc` from every
+//! element would price all of that per element, which is exactly the number the rebuild set out
+//! to make false. So the walk counts each shared allocation once and keeps those bytes in their
+//! own column - see [`gosub_shared::memory`].
+//!
+//! The `HeapSize` implementations live beside their types, where the private fields are; this is
+//! only the collector that turns them into report rows.
+
+use gosub_shared::memory::{record, HeapSize, Row, Walk};
+
+use crate::matcher::styling::CssProperties;
+
+/// Add a row per part of every element's property map to the current snapshot.
+///
+/// Four rows, because the four parts behave differently as a page grows: what an element
+/// actually cascaded, the slot table it pays for whether it declared one property or fifty, and
+/// the two things it mostly shares - the inheritance chain and the scopes handed down to it.
+///
+/// `walk` is passed in rather than made here so the whole snapshot shares one set of
+/// already-counted allocations: a stylesheet reached from a declaration is not counted again
+/// when the stylesheet row reaches it.
+pub fn record_property_maps<'a, I>(maps: impl Fn() -> I, walk: &mut Walk)
+where
+    I: Iterator<Item = &'a CssProperties>,
+{
+    let mut elements = 0u64;
+    let mut declared = 0u64;
+    for map in maps() {
+        elements += 1;
+        declared += map.props_slice().len() as u64;
+        for property in map.props_slice() {
+            property.heap_size(walk);
+        }
+        walk.bytes(size_of_val(map.props_slice()));
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new(
+            "css.declarations",
+            declared,
+            elements as usize * size_of::<CssProperties>(),
+            owned,
+            shared,
+        )
+        .with_note(format!(
+            "{elements} maps, {:.1} declared properties each, every value at four stages",
+            if elements == 0 {
+                0.0
+            } else {
+                declared as f64 / elements as f64
+            }
+        )),
+    );
+
+    let mut slots = 0usize;
+    for map in maps() {
+        slots += map.slot_len();
+    }
+    walk.bytes(slots * size_of::<u16>());
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("css.slot_tables", elements, 0, owned, shared)
+            .with_note("one u16 per known property, on every element, declared or not"),
+    );
+
+    for map in maps() {
+        if let Some(chain) = map.inherited_record() {
+            chain.heap_size(walk);
+        }
+        if let Some(chain) = map.handed_down_record() {
+            chain.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("css.inheritance_chain", elements, 0, owned, shared)
+            .with_note("one record per element, shared by every child; a leaf builds none"),
+    );
+
+    for map in maps() {
+        map.custom.heap_size(walk);
+        if let Some(filter) = map.ancestor_filter() {
+            filter.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("css.scopes_and_filters", elements, 0, owned, shared)
+            .with_note("custom-property scopes and ancestor bloom filters, both handed down"),
+    );
+}

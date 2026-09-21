@@ -13,6 +13,12 @@ pub struct ClassListImpl {
     class_map: HashMap<String, bool>,
 }
 
+impl gosub_shared::memory::HeapSize for ClassListImpl {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.class_map.heap_size(walk);
+    }
+}
+
 impl Clone for ClassListImpl {
     fn clone(&self) -> Self {
         Self {

@@ -21,6 +21,7 @@ pub mod imports;
 pub mod layers;
 pub mod matcher;
 pub mod media_query;
+pub mod memory;
 pub mod node;
 pub mod parser;
 pub mod stylesheet;

@@ -57,6 +57,13 @@ pub(crate) struct AncestorFilter {
     words: [u64; WORDS],
 }
 
+impl gosub_shared::memory::HeapSize for AncestorFilter {
+    fn heap_size(&self, _walk: &mut gosub_shared::memory::Walk) {
+        // A fixed `[u64; 32]` and nothing else: all of it inline in whatever holds the filter,
+        // which for the usual `Arc` is the allocation the `Arc` impl has already counted.
+    }
+}
+
 impl AncestorFilter {
     fn new() -> Self {
         Self { words: [0; WORDS] }

@@ -13,6 +13,7 @@ pub mod css_colors;
 pub mod errors;
 pub mod font;
 pub mod geo;
+pub mod memory;
 pub mod node;
 pub mod subresource;
 pub mod tab_id;
