@@ -1521,7 +1521,7 @@ fn same_shape(a: &SyntaxComponent, b: &SyntaxComponent) -> bool {
                 combinator: cy,
                 ..
             },
-        ) => cx == cy && x.len() == y.len() && x.iter().zip(y).all(|(a, b)| same_shape(a, b)),
+        ) => cx == cy && x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| same_shape(a, b)),
         _ => false,
     }
 }
@@ -1575,7 +1575,7 @@ impl CssDefinitions {
                 let root = match def.syntax.components.as_slice() {
                     [single] => single.clone(),
                     many => SyntaxComponent::Group {
-                        components: many.to_vec(),
+                        components: many.into(),
                         combinator: Juxtaposition,
                         multipliers: vec![],
                     },

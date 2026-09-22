@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use crate::matcher::property_ids::{PropertyId, PROPERTY_COUNT};
@@ -205,7 +206,9 @@ fn apply_range(component: &mut SyntaxComponent, range: RangeType) {
             *existing = range;
         }
         SyntaxComponent::Group { components, .. } => {
-            for inner in components {
+            // A range on a reference (`<length [0,∞]>`) constrains the leaves of *this* use of
+            // the type, so the shared subtree is copied before it is written to.
+            for inner in Arc::make_mut(components) {
                 apply_range(inner, range);
             }
         }
@@ -490,6 +493,13 @@ pub struct CssDefinitions {
     pub properties: HashMap<String, PropertyDefinition>,
     /// List of syntax elements for resolving the properties
     pub syntax: HashMap<String, SyntaxDefinition>,
+    /// Each named type's resolved components, shared by every reference to it.
+    ///
+    /// Resolution used to hand every reference its own deep copy, so `<color>` - referenced by
+    /// dozens of properties, and by other types which are themselves referenced - was stored
+    /// once per mention. The tree is immutable once resolved, so the copies were identical;
+    /// this hands out one `Arc` instead, and the property trees become a DAG over the types.
+    shared_types: HashMap<String, Arc<[SyntaxComponent]>>,
     /// Whether the builtin named types have been freed after the initial load.
     ///
     /// They are load-time scaffolding - resolution inlines them into the property trees and
@@ -516,6 +526,7 @@ impl CssDefinitions {
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
+            shared_types: HashMap::new(),
             syntax_released: false,
             resolving: std::collections::HashSet::new(),
         }
@@ -707,7 +718,7 @@ impl CssDefinitions {
         }
         // Otherwise, we return a group with the components
         Some(SyntaxComponent::Group {
-            components: resolved_prop.syntax.components.clone(),
+            components: resolved_prop.syntax.components.as_slice().into(),
             combinator: Juxtaposition,
             multipliers: multipliers.to_vec(),
         })
@@ -753,15 +764,32 @@ impl CssDefinitions {
                         self.syntax.insert(datatype.clone(), syntax_element.clone());
                     }
 
-                    let mut components = syntax_element.syntax.components.clone();
+                    // One `Arc` per named type, handed to every reference. The resolution
+                    // above is already shared across properties - it is written back into
+                    // `self.syntax` with `resolved = true` - so this shares the storage of a
+                    // result the engine had already decided was the same for everyone.
+                    let shared = match self.shared_types.get(datatype) {
+                        Some(shared) => Arc::clone(shared),
+                        None => {
+                            let shared: Arc<[SyntaxComponent]> = syntax_element.syntax.components.as_slice().into();
+                            self.shared_types.insert(datatype.clone(), Arc::clone(&shared));
+                            shared
+                        }
+                    };
+
                     // A range written on the reference (e.g. `<length-percentage [0,∞]>`)
                     // constrains the numeric leaves of the resolved value type, which have
-                    // no range of their own. Push it down so the leaves enforce it.
-                    if !range.is_empty() {
-                        for component in &mut components {
+                    // no range of their own. Push it down so the leaves enforce it - and that
+                    // belongs to this reference alone, so it takes a copy of its own.
+                    let components = if range.is_empty() {
+                        shared
+                    } else {
+                        let mut owned = shared.to_vec();
+                        for component in &mut owned {
                             apply_range(component, *range);
                         }
-                    }
+                        owned.into()
+                    };
 
                     return SyntaxComponent::Group {
                         components,
@@ -816,13 +844,13 @@ impl CssDefinitions {
                 multipliers,
             } => {
                 // Resolve this group and return a new group with resolved components
-                let mut resolved_components = vec![];
-                for component in components {
+                let mut resolved_components = Vec::with_capacity(components.len());
+                for component in components.iter() {
                     resolved_components.push(self.resolve_component(component, prop_name));
                 }
 
                 SyntaxComponent::Group {
-                    components: resolved_components,
+                    components: resolved_components.into(),
                     combinator: *combinator,
                     multipliers: multipliers.clone(),
                 }
@@ -997,6 +1025,7 @@ fn parse_definition_files() -> CssDefinitions {
         resolved_properties: HashMap::new(),
         properties,
         syntax,
+        shared_types: HashMap::new(),
         syntax_released: false,
         resolving: std::collections::HashSet::new(),
     };
@@ -1013,6 +1042,7 @@ fn parse_definition_files() -> CssDefinitions {
     // engine. Keeping it cost 525 entries holding 164,000 grammar nodes for the life of the
     // process, against 0 reads. `resolving` is the cycle guard, empty here by construction.
     definitions.syntax = HashMap::new();
+    definitions.shared_types = HashMap::new();
     definitions.syntax_released = true;
     definitions.resolving = std::collections::HashSet::new();
 

@@ -2113,7 +2113,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
@@ -2125,7 +2125,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
@@ -2137,7 +2137,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
@@ -2149,7 +2149,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
@@ -2161,7 +2161,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
@@ -2173,7 +2173,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
@@ -2185,7 +2185,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
@@ -2197,7 +2197,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
@@ -2209,7 +2209,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
@@ -2221,7 +2221,7 @@ mod tests {
         assert_eq!(
             multiplier_fulfilled(
                 &SyntaxComponent::Group {
-                    components: vec![],
+                    components: vec![].into(),
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Optional],
                 },
