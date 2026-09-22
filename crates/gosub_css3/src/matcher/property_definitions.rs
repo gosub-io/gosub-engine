@@ -438,10 +438,10 @@ fn top_level_numeric_ranges(components: &[SyntaxComponent]) -> Vec<RangeType> {
 /// A syntax definition that can be used to resolve a property definition
 #[derive(Debug, Clone)]
 pub struct SyntaxDefinition {
-    /// Actual syntax
+    /// Actual syntax, as the definitions file writes it. Resolution reads this and never
+    /// writes it back: the resolved form lives in [`CssDefinitions::shared_types`], so a type
+    /// replaced through [`CssDefinitions::add_syntax`] can still be rebuilt from its own source.
     pub syntax: CssSyntaxTree,
-    /// True when the element has already been resolved
-    pub resolved: bool,
     pub ty: SyntaxType,
 }
 
@@ -542,9 +542,15 @@ impl CssDefinitions {
         self.properties.insert(name.to_string(), property);
     }
 
-    /// Add a new syntax definition
+    /// Add a new syntax definition, replacing one of the same name.
+    ///
+    /// Anything already resolved through the previous definition is dropped: every named type
+    /// in `shared_types` may have been built from the one being replaced, directly or through
+    /// another type, and there is no cheap way to tell which. They are a cache of resolution
+    /// and rebuild from the definitions on the next pass, so throwing them away is enough.
     pub fn add_syntax(&mut self, name: &str, syntax: SyntaxDefinition) {
         self.syntax.insert(name.to_string(), syntax);
+        self.shared_types.clear();
     }
 
     /// Bring the builtin named types back if they were freed after the initial load.
@@ -621,10 +627,10 @@ impl CssDefinitions {
     /// Resolves all elements in the definitions
     pub fn resolve(&mut self) {
         self.reload_released_syntax();
-        // Every `Arc` in here is a named type's resolved components, and a caller that added a
-        // definition since the last pass may have replaced the grammar one was built from. They
-        // are a cache of this pass, so this pass starts without one rather than trying to work
-        // out which entries the new definition reaches.
+        // The named types resolved by the last pass. A caller may have replaced a definition
+        // one of them was built from since, and this is the only place a resolved named type
+        // is kept, so starting empty is what makes the pass read the definitions as they are
+        // now - for the replaced type and for everything that reached it.
         self.shared_types.clear();
         let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
         names.sort();
@@ -748,7 +754,7 @@ impl CssDefinitions {
                 }
 
                 // First step: Resolve by looking the definition up in the syntax defintions.
-                if let Some(syntax_element) = self.syntax.get(datatype) {
+                if self.syntax.contains_key(datatype) {
                     // Cycle guard: if this datatype is already being resolved further up
                     // the stack, don't recurse into it again. Self-referential grammars
                     // (notably the calc() family, now reachable because function arguments
@@ -760,23 +766,37 @@ impl CssDefinitions {
                         return component.clone();
                     }
 
-                    let mut syntax_element = syntax_element.clone();
-                    if !syntax_element.resolved {
-                        self.resolving.insert(datatype.clone());
-                        syntax_element.syntax = self.resolve_syntax(&syntax_element.syntax, prop_name);
-                        syntax_element.resolved = true;
-                        self.resolving.remove(datatype);
-                        self.syntax.insert(datatype.clone(), syntax_element.clone());
-                    }
-
-                    // One `Arc` per named type, handed to every reference. The resolution
-                    // above is already shared across properties - it is written back into
-                    // `self.syntax` with `resolved = true` - so this shares the storage of a
-                    // result the engine had already decided was the same for everyone.
+                    // One `Arc` per named type, resolved once and handed to every reference.
+                    // This is the only cache of the resolution: `self.syntax` keeps the grammar
+                    // as it was written and is never resolved in place, so replacing a named
+                    // type through `add_syntax` leaves nothing built from the old one behind -
+                    // the types that referenced it rebuild from their own source too. It used
+                    // to be resolved in place under a `resolved` flag, which could not be
+                    // undone, because by then the source it would have to be rebuilt from had
+                    // been overwritten by the result.
                     let shared = match self.shared_types.get(datatype) {
                         Some(shared) => Arc::clone(shared),
                         None => {
-                            let shared: Arc<[SyntaxComponent]> = syntax_element.syntax.components.as_slice().into();
+                            // Borrowed out rather than copied: resolving needs `&mut self`, and
+                            // a copy of every named type's grammar alongside its resolved form
+                            // is 525 trees the pass would hold twice. Nothing reads the entry
+                            // while it is out - a reference to this datatype from inside its own
+                            // resolution is the cycle the guard above answers, and it answers it
+                            // from `resolving`, before looking at the grammar.
+                            let mut source = CssSyntaxTree::new(Vec::new());
+                            if let Some(entry) = self.syntax.get_mut(datatype) {
+                                std::mem::swap(&mut entry.syntax, &mut source);
+                            }
+
+                            self.resolving.insert(datatype.clone());
+                            let resolved = self.resolve_syntax(&source, prop_name);
+                            self.resolving.remove(datatype);
+
+                            if let Some(entry) = self.syntax.get_mut(datatype) {
+                                entry.syntax = source;
+                            }
+
+                            let shared: Arc<[SyntaxComponent]> = resolved.components.as_slice().into();
                             self.shared_types.insert(datatype.clone(), Arc::clone(&shared));
                             shared
                         }
@@ -1165,14 +1185,7 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(entries: Vec<RawSyntax>) 
             }
         }
 
-        syntaxes.insert(
-            name,
-            SyntaxDefinition {
-                syntax: ast,
-                resolved: false,
-                ty,
-            },
-        );
+        syntaxes.insert(name, SyntaxDefinition { syntax: ast, ty });
     }
 
     // Resolve all typedefs since we now have loaded them all
@@ -2215,6 +2228,56 @@ mod tests {
         assert!(ok("2px 2px red, 3px 3px blue"));
         // Invalid.
         assert!(!ok("banana"));
+    }
+
+    /// Replacing a named type has to reach the types that resolved through it.
+    ///
+    /// `<outer>` is defined in terms of `<inner>`, and the property in terms of `<outer>`. Once
+    /// the first pass has resolved all three, replacing `<inner>` and resolving again must
+    /// rebuild `<outer>` too - otherwise the property keeps validating against the grammar
+    /// `<inner>` used to have, which is the value the author has just stopped writing.
+    #[test]
+    fn replacing_a_named_type_reaches_the_types_built_from_it() {
+        let named = |source: &str| SyntaxDefinition {
+            syntax: CssSyntax::new(source).compile().expect("named type should compile"),
+            ty: SyntaxType::Definition,
+        };
+
+        let mut definitions = CssDefinitions::new();
+        definitions.add_syntax("inner", named("foo"));
+        definitions.add_syntax("outer", named("<inner>"));
+        definitions.add_property(
+            "testprop",
+            PropertyDefinition {
+                name: "testprop".to_string(),
+                computed: vec![],
+                syntax: CssSyntax::new("<outer>").compile().expect("property should compile"),
+                inherited: false,
+                initial_value: None,
+                resolved: false,
+                shorthands: None,
+            },
+        );
+        definitions.resolve();
+
+        let accepts = |definitions: &CssDefinitions, value: &str| {
+            definitions
+                .find_property("testprop")
+                .expect("the property is defined")
+                .matches(&[CssValue::String(value.to_string())])
+        };
+
+        assert!(accepts(&definitions, "foo"));
+        assert!(!accepts(&definitions, "bar"));
+
+        definitions.add_syntax("inner", named("bar"));
+        definitions.resolve();
+
+        assert!(
+            accepts(&definitions, "bar"),
+            "`<outer>` was rebuilt from the grammar `<inner>` had, not the one it has"
+        );
+        assert!(!accepts(&definitions, "foo"));
     }
 
     #[test]
