@@ -27,8 +27,9 @@ computed-value resolution for the rest of the engine.
 | Module | Role |
 |--------|------|
 | `tokenizer`, `parser` | CSS text → AST, one parser module per construct (selectors, at-rules, calc, ...) |
-| `ast`, `node` | The AST and `convert_ast_to_stylesheet` |
+| `ast`, `node` | The AST, and the conversion into a stylesheet - a rule at a time as the parser finishes it, so the tree never exists in full |
 | `stylesheet` | The flattened `CssStylesheet` model, `CssRule` with its lazily expanded declarations, and `CssValue` |
+| `value_pool` | One allocation per distinct declared value in a sheet, shared with every rule that writes it and every element those rules match |
 | `media_query`, `supports`, `imports`, `layers` | The five at-rules that survive conversion: `@media` evaluated at match time, `@supports` settled at build time, `@import` resolved through a host callback, `@layer` ordered per origin |
 | `matcher::syntax`, `matcher::syntax_matcher`, `matcher::property_definitions` | The value definition syntax parser, the grammar matcher, and the embedded definitions |
 | `matcher::expansion`, `matcher::shorthands` | Validation and shorthand expansion, done once per rule |

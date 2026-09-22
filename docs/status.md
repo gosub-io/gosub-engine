@@ -3,10 +3,10 @@
 One section per component: what works, and what does not work yet. The README's Status list is
 the short version.
 
-Measured on 2026-09-20 against `new-css-delcaration-design`. Where a number can be regenerated,
+Measured on 2026-09-22 against `new-css-delcaration-design`. Where a number can be regenerated,
 the command is next to it. Anything without a command is a reading of the code and will drift.
 
-1,534 tests pass, none fail (`cargo test --workspace`).
+1,547 tests pass, none fail (`cargo test --workspace`).
 
 The CSS parser validates 666 properties against generated grammars. Only 92 reach layout and
 paint. Accepting a declaration and acting on it are different things, so the sections below say
@@ -59,6 +59,30 @@ wikipedia fixture from 246 ms to 84 ms. The dev tools `style_dump` and `render_d
 (`cargo run -p gosub_render_pipeline --example ...`) write every element's property map and
 the layout and paint output for 30 fixture pages; every step of the rebuild was gated on those
 being byte-identical, or on each difference being attributed to a spec clause.
+
+Memory was the second half of the work, measured with `memory_dump`
+(`cargo run --release -p gosub_render_pipeline --example memory_dump`), which reports where a
+page's memory goes with shared allocations counted once and states what fraction of the page's
+real cost the rows account for. On the wikipedia fixture under the 18,537-rule sheet, peak
+resident memory fell from 152.6 MB to about 55 MB. Five changes account for it, and none of them
+altered a byte of either dump. The CSS property definitions used to occupy 60 MB before a page
+was parsed, because resolution inlined each named type into every property referencing it and
+into every other type: the resolved types are now shared behind an `Arc` and the named-type map
+is freed once resolution is done, taking that to 3.7 MB and making the cascade faster, since the
+grammar now fits in cache. Parsing a sheet used to build the whole AST before converting any of
+it; each top-level rule is now converted as it is parsed and its nodes dropped, which took
+parsing the document and its stylesheets from 72.9 MB to 21.5 MB, and the 2.2 MB sheet alone
+from 111 ms to under 70 ms. A declared value is shared
+with every element its rule matches rather than deep-copied into each one, and identical values
+are pooled across the rules of a sheet (`value_pool.rs`). `CssColor` packs its components rather
+than holding four `Option<f64>`, which shrank `CssValue` - the largest variant of which is a
+colour - from 72 bytes to 48, and with it every declaration and property in the engine. A
+selector list is one allocation rather than four.
+
+Against Chromium 152 loading the same DOM and sheet headless, measured as the renderer's
+proportional set size above a blank page, the engine costs roughly three times as much. The gap
+is no longer in what a value or a selector costs: it is that every element keeps the
+declarations that reached it, losers included, where a browser applies them and drops them.
 
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
 `:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all

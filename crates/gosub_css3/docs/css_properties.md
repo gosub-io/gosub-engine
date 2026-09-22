@@ -74,6 +74,12 @@ embedded JSON, so the module and the data cannot drift.
 
 `colors.rs` parses named colours (the full css-color-4 list, `rebeccapurple` included), hex,
 `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()` and `oklch()`, and keeps each
-colour in the space it was written in. Whether a keyword is a colour at all depends on the
+colour in the space it was written in. The three components and alpha are packed as four `f64`
+with a bitmask saying which are the CSS-wide `none`, rather than four `Option<f64>`: a colour is
+the largest variant of `CssValue`, so the eight bytes each `Option` spent on a one-bit tag were
+charged to every value in the engine, colour or not. `components()` and `alpha()` read them
+back. Note that `PartialEq` on a colour asks whether two values *are the same colour*, comparing
+converted sRGB with a tolerance - a caller that needs identity rather than equality, such as the
+value pool, must not use it. Whether a keyword is a colour at all depends on the
 property: `red` names a grid line on `grid-row-start`. Colour keywords compute to the colour
 they name; `currentColor` on the `color` property itself resolves to the inherited colour.

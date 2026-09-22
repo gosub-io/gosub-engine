@@ -25,10 +25,24 @@ rather than a name, and its product is one typed `ComputedStyle` that layout, pa
 ## Parsing (`tokenizer.rs`, `parser/`, `ast.rs`, `stylesheet.rs`)
 
 The tokenizer and hand-written recursive-descent parser (one module per construct under
-`parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST;
-`convert_ast_to_stylesheet` flattens that into the `CssStylesheet` the rest of the engine uses: a
-list of `CssRule`s (selectors + declarations), the `@font-face` entries, the `@import` rules and
-the `@layer` names.
+`parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST, which
+is converted into the `CssStylesheet` the rest of the engine uses: a list of `CssRule`s
+(selectors + declarations), the `@font-face` entries, the `@import` rules and the `@layer` names.
+
+The conversion happens a rule at a time. `parse_stylesheet_streaming` hands each top-level node
+to the converter as soon as it is complete and the node's subtree is dropped before the next
+rule is parsed, so the AST never exists in full: on a 2.2 MB sheet it is some 460,000 nodes at
+104 bytes each, and holding all of them while converting them was most of what parsing cost:
+parsing that sheet went from 72 MB and 111 ms to under 30 MB and under 70 ms.
+`convert_ast_to_stylesheet` still converts a whole tree for the callers that have one.
+
+A declared value is shared, not copied. Each distinct value is allocated once per sheet
+(`value_pool.rs`) and handed out as an `Arc` to every rule that writes it - of 37,706 declared
+values on that sheet only 4,689 are distinct - and the same `Arc` is what each element's
+property map records when the rule matches, rather than a copy of the value and its heap. The
+pool's key is the value's exact representation rather than `CssValue`'s own `PartialEq`, which
+for colours compares converted sRGB with a tolerance: pooling on that would replace one colour
+with another a fraction of a channel away, and the survivor is what gets serialised back.
 
 Five at-rules survive the conversion. `@media` conditions are attached to each rule inside them
 and evaluated at match time against the current `MediaEnvironment` (`media_query.rs`), so a
@@ -161,6 +175,11 @@ remain once the winning origin or layer is removed.
     (css-values-4 §10.12). Percentages, `ch`, `lh` and the container-query units survive as
     written, because nothing here has a value for them.
 
+Only the computed value is kept. The cascaded and specified values are steps on the way to it,
+read by nothing but that walk, so they are threaded through as locals rather than stored on every
+declared property of every element; `cascaded_value()` and `specified_value()` recompute them for
+the style dump, which asks once per property per run.
+
 There is no used or actual stage in this crate. Those belong to layout.
 
 ## The typed style (`matcher/computed_style.rs`, `gosub_interface::style`)
@@ -215,6 +234,31 @@ cargo bench -p gosub_render_pipeline --bench style -- --save-baseline before
 # make the change
 cargo bench -p gosub_render_pipeline --bench style -- --baseline before
 ```
+
+## Memory
+
+`memory_dump` (`cargo run --release -p gosub_render_pipeline --example memory_dump`) prints
+where a page's memory goes, row by row: the DOM, the parsed sheets, the selector index, and the
+per-element property maps and computed styles. Shared allocations are counted once, on the first
+row that reaches them, and kept in their own column - anything else would price the `Arc`-shared
+style groups and pooled values once per sharer, which is the number this crate was rebuilt to
+make false. The report reads `/proc/self/statm` as well, so it states what fraction of the page's
+real cost it accounts for rather than leaving that to trust, and it asserts it never claims more
+than the process occupies.
+
+`parse_peak` (`cargo run --release -p gosub_css3 --example parse_peak`) is the narrower tool: it
+parses the 2.2 MB sheet and reports the time, the resident memory it costs, and how many of its
+declared values are repeats.
+
+Where the memory goes, on the wikipedia fixture under that sheet: the largest single row is the
+declarations each element cascaded, then the parsed sheets themselves. What an element's
+computed values cost is almost nothing - a few bytes each, because a computed value is usually a
+number and a unit with nothing on the heap. Two things dominate what is left and neither is a
+byte-packing problem: every declaration that reached a property is kept, losers included, so
+that `revert` can ask what the cascade would have said without an origin, and each element pays
+for a property slot table sized to every property the engine knows.
+
+## The correctness gate
 
 Two examples in the pipeline crate are the correctness gate for any change here.
 `style_dump` writes every element's property map, declared and computed, for 30 fixture pages;

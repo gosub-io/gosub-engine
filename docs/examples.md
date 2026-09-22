@@ -102,6 +102,8 @@ See [headless.md](headless.md) for how the tool drives the engine and how to bui
 | `cargo run -p generate_definitions` | Regenerate the gosub_css3 CSS definition JSON (`-- --property-ids` regenerates the property-id module offline) |
 | `cargo run -p gosub_render_pipeline --example style_dump -- <out-dir>` | Dump every element's computed style for a set of page fixtures, so a change to the style system can be diffed against itself |
 | `cargo run -p gosub_render_pipeline --example render_dump -- <out-dir>` | Dump the laid-out boxes and paint commands of the same fixtures, so a change can be proved to move no pixel |
+| `cargo run --release -p gosub_render_pipeline --example memory_dump` | Report where a page's memory goes, row by row, with shared allocations counted once |
+| `cargo run --release -p gosub_css3 --example parse_peak` | Time and price parsing the 2.2 MB stylesheet, and count how many of its values are repeats |
 
 For more detail on the component tools see [`binaries.md`](binaries.md).
 
@@ -109,7 +111,9 @@ For more detail on the component tools see [`binaries.md`](binaries.md).
 
 `style_dump` exists for changes to the style system. It writes down, for every element of a set
 of page fixtures, every declaration that reached each property with its cascade facts, and the
-cascaded, specified, computed, used, actual and inherited value the property settled on. Run it
+cascaded, specified, computed and inherited value the property settled on. The first two are
+recomputed for the dump rather than stored on every property of every element; used and actual
+are not stages this crate has. Run it
 before a change and after; the two directories have to be identical unless the change was meant
 to alter what pages compute to.
 
@@ -145,6 +149,36 @@ One caveat: the two `stackoverflow` fixtures are not reproducible run to run. Th
 placeholder already installed depends on how fast the first fetch fails - so the image is
 sometimes 0x0 and sometimes the placeholder's 32x32, and the page below it shifts by 6px. The
 other 28 fixtures are stable.
+
+### memory_dump
+
+Where a page's memory goes. For each fixture it prints one row per category - the DOM's nodes,
+elements and text, the parsed rules, selectors and declarations, the selector index, and the
+per-element property maps, declared entries and computed styles - with the count, the structs
+themselves, the heap they own outright, and the heap they share.
+
+The shared column is the point. Most of what an element costs is not in the element: style
+groups point at the parent's or at one process-wide initial copy, declared values are shared with
+the stylesheet rule they came from, and the inheritance record is one per element shared by all
+its children. A report that walked every `Arc` from every element would count all of that once
+per sharer, so the walk counts each allocation once, on the first row that reaches it.
+
+It also reads `/proc/self/statm`, so it says what the page actually cost the process, what
+fraction of that the rows account for, and what producing the report itself cost. It asserts the
+rows never claim more than the process occupies - a report that over-counts fails the run instead
+of printing a plausible number.
+
+```bash
+cargo run --release -p gosub_render_pipeline --example memory_dump
+cargo run --release -p gosub_render_pipeline --example memory_dump -- wikipedia+2.2m
+```
+
+### parse_peak
+
+The narrow companion, for the parser rather than the page: it parses the 2.2 MB sheet in
+`tests/data/css3-data`, reports the time and the resident memory, and counts how many of its
+declared values are repeats of one already seen. It is what found that the AST used to cost more
+than the stylesheet it produced, and that 88% of the sheet's values are duplicates.
 
 ## Benchmarks
 
