@@ -66,7 +66,7 @@ impl SelectorIndex {
         };
         for (rule_idx, rule) in rules.iter().enumerate() {
             for selector in &rule.selectors {
-                for complex in selector.parts() {
+                for complex in selector.complexes() {
                     let key = rightmost_key(complex);
                     let mut has_pseudo = false;
                     for part in complex {

@@ -205,7 +205,7 @@ fn supports_selector(selector: &str) -> bool {
     sheet.rules.first().is_some_and(|rule| {
         rule.selectors
             .iter()
-            .any(|sel| sel.parts().iter().any(|part| !part.is_empty()))
+            .any(|sel| sel.complexes().any(|part| !part.is_empty()))
     })
 }
 

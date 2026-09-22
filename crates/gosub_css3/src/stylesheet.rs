@@ -551,43 +551,92 @@ pub struct CssDeclaration {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssSelector {
-    /// The complex selectors of the list (`a, b` is two), each as its sequence of parts.
-    parts: Vec<Vec<CssSelectorPart>>,
-    /// Specificity of each entry in `parts`, computed once when the selector is built.
+    /// Every complex selector's parts, one after another, with `entries` saying where each
+    /// begins (`a, b` is two complex selectors).
     ///
-    /// A selector's specificity depends on nothing but the selector, so it used to be counted
-    /// afresh every time the selector matched an element: a rule that matched a thousand
-    /// elements walked its parts a thousand times for the same answer. Both vectors are
-    /// private so the two cannot drift apart.
-    specificity: Vec<Specificity>,
-    /// What each entry in `parts` needs of the element's ancestors, hashed here rather than per
-    /// element; see [`crate::matcher::bloom`]. Nearly every entry is empty, and an empty boxed
-    /// slice owns nothing, so a sheet of selectors that ask nothing of an ancestor costs one
-    /// allocation each.
-    ancestor_keys: Box<[Box<[u32]>]>,
-    /// Whether any entry of `ancestor_keys` is non-empty, so that a rule can be matched without
-    /// an ancestor filter being built at all.
+    /// One allocation for the lot rather than one per complex selector plus an outer `Vec`:
+    /// almost every selector in a stylesheet is a single complex selector, so the nesting spent
+    /// a `Vec` header and an allocation each to express a list of one.
+    parts: Vec<CssSelectorPart>,
+    /// One entry per complex selector: its slice of `parts`, its specificity, and what it needs
+    /// of the element's ancestors.
+    entries: Box<[SelectorEntry]>,
+    /// Whether any entry asks anything of an ancestor, so that a rule can be matched without an
+    /// ancestor filter being built at all.
     asks_about_ancestors: bool,
+}
+
+/// One complex selector within a selector list.
+#[derive(Debug, PartialEq, Clone)]
+struct SelectorEntry {
+    /// Where this selector's parts start in [`CssSelector::parts`].
+    start: u32,
+    /// How many parts it has.
+    len: u32,
+    /// Counted once when the selector is built: a selector's specificity depends on nothing but
+    /// the selector, and it used to be recounted every time the selector matched an element.
+    specificity: Specificity,
+    /// What this selector needs of the element's ancestors, hashed here rather than per element;
+    /// see [`crate::matcher::bloom`]. Nearly every one is empty, and an empty boxed slice owns
+    /// nothing.
+    ancestor_keys: Box<[u32]>,
+}
+
+impl SelectorEntry {
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start as usize..(self.start + self.len) as usize
+    }
 }
 
 impl CssSelector {
     #[must_use]
     pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
-        let specificity = parts.iter().map(|part| Specificity::from(part.as_slice())).collect();
-        let ancestor_keys: Box<[Box<[u32]>]> = parts.iter().map(|complex| ancestor_keys(complex)).collect();
-        let asks_about_ancestors = ancestor_keys.iter().any(|keys| !keys.is_empty());
+        let mut entries: Vec<SelectorEntry> = Vec::with_capacity(parts.len());
+        let mut asks_about_ancestors = false;
+
+        // A list of one is the overwhelming case - `a, b` is rare - and its parts are already a
+        // `Vec`, so take it whole rather than moving every part into a new one and freeing the
+        // old. Building a selector is on the per-element path: an inline `style` attribute is
+        // parsed as a one-rule sheet, and copying part by part measured as 10% on the render
+        // tree of a page that sets styles inline.
+        let flat = if parts.len() == 1 {
+            let complex = parts.into_iter().next().unwrap_or_default();
+            let keys = ancestor_keys(&complex);
+            asks_about_ancestors = !keys.is_empty();
+            entries.push(SelectorEntry {
+                start: 0,
+                len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
+                specificity: Specificity::from(complex.as_slice()),
+                ancestor_keys: keys,
+            });
+            complex
+        } else {
+            let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
+            for complex in parts {
+                let keys = ancestor_keys(&complex);
+                asks_about_ancestors |= !keys.is_empty();
+                entries.push(SelectorEntry {
+                    start: u32::try_from(flat.len()).unwrap_or(u32::MAX),
+                    len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
+                    specificity: Specificity::from(complex.as_slice()),
+                    ancestor_keys: keys,
+                });
+                flat.extend(complex);
+            }
+            flat
+        };
+        // Deliberately not shrunk: the parser's vector usually has spare capacity, and shrinking
+        // it would copy every part - exactly the cost this path exists to avoid.
         Self {
-            parts,
-            specificity,
-            ancestor_keys,
+            parts: flat,
+            entries: entries.into(),
             asks_about_ancestors,
         }
     }
 
-    /// What every complex selector of this list needs of the element's ancestors, in the same
-    /// order as [`CssSelector::parts`].
-    pub(crate) fn ancestor_keys(&self) -> &[Box<[u32]>] {
-        &self.ancestor_keys
+    /// What complex selector `index` needs of the element's ancestors.
+    pub(crate) fn ancestor_keys_at(&self, index: usize) -> &[u32] {
+        &self.entries[index].ancestor_keys
     }
 
     /// Whether this selector places any condition at all on an ancestor. `false` means the
@@ -596,24 +645,34 @@ impl CssSelector {
         self.asks_about_ancestors
     }
 
-    /// The complex selectors making up this selector list.
+    /// How many complex selectors this list holds.
     #[must_use]
-    pub fn parts(&self) -> &[Vec<CssSelectorPart>] {
-        &self.parts
+    pub fn complex_count(&self) -> usize {
+        self.entries.len()
     }
 
-    /// The specificity of each complex selector, in the same order as [`CssSelector::parts`].
+    /// The parts of complex selector `index`.
     #[must_use]
-    pub fn specificity(&self) -> &[Specificity] {
-        &self.specificity
+    pub fn complex_at(&self, index: usize) -> &[CssSelectorPart] {
+        &self.parts[self.entries[index].range()]
+    }
+
+    /// The specificity of complex selector `index`.
+    #[must_use]
+    pub fn specificity_at(&self, index: usize) -> Specificity {
+        self.entries[index].specificity
+    }
+
+    /// Each complex selector's parts.
+    pub fn complexes(&self) -> impl Iterator<Item = &[CssSelectorPart]> {
+        self.entries.iter().map(|entry| &self.parts[entry.range()])
     }
 
     /// Each complex selector paired with its specificity.
     pub fn complex(&self) -> impl Iterator<Item = (&[CssSelectorPart], Specificity)> {
-        self.parts
+        self.entries
             .iter()
-            .zip(&self.specificity)
-            .map(|(parts, specificity)| (parts.as_slice(), *specificity))
+            .map(|entry| (&self.parts[entry.range()], entry.specificity))
     }
 }
 
@@ -970,14 +1029,13 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
 
 impl gosub_shared::memory::HeapSize for CssSelector {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
-        walk.bytes(self.parts.capacity() * size_of::<Vec<CssSelectorPart>>());
-        for parts in &self.parts {
-            parts.heap_size(walk);
+        walk.bytes(self.parts.capacity() * size_of::<CssSelectorPart>());
+        for part in &self.parts {
+            part.heap_size(walk);
         }
-        walk.bytes(self.specificity.capacity() * size_of::<Specificity>());
-        walk.bytes(self.ancestor_keys.len() * size_of::<Box<[u32]>>());
-        for keys in &self.ancestor_keys {
-            walk.bytes(keys.len() * size_of::<u32>());
+        walk.bytes(size_of_val(&*self.entries));
+        for entry in &self.entries {
+            walk.bytes(size_of_val(&*entry.ancestor_keys));
         }
     }
 }
@@ -1971,15 +2029,7 @@ mod test {
         );
 
         assert_eq!(rule.selectors().len(), 1);
-        let part = rule
-            .selectors()
-            .first()
-            .unwrap()
-            .parts
-            .first()
-            .unwrap()
-            .first()
-            .unwrap();
+        let part = rule.selectors().first().unwrap().complex_at(0).first().unwrap();
 
         assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
@@ -2062,29 +2112,25 @@ mod test {
             CssSelectorPart::Id("myid".to_string()),
         ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, [Specificity::new(1, 1, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(1, 1, 1));
 
         let selector = CssSelector::new(vec![vec![
             CssSelectorPart::Type("h1".to_string()),
             CssSelectorPart::Class("myclass".to_string()),
         ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, [Specificity::new(0, 1, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 1, 1));
 
         let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, [Specificity::new(0, 0, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 0, 1));
 
         let selector = CssSelector::new(vec![vec![
             CssSelectorPart::Class("myclass".to_string()),
             CssSelectorPart::Class("otherclass".to_string()),
         ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, [Specificity::new(0, 2, 0)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 2, 0));
     }
 
     #[test]

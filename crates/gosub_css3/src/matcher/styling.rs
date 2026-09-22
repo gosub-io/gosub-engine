@@ -46,13 +46,12 @@ pub(crate) fn match_selector<C: HasDocument>(
     // A selector list (`a, b`) matches with the highest specificity of its matching parts, and
     // the filter answers each of them separately - a list is commonly one selector that reaches
     // deep and several that do not.
-    let ancestor_keys = ancestors.map(|_| selector.ancestor_keys());
     let mut best: Option<Specificity> = None;
     for (index, (part, specificity)) in selector.complex().enumerate() {
         // No ancestor carries something this selector requires of one, so the walk can only
         // fail. Cheapest test there is, so it goes first.
-        if let (Some(filter), Some(keys)) = (ancestors, ancestor_keys.and_then(|table| table.get(index))) {
-            if !filter.may_match(keys) {
+        if let Some(filter) = ancestors {
+            if !filter.may_match(selector.ancestor_keys_at(index)) {
                 continue;
             }
         }

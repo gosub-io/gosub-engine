@@ -685,7 +685,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     for sheet in sheets {
         for rule in &sheet.rules {
             for selector in &rule.selectors {
-                for part_list in selector.parts() {
+                for part_list in selector.complexes() {
                     // Split the part list into compounds (groups between Combinators).
                     // :hover belongs to the compound it appears in; that compound's
                     // Type/Class/Id parts are the hover-subject fingerprint.

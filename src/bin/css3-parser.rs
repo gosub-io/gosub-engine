@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use gosub_css3::stylesheet::{CssSelectorPart, CssStylesheet};
+use gosub_css3::stylesheet::{CssSelector, CssSelectorPart, CssStylesheet};
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::Css3;
 use gosub_interface::css3::CssOrigin;
@@ -188,10 +188,10 @@ fn print_stylesheet(sheet: &CssStylesheet) {
     println!("[Stylesheet ({} rules)]", sheet.rules.len());
     for rule in &sheet.rules {
         println!("  [Rule]");
-        let selector_count: usize = rule.selectors.iter().map(|s| s.parts().len()).sum();
+        let selector_count: usize = rule.selectors.iter().map(CssSelector::complex_count).sum();
         println!("    [SelectorList ({selector_count})]");
         for selector in &rule.selectors {
-            for parts in selector.parts() {
+            for parts in selector.complexes() {
                 println!("      [Selector]");
                 for part in parts {
                     match part {
