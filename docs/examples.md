@@ -163,8 +163,8 @@ the stylesheet rule they came from, and the inheritance record is one per elemen
 its children. A report that walked every `Arc` from every element would count all of that once
 per sharer, so the walk counts each allocation once, on the first row that reaches it.
 
-It also reads `/proc/self/statm`, so it says what the page actually cost the process, what
-fraction of that the rows account for, and what producing the report itself cost. It asserts the
+It also reads `VmRSS` from `/proc/self/status`, so it says what the page actually cost the
+process, what fraction of that the rows account for, and what producing the report itself cost. It asserts the
 rows never claim more than the process occupies - a report that over-counts fails the run instead
 of printing a plausible number.
 

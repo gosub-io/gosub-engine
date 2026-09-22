@@ -2041,12 +2041,12 @@ fn pipeline_build_cache(
 fn pipeline_extend_raster(
     mut tile_list: TileList,
     page_height: f64,
-    prev_baked_tiles: Vec<BakedTile>,
+    mut prev_baked_tiles: Vec<BakedTile>,
     viewport: &Viewport,
     scroll_y: f64,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: TilePixelCache,
+    mut prev_tile_cache: TilePixelCache,
     media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
@@ -2067,6 +2067,14 @@ fn pipeline_extend_raster(
         // `renderer.tile.size` changed under us, and the grid is a function of it.
         tile_list = TileList::from_arc(Arc::clone(&layer_list), dimension);
         tile_list.generate();
+        // Everything baked under the old size has to go with it. Both carry-over paths below
+        // match on the tile's origin - the baked tiles on `(page_x, page_y, layer_id)`, the
+        // pixel cache on that plus a hash of the paint commands - and neither says how big the
+        // tile was. A tile at the same origin would be marked `Ready` and handed pixels of the
+        // previous size, so the new grid would show the old tiling: gaps where a tile grew,
+        // overlap where it shrank, and no repaint to correct either.
+        prev_baked_tiles = Vec::new();
+        prev_tile_cache = TilePixelCache::new();
     }
     timing_stop!(ts4);
 

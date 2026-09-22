@@ -5,14 +5,18 @@ use gosub_css3::Css3;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::config::ParserConfig;
 
+/// Resident memory of this process, in bytes. `VmRSS` in `/proc/self/status` is reported in
+/// kB, so this needs no page size - `/proc/self/statm` counts pages, and the page size is not
+/// 4 KiB everywhere (a 16 KiB aarch64 kernel would make this read four times too small).
 fn resident() -> usize {
-    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
-    statm
-        .split_whitespace()
-        .nth(1)
-        .and_then(|pages| pages.parse::<usize>().ok())
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|kb| kb.parse::<usize>().ok())
         .unwrap_or(0)
-        * 4096
+        * 1024
 }
 
 fn mb(bytes: usize) -> String {
@@ -54,7 +58,7 @@ fn main() {
         "after parsing ({} rules): {} (+{})",
         sheet.rules.len(),
         mb(after),
-        mb(after - start)
+        mb(after.saturating_sub(start))
     );
 
     // What survives is the stylesheet; everything the parser built on the way - the token

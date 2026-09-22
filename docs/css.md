@@ -242,9 +242,9 @@ where a page's memory goes, row by row: the DOM, the parsed sheets, the selector
 per-element property maps and computed styles. Shared allocations are counted once, on the first
 row that reaches them, and kept in their own column - anything else would price the `Arc`-shared
 style groups and pooled values once per sharer, which is the number this crate was rebuilt to
-make false. The report reads `/proc/self/statm` as well, so it states what fraction of the page's
-real cost it accounts for rather than leaving that to trust, and it asserts it never claims more
-than the process occupies.
+make false. The report reads `VmRSS` from `/proc/self/status` as well, so it states what
+fraction of the page's real cost it accounts for rather than leaving that to trust, and it
+asserts it never claims more than the process occupies.
 
 `parse_peak` (`cargo run --release -p gosub_css3 --example parse_peak`) is the narrower tool: it
 parses the 2.2 MB sheet and reports the time, the resident memory it costs, and how many of its

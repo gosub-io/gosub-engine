@@ -621,6 +621,11 @@ impl CssDefinitions {
     /// Resolves all elements in the definitions
     pub fn resolve(&mut self) {
         self.reload_released_syntax();
+        // Every `Arc` in here is a named type's resolved components, and a caller that added a
+        // definition since the last pass may have replaced the grammar one was built from. They
+        // are a cache of this pass, so this pass starts without one rather than trying to work
+        // out which entries the new definition reaches.
+        self.shared_types.clear();
         let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
         names.sort();
 

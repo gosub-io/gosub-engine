@@ -57,7 +57,7 @@ impl gosub_shared::memory::HeapSize for ExpandedDeclaration {
             // The other three states carry nothing: they are the answer itself.
             return;
         };
-        walk.bytes(entries.capacity() * size_of::<(PropertyId, CssValue)>());
+        walk.bytes(entries.capacity() * size_of::<(PropertyId, Arc<CssValue>)>());
         for (_, value) in entries {
             value.heap_size(walk);
         }

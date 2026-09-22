@@ -460,8 +460,8 @@ impl CssRule {
     /// building them. For a memory report: asking through [`CssRule::expanded`] would expand
     /// every rule on the page and report a cache the page never actually paid for.
     #[must_use]
-    pub fn expanded_if_built(&self) -> Option<&[ExpandedDeclaration]> {
-        self.expanded.get().map(Vec::as_slice)
+    pub fn expanded_if_built(&self) -> Option<&Vec<ExpandedDeclaration>> {
+        self.expanded.get()
     }
 
     /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules

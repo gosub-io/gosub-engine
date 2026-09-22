@@ -106,6 +106,13 @@ impl NodeArena {
         self.nodes.len()
     }
 
+    /// How many slots the arena has allocated. The vector grows by doubling as ids are issued,
+    /// so this is above [`NodeArena::slot_count`] for all but the luckiest document, and it is
+    /// what the arena actually occupies.
+    pub fn slot_capacity(&self) -> usize {
+        self.nodes.capacity()
+    }
+
     /// Iterate over all registered nodes with their ids.
     pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &NodeImpl)> {
         self.nodes

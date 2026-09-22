@@ -35,12 +35,14 @@ use gosub_shared::node::NodeId;
 /// claiming more than the process has is double-counting - and the gap is everything no row
 /// covers yet, plus the allocator's own rounding and free lists, which no walk can see.
 ///
-/// Field 2 of `/proc/self/statm` is resident pages. Linux only; elsewhere the check is skipped
-/// rather than guessed at.
+/// `VmRSS` in `/proc/self/status` is the resident size in kB, which needs no page size -
+/// `/proc/self/statm` counts pages instead, and the page size is not 4 KiB everywhere. Linux
+/// only; elsewhere the check is skipped rather than guessed at.
 fn resident_bytes() -> Option<usize> {
-    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
-    let pages: usize = statm.split_whitespace().nth(1)?.parse().ok()?;
-    Some(pages * 4096)
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let value = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))?;
+    let kb: usize = value.split_whitespace().next()?.parse().ok()?;
+    Some(kb * 1024)
 }
 
 #[path = "../benches/common/pages.rs"]

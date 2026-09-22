@@ -95,11 +95,20 @@ pub fn record_document<C: HasDocument>(doc: &DocumentImpl<C>, walk: &mut Walk) {
         }
     }
     let (owned, shared) = walk.take_counts();
-    // The arena keeps a slot per id ever issued, so a page that removed nodes pays for the holes.
+    // The arena keeps a slot per id ever issued, so a page that removed nodes pays for the holes,
+    // and it grows by doubling, so it pays for the slots past the last id too.
     let slots = doc.arena.slot_count();
+    let allocated = doc.arena.slot_capacity();
     record(
-        Row::new("dom.nodes", nodes, slots * size_of::<Option<NodeImpl>>(), owned, shared).with_note(format!(
-            "{slots} arena slots at {} B each, {} still filled",
+        Row::new(
+            "dom.nodes",
+            nodes,
+            allocated * size_of::<Option<NodeImpl>>(),
+            owned,
+            shared,
+        )
+        .with_note(format!(
+            "{allocated} arena slots at {} B each, {slots} issued, {} still filled",
             size_of::<Option<NodeImpl>>(),
             nodes
         )),

@@ -1709,6 +1709,12 @@ impl CssProperties {
         &self.props
     }
 
+    /// The slots the `props` vector has allocated, which is what it costs. Its length is what
+    /// the element declared; the difference is the doubling the last push paid for.
+    pub(crate) fn props_capacity(&self) -> usize {
+        self.props.capacity()
+    }
+
     pub(crate) fn slot_len(&self) -> usize {
         self.slots.len()
     }

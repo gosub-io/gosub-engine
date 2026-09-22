@@ -13,7 +13,8 @@
 
 use gosub_shared::memory::{record, HeapSize, Row, Walk};
 
-use crate::matcher::styling::CssProperties;
+use crate::matcher::expansion::ExpandedDeclaration;
+use crate::matcher::styling::{CssProperties, CssProperty};
 use crate::stylesheet::{CssRule, CssStylesheet};
 
 /// Add a row per part of every element's property map to the current snapshot.
@@ -38,7 +39,7 @@ where
     for map in maps() {
         elements += 1;
         declared += map.props_slice().len() as u64;
-        walk.bytes(size_of_val(map.props_slice()));
+        walk.bytes(map.props_capacity() * size_of::<CssProperty>());
     }
     let (owned, shared) = walk.take_counts();
     record(
@@ -178,7 +179,7 @@ where
                 continue;
             };
             expanded_rules += 1;
-            walk.bytes(size_of_val(expanded));
+            walk.bytes(expanded.capacity() * size_of::<ExpandedDeclaration>());
             for declaration in expanded {
                 declaration.heap_size(walk);
             }
