@@ -438,6 +438,14 @@ impl CssRule {
         self.expanded.get_or_init(|| expand_declarations(&self.declarations))
     }
 
+    /// The expanded declarations if some element has already made this rule matter, without
+    /// building them. For a memory report: asking through [`CssRule::expanded`] would expand
+    /// every rule on the page and report a cache the page never actually paid for.
+    #[must_use]
+    pub fn expanded_if_built(&self) -> Option<&[ExpandedDeclaration]> {
+        self.expanded.get().map(Vec::as_slice)
+    }
+
     /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules
     /// always match.
     #[must_use]
@@ -845,6 +853,75 @@ pub enum CssValue {
     Inherit,
     Comma,
     List(Vec<CssValue>),
+}
+
+impl gosub_shared::memory::HeapSize for AttributeSelector {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.name.heap_size(walk);
+        self.value.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssSelectorPart {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        fn parts_list(list: &[Vec<CssSelectorPart>], walk: &mut gosub_shared::memory::Walk) {
+            walk.bytes(size_of_val(list));
+            for parts in list {
+                parts.heap_size(walk);
+            }
+        }
+        match self {
+            CssSelectorPart::Attribute(selector) => {
+                walk.bytes(size_of::<AttributeSelector>());
+                selector.heap_size(walk);
+            }
+            CssSelectorPart::Class(name)
+            | CssSelectorPart::Id(name)
+            | CssSelectorPart::PseudoClass(name)
+            | CssSelectorPart::PseudoElement(name)
+            | CssSelectorPart::Type(name) => name.heap_size(walk),
+            CssSelectorPart::Not(list) | CssSelectorPart::Slotted(list) => parts_list(list, walk),
+            CssSelectorPart::Host(Some(list)) => parts_list(list, walk),
+            CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssSelector {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        walk.bytes(self.parts.capacity() * size_of::<Vec<CssSelectorPart>>());
+        for parts in &self.parts {
+            parts.heap_size(walk);
+        }
+        walk.bytes(self.specificity.capacity() * size_of::<Specificity>());
+        walk.bytes(self.ancestor_keys.len() * size_of::<Box<[u32]>>());
+        for keys in &self.ancestor_keys {
+            walk.bytes(keys.len() * size_of::<u32>());
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssDeclaration {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.property.heap_size(walk);
+        self.value.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssRule {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.selectors.heap_size(walk);
+        self.declarations.heap_size(walk);
+        // `media` is one shared list per `@media` block, not one per rule.
+        if let Some(media) = &self.media {
+            walk.bytes(media.capacity() * size_of::<std::sync::Arc<crate::media_query::MediaQueryList>>());
+            for query in media {
+                walk.shared_once(std::sync::Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
+                    walk.bytes(size_of::<crate::media_query::MediaQueryList>() + 2 * size_of::<usize>());
+                });
+            }
+        }
+    }
 }
 
 impl gosub_shared::memory::HeapSize for CssValue {

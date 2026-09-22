@@ -48,6 +48,19 @@ pub enum ExpandedDeclaration {
     },
 }
 
+impl gosub_shared::memory::HeapSize for ExpandedDeclaration {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        let ExpandedDeclaration::Resolved { entries, .. } = self else {
+            // The other three states carry nothing: they are the answer itself.
+            return;
+        };
+        walk.bytes(entries.capacity() * size_of::<(PropertyId, CssValue)>());
+        for (_, value) in entries {
+            value.heap_size(walk);
+        }
+    }
+}
+
 /// Prepare every declaration of a rule. Called once per rule, the first time an element makes
 /// the rule matter.
 #[must_use]

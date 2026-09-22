@@ -146,7 +146,17 @@ fn record_computed_styles(styles: &[ComputedStyle], walk: &mut Walk) {
 }
 
 fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
+    // Split the page's cost in two: what parsing the HTML and the stylesheets cost, and what
+    // styling every element cost on top. The rows below only describe the second half, so
+    // without this the difference between them has no name.
+    let after_parse = resident_bytes();
     let (maps, styles) = style_everything(&doc);
+    if let (Some(baseline), Some(after_parse)) = (baseline, after_parse) {
+        println!(
+            "\nParsing the document and its stylesheets: {}.",
+            gosub_shared::memory::format_bytes(after_parse.saturating_sub(baseline)),
+        );
+    }
 
     gosub_shared::memory::begin(format!("{name}, after styling every element"));
     // What the report costs to produce, which is worth knowing before anyone runs it on a live
@@ -156,6 +166,7 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
     let mut walk = Walk::new();
 
     gosub_html5::memory::record_document(&doc, &mut walk);
+    gosub_css3::memory::record_stylesheets(|| doc.stylesheets().iter(), &mut walk);
     gosub_css3::memory::record_property_maps(|| maps.iter(), &mut walk);
     record_computed_styles(&styles, &mut walk);
 
@@ -171,6 +182,20 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
         .sum();
 
     gosub_shared::memory::dump();
+
+    // The structural half of every row above: what one of each costs before it allocates.
+    println!(
+        "Struct sizes: CssValue {}, CssDeclaration {}, CssSelectorPart {}, CssProperty {}, \
+         DeclarationProperty {}, ComputedStyle {}, CssColor {}, CssSelector {} bytes.",
+        size_of::<gosub_css3::stylesheet::CssValue>(),
+        size_of::<gosub_css3::stylesheet::CssDeclaration>(),
+        size_of::<gosub_css3::stylesheet::CssSelectorPart>(),
+        size_of::<gosub_css3::matcher::styling::CssProperty>(),
+        size_of::<gosub_css3::matcher::styling::DeclarationProperty>(),
+        size_of::<ComputedStyle>(),
+        size_of::<gosub_css3::colors::CssColor>(),
+        size_of::<gosub_css3::stylesheet::CssSelector>(),
+    );
 
     if let (Some(resident), Some(baseline)) = (resident, baseline) {
         // What the page cost, not what the process costs: the definition tables, the binary and

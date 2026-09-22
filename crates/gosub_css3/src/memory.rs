@@ -14,6 +14,7 @@
 use gosub_shared::memory::{record, HeapSize, Row, Walk};
 
 use crate::matcher::styling::CssProperties;
+use crate::stylesheet::{CssRule, CssStylesheet};
 
 /// Add a row per part of every element's property map to the current snapshot.
 ///
@@ -92,5 +93,72 @@ where
     record(
         Row::new("css.scopes_and_filters", elements, 0, owned, shared)
             .with_note("custom-property scopes and ancestor bloom filters, both handed down"),
+    );
+}
+
+/// Add rows for the parsed stylesheets to the current snapshot.
+///
+/// Four rows, because they answer different questions: how much the rules themselves cost, how
+/// much their selectors cost, how much their declarations cost, and how much the per-rule
+/// expansion cache has grown since the page was styled.
+pub fn record_stylesheets<'a, I>(sheets: impl Fn() -> I, walk: &mut Walk)
+where
+    I: Iterator<Item = &'a CssStylesheet>,
+{
+    let mut rules = 0u64;
+    let mut selectors = 0u64;
+    let mut declarations = 0u64;
+    let mut expanded_rules = 0u64;
+
+    for sheet in sheets() {
+        rules += sheet.rules.len() as u64;
+        walk.bytes(sheet.rules.capacity() * size_of::<CssRule>());
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("sheet.rules", rules, 0, owned, shared)
+            .with_note("the rule structs themselves, before their contents"),
+    );
+
+    for sheet in sheets() {
+        for rule in &sheet.rules {
+            selectors += rule.selectors.len() as u64;
+            rule.selectors.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("sheet.selectors", selectors, 0, owned, shared)
+            .with_note("parts, specificities and the precomputed ancestor keys"),
+    );
+
+    for sheet in sheets() {
+        for rule in &sheet.rules {
+            declarations += rule.declarations.len() as u64;
+            rule.declarations.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("sheet.declarations", declarations, 0, owned, shared)
+            .with_note("property name and parsed value, as written"),
+    );
+
+    for sheet in sheets() {
+        for rule in &sheet.rules {
+            let Some(expanded) = rule.expanded_if_built() else {
+                continue;
+            };
+            expanded_rules += 1;
+            walk.bytes(size_of_val(expanded));
+            for declaration in expanded {
+                declaration.heap_size(walk);
+            }
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("sheet.expansion_cache", expanded_rules, 0, owned, shared)
+            .with_note("validated and shorthand-expanded declarations, built per rule on first use"),
     );
 }
