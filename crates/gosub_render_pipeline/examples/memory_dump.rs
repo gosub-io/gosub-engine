@@ -167,6 +167,7 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
 
     gosub_html5::memory::record_document(&doc, &mut walk);
     gosub_css3::memory::record_stylesheets(|| doc.stylesheets().iter(), &mut walk);
+    gosub_css3::memory::record_selector_index(|| doc.stylesheets().iter(), &mut walk);
     gosub_css3::memory::record_property_maps(|| maps.iter(), &mut walk);
     record_computed_styles(&styles, &mut walk);
 

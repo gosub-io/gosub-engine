@@ -802,6 +802,36 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>
 /// has no arm for, a value that does not convert, an at-rule that makes no sense - invalidates
 /// the rule, declaration or at-rule it belongs to and nothing else, which is what css-syntax-3 §9
 /// requires. A sheet used to be lost whole to any one of them.
+/// Fold one top-level node into a sheet being built.
+///
+/// The streaming counterpart of [`convert_ast_to_stylesheet`]: the parser hands over each rule
+/// as it finishes it, the rule's nodes are converted here, and the caller drops them before the
+/// next rule is parsed. `rules` accumulates across calls, which is what keeps `@import`'s "only
+/// before any style rule" check honest, and so does `layers`. The media stack is per call
+/// because it is balanced within one top-level node - a nested `@media` pushes its condition and
+/// pops it again before the node is done.
+pub(crate) fn convert_node_into(node: CssNode, sheet: &mut CssStylesheet, layers: &mut Vec<String>) {
+    collect_rules(
+        vec![node],
+        &mut sheet.rules,
+        &mut sheet.font_faces,
+        &mut sheet.imports,
+        &mut Vec::new(),
+        layers,
+        None,
+    );
+}
+
+/// Whether any declaration in the sheet uses a viewport-relative unit; see
+/// [`CssStylesheet::uses_viewport_units`].
+pub(crate) fn note_viewport_units(sheet: &mut CssStylesheet) {
+    sheet.uses_viewport_units = sheet
+        .rules
+        .iter()
+        .flat_map(|rule| rule.declarations.iter())
+        .any(|decl| decl.value.uses_viewport_units());
+}
+
 pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
     let NodeType::StyleSheet { children } = css_ast.node_type else {
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
@@ -823,11 +853,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached
     // computed values (see `CssStylesheet::uses_viewport_units`).
-    sheet.uses_viewport_units = sheet
-        .rules
-        .iter()
-        .flat_map(|rule| rule.declarations.iter())
-        .any(|decl| decl.value.uses_viewport_units());
+    note_viewport_units(&mut sheet);
     Ok(sheet)
 }
 

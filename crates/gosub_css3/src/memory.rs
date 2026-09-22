@@ -162,3 +162,27 @@ where
             .with_note("validated and shorthand-expanded declarations, built per rule on first use"),
     );
 }
+
+/// Add a row for the selector index each stylesheet builds.
+///
+/// Built lazily on the first element styled against the sheet, and it lives as long as the
+/// sheet does, so on a page that styles anything it is as real as the rules themselves.
+pub fn record_selector_index<'a, I>(sheets: impl Fn() -> I, walk: &mut Walk)
+where
+    I: Iterator<Item = &'a CssStylesheet>,
+{
+    let mut indexed = 0u64;
+    for sheet in sheets() {
+        let index = sheet.index.read();
+        let Some(index) = index.as_ref() else {
+            continue;
+        };
+        indexed += 1;
+        index.heap_size(walk);
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("sheet.selector_index", indexed, 0, owned, shared)
+            .with_note("rules filed by their rightmost compound: id, class, tag, attribute, universal"),
+    );
+}

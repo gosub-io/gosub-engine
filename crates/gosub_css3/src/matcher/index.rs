@@ -46,6 +46,23 @@ struct Buckets {
     universal: Vec<usize>,
 }
 
+impl gosub_shared::memory::HeapSize for Buckets {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.by_id.heap_size(walk);
+        self.by_class.heap_size(walk);
+        self.by_tag.heap_size(walk);
+        self.by_attr.heap_size(walk);
+        self.universal.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for SelectorIndex {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.normal.heap_size(walk);
+        self.pseudo.heap_size(walk);
+    }
+}
+
 /// The element-side keys an index lookup needs.
 pub struct ElementKeys<'a> {
     pub id: Option<&'a str>,
