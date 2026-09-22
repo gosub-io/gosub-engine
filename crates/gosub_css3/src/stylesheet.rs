@@ -1488,16 +1488,16 @@ pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: b
         let [first, second, third] = components.as_slice() else {
             return None;
         };
-        return Some(CssColor {
-            syntax: ColorSyntax::Predefined(space),
-            components: [
+        return Some(CssColor::from_parts(
+            ColorSyntax::Predefined(space),
+            [
                 color_component(first, 1.0)?,
                 color_component(second, 1.0)?,
                 color_component(third, 1.0)?,
             ],
-            alpha: alpha.map_or(Some(Some(1.0)), color_alpha)?.map(clamp_alpha),
-            computed: false,
-        });
+            alpha.map_or(Some(Some(1.0)), color_alpha)?.map(clamp_alpha),
+            false,
+        ));
     }
 
     let (components, alpha) = split_color_args(name, &reduced)?;
@@ -1579,12 +1579,7 @@ pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: b
         components[1] = components[1].map(|chroma| chroma.max(0.0));
     }
 
-    let color = CssColor {
-        syntax,
-        components,
-        alpha: alpha.map(clamp_alpha),
-        computed: false,
-    };
+    let color = CssColor::from_parts(syntax, components, alpha.map(clamp_alpha), false);
     // A colour that goes out through the legacy sRGB triple has nowhere to show a `calc()`, so
     // the arithmetic is done whatever stage is asking. One that keeps its own notation does have
     // somewhere, and the specified value has to show it.
@@ -1776,7 +1771,7 @@ mod test {
         // specified value has to. Only the computed stage does the sum.
         assert_eq!(parse_css_color_function("lab", &args), None);
         assert_eq!(
-            fold_color_function("lab", &args, true).map(|color| color.components[0]),
+            fold_color_function("lab", &args, true).map(|color| color.components()[0]),
             Some(Some(100.0))
         );
     }
