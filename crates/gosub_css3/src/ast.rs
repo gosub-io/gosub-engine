@@ -8,6 +8,7 @@ use crate::stylesheet::{
     FontFace, ImportRule, MatcherType,
 };
 use crate::supports::SupportsCondition;
+use crate::value_pool::ValuePool;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
 use std::sync::Arc;
@@ -310,6 +311,7 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
 /// single selector this converter has no arm for - a bare number, dimension or percentage in a
 /// compound, or the nesting selector `&` - cost a page every rule its sheet had.
 fn collect_rule(
+    pool: &mut ValuePool,
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
     media: &[Arc<MediaQueryList>],
@@ -415,9 +417,9 @@ fn collect_rule(
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
                 property: property.into(),
-                // One allocation per declaration in the sheet, shared from here on by every
-                // element the rule matches.
-                value: Arc::new(value),
+                // One allocation per *distinct* value in the sheet, shared from here on by
+                // every rule that writes it and every element those rules match.
+                value: pool.intern(value),
                 important,
             });
         }
@@ -551,22 +553,30 @@ fn register_layer(layers: &mut Vec<String>, name: &str) -> u32 {
 /// Walk a stylesheet's top-level nodes, flattening at-rules into a single rule list.
 ///
 /// `media` is the stack of `@media` conditions currently in scope, outermost first; every rule
+/// What converting a sheet's nodes accumulates, gathered so the walk carries one thing rather
+/// than six. The media stack and the current layer are not here: they are scoped to the branch
+/// being walked rather than to the sheet.
+struct SheetParts<'a> {
+    pool: &'a mut ValuePool,
+    rules: &'a mut Vec<CssRule>,
+    font_faces: &'a mut Vec<FontFace>,
+    imports: &'a mut Vec<ImportRule>,
+    layers: &'a mut Vec<String>,
+}
+
 /// collected while it is non-empty records it and is evaluated against the live
 /// [`MediaEnvironment`](crate::media_query::MediaEnvironment) at match time rather than here.
 fn collect_rules(
+    sheet: &mut SheetParts<'_>,
     nodes: Vec<CssNode>,
-    rules: &mut Vec<CssRule>,
-    font_faces: &mut Vec<FontFace>,
-    imports: &mut Vec<ImportRule>,
     media: &mut Vec<Arc<MediaQueryList>>,
-    layers: &mut Vec<String>,
     layer: Option<u32>,
 ) {
     for node in nodes {
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(prelude, block, media, layer) {
-                    rules.push(rule);
+                if let Some(rule) = collect_rule(sheet.pool, prelude, block, media, layer) {
+                    sheet.rules.push(rule);
                 }
             }
             NodeType::AtRule {
@@ -576,10 +586,10 @@ fn collect_rules(
             } if name.eq_ignore_ascii_case("media") => {
                 if let NodeType::Block { children } = block.node_type {
                     // A missing or unparseable prelude yields an empty (always-matching) list,
-                    // so the block's rules stay visible rather than disappearing.
+                    // so the block's sheet.rules stay visible rather than disappearing.
                     let list = prelude.map(|node| MediaQueryList::from_ast(&node)).unwrap_or_default();
                     media.push(Arc::new(list));
-                    collect_rules(children, rules, font_faces, imports, media, layers, layer);
+                    collect_rules(sheet, children, media, layer);
                     media.pop();
                 }
             }
@@ -589,11 +599,11 @@ fn collect_rules(
                 block: None,
             } if name.eq_ignore_ascii_case("import") => {
                 // Per spec `@import` may only appear before any style rule; a later one is
-                // invalid and ignored. Enforcing that keeps `splice_import`'s "imported rules
+                // invalid and ignored. Enforcing that keeps `splice_import`'s "imported sheet.rules
                 // go in front" contract honest.
-                if rules.is_empty() {
+                if sheet.rules.is_empty() {
                     if let Some(import) = collect_import(&prelude) {
-                        imports.push(import);
+                        sheet.imports.push(import);
                     }
                 } else {
                     warn!("Ignoring @import that follows a style rule");
@@ -605,7 +615,7 @@ fn collect_rules(
                 block: Some(block),
             } if name.eq_ignore_ascii_case("supports") => {
                 // A supports condition asks about the engine, never the device, so it can be
-                // settled here: a false block contributes no rules at all, and a true one
+                // settled here: a false block contributes no sheet.rules at all, and a true one
                 // flattens away exactly like `@layer`.
                 let holds = match prelude.as_deref() {
                     Some(CssNode {
@@ -617,11 +627,11 @@ fn collect_rules(
                 };
                 if holds {
                     if let NodeType::Block { children } = block.node_type {
-                        collect_rules(children, rules, font_faces, imports, media, layers, layer);
+                        collect_rules(sheet, children, media, layer);
                     }
                 }
             }
-            // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's rules are
+            // `@layer name { ... }`, or an anonymous `@layer { ... }`. The block's sheet.rules are
             // flattened into the sheet like any other conditional group, but they carry the
             // layer with them: which layer a rule sits in decides the cascade before specificity
             // is ever looked at (css-cascade-5 §6.4.1).
@@ -631,30 +641,30 @@ fn collect_rules(
                 block: Some(block),
             } if name.eq_ignore_ascii_case("layer") => {
                 // A nested `@layer b` inside `@layer a` is the layer `a.b`.
-                let outer = layer.and_then(|index| layers.get(index as usize)).cloned();
+                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
                 let declared = prelude.as_deref().map_or_else(Vec::new, layer_names);
                 // At most one name may be given when there is a block; an anonymous layer is
                 // its own layer every time, and cannot be reopened, so it gets a name no
                 // author-written `@layer` can collide with.
                 let name = match declared.first() {
                     Some(name) => qualify_layer(outer.as_deref(), name),
-                    None => format!("%anonymous-{}", layers.len()),
+                    None => format!("%anonymous-{}", sheet.layers.len()),
                 };
-                let inner = register_layer(layers, &name);
+                let inner = register_layer(sheet.layers, &name);
                 if let NodeType::Block { children } = block.node_type {
-                    collect_rules(children, rules, font_faces, imports, media, layers, Some(inner));
+                    collect_rules(sheet, children, media, Some(inner));
                 }
             }
-            // `@layer a, b;` sets the order of layers before either is filled in. It carries no
-            // rules; naming them here is its whole purpose.
+            // `@layer a, b;` sets the order of sheet.layers before either is filled in. It carries no
+            // sheet.rules; naming them here is its whole purpose.
             NodeType::AtRule {
                 name,
                 prelude,
                 block: None,
             } if name.eq_ignore_ascii_case("layer") => {
-                let outer = layer.and_then(|index| layers.get(index as usize)).cloned();
+                let outer = layer.and_then(|index| sheet.layers.get(index as usize)).cloned();
                 for declared in prelude.as_deref().map_or_else(Vec::new, layer_names) {
-                    register_layer(layers, &qualify_layer(outer.as_deref(), &declared));
+                    register_layer(sheet.layers, &qualify_layer(outer.as_deref(), &declared));
                 }
             }
             NodeType::AtRule {
@@ -664,7 +674,7 @@ fn collect_rules(
             } if name.eq_ignore_ascii_case("font-face") => {
                 if let NodeType::Block { children } = block.node_type {
                     if let Some(face) = collect_font_face(children) {
-                        font_faces.push(face);
+                        sheet.font_faces.push(face);
                     }
                 }
             }
@@ -812,16 +822,20 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>
 /// before any style rule" check honest, and so does `layers`. The media stack is per call
 /// because it is balanced within one top-level node - a nested `@media` pushes its condition and
 /// pops it again before the node is done.
-pub(crate) fn convert_node_into(node: CssNode, sheet: &mut CssStylesheet, layers: &mut Vec<String>) {
-    collect_rules(
-        vec![node],
-        &mut sheet.rules,
-        &mut sheet.font_faces,
-        &mut sheet.imports,
-        &mut Vec::new(),
+pub(crate) fn convert_node_into(
+    node: CssNode,
+    sheet: &mut CssStylesheet,
+    layers: &mut Vec<String>,
+    pool: &mut ValuePool,
+) {
+    let mut parts = SheetParts {
+        pool,
+        rules: &mut sheet.rules,
+        font_faces: &mut sheet.font_faces,
+        imports: &mut sheet.imports,
         layers,
-        None,
-    );
+    };
+    collect_rules(&mut parts, vec![node], &mut Vec::new(), None);
 }
 
 /// Whether any declaration in the sheet uses a viewport-relative unit; see
@@ -842,15 +856,15 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
     let mut sheet = CssStylesheet::new(origin, url);
 
     let mut layers = Vec::new();
-    collect_rules(
-        children,
-        &mut sheet.rules,
-        &mut sheet.font_faces,
-        &mut sheet.imports,
-        &mut Vec::new(),
-        &mut layers,
-        None,
-    );
+    let mut pool = ValuePool::default();
+    let mut parts = SheetParts {
+        pool: &mut pool,
+        rules: &mut sheet.rules,
+        font_faces: &mut sheet.font_faces,
+        imports: &mut sheet.imports,
+        layers: &mut layers,
+    };
+    collect_rules(&mut parts, children, &mut Vec::new(), None);
     sheet.layers = layers;
     // Recorded once here rather than asked per resize: a sheet using `vw`/`vh` must be
     // restyled whenever the viewport changes, while one that does not can keep its cached

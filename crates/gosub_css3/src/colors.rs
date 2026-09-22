@@ -754,7 +754,7 @@ pub fn lch_to_srgb(lightness: f32, chroma: f32, hue_deg: f32) -> (f32, f32, f32)
 /// a hex triple or `rgb()` is an sRGB colour and comes back through `rgb()`; one written
 /// `hsl()` or `hwb()` does too, but only while every component is present; and the rest keep the
 /// notation they were written in, because no other notation can say what they say.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ColorSyntax {
     /// A keyword, a hex triple, `rgb()` or `rgba()`. Components are 0-255.
     Rgb,
@@ -775,7 +775,7 @@ pub enum ColorSyntax {
 }
 
 /// The colour spaces `color()` can name (css-color-4 §10).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PredefinedSpace {
     Srgb,
     SrgbLinear,
@@ -873,6 +873,27 @@ impl Debug for CssColor {
 }
 
 impl CssColor {
+    /// The colour exactly as stored, for a caller that needs identity rather than equality.
+    ///
+    /// [`PartialEq`] answers whether two colours *are the same colour*, comparing converted
+    /// sRGB with a tolerance, which is the right question almost everywhere and the wrong one
+    /// for a pool: two colours a fraction of a channel apart would collapse into one, and the
+    /// one that survived would be the one serialised back to the page.
+    #[must_use]
+    pub(crate) fn exact_parts(&self) -> (ColorSyntax, [u64; 4], u8, bool) {
+        (
+            self.syntax,
+            [
+                self.values[0].to_bits(),
+                self.values[1].to_bits(),
+                self.values[2].to_bits(),
+                self.values[3].to_bits(),
+            ],
+            self.missing,
+            self.computed,
+        )
+    }
+
     /// The three components, `None` where the colour says `none`.
     #[must_use]
     pub fn components(&self) -> [Option<f64>; 3] {

@@ -17,7 +17,7 @@ pub type Number = f64;
 /// `10` are the same number, but only one of them is an `<integer>`. Without it the grammar has
 /// to ask whether the value happens to be whole, which says yes to `z-index: 1e1` - a
 /// declaration no browser accepts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumberKind {
     Integer,
     Number,
