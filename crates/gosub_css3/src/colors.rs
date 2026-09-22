@@ -889,6 +889,20 @@ impl CssColor {
         }
     }
 
+    /// Component `index` with `none` read as zero, which is what every conversion wants.
+    ///
+    /// Separate from [`Self::component`] because it is on the hot path: `to_rgb` runs for every
+    /// colour comparison (`PartialEq` converts both sides), and building an `Option` only to
+    /// unwrap it showed up as a 6% regression on the cascade of a colour-heavy sheet.
+    #[must_use]
+    fn channel(&self, index: usize) -> f64 {
+        if self.missing & (1 << index) == 0 {
+            self.values[index]
+        } else {
+            0.0
+        }
+    }
+
     /// Alpha, 0 to 1, or `None` for `none`.
     #[must_use]
     pub fn alpha(&self) -> Option<f64> {
@@ -973,11 +987,11 @@ impl CssColor {
     pub fn to_rgb(&self) -> RgbColor {
         // Narrowed here, at the boundary with the painting triple, rather than on the way in.
         #[expect(clippy::cast_possible_truncation, reason = "a colour channel fits an f32")]
-        let [first, second, third] = self.components().map(|c| c.unwrap_or(0.0) as f32);
+        let [first, second, third] = [self.channel(0) as f32, self.channel(1) as f32, self.channel(2) as f32];
         // A missing alpha is zero, like any other missing component: `none` is not "absent",
         // which would be opaque, but "nothing to contribute" (css-color-4 §12.2).
         #[expect(clippy::cast_possible_truncation, reason = "alpha is a fraction")]
-        let alpha = self.alpha().unwrap_or(0.0) as f32 * 255.0;
+        let alpha = self.channel(3) as f32 * 255.0;
         let (r, g, b) = match self.syntax {
             ColorSyntax::Rgb => (first, second, third),
             ColorSyntax::Hsl => hsl_to_srgb(first, second / 100.0, third / 100.0),

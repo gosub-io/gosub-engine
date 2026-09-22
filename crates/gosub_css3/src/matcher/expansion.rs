@@ -69,7 +69,7 @@ pub fn expand_declarations(declarations: &[CssDeclaration]) -> Vec<ExpandedDecla
 }
 
 fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
-    if declaration.property.starts_with("--") {
+    if declaration.property.is_custom() {
         return ExpandedDeclaration::Custom;
     }
     if needs_element(&declaration.value) {
@@ -77,8 +77,7 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     }
 
     let definitions = get_css_definitions();
-    let Some(definition) = PropertyId::from_name(&declaration.property).and_then(|id| definitions.definition(id))
-    else {
+    let Some(definition) = declaration.property.id().and_then(|id| definitions.definition(id)) else {
         // A property this engine has no definition for is a property it does not support, and a
         // declaration for one is invalid (css-syntax-3 §9). It is dropped rather than passed
         // through: an unvalidated value reaching the style consumer is how `dsiplay: block` used
@@ -96,7 +95,7 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // an element at all: the cascade facts are stamped on when the element is known.
     let mut fix_list = FixList::new();
     fix_list.set_info(placeholder_info());
-    fix_list.reset_multiplier(&declaration.property);
+    fix_list.reset_multiplier(declaration.property.as_str());
     if !definition.matches_and_shorthands(input, &mut fix_list) {
         log::debug!("Declaration does not match definition: {declaration:?}");
         return ExpandedDeclaration::Invalid;
@@ -110,7 +109,7 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // The declaration itself is kept under its own name as well as expanded: the render pipeline
     // reads shorthand keys (`background`, `padding`, `text-decoration`) directly.
     let mut entries = Vec::with_capacity(fix_list.entry_count() + 1);
-    if let Some(id) = PropertyId::from_name(&declaration.property) {
+    if let Some(id) = declaration.property.id() {
         entries.push((id, single_value(declaration.value.clone())));
     }
     entries.extend(fix_list.into_entries());
@@ -180,7 +179,7 @@ mod tests {
 
     fn declaration(property: &str, value: CssValue) -> CssDeclaration {
         CssDeclaration {
-            property: property.to_string(),
+            property: property.into(),
             value,
             important: false,
         }

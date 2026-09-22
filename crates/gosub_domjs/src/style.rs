@@ -68,7 +68,7 @@ fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
     let [declaration] = rule.declarations().as_slice() else {
         return None;
     };
-    if !declaration.property.eq_ignore_ascii_case(name) {
+    if !declaration.property.as_str().eq_ignore_ascii_case(name) {
         return None;
     }
 

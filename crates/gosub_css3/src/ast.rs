@@ -412,7 +412,9 @@ fn collect_rule(
             let value = resolve_display_alias(&property, value);
 
             rule.declarations.push(CssDeclaration {
-                property,
+                // Resolved to an id here, once, rather than by name on every rule expansion
+                // and every element a pending declaration reaches.
+                property: property.into(),
                 value,
                 important,
             });
@@ -940,7 +942,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(stylesheet.rules.len(), 1, "only the h1 rule survives");
-        assert_eq!(stylesheet.rules[0].declarations.first().unwrap().property, "color");
+        assert_eq!(
+            stylesheet.rules[0].declarations.first().unwrap().property.as_str(),
+            "color"
+        );
     }
 
     #[test]
@@ -1448,7 +1453,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            stylesheet.rules.first().unwrap().declarations.first().unwrap().property,
+            stylesheet
+                .rules
+                .first()
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .property
+                .as_str(),
             "color"
         );
         assert_eq!(
@@ -1457,7 +1470,15 @@ mod tests {
         );
 
         assert_eq!(
-            stylesheet.rules.get(1).unwrap().declarations.first().unwrap().property,
+            stylesheet
+                .rules
+                .get(1)
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .property
+                .as_str(),
             "border"
         );
         assert_eq!(

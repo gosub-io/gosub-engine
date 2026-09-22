@@ -1,3 +1,4 @@
+use crate::matcher::property_ids::PropertyId;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
@@ -457,10 +458,90 @@ impl CssRule {
 }
 
 /// A CSS declaration, which contains a property, value and a flag for !important
+/// The property a declaration sets, resolved to an id where the engine knows the name.
+///
+/// A name used to be stored as a `String` on every declaration: one heap allocation each, on a
+/// real-world sheet nearly forty thousand of them, holding a name the engine has a generated
+/// `u16` for. The id is looked up once when the declaration is parsed rather than once per rule
+/// expansion and once per element for every declaration a `var()` makes pending.
+///
+/// The two string-carrying arms keep their spelling because it is part of their identity: a
+/// custom property *is* its name, and an unknown one has to be nameable in a log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropertyName {
+    /// A property the engine has a definition for.
+    Known(PropertyId),
+    /// A custom property (`--x`).
+    Custom(Arc<str>),
+    /// A name no definition covers: a misspelling, a property from a spec the definitions do
+    /// not carry, or one of the `-internal-` names the user-agent sheet sets.
+    Unknown(Arc<str>),
+}
+
+impl PropertyName {
+    /// The name as written, or the canonical spelling for a known property.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            PropertyName::Known(id) => id.name(),
+            PropertyName::Custom(name) | PropertyName::Unknown(name) => name,
+        }
+    }
+
+    /// The property's id, for the names the engine knows.
+    #[must_use]
+    pub fn id(&self) -> Option<PropertyId> {
+        match self {
+            PropertyName::Known(id) => Some(*id),
+            PropertyName::Custom(_) | PropertyName::Unknown(_) => None,
+        }
+    }
+
+    /// Whether this is a custom property, which cascades in a pass of its own.
+    #[must_use]
+    pub fn is_custom(&self) -> bool {
+        matches!(self, PropertyName::Custom(_))
+    }
+}
+
+impl From<&str> for PropertyName {
+    fn from(name: &str) -> Self {
+        if name.starts_with("--") {
+            return PropertyName::Custom(Arc::from(name));
+        }
+        match PropertyId::from_name(name) {
+            Some(id) => PropertyName::Known(id),
+            None => PropertyName::Unknown(Arc::from(name)),
+        }
+    }
+}
+
+impl From<String> for PropertyName {
+    fn from(name: String) -> Self {
+        PropertyName::from(name.as_str())
+    }
+}
+
+impl std::fmt::Display for PropertyName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl gosub_shared::memory::HeapSize for PropertyName {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        match self {
+            // A known property carries nothing: the id is the name.
+            PropertyName::Known(_) => {}
+            PropertyName::Custom(name) | PropertyName::Unknown(name) => name.heap_size(walk),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssDeclaration {
-    // Css property color
-    pub property: String,
+    /// Which property this sets.
+    pub property: PropertyName,
     // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc.)
     // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
     pub value: CssValue,
@@ -1881,7 +1962,7 @@ mod test {
         let rule = CssRule::new(
             vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
             vec![CssDeclaration {
-                property: "color".to_string(),
+                property: "color".into(),
                 value: CssValue::String("red".to_string()),
                 important: false,
             }],
@@ -1902,7 +1983,7 @@ mod test {
 
         assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
-        assert_eq!(rule.declarations().first().unwrap().property, "color");
+        assert_eq!(rule.declarations().first().unwrap().property.as_str(), "color");
     }
 
     /// Everything that carries specificity, at each of the three levels.

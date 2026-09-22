@@ -445,7 +445,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             ..
         } = matched_rule;
         for decl in rule.declarations() {
-            if !decl.property.starts_with("--") {
+            if !decl.property.is_custom() {
                 continue;
             }
             // Same ordering as the regular cascade: origin/importance, then the cross-tree
@@ -543,7 +543,11 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             // grammar could not be matched against the tokens the parser produced - the empty
             // string of `::before { content: "" }` most of all. It can now, so it goes through
             // the same path as everything else and a `content: 10px` is dropped.
-            match PropertyId::from_name(&declaration.property).and_then(|id| Some((id, definitions.definition(id)?))) {
+            match declaration
+                .property
+                .id()
+                .and_then(|id| Some((id, definitions.definition(id)?)))
+            {
                 Some((id, definition)) => {
                     let match_value = if let CssValue::List(value) = &value {
                         &**value
@@ -569,7 +573,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // counter for this shorthand name. Without this reset, a prior
                     // rule's `margin: 0` (count→1) would corrupt a later rule's
                     // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
-                    fix_list.reset_multiplier(&declaration.property);
+                    fix_list.reset_multiplier(declaration.property.as_str());
                     if !definition.matches_and_shorthands(match_value, &mut fix_list) {
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
@@ -748,7 +752,7 @@ pub fn add_property_to_map(
     layer: Option<u32>,
     attached: bool,
 ) {
-    let Some(id) = PropertyId::from_name(&declaration.property) else {
+    let Some(id) = declaration.property.id() else {
         return;
     };
     push_declaration(
