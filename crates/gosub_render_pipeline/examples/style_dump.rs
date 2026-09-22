@@ -194,8 +194,10 @@ fn dump_element(
         let _ = writeln!(
             computed,
             "  {name} | cascaded {:?} | specified {:?} | computed {:?} | inherited {:?} | em {} rem {}",
-            property.cascaded,
-            property.specified,
+            // Recomputed on demand: the cascaded and specified stages are no longer stored on
+            // every property of every element just so this dump can print them.
+            property.cascaded_value(),
+            property.specified_value(),
             property.computed,
             inherited.unwrap_or(&CssValue::None),
             property.font_size_basis,

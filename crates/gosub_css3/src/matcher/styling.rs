@@ -748,10 +748,6 @@ pub struct CssProperty {
     pub dirty: bool,
     /// List of all declared values for this property
     pub declared: Vec<DeclarationProperty>,
-    /// Cascaded value from the declared values (if any)
-    pub cascaded: Option<CssValue>,
-    // Specified value from the cascaded value (if any), or inherited value, or initial value
-    pub specified: CssValue,
     /// Computed value from the specified value: the last stage the style system settles.
     ///
     /// The used and actual values used to sit here too, as two more fields the chain copied
@@ -863,8 +859,6 @@ impl CssProperty {
             id,
             dirty: true,
             declared: Vec::new(),
-            cascaded: None,
-            specified: CssValue::None,
             computed: CssValue::None,
             inherited: CssValue::None,
             font_size_basis: DEFAULT_FONT_SIZE_PX,
@@ -891,9 +885,31 @@ impl CssProperty {
     }
 
     fn calculate_value(&mut self) {
-        self.cascaded = self.find_cascaded_value();
-        self.specified = self.find_specified_value();
-        self.computed = self.find_computed_value();
+        // The cascaded and specified values are steps on the way to the computed one, not
+        // answers anybody keeps: storing them cost two `CssValue`s on every declared property of
+        // every element - 96 bytes each before whatever they own on the heap - to hold values
+        // only this function and the style dump ever read. They are threaded through as locals,
+        // and [`Self::cascaded_value`] and [`Self::specified_value`] recompute them for the dump.
+        let cascaded = self.find_cascaded_value();
+        let specified = self.find_specified_value(cascaded.as_ref());
+        self.computed = self.find_computed_value(specified);
+    }
+
+    /// The cascaded value: the winner among the declarations that reached this property.
+    ///
+    /// Recomputed rather than stored. Only the style dump asks, and it asks once per property
+    /// per run, where storing it cost every element on every page.
+    #[must_use]
+    pub fn cascaded_value(&self) -> Option<CssValue> {
+        self.find_cascaded_value()
+    }
+
+    /// The specified value: the cascaded value, or what the property falls back to.
+    ///
+    /// Recomputed, for the same reason as [`Self::cascaded_value`].
+    #[must_use]
+    pub fn specified_value(&self) -> CssValue {
+        self.find_specified_value(self.find_cascaded_value().as_ref())
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
@@ -931,8 +947,8 @@ impl CssProperty {
     /// when a parent map was passed in. A consumer that walks the tree itself sees the keyword
     /// travel on, and resolves it against the ancestor it has; what must not happen is for it to
     /// reach a value converter, which reads a keyword it does not know as "nothing declared".
-    fn find_specified_value(&self) -> CssValue {
-        let Some(cascaded) = self.cascaded.as_ref() else {
+    fn find_specified_value(&self, cascaded: Option<&CssValue>) -> CssValue {
+        let Some(cascaded) = cascaded else {
             return self.inherited.clone();
         };
         match css_wide_keyword(cascaded) {
@@ -955,8 +971,8 @@ impl CssProperty {
         self.id.is_some_and(PropertyId::inherited)
     }
 
-    fn find_computed_value(&self) -> CssValue {
-        let specified = match &self.specified {
+    fn find_computed_value(&self, specified: CssValue) -> CssValue {
+        let specified = match &specified {
             // `initial` names the property's own initial value, whatever that is
             // (css-cascade §7.1), so it resolves here rather than travelling on as a keyword
             // nothing downstream recognises. It arrives as a string far more often than as the
@@ -1645,8 +1661,6 @@ impl gosub_shared::memory::HeapSize for DeclarationProperty {
 impl gosub_shared::memory::HeapSize for CssProperty {
     fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
         self.declared.heap_size(walk);
-        self.cascaded.heap_size(walk);
-        self.specified.heap_size(walk);
         self.computed.heap_size(walk);
         self.inherited.heap_size(walk);
     }
