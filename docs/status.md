@@ -64,25 +64,40 @@ Memory was the second half of the work, measured with `memory_dump`
 (`cargo run --release -p gosub_render_pipeline --example memory_dump`), which reports where a
 page's memory goes with shared allocations counted once and states what fraction of the page's
 real cost the rows account for. On the wikipedia fixture under the 18,537-rule sheet, peak
-resident memory fell from 152.6 MB to about 55 MB. Five changes account for it, and none of them
+resident memory fell from 152.6 MB to 48.7 MB. Six changes account for it, and none of them
 altered a byte of either dump. The CSS property definitions used to occupy 60 MB before a page
 was parsed, because resolution inlined each named type into every property referencing it and
 into every other type: the resolved types are now shared behind an `Arc` and the named-type map
 is freed once resolution is done, taking that to 3.7 MB and making the cascade faster, since the
 grammar now fits in cache. Parsing a sheet used to build the whole AST before converting any of
 it; each top-level rule is now converted as it is parsed and its nodes dropped, which took
-parsing the document and its stylesheets from 72.9 MB to 21.5 MB, and the 2.2 MB sheet alone
+parsing the document and its stylesheets from 72.9 MB to about 16 MB, and the 2.2 MB sheet alone
 from 111 ms to under 70 ms. A declared value is shared
 with every element its rule matches rather than deep-copied into each one, and identical values
 are pooled across the rules of a sheet (`value_pool.rs`). `CssColor` packs its components rather
 than holding four `Option<f64>`, which shrank `CssValue` - the largest variant of which is a
 colour - from 72 bytes to 48, and with it every declaration and property in the engine. A
-selector list is one allocation rather than four.
+selector list is one allocation rather than four. And the lists a parsed sheet holds are sized
+as they are built rather than doubled into: a `Vec` that grows by doubling left 18,241 rules in
+32,768 slots and 37,706 declarations in 85,136, 6.1 MB of slots nothing ever filled.
 
-Against Chromium 152 loading the same DOM and sheet headless, measured as the renderer's
-proportional set size above a blank page, the engine costs roughly three times as much. The gap
-is no longer in what a value or a selector costs: it is that every element keeps the
-declarations that reached it, losers included, where a browser applies them and drops them.
+For scale, Firefox 156 loading the same DOM and the same sheet - headless, fresh profile,
+content-process `Private_Dirty` over three runs each of a blank page, the DOM alone and the DOM
+with the sheet - spends 8.0 MB on the DOM and 25.3 MB on the stylesheet, 33.3 MB for the page.
+This engine spends 41.8 MB above its own baseline for the same page, and that buys no layout, no
+painting and no script engine, all of which sit inside Firefox's figure. The two rows that are
+directly comparable both favour this engine: its DOM is about a seventh of Firefox's (1.15 MB
+against 8.0) and its parsed stylesheet about half (11.4 MB against 25.3). What it spends and a
+browser does not is the state kept per element: every declaration that reached a property is
+retained, losers included, so that `revert` can ask what the cascade would have said without an
+origin, where a browser applies the declarations into the computed style and drops them. That,
+with the 665-entry property slot table every element carries, is about 16 MB.
+
+The same measurement against Chromium 152 does not resolve: its renderer baseline is around
+215 MB for a blank headless page with a ten-megabyte spread between runs, so the page's cost
+sits inside the noise - one run of the page measured below a run of the blank. A Chromium figure
+would need its memory-infra tracing, which reports per-component allocator dumps rather than
+process totals.
 
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
 `:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all
