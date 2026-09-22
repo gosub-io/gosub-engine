@@ -187,7 +187,8 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
     // The structural half of every row above: what one of each costs before it allocates.
     println!(
         "Struct sizes: CssValue {}, CssDeclaration {}, CssSelectorPart {}, CssProperty {}, \
-         DeclarationProperty {}, ComputedStyle {}, CssColor {}, CssSelector {} bytes.",
+         DeclarationProperty {}, ComputedStyle {}, CssColor {}, CssSelector {}, CssRule {}, \
+         CssProperties {} bytes.",
         size_of::<gosub_css3::stylesheet::CssValue>(),
         size_of::<gosub_css3::stylesheet::CssDeclaration>(),
         size_of::<gosub_css3::stylesheet::CssSelectorPart>(),
@@ -196,6 +197,8 @@ fn report(name: &str, doc: DocumentImpl<Config>, baseline: Option<usize>) {
         size_of::<ComputedStyle>(),
         size_of::<gosub_css3::colors::CssColor>(),
         size_of::<gosub_css3::stylesheet::CssSelector>(),
+        size_of::<gosub_css3::stylesheet::CssRule>(),
+        size_of::<gosub_css3::matcher::styling::CssProperties>(),
     );
 
     if let (Some(resident), Some(baseline)) = (resident, baseline) {

@@ -178,6 +178,12 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
 /// Convert the children of one `Selector` AST node into selector parts, appending to the compound
 /// currently being built in `out`. A comma starts a new compound.
 fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
+    // One part per node, give or take the few that convert to none, so the list is sized here
+    // rather than doubled into place: `CssSelector` keeps this vector as it is given it, and the
+    // slots a doubling claimed would stay unused for as long as the sheet is loaded.
+    if let Some(current) = out.last_mut() {
+        current.reserve_exact(children.len());
+    }
     for node in children {
         let part = match node.node_type {
             NodeType::Ident { value } => CssSelectorPart::Type(value),
@@ -317,7 +323,14 @@ fn collect_rule(
     media: &[Arc<MediaQueryList>],
     layer: Option<u32>,
 ) -> Option<CssRule> {
-    let mut rule = CssRule::new(vec![], vec![], (!media.is_empty()).then(|| media.to_vec()), layer);
+    // Sized rather than grown: a rule gets exactly one `CssSelector` - the whole selector list
+    // is one of them - and a `Vec` that grows by doubling claims four slots to hold it.
+    let mut rule = CssRule::new(
+        Vec::with_capacity(1),
+        vec![],
+        (!media.is_empty()).then(|| media.to_vec()),
+        layer,
+    );
 
     if let Some(node) = prelude {
         let NodeType::SelectorList { selectors } = node.node_type else {
@@ -355,6 +368,9 @@ fn collect_rule(
         let NodeType::Block { children } = declaration.node_type else {
             return None;
         };
+        // An upper bound, and a close one: a rule's block is declarations and little else. The
+        // alternative is doubling up to 85,136 slots for 37,706 declarations across a sheet.
+        rule.declarations.reserve_exact(children.len());
         for declaration in children {
             let NodeType::Declaration {
                 property,
@@ -870,6 +886,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
     // restyled whenever the viewport changes, while one that does not can keep its cached
     // computed values (see `CssStylesheet::uses_viewport_units`).
     note_viewport_units(&mut sheet);
+    sheet.shrink_to_fit();
     Ok(sheet)
 }
 

@@ -143,6 +143,7 @@ impl<'stream> Css3<'stream> {
         }
         sheet.layers = layers;
         note_viewport_units(&mut sheet);
+        sheet.shrink_to_fit();
         Ok(sheet)
     }
 }

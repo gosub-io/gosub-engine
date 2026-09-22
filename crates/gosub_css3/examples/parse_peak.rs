@@ -82,6 +82,34 @@ fn main() {
         println!("    {n:>6} x {}", &value[..value.len().min(70)]);
     }
 
+    // How much of the sheet is capacity nothing ever filled? A Vec grows by doubling, and a
+    // parsed sheet is never appended to again.
+    let rules_cap = sheet.rules.capacity();
+    let mut sel_len = 0usize;
+    let mut sel_cap = 0usize;
+    let mut decl_len = 0usize;
+    let mut decl_cap = 0usize;
+    for rule in &sheet.rules {
+        sel_len += rule.selectors.len();
+        sel_cap += rule.selectors.capacity();
+        decl_len += rule.declarations.len();
+        decl_cap += rule.declarations.capacity();
+    }
+    println!(
+        "rules      {} used of {} slots ({} wasted)",
+        sheet.rules.len(),
+        rules_cap,
+        mb((rules_cap - sheet.rules.len()) * size_of::<gosub_css3::stylesheet::CssRule>())
+    );
+    println!(
+        "selectors  {sel_len} used of {sel_cap} slots ({} wasted)",
+        mb((sel_cap - sel_len) * size_of::<gosub_css3::stylesheet::CssSelector>())
+    );
+    println!(
+        "decls      {decl_len} used of {decl_cap} slots ({} wasted)",
+        mb((decl_cap - decl_len) * size_of::<gosub_css3::stylesheet::CssDeclaration>())
+    );
+
     drop(sheet);
     println!("after dropping the stylesheet: {}", mb(resident()));
 }
