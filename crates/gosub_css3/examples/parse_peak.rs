@@ -69,7 +69,7 @@ fn main() {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut total = 0usize;
     for rule in &sheet.rules {
-        for decl in &rule.declarations {
+        for decl in rule.declarations() {
             total += 1;
             *seen.entry(format!("{:?}", decl.value)).or_default() += 1;
         }
@@ -96,8 +96,8 @@ fn main() {
     for rule in &sheet.rules {
         sel_len += rule.selectors.len();
         sel_cap += rule.selectors.capacity();
-        decl_len += rule.declarations.len();
-        decl_cap += rule.declarations.capacity();
+        decl_len += rule.declarations().len();
+        decl_cap += rule.declarations().capacity();
     }
     println!(
         "rules      {} used of {} slots ({} wasted)",

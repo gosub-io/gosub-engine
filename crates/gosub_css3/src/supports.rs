@@ -154,7 +154,7 @@ pub fn supports_declaration(property: &str, value: &str) -> bool {
     let Ok(sheet) = Css3::parse_str(&format!("*{{{property}:{value}}}"), config, CssOrigin::Author, "") else {
         return false;
     };
-    let Some(declaration) = sheet.rules.first().and_then(|rule| rule.declarations.first()) else {
+    let Some(declaration) = sheet.rules.first().and_then(|rule| rule.declarations().first()) else {
         // The value did not survive parsing at all.
         return false;
     };

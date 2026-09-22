@@ -378,11 +378,14 @@ pub struct CssRule {
     pub selectors: Vec<CssSelector>,
     /// Actual declarations that will be applied if the selectors match.
     ///
-    /// Editing these once the rule is in a document invalidates [`CssRule::expanded`], which is
-    /// built from them and kept. Nothing does: the parser fills them in before the rule reaches
-    /// a stylesheet, and the CSSOM rewrites the `style` attribute's text, which is parsed into a
-    /// sheet of its own.
-    pub declarations: Vec<CssDeclaration>,
+    /// Private, because [`CssRule::expanded`] is built from them once and kept: a caller that
+    /// edited them in place would leave the cascade reading the ones it replaced. Nothing does
+    /// once the rule is in a stylesheet - the parser fills them in through
+    /// [`CssRule::declarations_mut`] before then, and the CSSOM rewrites the `style` attribute's
+    /// text, which is parsed into a sheet of its own - and the only ways in, that method and
+    /// [`CssRule::set_declarations`], drop the expansion first, so it stays true of whatever
+    /// arrives later.
+    declarations: Vec<CssDeclaration>,
     /// The `@media` conditions enclosing this rule, outermost first - all of them must match
     /// before the rule applies. `None` for the overwhelmingly common unconditional rule, so
     /// the check costs a null test. Each list is shared by every rule in its block.
@@ -442,6 +445,20 @@ impl CssRule {
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
+    }
+
+    /// The rule's declarations, to change. The expansion built from the old ones is dropped
+    /// here, before the caller can reach them, so the next [`CssRule::expanded`] is built from
+    /// whatever the rule says by then - however the caller went about editing it.
+    pub fn declarations_mut(&mut self) -> &mut Vec<CssDeclaration> {
+        self.expanded = OnceLock::new();
+        &mut self.declarations
+    }
+
+    /// Replace the rule's declarations, dropping the expansion built from the old ones.
+    pub fn set_declarations(&mut self, declarations: Vec<CssDeclaration>) {
+        self.declarations = declarations;
+        self.expanded = OnceLock::new();
     }
 
     /// The rule's declarations, each validated against its property definition and expanded
@@ -2055,6 +2072,49 @@ mod test {
         assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
         assert_eq!(rule.declarations().first().unwrap().property.as_str(), "color");
+    }
+
+    /// Changing a rule's declarations after something has already expanded them must not leave
+    /// the cascade reading the ones it replaced. Both ways in drop the expansion, so the next
+    /// read rebuilds it.
+    #[test]
+    fn editing_declarations_drops_the_expansion() {
+        let declaration = |name: &str| CssDeclaration {
+            property: name.into(),
+            value: CssValue::String("red".to_string()).into(),
+            important: false,
+        };
+        let expanded_property = |rule: &CssRule| match rule.expanded().first() {
+            Some(ExpandedDeclaration::Resolved { entries, .. }) => entries[0].0,
+            other => panic!("expected one resolved declaration, got {other:?}"),
+        };
+
+        let mut rule = CssRule::new(
+            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            vec![declaration("color")],
+            None,
+            None,
+        );
+
+        let color = expanded_property(&rule);
+        assert_eq!(rule.expanded().len(), 1);
+
+        // In place, through the mutable accessor.
+        rule.declarations_mut().push(declaration("background-color"));
+        assert_eq!(
+            rule.expanded().len(),
+            2,
+            "the expansion still describes one declaration"
+        );
+
+        // Wholesale, through the setter.
+        rule.set_declarations(vec![declaration("background-color")]);
+        assert_eq!(rule.expanded().len(), 1);
+        assert_ne!(
+            expanded_property(&rule),
+            color,
+            "the expansion still names the property the rule no longer sets"
+        );
     }
 
     /// Everything that carries specificity, at each of the three levels.

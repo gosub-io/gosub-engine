@@ -1985,7 +1985,7 @@ mod tests {
             ..Default::default()
         };
         let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "font-test").expect("parse");
-        let decl = &sheet.rules[0].declarations[0];
+        let decl = &sheet.rules[0].declarations()[0];
         let values = match &*decl.value {
             CssValue::List(v) => v.clone(),
             other => vec![other.clone()],
@@ -2029,7 +2029,7 @@ mod tests {
         };
         let sheet =
             Css3::parse_str(&format!("x {{ {prop}: {decl}; }}"), config, CssOrigin::Author, "t").expect("parse");
-        let values = sheet.rules[0].declarations[0].value.to_slice().to_vec();
+        let values = sheet.rules[0].declarations()[0].value.to_slice().to_vec();
 
         let mut fix_list = FixList::new();
         fix_list.set_info(super::FixListInfo::new(
@@ -2701,7 +2701,7 @@ mod tests {
             ..Default::default()
         };
         let sheet = Css3::parse_str("x { border: 1px solid banana; }", config, CssOrigin::Author, "t").expect("parse");
-        let decl = &sheet.rules[0].declarations[0];
+        let decl = &sheet.rules[0].declarations()[0];
         let values = decl.value.to_slice();
 
         let mut fix_list = FixList::new();

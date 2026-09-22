@@ -1401,7 +1401,7 @@ mod tests {
             ..Default::default()
         };
         let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "corpus-test").expect("parse");
-        let Some(decl) = sheet.rules.first().and_then(|r| r.declarations.first()) else {
+        let Some(decl) = sheet.rules.first().and_then(|r| r.declarations().first()) else {
             return vec![];
         };
         match &*decl.value {

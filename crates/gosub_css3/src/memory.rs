@@ -163,8 +163,8 @@ where
 
     for sheet in sheets() {
         for rule in &sheet.rules {
-            declarations += rule.declarations.len() as u64;
-            rule.declarations.heap_size(walk);
+            declarations += rule.declarations().len() as u64;
+            rule.declarations().heap_size(walk);
         }
     }
     let (owned, shared) = walk.take_counts();

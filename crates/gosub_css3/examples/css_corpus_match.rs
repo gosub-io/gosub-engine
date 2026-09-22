@@ -126,7 +126,7 @@ fn main() {
         files_ok += 1;
 
         for rule in &sheet.rules {
-            for decl in &rule.declarations {
+            for decl in rule.declarations() {
                 total_decls += 1;
                 if decl.property.is_custom() {
                     custom_decls += 1;

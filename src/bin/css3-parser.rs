@@ -211,8 +211,8 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                 }
             }
         }
-        println!("    [Block ({} declarations)]", rule.declarations.len());
-        for decl in &rule.declarations {
+        println!("    [Block ({} declarations)]", rule.declarations().len());
+        for decl in rule.declarations() {
             let important = if decl.important { " !important" } else { "" };
             println!("      [Declaration] {}{important}", decl.property);
             println!("        {:?}", decl.value);

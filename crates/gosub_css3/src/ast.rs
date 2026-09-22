@@ -370,7 +370,7 @@ fn collect_rule(
         };
         // An upper bound, and a close one: a rule's block is declarations and little else. The
         // alternative is doubling up to 85,136 slots for 37,706 declarations across a sheet.
-        rule.declarations.reserve_exact(children.len());
+        rule.declarations_mut().reserve_exact(children.len());
         for declaration in children {
             let NodeType::Declaration {
                 property,
@@ -429,7 +429,7 @@ fn collect_rule(
             // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
             let value = resolve_display_alias(&property, value);
 
-            rule.declarations.push(CssDeclaration {
+            rule.declarations_mut().push(CssDeclaration {
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
                 property: property.into(),
@@ -860,7 +860,7 @@ pub(crate) fn note_viewport_units(sheet: &mut CssStylesheet) {
     sheet.uses_viewport_units = sheet
         .rules
         .iter()
-        .flat_map(|rule| rule.declarations.iter())
+        .flat_map(|rule| rule.declarations().iter())
         .any(|decl| decl.value.uses_viewport_units());
 }
 
@@ -958,7 +958,7 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1, "the list goes whole, its neighbour stays");
         assert_eq!(
-            stylesheet.rules[0].declarations.first().unwrap().value.to_string(),
+            stylesheet.rules[0].declarations().first().unwrap().value.to_string(),
             "blue"
         );
     }
@@ -1002,7 +1002,7 @@ mod tests {
 
         assert_eq!(stylesheet.rules.len(), 1, "only the h1 rule survives");
         assert_eq!(
-            stylesheet.rules[0].declarations.first().unwrap().property.as_str(),
+            stylesheet.rules[0].declarations().first().unwrap().property.as_str(),
             "color"
         );
     }
@@ -1250,7 +1250,7 @@ mod tests {
         .rules
         .first()
         .map(|rule| {
-            rule.declarations
+            rule.declarations()
                 .iter()
                 .map(|d| format!("{}: {}", d.property, d.value))
                 .collect()
@@ -1516,7 +1516,7 @@ mod tests {
                 .rules
                 .first()
                 .unwrap()
-                .declarations
+                .declarations()
                 .first()
                 .unwrap()
                 .property
@@ -1524,7 +1524,7 @@ mod tests {
             "color"
         );
         assert_eq!(
-            *stylesheet.rules.first().unwrap().declarations.first().unwrap().value,
+            *stylesheet.rules.first().unwrap().declarations().first().unwrap().value,
             CssValue::String("red".into())
         );
 
@@ -1533,7 +1533,7 @@ mod tests {
                 .rules
                 .get(1)
                 .unwrap()
-                .declarations
+                .declarations()
                 .first()
                 .unwrap()
                 .property
@@ -1541,7 +1541,7 @@ mod tests {
             "border"
         );
         assert_eq!(
-            *stylesheet.rules.get(1).unwrap().declarations.first().unwrap().value,
+            *stylesheet.rules.get(1).unwrap().declarations().first().unwrap().value,
             CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
