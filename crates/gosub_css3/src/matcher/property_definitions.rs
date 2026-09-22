@@ -1399,7 +1399,7 @@ mod tests {
         let Some(decl) = sheet.rules.first().and_then(|r| r.declarations.first()) else {
             return vec![];
         };
-        match &decl.value {
+        match &*decl.value {
             CssValue::List(v) => v.clone(),
             other => vec![other.clone()],
         }

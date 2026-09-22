@@ -542,9 +542,13 @@ impl gosub_shared::memory::HeapSize for PropertyName {
 pub struct CssDeclaration {
     /// Which property this sets.
     pub property: PropertyName,
-    // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc.)
-    // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
-    pub value: CssValue,
+    /// The value as written, neither calculated nor converted (`red`, `50px`, `1px solid black`).
+    ///
+    /// Shared rather than owned, because a rule's value is copied into every element the rule
+    /// matches: on a real-world page that is tens of thousands of deep copies of a value the
+    /// stylesheet holds one of. Behind an `Arc` the copy is a refcount bump, and the element's
+    /// map points at the sheet's value instead of carrying its own.
+    pub value: Arc<CssValue>,
     // ie: !important
     pub important: bool,
 }
@@ -2021,7 +2025,7 @@ mod test {
             vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
             vec![CssDeclaration {
                 property: "color".into(),
-                value: CssValue::String("red".to_string()),
+                value: CssValue::String("red".to_string()).into(),
                 important: false,
             }],
             None,

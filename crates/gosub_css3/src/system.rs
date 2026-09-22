@@ -585,7 +585,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     push_declaration(
                         &mut css_map_entry,
                         id,
-                        &single_value(value),
+                        // This value was produced per element by substitution, so it is new
+                        // here and gets its own allocation; it is then shared with the map.
+                        &Arc::new(single_value(value)),
                         sheet,
                         declaration.important,
                         specificity,
@@ -777,7 +779,7 @@ pub fn add_property_to_map(
 fn push_declaration(
     css_map_entry: &mut CssProperties,
     id: PropertyId,
-    value: &CssValue,
+    value: &Arc<CssValue>,
     sheet: &crate::stylesheet::CssStylesheet,
     important: bool,
     specificity: Specificity,
@@ -787,8 +789,9 @@ fn push_declaration(
     attached: bool,
 ) {
     let declaration = DeclarationProperty {
-        // @todo: this seems wrong. We only get the first values from the declared values
-        value: value.clone(),
+        // Shared with the rule this came from: a refcount bump per element rather than a
+        // deep copy of the value into every map the rule reaches.
+        value: Arc::clone(value),
         origin: sheet.origin,
         important,
         location: Arc::clone(&sheet.url),
@@ -1042,7 +1045,7 @@ mod tests {
             "",
         )
         .expect("the test declaration parses");
-        sheet.rules[0].declarations()[0].value.clone()
+        (*sheet.rules[0].declarations()[0].value).clone()
     }
 
     /// The custom properties `pairs` declares, each written as it would be in a rule.

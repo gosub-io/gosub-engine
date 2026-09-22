@@ -15,6 +15,8 @@
 //! therefore none can be validated or expanded - before the element is known. Those stay on
 //! the per-element path.
 
+use std::sync::Arc;
+
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::PropertyId;
 use crate::matcher::shorthands::{FixList, FixListInfo};
@@ -41,8 +43,9 @@ pub enum ExpandedDeclaration {
     /// Ready to cascade: the declaration under its own name, followed by every longhand the
     /// shorthand expansion produced.
     Resolved {
-        /// `(property, value)` in the order they enter the element's map.
-        entries: Vec<(PropertyId, CssValue)>,
+        /// `(property, value)` in the order they enter the element's map, each shared with
+        /// the rule rather than copied into it.
+        entries: Vec<(PropertyId, Arc<CssValue>)>,
         /// The declaration's `!important` flag, carried by every entry above.
         important: bool,
     },
@@ -110,13 +113,25 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // reads shorthand keys (`background`, `padding`, `text-decoration`) directly.
     let mut entries = Vec::with_capacity(fix_list.entry_count() + 1);
     if let Some(id) = declaration.property.id() {
-        entries.push((id, single_value(declaration.value.clone())));
+        // The declaration's own value is already shared with the rule; `single_value` only
+        // unwraps a one-element list, so reuse the `Arc` when it changes nothing.
+        entries.push((id, single_value_shared(&declaration.value)));
     }
     entries.extend(fix_list.into_entries());
 
     ExpandedDeclaration::Resolved {
         entries,
         important: declaration.important,
+    }
+}
+
+/// [`single_value`] without losing the sharing: a value that is not a one-element list is
+/// handed back as the same allocation rather than copied.
+#[must_use]
+pub fn single_value_shared(value: &Arc<CssValue>) -> Arc<CssValue> {
+    match &**value {
+        CssValue::List(values) if values.len() == 1 => Arc::new(values[0].clone()),
+        _ => Arc::clone(value),
     }
 }
 
@@ -180,14 +195,18 @@ mod tests {
     fn declaration(property: &str, value: CssValue) -> CssDeclaration {
         CssDeclaration {
             property: property.into(),
-            value,
+            value: Arc::new(value),
             important: false,
         }
     }
 
+    /// The expanded entries with the sharing undone, so the assertions below can stay written
+    /// in terms of the values themselves.
     fn entries(declaration: &CssDeclaration) -> Vec<(PropertyId, CssValue)> {
         match expand_declaration(declaration) {
-            ExpandedDeclaration::Resolved { entries, .. } => entries,
+            ExpandedDeclaration::Resolved { entries, .. } => {
+                entries.into_iter().map(|(id, value)| (id, (*value).clone())).collect()
+            }
             other => panic!("expected a resolved declaration, got {other:?}"),
         }
     }

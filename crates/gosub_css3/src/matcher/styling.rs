@@ -581,8 +581,9 @@ fn match_selector_part<C: HasDocument>(
 /// origin, importance, location and specificity of the declaration.
 #[derive(Debug, Clone)]
 pub struct DeclarationProperty {
-    /// The actual value of the property (@todo: should this be a vec? or do we need to (re-)implement `CssValue::List`?)
-    pub value: CssValue,
+    /// The declared value, shared with the stylesheet rule it came from rather than copied out
+    /// of it - see [`crate::stylesheet::CssDeclaration::value`].
+    pub value: Arc<CssValue>,
     /// Origin of the declaration (user stylesheet, author stylesheet etc.)
     pub origin: CssOrigin,
     /// Whether the declaration is !important
@@ -891,7 +892,7 @@ impl CssProperty {
         // only this function and the style dump ever read. They are threaded through as locals,
         // and [`Self::cascaded_value`] and [`Self::specified_value`] recompute them for the dump.
         let cascaded = self.find_cascaded_value();
-        let specified = self.find_specified_value(cascaded.as_ref());
+        let specified = self.find_specified_value(cascaded.as_deref());
         self.computed = self.find_computed_value(specified);
     }
 
@@ -900,7 +901,7 @@ impl CssProperty {
     /// Recomputed rather than stored. Only the style dump asks, and it asks once per property
     /// per run, where storing it cost every element on every page.
     #[must_use]
-    pub fn cascaded_value(&self) -> Option<CssValue> {
+    pub fn cascaded_value(&self) -> Option<Arc<CssValue>> {
         self.find_cascaded_value()
     }
 
@@ -909,10 +910,10 @@ impl CssProperty {
     /// Recomputed, for the same reason as [`Self::cascaded_value`].
     #[must_use]
     pub fn specified_value(&self) -> CssValue {
-        self.find_specified_value(self.find_cascaded_value().as_ref())
+        self.find_specified_value(self.find_cascaded_value().as_deref())
     }
 
-    fn find_cascaded_value(&self) -> Option<CssValue> {
+    fn find_cascaded_value(&self) -> Option<Arc<CssValue>> {
         let winner = self.declared.iter().max()?;
         // `revert` is not a value: it says to take the value this property would have had if
         // the origin the winning declaration came from had said nothing at all (css-cascade-5
@@ -925,7 +926,7 @@ impl CssProperty {
                     .iter()
                     .filter(|declaration| declaration.origin != origin)
                     .max()
-                    .map(|declaration| declaration.value.clone())
+                    .map(|declaration| Arc::clone(&declaration.value))
             }
             Some(CssWide::RevertLayer) => {
                 let (origin, layer) = (winner.origin, winner.layer);
@@ -933,9 +934,9 @@ impl CssProperty {
                     .iter()
                     .filter(|declaration| declaration.origin != origin || declaration.layer != layer)
                     .max()
-                    .map(|declaration| declaration.value.clone())
+                    .map(|declaration| Arc::clone(&declaration.value))
             }
-            _ => Some(winner.value.clone()),
+            _ => Some(Arc::clone(&winner.value)),
         }
     }
 
@@ -1184,7 +1185,7 @@ impl From<CssValue> for CssProperty {
         this.declared = vec![DeclarationProperty {
             location: no_location(),
             important: false,
-            value,
+            value: Arc::new(value),
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
@@ -1211,7 +1212,7 @@ impl From<CssValue> for DeclarationProperty {
         Self {
             location: no_location(),
             important: false,
-            value,
+            value: Arc::new(value),
             origin: CssOrigin::Author,
             specificity: Specificity::new(0, 0, 0),
             shadow_depth: 0,
@@ -1759,7 +1760,8 @@ mod tests {
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
                 CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0).into()),
-            ]),
+            ])
+            .into(),
             origin: CssOrigin::Author,
             important: false,
             location: no_location(),
@@ -1789,7 +1791,7 @@ mod tests {
         let mut prop = CssProperty::new(id("color"));
 
         prop.declared.push(DeclarationProperty {
-            value: CssValue::String("red".into()),
+            value: CssValue::String("red".into()).into(),
             origin: CssOrigin::Author,
             important: false,
             location: no_location(),
@@ -1824,7 +1826,7 @@ mod tests {
         for keyword in [CssValue::String("initial".to_string()), CssValue::Initial] {
             let mut prop = CssProperty::new(id("width"));
             prop.declared.push(DeclarationProperty {
-                value: keyword,
+                value: keyword.into(),
                 origin: CssOrigin::Author,
                 important: false,
                 location: no_location(),
@@ -1862,7 +1864,7 @@ mod tests {
     fn computed_for(name: &str, value: CssValue) -> CssValue {
         let mut prop = CssProperty::new(id(name));
         prop.declared.push(DeclarationProperty {
-            value,
+            value: value.into(),
             origin: CssOrigin::Author,
             important: false,
             location: no_location(),
@@ -1957,7 +1959,7 @@ mod tests {
     #[test]
     fn compare_declared() {
         let a = DeclarationProperty {
-            value: CssValue::String("red".into()),
+            value: CssValue::String("red".into()).into(),
             origin: CssOrigin::Author,
             important: false,
             location: no_location(),
@@ -1968,7 +1970,7 @@ mod tests {
             attached: false,
         };
         let b = DeclarationProperty {
-            value: CssValue::String("blue".into()),
+            value: CssValue::String("blue".into()).into(),
             origin: CssOrigin::UserAgent,
             important: false,
             location: no_location(),
@@ -1979,7 +1981,7 @@ mod tests {
             attached: false,
         };
         let c = DeclarationProperty {
-            value: CssValue::String("green".into()),
+            value: CssValue::String("green".into()).into(),
             origin: CssOrigin::User,
             important: false,
             location: no_location(),
@@ -1990,7 +1992,7 @@ mod tests {
             attached: false,
         };
         let d = DeclarationProperty {
-            value: CssValue::String("yellow".into()),
+            value: CssValue::String("yellow".into()).into(),
             origin: CssOrigin::Author,
             important: true,
             location: no_location(),
@@ -2001,7 +2003,7 @@ mod tests {
             attached: false,
         };
         let e = DeclarationProperty {
-            value: CssValue::String("orange".into()),
+            value: CssValue::String("orange".into()).into(),
             origin: CssOrigin::UserAgent,
             important: true,
             location: no_location(),
@@ -2012,7 +2014,7 @@ mod tests {
             attached: false,
         };
         let f = DeclarationProperty {
-            value: CssValue::String("purple".into()),
+            value: CssValue::String("purple".into()).into(),
             origin: CssOrigin::User,
             important: true,
             location: no_location(),

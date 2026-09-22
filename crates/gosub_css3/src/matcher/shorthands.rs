@@ -551,8 +551,8 @@ impl FixList {
             && self.list.iter().any(|(id, decls)| {
                 id.name() == "list-style-image"
                     && decls.last().is_some_and(|d| {
-                        matches!(&d.value, CssValue::None)
-                            || matches!(&d.value, CssValue::String(s) if s.eq_ignore_ascii_case("none"))
+                        matches!(&*d.value, CssValue::None)
+                            || matches!(&*d.value, CssValue::String(s) if s.eq_ignore_ascii_case("none"))
                     })
             })
         {
@@ -585,6 +585,7 @@ impl FixList {
     }
 
     fn get_declaration(&self, value: CssValue) -> DeclarationProperty {
+        let value = Arc::new(value);
         if let Some(info) = &self.current_info {
             DeclarationProperty {
                 value,
@@ -761,7 +762,7 @@ impl FixList {
     /// This is for expanding a declaration on its own, away from any element: the cascade facts
     /// the entries carry are the caller's to supply, so only the values come back.
     #[must_use]
-    pub fn into_entries(self) -> Vec<(PropertyId, CssValue)> {
+    pub fn into_entries(self) -> Vec<(PropertyId, Arc<CssValue>)> {
         self.list
             .into_iter()
             .filter_map(|(id, declarations)| {
@@ -980,7 +981,7 @@ pub fn expand_shorthand(property: &str, value: &CssValue) -> Option<Vec<(String,
     let recorded: std::collections::HashMap<PropertyId, &CssValue> = fix_list
         .list
         .iter()
-        .filter_map(|(id, declared)| declared.last().map(|d| (*id, &d.value)))
+        .filter_map(|(id, declared)| declared.last().map(|d| (*id, &*d.value)))
         .collect();
     // Nothing recorded means this shorthand has neither a shape map nor positional rules, so
     // the CSSOM keeps the declaration as written rather than reporting that it sets no
@@ -1985,7 +1986,7 @@ mod tests {
         };
         let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "font-test").expect("parse");
         let decl = &sheet.rules[0].declarations[0];
-        let values = match &decl.value {
+        let values = match &*decl.value {
             CssValue::List(v) => v.clone(),
             other => vec![other.clone()],
         };
@@ -1998,7 +1999,7 @@ mod tests {
         fix_list
             .list
             .iter()
-            .map(|(id, decls)| (id.name().to_string(), decls.last().unwrap().value.clone()))
+            .map(|(id, decls)| (id.name().to_string(), (*decls.last().unwrap().value).clone()))
             .collect()
     }
 
@@ -2050,7 +2051,7 @@ mod tests {
         fix_list
             .list
             .iter()
-            .map(|(id, decls)| (id.name().to_string(), decls.last().expect("a value").value.clone()))
+            .map(|(id, decls)| (id.name().to_string(), (*decls.last().expect("a value").value).clone()))
             .collect()
     }
 
@@ -2974,7 +2975,7 @@ mod tests {
                     .iter()
                     .find(|(k, _)| k.name() == name)
                     .expect("longhand present");
-                match &v.last().unwrap().value {
+                match &*v.last().unwrap().value {
                     CssValue::Unit(n, _) => *n,
                     other => panic!("unexpected value {other:?}"),
                 }

@@ -31,31 +31,59 @@ where
 {
     let mut elements = 0u64;
     let mut declared = 0u64;
+    let mut declared_entries = 0u64;
+
+    // The map itself: the struct per element and the property slots it holds, without the
+    // values hanging off them - those are the two rows below, so nothing is counted twice.
     for map in maps() {
         elements += 1;
         declared += map.props_slice().len() as u64;
-        for property in map.props_slice() {
-            property.heap_size(walk);
-        }
         walk.bytes(size_of_val(map.props_slice()));
     }
     let (owned, shared) = walk.take_counts();
     record(
         Row::new(
-            "css.declarations",
+            "css.property_maps",
             declared,
             elements as usize * size_of::<CssProperties>(),
             owned,
             shared,
         )
         .with_note(format!(
-            "{elements} maps, {:.1} declared properties each, every value at four stages",
+            "{elements} maps, {:.1} declared properties each",
             if elements == 0 {
                 0.0
             } else {
                 declared as f64 / elements as f64
             }
         )),
+    );
+
+    // Every declaration that reached a property, winner and losers alike - the losers are kept
+    // because `revert` asks what the cascade would have said without an origin. This is where
+    // the sheet's values end up, one clone per element that matched.
+    for map in maps() {
+        for property in map.props_slice() {
+            declared_entries += property.declared.len() as u64;
+            property.declared.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("css.declared_entries", declared_entries, 0, owned, shared)
+            .with_note("one per declaration that reached a property, cloned from the rule"),
+    );
+
+    for map in maps() {
+        for property in map.props_slice() {
+            property.computed.heap_size(walk);
+            property.inherited.heap_size(walk);
+        }
+    }
+    let (owned, shared) = walk.take_counts();
+    record(
+        Row::new("css.settled_values", declared, 0, owned, shared)
+            .with_note("the computed and inherited value each property settled on"),
     );
 
     let mut slots = 0usize;

@@ -73,7 +73,7 @@ fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
     }
 
     if name.starts_with("--") {
-        return Some(declaration.value.clone());
+        return Some((*declaration.value).clone());
     }
     // The canonical form, not the parse: `getPropertyValue` serializes the value (CSSOM §6.7.2),
     // and the grammar is what knows that `NONE` is `none`, that `0` matched as a length is

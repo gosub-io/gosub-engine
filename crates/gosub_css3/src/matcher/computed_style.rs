@@ -1928,7 +1928,7 @@ mod tests {
             let id = PropertyId::from_name(name).expect("a property the tests name");
             let mut property = CssProperty::new(id);
             property.declared.push(DeclarationProperty {
-                value: value.clone(),
+                value: std::sync::Arc::new(value.clone()),
                 origin: CssOrigin::Author,
                 important: false,
                 location: no_location(),

@@ -60,6 +60,28 @@ fn main() {
     // What survives is the stylesheet; everything the parser built on the way - the token
     // stream and the AST - is gone by now. If the difference above is far larger than the
     // stylesheet itself, the gap is memory the allocator is holding rather than data we keep.
+    // How much of the sheet is the same value written again? Keyed by the debug form, which is
+    // exact for these values and needs no Hash impl on CssValue.
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut total = 0usize;
+    for rule in &sheet.rules {
+        for decl in &rule.declarations {
+            total += 1;
+            *seen.entry(format!("{:?}", decl.value)).or_default() += 1;
+        }
+    }
+    let repeated: usize = seen.values().filter(|n| **n > 1).map(|n| *n - 1).sum();
+    println!(
+        "declared values: {total} total, {} distinct, {repeated} are a repeat of one already seen ({:.0}%)",
+        seen.len(),
+        100.0 * repeated as f64 / total as f64,
+    );
+    let mut top: Vec<_> = seen.into_iter().collect();
+    top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (value, n) in top.into_iter().take(5) {
+        println!("    {n:>6} x {}", &value[..value.len().min(70)]);
+    }
+
     drop(sheet);
     println!("after dropping the stylesheet: {}", mb(resident()));
 }

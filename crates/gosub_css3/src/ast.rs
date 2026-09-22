@@ -415,7 +415,9 @@ fn collect_rule(
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
                 property: property.into(),
-                value,
+                // One allocation per declaration in the sheet, shared from here on by every
+                // element the rule matches.
+                value: Arc::new(value),
                 important,
             });
         }
@@ -875,7 +877,7 @@ mod tests {
             "",
         )
         .expect("parses");
-        let value_of = |rule: usize| sheet.rules[rule].declarations()[0].value.clone();
+        let value_of = |rule: usize| (*sheet.rules[rule].declarations()[0].value).clone();
         assert_eq!(value_of(0), CssValue::String("flex".into()));
         assert_eq!(value_of(1), CssValue::String("flex".into()));
         assert_eq!(value_of(2), CssValue::String("-webkit-grab".into()));
@@ -1491,7 +1493,7 @@ mod tests {
             "color"
         );
         assert_eq!(
-            stylesheet.rules.first().unwrap().declarations.first().unwrap().value,
+            *stylesheet.rules.first().unwrap().declarations.first().unwrap().value,
             CssValue::String("red".into())
         );
 
@@ -1508,7 +1510,7 @@ mod tests {
             "border"
         );
         assert_eq!(
-            stylesheet.rules.get(1).unwrap().declarations.first().unwrap().value,
+            *stylesheet.rules.get(1).unwrap().declarations.first().unwrap().value,
             CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
