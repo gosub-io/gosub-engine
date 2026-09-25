@@ -1868,6 +1868,26 @@ impl TaffyLayouter {
                                 let ratio = (dimension.width / dimension.height) as f32;
                                 if !both_fixed && ratio.is_finite() && ratio > 0.0 {
                                     taffy_style.aspect_ratio = Some(ratio);
+
+                                    // A maximum on one axis is a maximum on the other, through the
+                                    // ratio - css-sizing-4 §5.2.1 calls it the transferred size.
+                                    // Taffy transfers a *definite* cross size (`height: 24px` sizes
+                                    // the width too) but not a maximum one, and for a flex item the
+                                    // main size then comes from the intrinsic width: the 900x900
+                                    // logo in the ingewikkeld.dev nav, which is a flex item under
+                                    // `max-height: 1.5rem`, laid out 900x24. So the transfer is
+                                    // done here, where the ratio is known.
+                                    //
+                                    // Only when the author left the width open: an explicit width
+                                    // is the used width, and a maximum transferred from the other
+                                    // axis must not narrow it.
+                                    if taffy_style.size.width.is_auto() {
+                                        taffy_style.max_size.width = transferred_max_width(
+                                            taffy_style.max_size.height,
+                                            taffy_style.max_size.width,
+                                            ratio,
+                                        );
+                                    }
                                 }
                             }
 
@@ -2595,6 +2615,31 @@ fn min_content_width(
         .fold(0.0_f64, f64::max)
 }
 
+/// The `max-width` a replaced element inherits from its `max-height`, through the intrinsic
+/// ratio - css-sizing-4 §5.2.1 calls it the transferred size.
+///
+/// Taffy transfers a *definite* cross size (`height: 24px` on a square logo sizes the width to
+/// 24px too) but not a maximum one. For a flex item that leaves the main size coming from the
+/// intrinsic width, so the 900x900 logo in the ingewikkeld.dev nav - a flex item under
+/// `max-height: 1.5rem` - laid out 900x24 instead of 24x24.
+///
+/// `max_width` is returned unchanged when there is no maximum height to transfer.
+fn transferred_max_width(max_height: Dimension, max_width: Dimension, ratio: f32) -> Dimension {
+    let Some(max_h) = max_height.into_option() else {
+        return max_width;
+    };
+    let transferred = max_h * ratio;
+
+    // `into_option` answers for lengths only, so a percentage `max-width` - which is every image
+    // under Tailwind's `img { max-width: 100% }` - reads as absent here and the transferred length
+    // is taken. The two only disagree when the container is narrower than the transferred size,
+    // which for a logo capped at 24px means a container narrower than that.
+    match max_width.into_option() {
+        Some(existing) => Dimension::length(existing.min(transferred)),
+        None => Dimension::length(transferred),
+    }
+}
+
 /// Measure a replaced element (image / SVG) honouring any dimension CSS has already
 /// constrained. When only one of width/height is known, the other is derived from the
 /// intrinsic aspect ratio so the element keeps its shape; when neither is known the
@@ -2994,6 +3039,65 @@ impl TaffyLayouter {
 mod tests {
     use super::{apply_text_transform, to_absolute_url};
     use gosub_interface::style::TextTransform;
+
+    /// A maximum on the height is a maximum on the width too, through the intrinsic ratio.
+    ///
+    /// Taffy applies a *definite* cross size through `aspect_ratio` but not a maximum one, so a
+    /// flex item took its intrinsic width: the 900x900 ingewikkeld.dev nav logo, under
+    /// `max-height: 1.5rem`, laid out 900x24.
+    #[test]
+    fn a_maximum_height_transfers_to_the_width() {
+        use super::transferred_max_width;
+        use taffy::style::Dimension;
+
+        let px = |d: Dimension| d.into_option();
+
+        // Square logo, capped at 24px tall: 24px wide. This is the site's case, where the
+        // percentage `max-width` comes from Tailwind's `img { max-width: 100% }`.
+        assert_eq!(
+            px(transferred_max_width(
+                Dimension::length(24.0),
+                Dimension::percent(1.0),
+                1.0
+            )),
+            Some(24.0)
+        );
+        assert_eq!(
+            px(transferred_max_width(Dimension::length(24.0), Dimension::auto(), 1.0)),
+            Some(24.0)
+        );
+
+        // A wide image keeps its ratio: 24px tall at 4:1 is 96px wide.
+        assert_eq!(
+            px(transferred_max_width(Dimension::length(24.0), Dimension::auto(), 4.0)),
+            Some(96.0)
+        );
+
+        // An author's own `max-width` is not widened by the transfer, only narrowed.
+        assert_eq!(
+            px(transferred_max_width(
+                Dimension::length(24.0),
+                Dimension::length(10.0),
+                1.0
+            )),
+            Some(10.0)
+        );
+        assert_eq!(
+            px(transferred_max_width(
+                Dimension::length(24.0),
+                Dimension::length(80.0),
+                1.0
+            )),
+            Some(24.0)
+        );
+
+        // Nothing to transfer: the width's own maximum stands, whatever it is.
+        assert!(transferred_max_width(Dimension::auto(), Dimension::auto(), 1.0).is_auto());
+        assert_eq!(
+            px(transferred_max_width(Dimension::auto(), Dimension::length(80.0), 1.0)),
+            Some(80.0)
+        );
+    }
 
     #[test]
     fn text_transform_uppercase_lowercase() {
