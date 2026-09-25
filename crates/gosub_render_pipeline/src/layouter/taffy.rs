@@ -106,6 +106,13 @@ struct LineStyle {
     /// cell is the cross axis. Its `align_items` does that, and an `align_self` on the line box
     /// would override it, so inside a cell the line box sets none.
     cell_aligned: bool,
+    /// Take the container's full width rather than shrinking to the content. A line box is as wide
+    /// as its containing block in CSS, but inside an *inline* box - itself a shrink-to-fit flex
+    /// container here - an auto width leaves a percentage on an inline-level child resolving
+    /// against a width derived from that same child. See
+    /// `inline_box_content_is_container_bound`, which says when taking the container's width is
+    /// safe.
+    full_width: bool,
 }
 
 /// Where one line box goes: which band it sits in, and how far below the previous one it starts.
@@ -1021,6 +1028,23 @@ impl TaffyLayouter {
                     .display,
                 CssDisplay::TableCell
             ),
+            // The line boxes of an inline box whose content cannot outgrow its container take that
+            // container's width, so a percentage on an inline-level child has something definite to
+            // resolve against. The inline box itself is widened to match in `extract_taffy_data`.
+            full_width: layout_tree
+                .render_tree
+                .doc
+                .get_node_by_id(element_node.dom_node_id)
+                .is_some_and(|node| {
+                    matches!(
+                        layout_tree
+                            .render_tree
+                            .doc
+                            .computed_style(element_node.dom_node_id)
+                            .declared_display(),
+                        None | Some(CssDisplay::Inline)
+                    ) && self.inline_box_content_is_container_bound(layout_tree, &node)
+                }),
         };
         let bands = self.float_insets.get(&element_node.dom_node_id).cloned();
         let mut cursor = bands.as_ref().map(|bands| BandCursor::new(bands));
@@ -1264,7 +1288,11 @@ impl TaffyLayouter {
                 height: LengthPercentage::length(0.0),
             },
             size: Size {
-                width: Dimension::auto(),
+                width: if line_style.full_width {
+                    Dimension::percent(1.0)
+                } else {
+                    Dimension::auto()
+                },
                 height: Dimension::auto(),
             },
             ..Default::default()
@@ -1764,6 +1792,78 @@ impl TaffyLayouter {
         }
     }
 
+    /// Whether an inline box holds nothing but replaced elements that are already bound by their
+    /// containing block, so giving the box that container's width cannot move its content.
+    ///
+    /// An inline box has two widths in CSS and one here. Its *line box* is as wide as the
+    /// containing block, and that is what a percentage on a child resolves against - CSS 2.1 §10.1
+    /// makes the containing block the nearest **block container**, so inline ancestors are skipped.
+    /// Its own box shrink-wraps its content and may overflow. Taffy is given one shrink-to-fit flex
+    /// container for both, so a child's `max-width: 100%` resolves against a width that is itself
+    /// derived from that child, and an image comes out at its intrinsic size: the ingewikkeld.dev
+    /// footer logo, 900x900 inside a 64px circle. Forcing the `<a>` to `display: block` gives 36x36,
+    /// which is where the gap is.
+    ///
+    /// Taking the container's width for *every* inline box would be wrong: one wrapping a
+    /// definite-width image is meant to shrink-wrap and overflow, and a visible background on it
+    /// would then paint too narrow - Wikipedia's `<span><a><img width=350>` is that shape, and it
+    /// moved 350 -> 337.8 when this was tried unconditionally.
+    ///
+    /// So it is taken only where it is provably a no-op on the content: every replaced element
+    /// inside has `width: auto` **and** a percentage `max-width`, so none of them can exceed the
+    /// containing block the width is taken from. A definite width, no maximum at all, or any text
+    /// with ink, and the box shrink-wraps as before.
+    ///
+    /// The box itself then spans its container, so a small logo inside a wide link gets a link box,
+    /// and therefore a hit area, wider than the image. Accepted deliberately: the alternative is
+    /// inline layout that is not a flex container.
+    fn inline_box_content_is_container_bound(&self, layout_tree: &LayoutTree, node: &Node) -> bool {
+        let mut found_replaced = false;
+        for child_id in &node.children {
+            let Some(child) = layout_tree.render_tree.doc.get_node_by_id(*child_id) else {
+                continue;
+            };
+            match &child.node_type {
+                // Whitespace between the tags is not content: the footer puts its image on a line
+                // of its own, so the `<a>` has a text child either side of it.
+                NodeType::Text(text) if text.trim().is_empty() => continue,
+                NodeType::Element(data) => {
+                    let style = CssTaffyConverter::new(child.node_id, &*layout_tree.render_tree.doc).convert(false);
+                    if data.tag_name.eq_ignore_ascii_case("img")
+                        || data.tag_name.eq_ignore_ascii_case("svg")
+                        || data.tag_name.eq_ignore_ascii_case("video")
+                    {
+                        // `into_option` answers for lengths, so a percentage reads as `None`;
+                        // `auto` is ruled out separately.
+                        let percentage_max =
+                            !style.max_size.width.is_auto() && style.max_size.width.into_option().is_none();
+                        if !style.size.width.is_auto() || !percentage_max {
+                            return false;
+                        }
+                        found_replaced = true;
+                        continue;
+                    }
+                    // A nested inline box qualifies on the same terms, so `<span><a><img>` works.
+                    let inline = matches!(
+                        layout_tree
+                            .render_tree
+                            .doc
+                            .computed_style(child.node_id)
+                            .declared_display(),
+                        None | Some(CssDisplay::Inline)
+                    );
+                    if !inline || !self.inline_box_content_is_container_bound(layout_tree, &child) {
+                        return false;
+                    }
+                    found_replaced = true;
+                }
+                // Text with ink, or anything else, can legitimately overflow.
+                _ => return false,
+            }
+        }
+        found_replaced
+    }
+
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,
     /// any context that might be needed (images, svg, text).
     fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &Node) -> Option<(Option<TaffyContext>, Style)> {
@@ -1779,6 +1879,22 @@ impl TaffyLayouter {
                 // stretches between opposing insets with ones rebased onto its parent, so taffy
                 // sizes it against the CSS containing block rather than whatever ancestor happens
                 // to be its parent. Empty on the first pass. See `abspos::RebasedInsets`.
+                // Both halves are needed: the inline box AND the anonymous line box inside it (see
+                // `LineStyle::full_width`). Making only one definite leaves the other shrinking to
+                // the content, and the child's percentage still resolves against itself.
+                if matches!(
+                    layout_tree
+                        .render_tree
+                        .doc
+                        .computed_style(dom_node.node_id)
+                        .declared_display(),
+                    None | Some(CssDisplay::Inline)
+                ) && taffy_style.size.width.is_auto()
+                    && self.inline_box_content_is_container_bound(layout_tree, dom_node)
+                {
+                    taffy_style.size.width = Dimension::percent(1.0);
+                }
+
                 if let Some(rebased) = self.abspos_insets.get(&dom_node.node_id) {
                     if let (Some(l), Some(r)) = (rebased.left, rebased.right) {
                         taffy_style.inset.left = LengthPercentageAuto::length(l);
