@@ -1279,6 +1279,41 @@ mod rendertree_from_engine {
     /// It is also where the SVG proof of concept ends up once the decoder rejects it: the `<g>`s
     /// are left to lay out as ordinary elements. Part of GHSA-c762-mxfh-vwvp.
     ///
+    /// Asking for the style of an element thousands of levels deep, before anything above it has
+    /// been resolved, used to recurse once per ancestor and overflow the stack. The ancestors are
+    /// now resolved outermost first. Part of GHSA-c762-mxfh-vwvp.
+    #[test]
+    fn a_deeply_nested_element_resolves_its_style_cold() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        const DEPTH: usize = 5000;
+
+        let font_size = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body style=\"font-size: 20px\">{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+                // Walk the DOM, not the adapter: its `children` resolves each child's display on
+                // the way down, which would warm the cache top-down and hide the recursion.
+                let mut deepest = adapter.doc.root();
+                while let Some(&child) = adapter.doc.children(deepest).last() {
+                    deepest = child;
+                }
+                adapter.computed_style(deepest).inherited.font_size
+            })
+            .expect("spawn")
+            .join()
+            .expect("style resolution must not abort the process");
+
+        assert_eq!(font_size, 20.0);
+    }
+
     /// On a 2 MiB stack, which is what a tokio worker gives layout.
     #[test]
     fn a_deeply_nested_page_is_capped() {
