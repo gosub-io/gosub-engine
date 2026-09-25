@@ -1167,9 +1167,33 @@ where
                 return arc.clone();
             }
         }
+        self.warm_ancestors(id);
         let arc = Arc::new(self.compute_styles(id));
         self.style_cache.lock().insert(id, arc.clone());
         arc
+    }
+
+    /// Resolve the uncached element ancestors of `id` outermost first, so resolving `id` itself
+    /// only reaches one level up. Both caches are filled from the parent's entry, and on a cold
+    /// cache that recursed once per ancestor: a page nesting thousands of elements deep
+    /// overflowed the stack.
+    fn warm_ancestors(&self, id: NodeId) {
+        let raw = u64::from(id);
+        if is_pseudo_id(raw) || is_anon_box_id(raw) {
+            return;
+        }
+        let mut chain = Vec::new();
+        let mut cur = self.flat_parent(id);
+        while let Some(parent) = cur.filter(|&p| self.doc.node_type(p) == GosubNodeType::ElementNode) {
+            if self.style_cache.lock().contains_key(&parent) && self.computed_cache.lock().contains_key(&parent) {
+                break;
+            }
+            chain.push(parent);
+            cur = self.flat_parent(parent);
+        }
+        for parent in chain.into_iter().rev() {
+            self.cached_computed_style(parent);
+        }
     }
 
     /// The typed style of `id`, computed on first use and kept.
@@ -1179,6 +1203,7 @@ where
                 return style.clone();
             }
         }
+        self.warm_ancestors(id);
         let style = Arc::new(self.build_computed_style(id));
         self.computed_cache.lock().insert(id, style.clone());
         style

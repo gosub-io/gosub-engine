@@ -16,6 +16,7 @@ pub mod geo;
 pub mod memory;
 pub mod node;
 pub mod subresource;
+pub mod svg_limits;
 pub mod tab_id;
 pub mod timing;
 pub mod types;

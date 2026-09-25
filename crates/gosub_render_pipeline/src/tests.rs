@@ -1274,6 +1274,95 @@ mod rendertree_from_engine {
     /// gave the wrapper's width - and the placement pass only moved the box, so the wrong width
     /// survived. The second layout pass hands taffy insets rebased onto the parent so its own
     /// algorithm produces the right size, and re-lays-out the children at that size.
+    /// Building the taffy tree, taffy's layout and the paint walk all recurse, and before the
+    /// depth cap a few hundred nested `<div>`s overflowed the stack and aborted the process.
+    /// It is also where the SVG proof of concept ends up once the decoder rejects it: the `<g>`s
+    /// are left to lay out as ordinary elements. Part of GHSA-c762-mxfh-vwvp.
+    ///
+    /// Asking for the style of an element thousands of levels deep, before anything above it has
+    /// been resolved, used to recurse once per ancestor and overflow the stack. The ancestors are
+    /// now resolved outermost first. Part of GHSA-c762-mxfh-vwvp.
+    #[test]
+    fn a_deeply_nested_element_resolves_its_style_cold() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        const DEPTH: usize = 5000;
+
+        let font_size = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body style=\"font-size: 20px\">{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+                // Walk the DOM, not the adapter: its `children` resolves each child's display on
+                // the way down, which would warm the cache top-down and hide the recursion.
+                let mut deepest = adapter.doc.root();
+                while let Some(&child) = adapter.doc.children(deepest).last() {
+                    deepest = child;
+                }
+                adapter.computed_style(deepest).inherited.font_size
+            })
+            .expect("spawn")
+            .join()
+            .expect("style resolution must not abort the process");
+
+        assert_eq!(font_size, 20.0);
+    }
+
+    /// On a 2 MiB stack, which is what a tokio worker gives layout.
+    #[test]
+    fn a_deeply_nested_page_is_capped() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const DEPTH: usize = 2000;
+
+        let laid_out = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body>{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0)
+            })
+            .expect("spawn")
+            .join()
+            .expect("layout must not abort the process");
+
+        // The element at the limit becomes a leaf, so the tree holds exactly the levels above it
+        // and nothing below. Checking the depth actually reached, not just that the tree is
+        // smaller than the document, is what separates "capped" from "layout gave up early".
+        let depth_of = |mut id| {
+            let mut d = 0;
+            while let Some(node) = laid_out.arena.get(&id) {
+                let Some(parent) = node.parent else { break };
+                d += 1;
+                id = parent;
+            }
+            d
+        };
+        let deepest = laid_out.arena.keys().map(|id| depth_of(*id)).max().unwrap_or(0);
+        assert_eq!(
+            deepest,
+            crate::layouter::taffy::MAX_LAYOUT_DEPTH,
+            "expected the layout tree to reach exactly the cap; {} boxes in total",
+            laid_out.arena.len()
+        );
+        assert!(laid_out.arena.len() < DEPTH, "the subtree past the cap must be dropped");
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;
