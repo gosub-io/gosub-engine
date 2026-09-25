@@ -12,11 +12,8 @@ use std::sync::Arc;
 
 use crate::common::document::node::NodeType;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{lookup, FontWeight, StyleProperty, Unit, Value};
+use gosub_interface::style::{ComputedStyle, TextTransform as CssTextTransform};
 use gosub_shared::node::NodeId;
-
-const DEFAULT_FONT_SIZE: f32 = 16.0;
-const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
 /// CSS `text-transform` applied to a segment's text after whitespace collapsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,8 +94,9 @@ fn walk(doc: &Arc<dyn PipelineDocument>, node_id: NodeId, out: &mut Vec<RawEntry
         }
         NodeType::Element(data) => {
             if data.tag_name.eq_ignore_ascii_case("br") {
-                let fs = font_size_of(doc, node_id);
-                out.push(RawEntry::Break(resolve_line_height(doc, node_id, fs)));
+                let style = doc.computed_style(node_id);
+                let font_size = style.inherited.font_size;
+                out.push(RawEntry::Break(resolve_line_height(&style, font_size)));
                 return;
             }
             if node.is_inline_element() {
@@ -111,77 +109,42 @@ fn walk(doc: &Arc<dyn PipelineDocument>, node_id: NodeId, out: &mut Vec<RawEntry
 }
 
 fn font_size_of(doc: &Arc<dyn PipelineDocument>, id: NodeId) -> f32 {
-    match doc.get_style(id, &StyleProperty::FontSize) {
-        Value::Unit(v, Unit::Px) => v,
-        _ => DEFAULT_FONT_SIZE,
-    }
+    doc.computed_style(id).inherited.font_size
 }
 
-fn resolve_line_height(doc: &Arc<dyn PipelineDocument>, id: NodeId, font_size: f32) -> f32 {
-    match doc.get_style(id, &StyleProperty::LineHeight) {
-        Value::Unit(v, Unit::Px) => v,
-        Value::Number(ratio) => font_size * ratio,
-        _ => font_size * 1.4,
-    }
+/// The line height in px. `normal` has no length of its own, and the shaper is not consulted
+/// here, so it is approximated as 1.4 times the font size.
+fn resolve_line_height(style: &ComputedStyle, font_size: f32) -> f32 {
+    style.inherited.line_height.to_px(font_size).unwrap_or(font_size * 1.4)
 }
 
 fn resolve_text_transform(doc: &Arc<dyn PipelineDocument>, id: NodeId) -> TextTransform {
-    match doc.get_style(id, &StyleProperty::TextTransform) {
-        Value::Keyword(kw) => match lookup(kw).as_str() {
-            "uppercase" => TextTransform::Uppercase,
-            "lowercase" => TextTransform::Lowercase,
-            "capitalize" => TextTransform::Capitalize,
-            _ => TextTransform::None,
-        },
-        _ => TextTransform::None,
+    match doc.computed_style(id).inherited.text_transform {
+        CssTextTransform::Uppercase => TextTransform::Uppercase,
+        CssTextTransform::Lowercase => TextTransform::Lowercase,
+        CssTextTransform::Capitalize => TextTransform::Capitalize,
+        CssTextTransform::None => TextTransform::None,
     }
 }
 
-/// Resolve a node's computed inline styling. Text nodes have no own style, but `get_style` walks the
-/// parent chain for inherited properties, so calling this on a text node returns the styling it
-/// inherits from its inline/block ancestors.
+/// Resolve a node's computed inline styling. A text node has no style of its own, but its
+/// `ComputedStyle` carries what it inherits from its inline and block ancestors, which is what
+/// every property here is.
 fn resolve_segment_style(doc: &Arc<dyn PipelineDocument>, id: NodeId) -> SegmentStyle {
-    let font_size = font_size_of(doc, id);
-
-    let font_family = match doc.get_style(id, &StyleProperty::FontFamily) {
-        Value::Keyword(kw) => lookup(kw),
-        _ => DEFAULT_FONT_FAMILY.to_string(),
-    };
-
-    let weight = match doc.get_style(id, &StyleProperty::FontWeight) {
-        Value::FontWeight(w) => match w {
-            FontWeight::Normal => 400,
-            FontWeight::Bold | FontWeight::Bolder => 700,
-            FontWeight::Lighter => 300,
-            FontWeight::Number(v) => v as i32,
-        },
-        _ => 400,
-    };
-
-    let italic = matches!(
-        doc.get_style(id, &StyleProperty::FontStyle),
-        Value::Keyword(kw) if lookup(kw) == "italic"
-    );
-
-    let color = match doc.get_style(id, &StyleProperty::Color) {
-        Value::Color(r, g, b, a) => (r, g, b, a),
-        _ => (0, 0, 0, 255),
-    };
-
-    let decoration = match doc.get_style(id, &StyleProperty::TextDecorationLine) {
-        Value::Keyword(kw) => lookup(kw),
-        _ => String::new(),
-    };
+    let style = doc.computed_style(id);
+    let text = &style.inherited;
+    let font_size = text.font_size;
+    let color = text.color;
 
     SegmentStyle {
-        font_family,
+        font_family: text.font_family.to_string(),
         font_size,
-        weight,
-        italic,
-        color,
-        underline: decoration.contains("underline"),
-        line_through: decoration.contains("line-through"),
-        line_height: resolve_line_height(doc, id, font_size),
+        weight: text.font_weight.to_number() as i32,
+        italic: text.font_style == gosub_interface::style::FontStyle::Italic,
+        color: (color.r, color.g, color.b, color.a),
+        underline: text.text_decoration_line.underline,
+        line_through: text.text_decoration_line.line_through,
+        line_height: resolve_line_height(&style, font_size),
     }
 }
 

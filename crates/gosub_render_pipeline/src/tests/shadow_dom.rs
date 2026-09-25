@@ -13,7 +13,6 @@ use gosub_interface::document::Document as _;
 use gosub_shared::node::NodeId;
 
 use crate::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
-use crate::common::document::style::StyleProperty;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -264,9 +263,10 @@ fn a_projected_node_inherits_from_the_slot_not_from_its_host() {
          <slot id=s></slot></template><p id=p>x</p></div>",
     );
 
-    let projected = a.get_style(by_id(&a, "p"), &StyleProperty::Color);
-    assert_eq!(projected, a.get_style(by_id(&a, "s"), &StyleProperty::Color));
-    assert_ne!(projected, a.get_style(by_id(&a, "host"), &StyleProperty::Color));
+    let color_of = |id| a.computed_style(id).inherited.color;
+    let projected = color_of(by_id(&a, "p"));
+    assert_eq!(projected, color_of(by_id(&a, "s")));
+    assert_ne!(projected, color_of(by_id(&a, "host")));
 }
 
 #[test]
@@ -277,8 +277,8 @@ fn a_shadow_tree_inherits_through_its_host() {
     );
 
     assert_eq!(
-        a.get_style(by_id(&a, "in"), &StyleProperty::Color),
-        a.get_style(by_id(&a, "host"), &StyleProperty::Color)
+        a.computed_style(by_id(&a, "in")).inherited.color,
+        a.computed_style(by_id(&a, "host")).inherited.color
     );
 }
 

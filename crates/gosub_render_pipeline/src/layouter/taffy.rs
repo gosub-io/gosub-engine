@@ -2,8 +2,6 @@ use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::{BgSize, PipelineDocument};
-use crate::common::document::style::Display as CssDisplay;
-use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -26,6 +24,10 @@ use crate::layouter::{
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
+use gosub_interface::style::{
+    ComputedStyle, Display as CssDisplay, LengthPercentage as CssLengthPercentage, LetterSpacing, LineHeight,
+    TextAlign, TextTransform as CssTextTransform, WhiteSpace,
+};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -215,8 +217,6 @@ impl BandCursor {
     }
 }
 
-const DEFAULT_FONT_FAMILY: &str = "sans-serif";
-
 /// Upper bound on the `size`, `cols` and `rows` attributes. Markup is untrusted, and `size`
 /// drives a `"0".repeat(size)` prototype string that is then shaped - an unbounded value is a
 /// denial-of-service path through the layout pass. Browsers cap the rendered size too.
@@ -240,11 +240,8 @@ pub(crate) type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 ///
 /// `justify` stays `None`: the shaper stretches a wrapped run itself, and flexing a single item
 /// can't emulate that.
-fn line_box_justify(align: &Value) -> Option<taffy::JustifyContent> {
-    let Value::TextAlign(ta) = align else {
-        return None;
-    };
-    match ta {
+fn line_box_justify(align: TextAlign) -> Option<taffy::JustifyContent> {
+    match align {
         TextAlign::Center => Some(taffy::JustifyContent::CENTER),
         TextAlign::End | TextAlign::Right => Some(taffy::JustifyContent::FLEX_END),
         _ => None,
@@ -356,14 +353,11 @@ pub struct TaffyLayouter {
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
 /// string; `capitalize` uppercases the first letter of each whitespace-separated word. `none`
 /// (and any unsupported keyword such as `full-width`) leaves the text unchanged.
-fn apply_text_transform(text: String, transform: Value) -> String {
-    let Value::Keyword(id) = transform else {
-        return text;
-    };
-    match lookup(id).as_str() {
-        "uppercase" => text.cow_to_uppercase().into_owned(),
-        "lowercase" => text.cow_to_lowercase().into_owned(),
-        "capitalize" => {
+fn apply_text_transform(text: String, transform: CssTextTransform) -> String {
+    match transform {
+        CssTextTransform::Uppercase => text.cow_to_uppercase().into_owned(),
+        CssTextTransform::Lowercase => text.cow_to_lowercase().into_owned(),
+        CssTextTransform::Capitalize => {
             let mut out = String::with_capacity(text.len());
             let mut at_word_start = true;
             for ch in text.chars() {
@@ -379,7 +373,7 @@ fn apply_text_transform(text: String, transform: Value) -> String {
             }
             out
         }
-        _ => text,
+        CssTextTransform::None => text,
     }
 }
 
@@ -1009,8 +1003,10 @@ impl TaffyLayouter {
                 layout_tree
                     .render_tree
                     .doc
-                    .get_style(element_node.dom_node_id, &StyleProperty::Display),
-                Value::Display(CssDisplay::TableCell)
+                    .computed_style(element_node.dom_node_id)
+                    .box_group
+                    .display,
+                CssDisplay::TableCell
             ),
         };
         let bands = self.float_insets.get(&element_node.dom_node_id).cloned();
@@ -1405,10 +1401,12 @@ impl TaffyLayouter {
         // `text-align` inherits, so this is the block's computed value; the line boxes below are
         // anonymous and have no style of their own to read.
         let line_justify = line_box_justify(
-            &layout_tree
+            layout_tree
                 .render_tree
                 .doc
-                .get_style(dom_node.node_id, &StyleProperty::TextAlign),
+                .computed_style(dom_node.node_id)
+                .inherited
+                .text_align,
         );
 
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
@@ -1421,8 +1419,9 @@ impl TaffyLayouter {
             layout_tree
                 .render_tree
                 .doc
-                .get_own_style(dom_node.node_id, &StyleProperty::Display),
-            None | Some(Value::Display(crate::common::document::style::Display::Inline))
+                .computed_style(dom_node.node_id)
+                .declared_display(),
+            None | Some(CssDisplay::Inline)
         ) && matches!(dom_node.node_type, NodeType::Element(_));
         // An inline box does not start a line - it continues its parent's - so whitespace at its
         // start is only leading whitespace if the line itself is empty, which this element cannot
@@ -1434,8 +1433,10 @@ impl TaffyLayouter {
             layout_tree
                 .render_tree
                 .doc
-                .get_style(dom_node.node_id, &StyleProperty::Display),
-            Value::Display(CssDisplay::Inline)
+                .computed_style(dom_node.node_id)
+                .box_group
+                .display,
+            CssDisplay::Inline
         );
 
         // The table displays are mapped onto taffy flex containers too, but their inline content
@@ -1447,17 +1448,17 @@ impl TaffyLayouter {
             layout_tree
                 .render_tree
                 .doc
-                .get_style(dom_node.node_id, &StyleProperty::Display),
-            Value::Display(
-                CssDisplay::Table
-                    | CssDisplay::InlineTable
-                    | CssDisplay::TableCaption
-                    | CssDisplay::TableCell
-                    | CssDisplay::TableFooterGroup
-                    | CssDisplay::TableHeaderGroup
-                    | CssDisplay::TableRow
-                    | CssDisplay::TableRowGroup
-            )
+                .computed_style(dom_node.node_id)
+                .box_group
+                .display,
+            CssDisplay::Table
+                | CssDisplay::InlineTable
+                | CssDisplay::TableCaption
+                | CssDisplay::TableCell
+                | CssDisplay::TableFooterGroup
+                | CssDisplay::TableHeaderGroup
+                | CssDisplay::TableRow
+                | CssDisplay::TableRowGroup
         );
         let parent_is_flex_or_grid =
             matches!(taffy_style.display, Display::Flex | Display::Grid) && !is_inline_container && !is_table_box;
@@ -1540,8 +1541,10 @@ impl TaffyLayouter {
                         layout_tree
                             .render_tree
                             .doc
-                            .get_style(child_node.node_id, &StyleProperty::WhiteSpace),
-                        Value::Keyword(id) if matches!(lookup(id).as_str(), "pre" | "pre-wrap")
+                            .computed_style(child_node.node_id)
+                            .inherited
+                            .white_space,
+                        white_space if white_space.preserves_spaces()
                     );
                     // ASCII, not `str::trim`: `trim` uses the Unicode whitespace set, so a text
                     // node holding only an `&nbsp;` looked like source formatting.
@@ -1588,15 +1591,9 @@ impl TaffyLayouter {
                 if matches!(&child_node.node_type, NodeType::Element(d) if d.tag_name.eq_ignore_ascii_case("br")) {
                     let doc = &layout_tree.render_tree.doc;
                     let nid = child_node.node_id;
-                    let font_size = match doc.get_style(nid, &StyleProperty::FontSize) {
-                        Value::Unit(v, Unit::Px) => v as f64,
-                        _ => DEFAULT_FONT_SIZE,
-                    };
-                    let line_height = match doc.get_style(nid, &StyleProperty::LineHeight) {
-                        Value::Unit(v, Unit::Px) => v as f64,
-                        Value::Number(ratio) => font_size * ratio as f64,
-                        _ => font_size * 1.4,
-                    };
+                    let style = doc.computed_style(nid);
+                    let font_size = f64::from(style.inherited.font_size);
+                    let line_height = line_height_px(&style, font_size);
                     current_inline_group.push(InlineEntry::Break(line_height));
                     trailing_ws_count = 0;
                     continue;
@@ -1613,8 +1610,10 @@ impl TaffyLayouter {
                             layout_tree
                                 .render_tree
                                 .doc
-                                .get_style(child_node.node_id, &StyleProperty::WhiteSpace),
-                            Value::Keyword(id) if matches!(lookup(id).as_str(), "pre" | "pre-wrap")
+                                .computed_style(child_node.node_id)
+                                .inherited
+                                .white_space,
+                            white_space if white_space.preserves_spaces()
                         );
                         // Drop leading whitespace (before any inline sibling) of a box that
                         // starts a line. Keep inter-element whitespace - it collapses to a single
@@ -1697,15 +1696,13 @@ impl TaffyLayouter {
     /// Returns `None` when there is no background image or it fails to load.
     fn resolve_background_media(&self, layout_tree: &LayoutTree, dom_node_id: DomNodeId) -> Option<BackgroundMedia> {
         let doc = &layout_tree.render_tree.doc;
-        let url = match doc.get_style(dom_node_id, &StyleProperty::BackgroundImage) {
-            Value::Keyword(id) => lookup(id),
-            _ => return None,
-        };
+        let style = doc.computed_style(dom_node_id);
+        let url = style.background.image.as_deref()?;
         if url.is_empty() || url.eq_ignore_ascii_case("none") {
             return None;
         }
 
-        let abs = to_absolute_url(&url, &doc.base_url());
+        let abs = to_absolute_url(url, &doc.base_url());
         // Non-blocking: while the background image is still fetching, render without it; the reflow
         // after the fetch completes paints it in.
         let media_id = match self.media_store.request_media(&abs) {
@@ -1958,63 +1955,31 @@ impl TaffyLayouter {
 
                 let doc = &layout_tree.render_tree.doc;
 
-                let mut font_size = DEFAULT_FONT_SIZE;
-                let mut font_family = DEFAULT_FONT_FAMILY.to_string();
-
-                if let Value::Unit(value, Unit::Px) = doc.get_style(dom_node.node_id, &StyleProperty::FontSize) {
-                    font_size = value as f64;
-                }
-
-                if let Value::Keyword(id) = doc.get_style(dom_node.node_id, &StyleProperty::FontFamily) {
-                    font_family = lookup(id);
-                }
-
-                let font_weight = match doc.get_style(dom_node.node_id, &StyleProperty::FontWeight) {
-                    Value::FontWeight(weight) => match weight {
-                        FontWeight::Normal => 400.0,
-                        FontWeight::Bold => 700.0,
-                        FontWeight::Number(value) => value as f64,
-                        FontWeight::Bolder => 700.0,
-                        FontWeight::Lighter => 300.0,
-                    },
-                    _ => 400.0,
-                };
-
-                let font_italic = matches!(
-                    doc.get_style(dom_node.node_id, &StyleProperty::FontStyle),
-                    Value::Keyword(id) if lookup(id) == "italic"
-                );
+                let style = doc.computed_style(dom_node.node_id);
+                let text_style = &style.inherited;
+                let font_size = f64::from(text_style.font_size);
+                let font_family = text_style.font_family.to_string();
+                let font_weight = f64::from(text_style.font_weight.to_number());
+                let font_italic = text_style.font_style == gosub_interface::style::FontStyle::Italic;
 
                 // `left`/`right` are physical and `start`/`end` logical; they only coincide in LTR,
                 // which is all the pipeline handles today. Collapse them here rather than in the
                 // cascade, so the distinction survives for when direction is honoured.
-                let alignment = match doc.get_style(dom_node.node_id, &StyleProperty::TextAlign) {
-                    Value::TextAlign(value) => match value {
-                        TextAlign::Center => FontAlignment::Center,
-                        TextAlign::End | TextAlign::Right => FontAlignment::End,
-                        TextAlign::Justify => FontAlignment::Justify,
-                        _ => FontAlignment::Start,
-                    },
+                let alignment = match text_style.text_align {
+                    TextAlign::Center => FontAlignment::Center,
+                    TextAlign::End | TextAlign::Right => FontAlignment::End,
+                    TextAlign::Justify => FontAlignment::Justify,
                     _ => FontAlignment::Start,
                 };
 
-                let line_height = match doc.get_style(dom_node.node_id, &StyleProperty::LineHeight) {
-                    Value::Unit(value, Unit::Px) => Some(value as f64),
-                    Value::Number(ratio) => Some(font_size * ratio as f64),
-                    // CSS `normal`: no exact height - the font system sizes line boxes from the
-                    // font's natural metrics, which is also what the rasterizer paints.
-                    _ => None,
-                };
+                let line_height = line_height_of(&style, font_size);
 
                 // Half-leading now lives in the shaped glyph positions (the font system places
                 // baselines inside each line box), so the box itself needs no extra offset.
                 let text_offset = Coordinate::new(0.0, 0.0);
 
-                let white_space = match doc.get_style(dom_node.node_id, &StyleProperty::WhiteSpace) {
-                    Value::Keyword(id) => lookup(id),
-                    _ => String::new(),
-                };
-                let preserve_spaces = matches!(white_space.as_str(), "pre" | "pre-wrap");
+                let white_space = text_style.white_space;
+                let preserve_spaces = white_space.preserves_spaces();
 
                 // Apply CSS white-space: normal - collapse newlines/runs of whitespace to a
                 // single space and strip leading/trailing whitespace.  Raw HTML text nodes
@@ -2034,7 +1999,7 @@ impl TaffyLayouter {
                     // Spaces are significant; under `pre` substitute NBSP so Pango never elides
                     // them at line-box edges (same advance width). `pre-wrap` keeps real spaces:
                     // they must stay line-break opportunities.
-                    if white_space == "pre" {
+                    if white_space == WhiteSpace::Pre {
                         text.cow_replace(' ', "\u{00A0}").into_owned()
                     } else {
                         text.to_string()
@@ -2085,7 +2050,7 @@ impl TaffyLayouter {
                 }
 
                 // `pre` and `nowrap` both forbid wrapping (`pre-wrap` keeps it).
-                let no_wrap = matches!(white_space.as_str(), "nowrap" | "pre");
+                let no_wrap = matches!(white_space, WhiteSpace::NoWrap | WhiteSpace::Pre);
                 if no_wrap {
                     taffy_style.flex_shrink = 0.0;
                 }
@@ -2093,21 +2058,18 @@ impl TaffyLayouter {
                 // Apply `text-transform` (inherited from the parent element) to the run before it
                 // is measured and painted - TaffyContext::text is the single source used for both,
                 // so transforming here keeps layout width and drawn glyphs in sync.
-                let text = apply_text_transform(text, doc.get_style(dom_node.node_id, &StyleProperty::TextTransform));
+                let text = apply_text_transform(text, text_style.text_transform);
 
-                let text_decoration = match doc.get_style(dom_node.node_id, &StyleProperty::TextDecorationLine) {
-                    Value::Keyword(id) => lookup(id),
-                    _ => String::new(),
-                };
+                let decoration = text_style.text_decoration_line;
 
-                // `letter-spacing` arrives already resolved to px (em resolved against font-size in
-                // `get_style`); `normal` (a keyword) means no extra spacing. A percentage stays a
-                // percentage through the computed stage (css-text-4 §8.2: it is a used-value
-                // resolution) and refers to the font size, so it is settled here.
-                let letter_spacing = match doc.get_style(dom_node.node_id, &StyleProperty::LetterSpacing) {
-                    Value::Unit(px, Unit::Px) => f64::from(px),
-                    Value::Unit(pct, Unit::Percent) => font_size * f64::from(pct) / 100.0,
-                    _ => 0.0,
+                // `letter-spacing` arrives already resolved to px; `normal` means no extra
+                // spacing. A percentage stays a percentage through the computed stage
+                // (css-text-4 §8.2: it is a used-value resolution) and refers to the font size,
+                // so it is settled here.
+                let letter_spacing = match text_style.letter_spacing {
+                    LetterSpacing::Normal => 0.0,
+                    LetterSpacing::Length(CssLengthPercentage::Px(px)) => f64::from(px),
+                    LetterSpacing::Length(CssLengthPercentage::Percent(pct)) => font_size * f64::from(pct) / 100.0,
                 };
 
                 let font_info = FontInfo {
@@ -2119,8 +2081,8 @@ impl TaffyLayouter {
                     line_height,
                     letter_spacing,
                     alignment,
-                    underline: text_decoration.contains("underline"),
-                    line_through: text_decoration.contains("line-through"),
+                    underline: decoration.underline,
+                    line_through: decoration.line_through,
                 };
 
                 // The gap between two words of a mixed inline run is one of these whitespace
@@ -2294,10 +2256,7 @@ impl TaffyLayouter {
                 // Rows are `line-height` apart in the painter; size the box in the same units.
                 let row_h = font_info.line_height_px().max(font_info.size);
                 let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, row_h * rows as f64);
-                let resize = match doc.get_style(node_id, &StyleProperty::Resize) {
-                    Value::Keyword(k) => Resize::from_keyword(&lookup(k)),
-                    _ => Resize::None,
-                };
+                let resize = Resize::from_keyword(&doc.computed_style(node_id).box_group.resize);
                 let grip = (resize != Resize::None)
                     .then(|| control_icons::resize_grip(&self.media_store))
                     .flatten();
@@ -2478,30 +2437,33 @@ struct MarkupOption {
     disabled: bool,
 }
 
+/// The line height in px, or `None` for `normal` - which has no length of its own, and leaves
+/// the font system to size line boxes from the font's natural metrics.
+///
+/// The arithmetic is in `f64` rather than in the `f32` the style is carried at: a ratio is
+/// multiplied by the font size here, and doing that at single precision moves the answer by a
+/// fraction of a pixel.
+fn line_height_of(style: &ComputedStyle, font_size: f64) -> Option<f64> {
+    match style.inherited.line_height {
+        LineHeight::Normal => None,
+        LineHeight::Px(px) => Some(f64::from(px)),
+        LineHeight::Number(ratio) => Some(font_size * f64::from(ratio)),
+    }
+}
+
+/// The line height in px, with `normal` approximated as 1.4 times the font size - the same
+/// stand-in the inline-run collector uses.
+fn line_height_px(style: &ComputedStyle, font_size: f64) -> f64 {
+    line_height_of(style, font_size).unwrap_or(font_size * 1.4)
+}
+
 /// The control's own computed font (it has no text children to derive one from).
 fn control_font_info(doc: &dyn PipelineDocument, node_id: DomNodeId) -> FontInfo {
-    let mut font_size = DEFAULT_FONT_SIZE;
-    let mut font_family = DEFAULT_FONT_FAMILY.to_string();
-    if let Value::Unit(value, Unit::Px) = doc.get_style(node_id, &StyleProperty::FontSize) {
-        font_size = value as f64;
-    }
-    if let Value::Keyword(id) = doc.get_style(node_id, &StyleProperty::FontFamily) {
-        font_family = lookup(id);
-    }
-    let font_weight = match doc.get_style(node_id, &StyleProperty::FontWeight) {
-        Value::FontWeight(weight) => match weight {
-            FontWeight::Normal => 400.0,
-            FontWeight::Bold | FontWeight::Bolder => 700.0,
-            FontWeight::Number(value) => value as f64,
-            FontWeight::Lighter => 300.0,
-        },
-        _ => 400.0,
-    };
-    let line_height = match doc.get_style(node_id, &StyleProperty::LineHeight) {
-        Value::Unit(value, Unit::Px) => value as f64,
-        Value::Number(ratio) => font_size * ratio as f64,
-        _ => font_size * 1.4,
-    };
+    let style = doc.computed_style(node_id);
+    let font_size = f64::from(style.inherited.font_size);
+    let font_family = style.inherited.font_family.to_string();
+    let font_weight = f64::from(style.inherited.font_weight.to_number());
+    let line_height = line_height_px(&style, font_size);
     FontInfo {
         family: font_family,
         size: font_size,
@@ -2862,12 +2824,11 @@ fn apply_translations(layout_tree: &mut LayoutTree) {
             continue;
         };
         let bb = el.box_model.border_box;
-        let px = |v: &Value, len: f64| match v {
-            Value::Unit(n, Unit::Percent) => len * (*n as f64) / 100.0,
-            Value::Unit(n, _) => *n as f64,
-            _ => 0.0,
+        let px = |value: CssLengthPercentage, len: f64| match value {
+            CssLengthPercentage::Px(n) => f64::from(n),
+            CssLengthPercentage::Percent(pct) => len * f64::from(pct) / 100.0,
         };
-        let (dx, dy) = (px(&tx, bb.width), px(&ty, bb.height));
+        let (dx, dy) = (px(tx, bb.width), px(ty, bb.height));
         if dx == 0.0 && dy == 0.0 {
             continue;
         }
@@ -3013,34 +2974,34 @@ impl TaffyLayouter {
 #[cfg(test)]
 mod tests {
     use super::{apply_text_transform, to_absolute_url};
-    use crate::common::document::style::{intern, Value};
-
-    fn kw(s: &str) -> Value {
-        Value::Keyword(intern(s))
-    }
+    use gosub_interface::style::TextTransform;
 
     #[test]
     fn text_transform_uppercase_lowercase() {
-        assert_eq!(apply_text_transform("Working".to_string(), kw("uppercase")), "WORKING");
-        assert_eq!(apply_text_transform("Working".to_string(), kw("lowercase")), "working");
+        assert_eq!(
+            apply_text_transform("Working".to_string(), TextTransform::Uppercase),
+            "WORKING"
+        );
+        assert_eq!(
+            apply_text_transform("Working".to_string(), TextTransform::Lowercase),
+            "working"
+        );
     }
 
     #[test]
     fn text_transform_capitalize() {
         assert_eq!(
-            apply_text_transform("early stage".to_string(), kw("capitalize")),
+            apply_text_transform("early stage".to_string(), TextTransform::Capitalize),
             "Early Stage"
         );
     }
 
+    /// `none`, and every keyword this engine does not act on (`full-width` and its kin, which
+    /// the conversion reads as `none`), leave the text untouched.
     #[test]
-    fn text_transform_none_and_unsupported_passthrough() {
-        assert_eq!(apply_text_transform("Working".to_string(), kw("none")), "Working");
-        // Unsupported keyword (e.g. full-width) leaves the text untouched.
-        assert_eq!(apply_text_transform("Working".to_string(), kw("full-width")), "Working");
-        // Non-keyword value passes through.
+    fn text_transform_none_passes_the_text_through() {
         assert_eq!(
-            apply_text_transform("Working".to_string(), Value::Number(1.0)),
+            apply_text_transform("Working".to_string(), TextTransform::None),
             "Working"
         );
     }
@@ -3255,7 +3216,7 @@ mod whitespace_tests {
 
 #[cfg(test)]
 mod leading_whitespace_tests {
-    use crate::common::document::style::Display as CssDisplay;
+    use gosub_interface::style::Display as CssDisplay;
 
     /// The rule the two call sites share, stated on its own: only a box that starts a line may
     /// trim whitespace at its start.

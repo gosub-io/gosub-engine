@@ -1,10 +1,20 @@
 pub mod commands;
+pub mod shape_cache;
 pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
-use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
+use gosub_interface::style::{
+    BorderCollapse, BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display,
+};
+
+/// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
+/// property id: the field is the property, now that the style is a struct.
+type ColorOf = fn(&ComputedStyle) -> CssColor;
+
+/// Which border style of a [`ComputedStyle`] an edge is drawn in.
+type BorderStyleOf = fn(&ComputedStyle) -> CssBorderStyle;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
@@ -20,6 +30,7 @@ use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
+use crate::painter::shape_cache::ShapeCache;
 use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
 use gosub_interface::document::ControlEditState;
@@ -84,6 +95,11 @@ pub struct Painter {
     /// its commands once per tile; they don't depend on the tile (page coordinates), and shaping
     /// a textarea's text six times per keystroke is what made typing feel slow.
     memo: Mutex<std::collections::HashMap<LayoutElementId, Vec<PaintCommand>>>,
+    /// Shaped runs shared with the passes before and after this one. The per-pass `memo` above
+    /// stops at the pass boundary, and a scrolling page keeps handing the next pass the runs at
+    /// the window edge that the last one already shaped. `None` when the caller has no grid to
+    /// hang a cache on (a one-shot whole-page paint), and then every run is shaped here.
+    shape_cache: Option<Arc<ShapeCache>>,
 }
 
 impl Painter {
@@ -92,19 +108,34 @@ impl Painter {
             layer_list,
             font_system,
             memo: Mutex::new(std::collections::HashMap::new()),
+            shape_cache: None,
         }
     }
 
+    /// Share `cache` with the other passes over the same tile grid, so a run at the window edge
+    /// is shaped by the first pass that reaches it and read by the rest.
+    #[must_use]
+    pub fn with_shape_cache(mut self, cache: Arc<ShapeCache>) -> Painter {
+        self.shape_cache = Some(cache);
+        self
+    }
+
     /// Shape `text` into the positioned glyph runs a glyph-based rasterizer will paint.
-    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> ShapedText {
+    ///
+    /// Shared rather than copied: the same run reaches every tile the element covers, and with a
+    /// grid cache every pass over those tiles as well.
+    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> Arc<ShapedText> {
         let Some(ref fs) = self.font_system else {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         };
         if text.is_empty() || font_info.size <= 0.0 {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         }
         let style = paint_text_style(font_info, rect_width, available_width);
-        fs.lock().shape(text, &style)
+        match self.shape_cache {
+            Some(ref cache) => cache.get_or_shape(text, &style, || fs.lock().shape(text, &style)),
+            None => Arc::new(fs.lock().shape(text, &style)),
+        }
     }
 
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
@@ -179,12 +210,10 @@ impl Painter {
         commands
     }
 
-    fn get_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
+    fn get_brush(&self, node_id: NodeId, color_of: ColorOf, _default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let brush = match doc.get_style(node_id, css_prop) {
-            Value::Color(r, g, b, a) => Brush::solid(Color::from_rgba8(r, g, b, a)),
-            _ => default,
-        };
+        let color = color_of(&doc.computed_style(node_id));
+        let brush = Brush::solid(Color::from_rgba8(color.r, color.g, color.b, color.a));
         self.apply_opacity(node_id, brush)
     }
 
@@ -198,10 +227,7 @@ impl Painter {
         }
 
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let opacity = match doc.get_style(node_id, &StyleProperty::Opacity) {
-            Value::Number(n) | Value::Unit(n, _) => n,
-            _ => 1.0,
-        };
+        let opacity = doc.computed_style(node_id).box_group.opacity;
         if opacity >= 1.0 {
             return brush;
         }
@@ -218,10 +244,7 @@ impl Painter {
     /// not modelled.
     fn mix_blend_mode(&self, node_id: NodeId) -> BlendMode {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        match doc.get_style(node_id, &StyleProperty::MixBlendMode) {
-            Value::Keyword(kw) => BlendMode::from_css_keyword(&lookup(kw)),
-            _ => BlendMode::Normal,
-        }
+        BlendMode::from_css_keyword(&doc.computed_style(node_id).box_group.mix_blend_mode)
     }
 
     /// Base fill plus overlay `background-image` gradient layers to paint on top, back-to-front.
@@ -233,7 +256,7 @@ impl Painter {
         let layers = doc.background_layers(node_id, box_size);
         let color = self.get_brush(
             node_id,
-            &StyleProperty::BackgroundColor,
+            |style| style.background.color,
             Brush::solid(Color::TRANSPARENT),
         );
         match layers.as_slice() {
@@ -263,7 +286,7 @@ impl Painter {
         let rect = Rect::new(x, y, width, height);
 
         let font_info = self.alt_font_info(node_id);
-        let brush = self.get_brush(node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+        let brush = self.get_brush(node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
         let shaped = self.shape_text(alt, &font_info, rect.width, rect.width);
         Some(PaintCommand::text(Text::new(
             rect, alt, &font_info, brush, rect.width, shaped,
@@ -274,14 +297,9 @@ impl Painter {
     /// undecorated, matching how browsers render the placeholder label.
     fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let size = match doc.get_style(node_id, &StyleProperty::FontSize) {
-            Value::Unit(px, _) => px as f64,
-            _ => 16.0,
-        };
-        let family = match doc.get_style(node_id, &StyleProperty::FontFamily) {
-            Value::Keyword(id) => lookup(id),
-            _ => "sans-serif".to_string(),
-        };
+        let style = doc.computed_style(node_id);
+        let size = f64::from(style.inherited.font_size);
+        let family = style.inherited.font_family.to_string();
         FontInfo {
             family,
             size,
@@ -296,10 +314,10 @@ impl Painter {
         }
     }
 
-    fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
+    fn get_parent_brush(&self, node_id: NodeId, color_of: ColorOf, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.parent(node_id) {
-            Some(parent_id) => self.get_brush(parent_id, css_prop, default),
+            Some(parent_id) => self.get_brush(parent_id, color_of, default),
             None => default,
         }
     }
@@ -348,14 +366,14 @@ impl Painter {
         dom_node_id: NodeId,
     ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
-            Some(Value::Display(Display::Table | Display::InlineTable)) => Color::from_rgb8(255, 0, 0),
-            Some(Value::Display(Display::TableCell)) => Color::from_rgb8(0, 180, 0),
-            Some(Value::Display(Display::TableRow)) => Color::from_rgb8(0, 0, 255),
-            Some(Value::Display(Display::TableRowGroup))
-            | Some(Value::Display(Display::TableHeaderGroup))
-            | Some(Value::Display(Display::TableFooterGroup)) => Color::from_rgb8(160, 0, 200),
-            Some(Value::Display(Display::TableCaption)) => Color::from_rgb8(255, 140, 0),
+        let color = match doc.computed_style(dom_node_id).declared_display() {
+            Some(Display::Table | Display::InlineTable) => Color::from_rgb8(255, 0, 0),
+            Some(Display::TableCell) => Color::from_rgb8(0, 180, 0),
+            Some(Display::TableRow) => Color::from_rgb8(0, 0, 255),
+            Some(Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup) => {
+                Color::from_rgb8(160, 0, 200)
+            }
+            Some(Display::TableCaption) => Color::from_rgb8(255, 140, 0),
             _ => return Vec::new(),
         };
         let border = Border::new(
@@ -421,7 +439,8 @@ impl Painter {
 
         match &layout_element.context {
             ElementContext::Text(ctx) => {
-                let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+                let brush =
+                    self.get_parent_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
                 let brush = self.apply_opacity(dom_node_id, brush);
 
                 let r = layout_element.box_model.content_box;
@@ -569,17 +588,16 @@ impl Painter {
     /// following the element's corner radii. Takes no layout space.
     fn outline_command(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Option<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let width = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineWidth) as f64;
+        let outline = doc.computed_style(dom_node_id).outline.clone();
+        let width = f64::from(outline.width);
         if width <= 0.0 {
             return None;
         }
-        let style = match doc.get_style(dom_node_id, &StyleProperty::OutlineStyle) {
-            Value::BorderStyle(s) if !matches!(s, CssBorderStyle::None | CssBorderStyle::Hidden) => {
-                css_border_style_to_paint(&s)
-            }
-            _ => return None,
-        };
-        let offset = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineOffset) as f64;
+        if !outline.style.is_visible() {
+            return None;
+        }
+        let style = css_border_style_to_paint(&outline.style);
+        let offset = f64::from(outline.offset);
         // A negative offset pulls the ring inside the border box.
         let grow = offset + width;
 
@@ -589,7 +607,7 @@ impl Painter {
             return None;
         }
 
-        let brush = self.get_brush(dom_node_id, &StyleProperty::OutlineColor, Brush::solid(Color::BLACK));
+        let brush = self.get_brush(dom_node_id, |style| style.outline.color, Brush::solid(Color::BLACK));
         let border = Border::new(
             width as f32,
             style,
@@ -597,9 +615,11 @@ impl Painter {
         );
         let mut r = Rectangle::new(ring).with_border(border);
 
-        // Radii grow with the box.
-        let radius = |prop: &StyleProperty| {
-            let v = doc.get_style_f32(dom_node_id, prop) as f64;
+        // Radii grow with the box. A percentage radius is read as its bare number, which is
+        // what this has always done - see `LengthPercentage::raw`.
+        let border = &doc.computed_style(dom_node_id).border;
+        let radius = |value: gosub_interface::style::LengthPercentage| {
+            let v = f64::from(value.raw());
             if v > 0.0 {
                 v + grow
             } else {
@@ -607,10 +627,10 @@ impl Painter {
             }
         };
         let (tl, tr, br, bl) = (
-            radius(&StyleProperty::BorderTopLeftRadius),
-            radius(&StyleProperty::BorderTopRightRadius),
-            radius(&StyleProperty::BorderBottomRightRadius),
-            radius(&StyleProperty::BorderBottomLeftRadius),
+            radius(border.top_left_radius),
+            radius(border.top_right_radius),
+            radius(border.bottom_right_radius),
+            radius(border.bottom_left_radius),
         );
         if tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0 {
             r = r.with_radius_tlrb(Radius::new(tl), Radius::new(tr), Radius::new(br), Radius::new(bl));
@@ -785,7 +805,7 @@ impl Painter {
         let css_text_brush = || {
             self.apply_opacity(
                 dom_node_id,
-                self.get_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK)),
+                self.get_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK)),
             )
         };
 
@@ -1140,10 +1160,8 @@ impl Painter {
 
     fn has_border(&self, dom_node_id: NodeId) -> bool {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth) != 0.0
+        let border = &doc.computed_style(dom_node_id).border;
+        border.top_width != 0.0 || border.right_width != 0.0 || border.bottom_width != 0.0 || border.left_width != 0.0
     }
 
     /// Apply the element's computed CSS border and border-radius to `r`. Shared by block,
@@ -1170,59 +1188,54 @@ impl Painter {
             if (0..4).all(|e| cb.widths[e] + cb.outsets[e] <= 0.0) {
                 return r;
             }
-            let own_color = [
-                StyleProperty::BorderTopColor,
-                StyleProperty::BorderRightColor,
-                StyleProperty::BorderBottomColor,
-                StyleProperty::BorderLeftColor,
+            let own_color: [ColorOf; 4] = [
+                |style| style.border.top_color,
+                |style| style.border.right_color,
+                |style| style.border.bottom_color,
+                |style| style.border.left_color,
             ];
-            let own_style = [
-                StyleProperty::BorderTopStyle,
-                StyleProperty::BorderRightStyle,
-                StyleProperty::BorderBottomStyle,
-                StyleProperty::BorderLeftStyle,
+            let own_style: [BorderStyleOf; 4] = [
+                |style| style.border.top_style,
+                |style| style.border.right_style,
+                |style| style.border.bottom_style,
+                |style| style.border.left_style,
             ];
             // A lost edge renders the winning neighbour's FACING edge: our top
             // is its bottom, our right is its left, and vice versa. When the winner
             // is the TABLE itself (a perimeter boundary the table's border won),
             // the same side applies - the table's left border faces the same way
             // as the cell's left border.
-            let facing_color = [
-                StyleProperty::BorderBottomColor,
-                StyleProperty::BorderLeftColor,
-                StyleProperty::BorderTopColor,
-                StyleProperty::BorderRightColor,
+            let facing_color: [ColorOf; 4] = [
+                |style| style.border.bottom_color,
+                |style| style.border.left_color,
+                |style| style.border.top_color,
+                |style| style.border.right_color,
             ];
-            let facing_style = [
-                StyleProperty::BorderBottomStyle,
-                StyleProperty::BorderLeftStyle,
-                StyleProperty::BorderTopStyle,
-                StyleProperty::BorderRightStyle,
+            let facing_style: [BorderStyleOf; 4] = [
+                |style| style.border.bottom_style,
+                |style| style.border.left_style,
+                |style| style.border.top_style,
+                |style| style.border.right_style,
             ];
             let owner_is_table = |owner: NodeId| {
                 matches!(
-                    doc.get_own_style(owner, &StyleProperty::Display),
-                    Some(Value::Display(Display::Table | Display::InlineTable))
+                    doc.computed_style(owner).declared_display(),
+                    Some(Display::Table | Display::InlineTable)
                 )
             };
 
             let brushes: [Brush; 4] = std::array::from_fn(|e| match cb.owners[e] {
-                Some(owner) if owner_is_table(owner) => {
-                    self.get_brush(owner, &own_color[e], Brush::solid(Color::BLACK))
-                }
-                Some(owner) => self.get_brush(owner, &facing_color[e], Brush::solid(Color::BLACK)),
-                None => self.get_brush(dom_node_id, &own_color[e], Brush::solid(Color::BLACK)),
+                Some(owner) if owner_is_table(owner) => self.get_brush(owner, own_color[e], Brush::solid(Color::BLACK)),
+                Some(owner) => self.get_brush(owner, facing_color[e], Brush::solid(Color::BLACK)),
+                None => self.get_brush(dom_node_id, own_color[e], Brush::solid(Color::BLACK)),
             });
             let styles: [BorderStyle; 4] = std::array::from_fn(|e| {
-                let (node, prop) = match cb.owners[e] {
-                    Some(owner) if owner_is_table(owner) => (owner, &own_style[e]),
-                    Some(owner) => (owner, &facing_style[e]),
-                    None => (dom_node_id, &own_style[e]),
+                let (node, style_of) = match cb.owners[e] {
+                    Some(owner) if owner_is_table(owner) => (owner, own_style[e]),
+                    Some(owner) => (owner, facing_style[e]),
+                    None => (dom_node_id, own_style[e]),
                 };
-                match doc.get_style(node, prop) {
-                    Value::BorderStyle(s) => css_border_style_to_paint(&s),
-                    _ => BorderStyle::Solid,
-                }
+                css_border_style_to_paint(&style_of(&doc.computed_style(node)))
             });
             // Snap the box and the strip ends to whole device pixels. The two
             // cells of a boundary compute their strip ends from the SAME edge
@@ -1251,20 +1264,20 @@ impl Painter {
         // A collapsed table's boundary is painted entirely by its perimeter cells
         // (their halves + outsets, in whatever style won the conflict); painting the
         // table's own CSS border as well would double-draw the losing style on top.
+        let element_style = doc.computed_style(dom_node_id);
         if matches!(
-            doc.get_own_style(dom_node_id, &StyleProperty::Display),
-            Some(Value::Display(Display::Table | Display::InlineTable))
-        ) && matches!(
-            doc.get_style(dom_node_id, &StyleProperty::BorderCollapse),
-            Value::Keyword(k) if lookup(k) == "collapse"
-        ) {
+            element_style.declared_display(),
+            Some(Display::Table | Display::InlineTable)
+        ) && element_style.inherited.border_collapse == BorderCollapse::Collapse
+        {
             return r;
         }
 
-        let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
-        let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
-        let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
-        let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
+        let css_border = &element_style.border;
+        let border_top_width = css_border.top_width;
+        let border_right_width = css_border.right_width;
+        let border_bottom_width = css_border.bottom_width;
+        let border_left_width = css_border.left_width;
 
         if border_top_width != 0.0
             || border_right_width != 0.0
@@ -1272,24 +1285,20 @@ impl Painter {
             || border_left_width != 0.0
         {
             let border_top_color =
-                self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
+                self.get_brush(dom_node_id, |style| style.border.top_color, Brush::solid(Color::BLACK));
             let border_right_color = self.get_brush(
                 dom_node_id,
-                &StyleProperty::BorderRightColor,
+                |style| style.border.right_color,
                 Brush::solid(Color::BLACK),
             );
             let border_bottom_color = self.get_brush(
                 dom_node_id,
-                &StyleProperty::BorderBottomColor,
+                |style| style.border.bottom_color,
                 Brush::solid(Color::BLACK),
             );
             let border_left_color =
-                self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
+                self.get_brush(dom_node_id, |style| style.border.left_color, Brush::solid(Color::BLACK));
 
-            let side_style = |prop: &StyleProperty| match doc.get_style(dom_node_id, prop) {
-                Value::BorderStyle(s) => css_border_style_to_paint(&s),
-                _ => BorderStyle::Solid,
-            };
             let border = Border::new_per_side(
                 [
                     border_top_width,
@@ -1298,10 +1307,10 @@ impl Painter {
                     border_left_width,
                 ],
                 [
-                    side_style(&StyleProperty::BorderTopStyle),
-                    side_style(&StyleProperty::BorderRightStyle),
-                    side_style(&StyleProperty::BorderBottomStyle),
-                    side_style(&StyleProperty::BorderLeftStyle),
+                    css_border_style_to_paint(&css_border.top_style),
+                    css_border_style_to_paint(&css_border.right_style),
+                    css_border_style_to_paint(&css_border.bottom_style),
+                    css_border_style_to_paint(&css_border.left_style),
                 ],
                 [
                     border_top_color,
@@ -1313,10 +1322,12 @@ impl Painter {
             r = r.with_border(border);
         }
 
-        let radius_bottom_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomLeftRadius);
-        let radius_bottom_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomRightRadius);
-        let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
-        let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
+        // A percentage radius is read as its bare number, which is what this has always done -
+        // see `LengthPercentage::raw`.
+        let radius_bottom_left = css_border.bottom_left_radius.raw();
+        let radius_bottom_right = css_border.bottom_right_radius.raw();
+        let radius_top_left = css_border.top_left_radius.raw();
+        let radius_top_right = css_border.top_right_radius.raw();
 
         if radius_bottom_left != 0.0 || radius_bottom_right != 0.0 || radius_top_left != 0.0 || radius_top_right != 0.0
         {

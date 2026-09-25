@@ -1,4 +1,5 @@
 use crate::config::HasDocument;
+use crate::style::ComputedStyle;
 use gosub_shared::async_executor::{WasmNotSend, WasmNotSendSync};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -145,6 +146,17 @@ pub trait CssStylesheet: PartialEq + Debug {
 }
 
 pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {
+    /// This element's computed style as a typed struct, given the parent element's.
+    ///
+    /// The map is keyed by property and holds CSS values; a consumer wants fields. This is the
+    /// one conversion between the two, so everything that used to be decided per reader - what
+    /// `currentColor` means, what a `font-size` keyword is worth in pixels, whether a border
+    /// has any width - is decided once, here.
+    ///
+    /// `parent` is what every inherited property falls back to, so styles resolve top-down.
+    /// `None` is the root, which inherits the initial values.
+    fn computed_style(&self, parent: Option<&ComputedStyle>) -> ComputedStyle;
+
     fn insert_inherited(&mut self, name: &str, value: S::Property);
 
     fn insert(&mut self, name: &str, value: S::Property);
@@ -188,11 +200,6 @@ pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn as_function(&self) -> Option<(&str, &[S::Value])>;
 
     fn is_none(&self) -> bool;
-
-    /// Origin of the cascade-winning declaration for this property, if any was declared.
-    /// Lets consumers slot HTML presentational hints (`cellspacing`, `cellpadding`, ...)
-    /// between user-agent and author styles.
-    fn winning_origin(&self) -> Option<CssOrigin>;
 }
 
 pub trait CssValue: Sized {

@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 use gosub_shared::errors::{CssError, CssResult};
 use nom::branch::alt;
@@ -199,7 +200,12 @@ pub enum SyntaxComponent {
     },
     /// Group of components surrounded by []
     Group {
-        components: Vec<SyntaxComponent>,
+        /// Shared rather than owned: resolution inlines a named type into every property that
+        /// references it, and `<color>` alone is referenced by dozens. Behind an `Arc` the type
+        /// is resolved once and pointed at, which is what keeps the definition tables from
+        /// holding several hundred thousand copies of the same grammar nodes. Reads are
+        /// unchanged - it derefs to a slice - and a writer rebuilds rather than mutating.
+        components: Arc<[SyntaxComponent]>,
         combinator: GroupCombinators,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
@@ -456,7 +462,7 @@ fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent>
     }
 
     let group = SyntaxComponent::Group {
-        components,
+        components: components.into(),
         combinator: GroupCombinators::ExactlyOne,
         multipliers: vec![SyntaxComponentMultiplier::Once],
     };
@@ -476,7 +482,7 @@ fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent>
     }
 
     let group = SyntaxComponent::Group {
-        components,
+        components: components.into(),
         combinator: GroupCombinators::AtLeastOneAnyOrder,
         multipliers: vec![SyntaxComponentMultiplier::Once],
     };
@@ -496,7 +502,7 @@ fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComp
     }
 
     let group = SyntaxComponent::Group {
-        components,
+        components: components.into(),
         combinator: GroupCombinators::AllAnyOrder,
         multipliers: vec![SyntaxComponentMultiplier::Once],
     };
@@ -576,7 +582,7 @@ fn parse_component_juxtaposition_list(input: &str) -> IResult<&str, SyntaxCompon
     }
 
     let group = SyntaxComponent::Group {
-        components,
+        components: components.into(),
         combinator: GroupCombinators::Juxtaposition,
         multipliers: vec![SyntaxComponentMultiplier::Once],
     };
@@ -1311,7 +1317,8 @@ mod tests {
                         range: RangeType::empty(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }]
         );
@@ -1355,7 +1362,8 @@ mod tests {
                         keyword: "right".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1381,10 +1389,12 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1406,14 +1416,16 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "top".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1435,14 +1447,16 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "top".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1464,14 +1478,16 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "top".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1497,10 +1513,12 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1533,13 +1551,16 @@ mod tests {
                                         keyword: "bottom".to_string(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1561,7 +1582,8 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -1575,10 +1597,12 @@ mod tests {
                                 keyword: "bottom".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1603,21 +1627,24 @@ mod tests {
                                         keyword: "right".to_string(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
                             SyntaxComponent::GenericKeyword {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "bottom".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1642,21 +1669,24 @@ mod tests {
                                         keyword: "right".to_string(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
                             SyntaxComponent::GenericKeyword {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "bottom".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1682,14 +1712,16 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "bottom".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1711,7 +1743,8 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -1725,10 +1758,12 @@ mod tests {
                                 keyword: "bottom".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1750,7 +1785,8 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -1764,10 +1800,12 @@ mod tests {
                                 keyword: "bottom".into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         );
@@ -1957,7 +1995,8 @@ mod tests {
                             },
                             multipliers: vec![SyntaxComponentMultiplier::Optional],
                         },
-                    ],
+                    ]
+                    .into(),
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 })),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -1990,7 +2029,8 @@ mod tests {
                         keyword: "right".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2012,7 +2052,8 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -2026,10 +2067,12 @@ mod tests {
                                 keyword: "bottom".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2051,7 +2094,8 @@ mod tests {
                                 keyword: "right".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -2072,13 +2116,16 @@ mod tests {
                                         keyword: "baz".to_string(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2101,7 +2148,8 @@ mod tests {
                         keyword: "top".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2124,7 +2172,8 @@ mod tests {
                         keyword: "top".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2152,7 +2201,8 @@ mod tests {
                         keyword: "right".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2171,7 +2221,8 @@ mod tests {
                         keyword: "right".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2190,7 +2241,8 @@ mod tests {
                         keyword: "right".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2216,14 +2268,16 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::GenericKeyword {
                         keyword: "a".to_string(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2249,10 +2303,12 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2295,7 +2351,8 @@ mod tests {
                                 },
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -2325,7 +2382,8 @@ mod tests {
                                         },
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
                             SyntaxComponent::Group {
@@ -2352,10 +2410,12 @@ mod tests {
                                         },
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -2382,7 +2442,8 @@ mod tests {
                                                         keyword: "right".to_string(),
                                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                                     },
-                                                ],
+                                                ]
+                                                .into(),
                                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                                             },
                                             SyntaxComponent::Definition {
@@ -2394,10 +2455,12 @@ mod tests {
                                                 },
                                                 multipliers: vec![SyntaxComponentMultiplier::Optional],
                                             },
-                                        ],
+                                        ]
+                                        .into(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
                             SyntaxComponent::Group {
@@ -2421,7 +2484,8 @@ mod tests {
                                                         keyword: "bottom".to_string(),
                                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                                     },
-                                                ],
+                                                ]
+                                                .into(),
                                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                                             },
                                             SyntaxComponent::Definition {
@@ -2433,16 +2497,20 @@ mod tests {
                                                 },
                                                 multipliers: vec![SyntaxComponentMultiplier::Optional],
                                             },
-                                        ],
+                                        ]
+                                        .into(),
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
                                     },
-                                ],
+                                ]
+                                .into(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }])
         );
@@ -2472,7 +2540,8 @@ mod tests {
                                 keyword: "top".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Between(1, 3)],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                     SyntaxComponent::Group {
@@ -2486,10 +2555,12 @@ mod tests {
                                 keyword: "center2".to_string(),
                                 multipliers: vec![SyntaxComponentMultiplier::Once],
                             },
-                        ],
+                        ]
+                        .into(),
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
-                ],
+                ]
+                .into(),
                 multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
             }])
         );

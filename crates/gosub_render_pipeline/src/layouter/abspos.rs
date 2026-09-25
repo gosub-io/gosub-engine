@@ -14,9 +14,9 @@
 
 use crate::common::document::node::NodeId as DomNodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
 use crate::common::geo::{Dimension, Rect};
 use crate::layouter::{LayoutElementId, LayoutTree};
+use gosub_interface::style::{LengthPercentageAuto, Position, Prop};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,31 +32,22 @@ enum PositionKind {
 }
 
 fn position_kind(doc: &dyn PipelineDocument, id: DomNodeId) -> PositionKind {
-    match doc.get_own_style(id, &StyleProperty::Position) {
-        Some(Value::Keyword(kw)) => match lookup(kw).as_str() {
-            "absolute" => PositionKind::Absolute,
-            "fixed" => PositionKind::Fixed,
-            "relative" | "sticky" => PositionKind::InFlowPositioned,
-            _ => PositionKind::Static,
-        },
-        _ => PositionKind::Static,
+    let style = doc.computed_style(id);
+    if !style.has(Prop::Position) {
+        return PositionKind::Static;
+    }
+    match style.box_group.position {
+        Position::Absolute => PositionKind::Absolute,
+        Position::Fixed => PositionKind::Fixed,
+        Position::Relative | Position::Sticky => PositionKind::InFlowPositioned,
+        Position::Static => PositionKind::Static,
     }
 }
 
 /// An inset (`top`/`right`/`bottom`/`left`) resolved against the containing block's size, or
 /// `None` for `auto` - which means "leave the box where the flow put it" on that axis.
-fn inset(doc: &dyn PipelineDocument, id: DomNodeId, prop: StyleProperty, basis: f64) -> Option<f64> {
-    // `get_style`, not `get_own_style`: it resolves `em`/`rem` to px, which the converter feeding
-    // taffy already does (`CssTaffyConverter::get_inset`). Reading the raw value here dropped
-    // font-relative insets on the floor, and a box whose only specified side was one of them was
-    // then treated as `auto` on that axis - left wherever taffy had put it rather than placed
-    // against its containing block. The initial value of every inset is the keyword `auto`, so an
-    // unspecified side still falls through to `None`.
-    match doc.get_style(id, &prop) {
-        Value::Unit(v, Unit::Px) => Some(v as f64),
-        Value::Unit(v, Unit::Percent) => Some(basis * v as f64 / 100.0),
-        _ => None,
-    }
+fn inset(side: LengthPercentageAuto, basis: f64) -> Option<f64> {
+    side.resolve(basis as f32).map(f64::from)
 }
 
 /// Taffy insets for one absolutely positioned box, rebased from its CSS containing block onto
@@ -82,8 +73,8 @@ impl RebasedInsets {
 }
 
 /// Whether an axis is `auto`-sized, so that opposing insets should stretch the box.
-fn is_auto_size(doc: &dyn PipelineDocument, id: DomNodeId, prop: StyleProperty) -> bool {
-    !matches!(doc.get_style(id, &prop), Value::Unit(..) | Value::Number(_))
+fn is_auto_size(size: LengthPercentageAuto) -> bool {
+    size.is_auto()
 }
 
 /// Re-place every absolutely positioned box against the containing block CSS gives it.
@@ -121,10 +112,11 @@ pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) ->
 
         // With both insets on an axis given, the start one wins: this pass does not stretch a box
         // to satisfy both, it only places it.
-        let left = inset(&*doc, dom_id, StyleProperty::InsetInlineStart, cb.width);
-        let right = inset(&*doc, dom_id, StyleProperty::InsetInlineEnd, cb.width);
-        let top = inset(&*doc, dom_id, StyleProperty::InsetBlockStart, cb.height);
-        let bottom = inset(&*doc, dom_id, StyleProperty::InsetBlockEnd, cb.height);
+        let style = doc.computed_style(dom_id);
+        let left = inset(style.inset.inline_start, cb.width);
+        let right = inset(style.inset.inline_end, cb.width);
+        let top = inset(style.inset.block_start, cb.height);
+        let bottom = inset(style.inset.block_end, cb.height);
 
         let x = match (left, right) {
             (Some(l), _) => cb.x + l,
@@ -148,14 +140,13 @@ pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) ->
                 // Only worth replaying when the parent is *not* the containing block. When it is -
                 // the common `position: relative` parent holding its own absolute child - taffy
                 // already measured from the right box and a second pass would buy nothing.
-                if is_auto_size(&*doc, dom_id, StyleProperty::Width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
+                if is_auto_size(style.size.width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
                     rebased.left = Some((cb.x + l - pb.x) as f32);
                     rebased.right = Some(((pb.x + pb.width) - (cb.x + cb.width - r)) as f32);
                 }
             }
             if let (Some(t), Some(b)) = (top, bottom) {
-                if is_auto_size(&*doc, dom_id, StyleProperty::Height) && !spans_match(pb.y, pb.height, cb.y, cb.height)
-                {
+                if is_auto_size(style.size.height) && !spans_match(pb.y, pb.height, cb.y, cb.height) {
                     rebased.top = Some((cb.y + t - pb.y) as f32);
                     rebased.bottom = Some(((pb.y + pb.height) - (cb.y + cb.height - b)) as f32);
                 }

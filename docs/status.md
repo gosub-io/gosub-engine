@@ -3,10 +3,10 @@
 One section per component: what works, and what does not work yet. The README's Status list is
 the short version.
 
-Measured on 2026-09-17 against `main`. Where a number can be regenerated, the command is next to
-it. Anything without a command is a reading of the code and will drift.
+Measured on 2026-09-22 against `new-css-delcaration-design`. Where a number can be regenerated,
+the command is next to it. Anything without a command is a reading of the code and will drift.
 
-1,346 tests pass, none fail (`cargo test --workspace`).
+1,547 tests pass, none fail (`cargo test --workspace`).
 
 The CSS parser validates 666 properties against generated grammars. Only 92 reach layout and
 paint. Accepting a declaration and acting on it are different things, so the sections below say
@@ -39,18 +39,91 @@ fallbacks and nesting. Shorthands expand and reset the longhands they do not men
 functions are essentially complete: `calc()`, `min`/`max`/`clamp`, `round`/`mod`/`rem`, the trig
 family, `abs`/`sign`, `pow`/`sqrt`/`hypot`, `exp`/`log`, evaluated with correct type rules and
 range clamping at computed-value time. `@media` conditions evaluate, `calc()` included.
+`var()`, `attr()` and `light-dark()` substitute wherever they stand, inside another function's
+arguments included. HTML presentational hints (`bgcolor`, `width`, `cellspacing`, `cellpadding`)
+cascade as author-level, specificity-zero declarations ahead of the author sheets.
 
-**Not yet.** `:nth-child()` parses and then never matches: the matcher has no arm for it, so it
-falls to the catch-all and returns false (`crates/gosub_css3/src/matcher/styling.rs`). `:active`
-is hardcoded false. `:visited` is hardcoded false to avoid leaking browsing history. `:is()` and
-`:has()` are stored as raw text, so their specificity errs low. `getComputedStyle` does not
-exist; 156 of the 309 suites in the CSS WPT component need it.
+The bottom half of the crate was rebuilt in September 2026. A declaration is validated and its
+shorthand expanded once per rule, not once per matched element (`matcher/expansion.rs`). The
+cascade is keyed by generated property ids (`matcher/property_ids.rs`, regenerated with
+`cargo run -p generate_definitions -- --property-ids`). Its product is one typed `ComputedStyle`
+(`crates/gosub_interface/src/style.rs`), built once per element by `matcher/computed_style.rs`
+with its field groups shared with the parent where nothing was declared, and read directly by
+layout, paint and `getComputedStyle`. Inherited values travel by a chain, not by copying into
+every child. Candidate rules come from a selector index split by pseudo-element and attribute
+name, and an ancestor bloom filter drops the selectors whose ancestors an element does not have
+before the matcher walks. On the benchmark fixtures (`cargo bench -p gosub_render_pipeline
+--bench style`, measured on a dedicated Apple M1) the cascade on a 1,225-element page under an
+18,537-rule real-world sheet went from 183 ms to 21 ms, and the five-stage pipeline on the
+wikipedia fixture from 246 ms to 84 ms. The dev tools `style_dump` and `render_dump`
+(`cargo run -p gosub_render_pipeline --example ...`) write every element's property map and
+the layout and paint output for 30 fixture pages; every step of the rebuild was gated on those
+being byte-identical, or on each difference being attributed to a spec clause.
+
+Memory was the second half of the work, measured with `memory_dump`
+(`cargo run --release -p gosub_render_pipeline --example memory_dump`), which reports where a
+page's memory goes with shared allocations counted once and states what fraction of the page's
+real cost the rows account for. On the wikipedia fixture under the 18,537-rule sheet, peak
+resident memory fell from 152.6 MB to 48.7 MB. Six changes account for it, and none of them
+altered a byte of either dump. The CSS property definitions used to occupy 60 MB before a page
+was parsed, because resolution inlined each named type into every property referencing it and
+into every other type: the resolved types are now shared behind an `Arc` and the named-type map
+is freed once resolution is done, taking that to 3.7 MB and making the cascade faster, since the
+grammar now fits in cache. Parsing a sheet used to build the whole AST before converting any of
+it; each top-level rule is now converted as it is parsed and its nodes dropped, which took
+parsing the document and its stylesheets from 72.9 MB to about 16 MB, and the 2.2 MB sheet alone
+from 111 ms to under 70 ms. A declared value is shared
+with every element its rule matches rather than deep-copied into each one, and identical values
+are pooled across the rules of a sheet (`value_pool.rs`). `CssColor` packs its components rather
+than holding four `Option<f64>`, which shrank `CssValue` - the largest variant of which is a
+colour - from 72 bytes to 48, and with it every declaration and property in the engine. A
+selector list is one allocation rather than four. And the lists a parsed sheet holds are sized
+as they are built rather than doubled into: a `Vec` that grows by doubling left 18,241 rules in
+32,768 slots and 37,706 declarations in 85,136, 6.1 MB of slots nothing ever filled.
+
+For scale, Firefox 156 loading the same DOM and the same sheet - headless, fresh profile,
+content-process `Private_Dirty` over three runs each of a blank page, the DOM alone and the DOM
+with the sheet - spends 8.0 MB on the DOM and 25.3 MB on the stylesheet, 33.3 MB for the page.
+This engine spends 41.8 MB above its own baseline for the same page, and that buys no layout, no
+painting and no script engine, all of which sit inside Firefox's figure. The two rows that are
+directly comparable both favour this engine: its DOM is about a seventh of Firefox's (1.15 MB
+against 8.0) and its parsed stylesheet about half (11.4 MB against 25.3). What it spends and a
+browser does not is the state kept per element: every declaration that reached a property is
+retained, losers included, so that `revert` can ask what the cascade would have said without an
+origin, where a browser applies the declarations into the computed style and drops them. That,
+with the 665-entry property slot table every element carries, is about 16 MB.
+
+The same measurement against Chromium 152 does not resolve: its renderer baseline is around
+215 MB for a blank headless page with a ten-megabyte spread between runs, so the page's cost
+sits inside the noise - one run of the page measured below a run of the blank. A Chromium figure
+would need its memory-infra tracing, which reports per-component allocator dumps rather than
+process totals.
+
+**Not yet.** A pseudo-class with an argument is stored as its text and never matches:
+`:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all
+fall to the matcher's catch-all (`crates/gosub_css3/src/matcher/styling.rs`); only `:not()` is
+evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
+`:first-child` and `:last-child` count text nodes as siblings. `:active` is hardcoded false.
+`:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
+the one selector form the AST converter has no arm for, so a nested rule is dropped. An
+unresolvable `var()` drops its declaration where css-variables-1 says the property should compute
+to `inherit` or `initial`. Six computed-value questions are still answered when the typed struct
+is built rather than in the crate's computed stage - system colours, the `font-size` keyword
+scale, `ch`/`ex`/`lh`/`ic`, `currentColor` on a property other than `color`, `outline-color:
+auto` and the physical-to-logical inset mapping - so `getComputedStyle` reports the unresolved
+form for those, and a relative `font-size` keyword is re-applied on every descendant. A hovered
+element whose inherited `color` changes leaves its descendants' cached styles stale: subtree
+invalidation compares only custom properties. `<svg>` is on the list of elements that never get
+a computed style, so no selector reaches one. `getComputedStyle` exists and is cached per
+document; the CSS WPT component stands at 3,349 of 5,759 subtests
+(`WPT_ROOT=... make wpt-css`), the property-parsing suites at 15,543 of 22,832
+(`make wpt-css-parsing`).
 
 
 ## Layout and paint - `gosub_render_pipeline`
 
-**Works.** 92 CSS properties reach layout and paint. The list is the `StyleProperty` enum in
-`crates/gosub_render_pipeline/src/common/document/style.rs` - grep that for the current set. It
+**Works.** 92 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
+in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
 covers the box model, flex, grid (including `grid-template-areas`), floats with document-order
 band resolution, absolute and fixed positioning, `position: sticky`, overflow and scrolling,
 borders and radii, backgrounds and gradients, outlines, opacity and `mix-blend-mode`, and the
@@ -58,11 +131,11 @@ text properties. Block layout, flex and grid come from Taffy; inline content is 
 anonymous flex containers; CSS tables go to `gosub_lattice` through the `TableTree` adapter.
 After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
-**Not yet.** No CSS transforms - `transform` is not a `StyleProperty`, so the declaration is
-parsed and then ignored. No transitions or animations; nothing in the pipeline reads either
-property. No writing modes, so vertical text and RTL block flow are absent (the logical
-`inset-*` properties exist, but only because physical `top`/`left`/`right`/`bottom` are stored
-in them - see `pipeline_doc.rs:2295`, which maps them back).
+**Not yet.** No CSS transforms beyond `translate` - the rest of the `transform` list is parsed
+and then ignored. No transitions or animations; nothing in the pipeline reads either property.
+No writing modes, so vertical text and RTL block flow are absent (the logical `inset-*`
+properties exist, but only because physical `top`/`left`/`right`/`bottom` are mapped onto them -
+see `resolve_insets` in `crates/gosub_css3/src/matcher/computed_style.rs`).
 
 
 ## Render backends

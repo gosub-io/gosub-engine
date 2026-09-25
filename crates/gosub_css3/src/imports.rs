@@ -38,7 +38,7 @@ pub fn resolve_imports(sheet: &mut CssStylesheet, fetch: &mut ImportFetcher<'_>)
         return;
     }
     // The root is on the path from the start, so a sheet importing itself is caught.
-    let mut path = HashSet::from([sheet.url.clone()]);
+    let mut path = HashSet::from([sheet.url.to_string()]);
     let mut budget = MAX_IMPORTED_SHEETS;
     resolve_into(sheet, fetch, &mut path, &mut budget, 0);
 }
@@ -142,7 +142,7 @@ mod tests {
         sheet
             .rules
             .iter()
-            .map(|rule| match &rule.selectors[0].parts()[0][0] {
+            .map(|rule| match &rule.selectors[0].complex_at(0)[0] {
                 CssSelectorPart::Type(name) => name.clone(),
                 other => format!("{other:?}"),
             })

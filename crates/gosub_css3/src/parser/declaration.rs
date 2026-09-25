@@ -197,7 +197,7 @@ mod tests {
         sheet.rules[0]
             .declarations()
             .iter()
-            .map(|d| (d.property.clone(), d.value.clone(), d.important))
+            .map(|d| (d.property.to_string(), (*d.value).clone(), d.important))
             .collect()
     }
 

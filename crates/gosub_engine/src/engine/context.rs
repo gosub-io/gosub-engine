@@ -134,6 +134,10 @@ struct PipelineCache {
     cached_tiles: Arc<Vec<CachedTile>>,
     /// Layer list retained for hit-testing (hover).
     layer_list: Arc<LayerList>,
+    /// The tile grid stages 4-6 ran against. Its geometry depends only on the layer list and
+    /// the tile size, so the raster-window extension resets the per-tile state and reuses it
+    /// rather than tiling the page again; every other path replaces it.
+    tile_list: TileList,
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
@@ -756,7 +760,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return;
         };
         let PipelineCache {
-            layer_list,
+            tile_list,
             page_height,
             tile_pixel_cache,
             tiles,
@@ -764,7 +768,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         } = old_cache;
 
         self.pipeline_cache = Some(pipeline_extend_raster(
-            layer_list,
+            tile_list,
             page_height,
             tiles,
             &self.viewport,
@@ -2025,6 +2029,7 @@ fn pipeline_build_cache(
         page_height,
         cached_tiles,
         layer_list: saved_layer_list,
+        tile_list,
         tile_pixel_cache: new_tile_cache,
     }
 }
@@ -2034,21 +2039,43 @@ fn pipeline_build_cache(
 /// scrolling a long page off the layout path.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_extend_raster(
-    layer_list: Arc<LayerList>,
+    mut tile_list: TileList,
     page_height: f64,
-    prev_baked_tiles: Vec<BakedTile>,
+    mut prev_baked_tiles: Vec<BakedTile>,
     viewport: &Viewport,
     scroll_y: f64,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: TilePixelCache,
+    mut prev_tile_cache: TilePixelCache,
     media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    // Stage 4: re-tile against the cached layout. No CSS, no layout.
+    let layer_list = Arc::clone(&tile_list.layer_list);
+
+    // Stage 4: reuse the grid the last pass built. A scroll moves neither a box nor a layer, and
+    // the grid is a pure function of the layer list and the tile size, so tiling again would
+    // produce the same tiles, the same element-to-tile assignment and the same R-tree - on a
+    // 29 000 px article, 1 201 tiles and 36 827 assignments, four fifths of it an outline lookup
+    // and an R-tree query per element. Only the per-tile state differs per pass, and the loop
+    // below sets it. Anything that can move a box (layout damage, a viewport resize, a DPR
+    // change) drops the cache instead, so nothing stale can reach here.
     let ts4 = timing_start!(gosub_shared::timing::Timing::PipelineExtendTiling);
-    let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
-    tile_list.generate();
+    let dimension = PipelineDimension::new(tile_size, tile_size);
+    if tile_list.default_tile_dimension == dimension {
+        tile_list.reset_states();
+    } else {
+        // `renderer.tile.size` changed under us, and the grid is a function of it.
+        tile_list = TileList::from_arc(Arc::clone(&layer_list), dimension);
+        tile_list.generate();
+        // Everything baked under the old size has to go with it. Both carry-over paths below
+        // match on the tile's origin - the baked tiles on `(page_x, page_y, layer_id)`, the
+        // pixel cache on that plus a hash of the paint commands - and neither says how big the
+        // tile was. A tile at the same origin would be marked `Ready` and handed pixels of the
+        // previous size, so the new grid would show the old tiling: gaps where a tile grew,
+        // overlap where it shrank, and no repaint to correct either.
+        prev_baked_tiles = Vec::new();
+        prev_tile_cache = TilePixelCache::new();
+    }
     timing_stop!(ts4);
 
     // Already-baked tiles are carried over; the rest of the window is painted below.
@@ -2115,6 +2142,7 @@ fn pipeline_extend_raster(
         page_height,
         cached_tiles,
         layer_list,
+        tile_list,
         tile_pixel_cache: merged_tile_cache,
     }
 }
@@ -2212,6 +2240,7 @@ fn pipeline_repaint_damaged(
             page_height,
             cached_tiles,
             layer_list,
+            tile_list,
             tile_pixel_cache: prev_tile_cache,
         };
     }
@@ -2257,6 +2286,7 @@ fn pipeline_repaint_damaged(
         page_height,
         cached_tiles,
         layer_list,
+        tile_list,
         tile_pixel_cache: new_tile_cache,
     }
 }
@@ -2280,8 +2310,10 @@ fn paint_dirty_tiles(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
+    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()))
+        .with_shape_cache(Arc::clone(&tile_list.shape_cache));
 
+    let mut painted = Vec::new();
     for &layer_id in layer_ids {
         for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
             let Some(tile) = tile_list.get_tile_mut(tile_id) else {
@@ -2293,8 +2325,13 @@ fn paint_dirty_tiles(
             for tiled_element in &mut tile.elements {
                 tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
             }
+            painted.push(tile_id);
         }
     }
+    // A grid can outlive its pass (the scroll/extend path reuses one), and then the commands
+    // written here have to be released before the next pass paints. Reporting them is what
+    // makes that a walk of these tiles instead of the whole page.
+    tile_list.note_painted(painted);
 }
 
 /// Re-emit baked tiles in strict back-to-front layer order (the same order a full render
@@ -3141,6 +3178,69 @@ mod tests {
             );
             assert_eq!(ctx.page_height(), page_height, "extending must reuse the cached layout");
             assert!(!ctx.raster_dirty, "the extension must satisfy the scroll");
+        }
+
+        /// The grid is a pure function of the layer list and the tile size, and a scroll changes
+        /// neither, so an extension must reuse it rather than tile the page again. `generate`
+        /// hands out fresh ids from a running counter, so a regeneration would replace every
+        /// id - which is what this watches.
+        #[test]
+        fn extending_the_window_reuses_the_tile_grid() {
+            /// Every tile by id, with the layer and page position it was generated for, so a
+            /// regenerated grid (new ids) and a moved one (same ids, other geometry) both show.
+            fn grid(ctx: &BrowsingContext<DefaultRenderConfig>) -> std::collections::BTreeSet<(String, u64, u64, u64)> {
+                let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                    unreachable!("pipeline cache must exist");
+                };
+                cache
+                    .tile_list
+                    .arena
+                    .iter()
+                    .map(|(id, tile)| {
+                        (
+                            id.to_string(),
+                            tile.layer_id.as_u64(),
+                            tile.rect.x.to_bits(),
+                            tile.rect.y.to_bits(),
+                        )
+                    })
+                    .collect()
+            }
+
+            let (mut ctx, _calls) = tall_page_context(128);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let before = grid(&ctx);
+            assert!(!before.is_empty(), "a 10 000 px page must produce tiles");
+
+            ctx.set_scroll(0.0, 5000.0);
+            assert!(ctx.raster_dirty, "scrolling to unbaked content must raster");
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            assert_eq!(before, grid(&ctx), "the extension must not rebuild the tile grid");
+
+            // A reused grid must not accumulate the commands of everything it ever painted:
+            // however far the page is scrolled, only what the last pass painted may hold any.
+            let mut y = 5000.0;
+            while y < 10_000.0 {
+                ctx.set_scroll(0.0, y);
+                ctx.rebuild_pipeline_cache_if_needed();
+                let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                    unreachable!("pipeline cache must exist while scrolling");
+                };
+                let holding = cache
+                    .tile_list
+                    .arena
+                    .values()
+                    .filter(|t| t.elements.iter().any(|e| !e.paint_commands.is_empty()))
+                    .count();
+                let total = cache.tile_list.arena.len();
+                assert!(
+                    holding * 4 < total,
+                    "at scroll {y} the reused grid holds commands for {holding} of {total} tiles,                      so a pass is not releasing what it painted"
+                );
+                y += VP_H as f64;
+            }
+            assert_eq!(before, grid(&ctx), "scrolling the page must not rebuild the tile grid");
         }
 
         #[test]

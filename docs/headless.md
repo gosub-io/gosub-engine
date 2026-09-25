@@ -54,6 +54,8 @@ gosub-screenshot <url> [output.png] [width]
                            decodes and repaints before the capture (default 0)
     --min-height <px>      capture at least this tall (default 0 - the page's
                            own flow height)
+    --viewport-height <px> viewport height to lay out and raster in
+                           (default 16384 - the whole page at once)
     --timings              print the per-stage pipeline timing table
 ```
 
@@ -62,5 +64,14 @@ page's flow height, so absolutely-positioned content below it - which WPT reftes
 references routinely have - is lost, and the comparison fails for the wrong reason. Pass
 the comparison canvas height. The composited buffer is capped at 1 GiB; above that the
 capture is refused rather than truncated.
+
+`--viewport-height` is what makes a scroll replay behave like a real browser. At the default
+16384 px the raster window covers the whole page, so every tile is baked before the first
+`-i scroll:` and no scroll ever has to extend it. Pass a realistic height (`--viewport-height
+800`) and the engine rasters a band around the scroll position instead, so each scroll that
+reaches unbaked content goes through the extend path (`pipeline.extend.*` in `--timings`).
+The capture then holds only what was rastered: Phase 3 composites the tiles that exist and
+leaves the rest of the buffer the opaque white it starts as, and the tool prints how far down
+the page the tiles reach so a short capture is not mistaken for a blank page.
 
 `https://` is prepended when the URL has no scheme. The build embeds the git SHA and date via `build.rs` (`gosub-screenshot --version`).

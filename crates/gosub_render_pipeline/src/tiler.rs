@@ -1,11 +1,11 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
 use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::PaintCommand;
+use crate::painter::shape_cache::ShapeCache;
 use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
 use rstar::AABB;
@@ -146,9 +146,19 @@ pub struct TileList {
     pub tiles: HashMap<LayerId, TileLayer>,
 
     pub arena: HashMap<TileId, Tile>,
+    /// Tiles painted since the grid was generated or reset. A reused grid has to drop the
+    /// commands of the pass before it, and this is what keeps that from being a walk over
+    /// every element on the page.
+    painted: Vec<TileId>,
     next_node_id: Arc<RwLock<TileId>>,
 
     pub default_tile_dimension: Dimension,
+    /// Text shaped by the passes over this grid. It belongs to the grid because that is exactly
+    /// how long a shaped run stays valid: anything that can move a box builds a new grid, and
+    /// web fonts are registered before the first layout, so no grid outlives the font set its
+    /// runs were shaped against. A scroll that only extends the raster window keeps the grid,
+    /// and that is the case the cache exists for.
+    pub shape_cache: Arc<ShapeCache>,
 }
 
 impl Debug for TileList {
@@ -158,6 +168,7 @@ impl Debug for TileList {
             .field("arena", &self.arena)
             .field("next_node_id", &self.next_node_id)
             .field("default_tile_dimension", &self.default_tile_dimension)
+            .field("shape_cache", &self.shape_cache)
             .finish()
     }
 }
@@ -175,6 +186,40 @@ impl TileList {
         }
 
         matching_tiles
+    }
+
+    /// Put every tile back into the state [`Self::generate`] leaves it in, keeping the grid.
+    ///
+    /// The grid, the element-to-tile assignment and the R-tree are pure functions of the layer
+    /// list and the tile dimension. A pass that changes neither - a scroll extending the raster
+    /// window - would regenerate exactly the same geometry, so it resets the per-pass state
+    /// instead. On a 29 000 px article that is 1 201 tiles and 36 827 element-to-tile entries
+    /// not built again, most of the tiling cost.
+    ///
+    /// The paint commands go too. A grid that outlives its pass would otherwise accumulate a
+    /// whole page of dead commands, because a tile that is carried over or deferred is never
+    /// painted over - but only the tiles [`Self::note_painted`] recorded can be holding any, so
+    /// this costs a walk of one window's worth of tiles rather than of every element on the page.
+    pub fn reset_states(&mut self) {
+        for tile in self.arena.values_mut() {
+            tile.state = TileState::Dirty;
+            tile.texture_id = None;
+        }
+        for tile_id in std::mem::take(&mut self.painted) {
+            let Some(tile) = self.arena.get_mut(&tile_id) else {
+                continue;
+            };
+            for element in &mut tile.elements {
+                element.paint_commands = Vec::new();
+            }
+        }
+    }
+
+    /// Record the tiles a paint pass just wrote commands into, so a later [`Self::reset_states`]
+    /// knows which ones to release. Every paint pass must report, or a reused grid keeps
+    /// commands it will never paint over.
+    pub fn note_painted(&mut self, tile_ids: impl IntoIterator<Item = TileId>) {
+        self.painted.extend(tile_ids);
     }
 
     pub fn invalidate_all(&mut self) {
@@ -212,8 +257,10 @@ impl TileList {
             layer_list: Arc::new(layer_list),
             tiles: HashMap::new(),
             arena: HashMap::new(),
+            painted: Vec::new(),
             next_node_id: Arc::new(RwLock::new(TileId::new(0))),
             default_tile_dimension: dimension,
+            shape_cache: Arc::new(ShapeCache::new()),
         }
     }
 
@@ -224,14 +271,17 @@ impl TileList {
             layer_list,
             tiles: HashMap::new(),
             arena: HashMap::new(),
+            painted: Vec::new(),
             next_node_id: Arc::new(RwLock::new(TileId::new(0))),
             default_tile_dimension: dimension,
+            shape_cache: Arc::new(ShapeCache::new()),
         }
     }
 
     pub fn generate(&mut self) {
         self.tiles.clear();
         self.arena.clear();
+        self.painted.clear();
 
         if self.default_tile_dimension.width == 0.0 || self.default_tile_dimension.height == 0.0 {
             log::error!("Tile dimension is zero, cannot generate tiles");
@@ -425,33 +475,24 @@ impl TileList {
 /// How far a visible outline reaches beyond the box (width + positive offset). Must agree with
 /// the painter's ring geometry.
 fn outline_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
-    let width = doc.get_style_f32(node_id, &StyleProperty::OutlineWidth) as f64;
-    if width <= 0.0 {
+    let outline = doc.computed_style(node_id).outline.clone();
+    let width = f64::from(outline.width);
+    if width <= 0.0 || !outline.style.is_visible() {
         return 0.0;
     }
-    match doc.get_style(node_id, &StyleProperty::OutlineStyle) {
-        Value::BorderStyle(s)
-            if !matches!(
-                s,
-                crate::common::document::style::BorderStyle::None | crate::common::document::style::BorderStyle::Hidden
-            ) => {}
-        _ => return 0.0,
-    }
-    let offset = doc.get_style_f32(node_id, &StyleProperty::OutlineOffset) as f64;
-    width + offset.max(0.0)
+    width + f64::from(outline.offset).max(0.0)
 }
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {
     let node_id = node_id?;
-    match doc.get_style(node_id, &StyleProperty::BackgroundColor) {
-        Value::Color(r, g, b, a) => {
-            let af = a as f32 / 255.0;
-            if af > 0.0 {
-                Some((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, af))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+    let color = doc.computed_style(node_id).background.color;
+    let alpha = f32::from(color.a) / 255.0;
+    (alpha > 0.0).then(|| {
+        (
+            f32::from(color.r) / 255.0,
+            f32::from(color.g) / 255.0,
+            f32::from(color.b) / 255.0,
+            alpha,
+        )
+    })
 }

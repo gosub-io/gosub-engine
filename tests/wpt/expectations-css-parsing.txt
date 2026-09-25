@@ -6872,6 +6872,8 @@ PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgb(
 PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgb(0, calc(0 / 0), 0)' [Green channel resolves NaN equivalent calc statements to zero]
 PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgb(0, 0, calc(0 / 0))' [Blue channel resolves NaN equivalent calc statements to zero]
 PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgba(0, 0, 0, calc(0 / 0))' [Alpha channel resolves NaN equivalent calc statements to zero]
+PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgb(var(--high), 0, 0)' [Variables above 255 get clamped to 255.]
+PASS css/css-color/parsing/color-computed-rgb.html :: Property color value 'rgb(var(--negative), 64, 128)' [Variables below 0 get clamped to 0.]
 FILE css/css-color/parsing/color-computed.html
 PASS css/css-color/parsing/color-computed.html :: Property color value 'currentcolor'
 PASS css/css-color/parsing/color-computed.html :: Property color value 'transparent'

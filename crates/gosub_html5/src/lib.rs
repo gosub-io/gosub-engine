@@ -7,6 +7,7 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 pub mod document;
 pub mod errors;
+pub mod memory;
 pub mod node;
 pub mod parser;
 // Test-fixture harness for the WHATWG html5lib test suites, and the one exemption in this crate

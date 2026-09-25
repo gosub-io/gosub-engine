@@ -68,12 +68,12 @@ fn parse_declaration(name: &str, value: &str) -> Option<CssValue> {
     let [declaration] = rule.declarations().as_slice() else {
         return None;
     };
-    if !declaration.property.eq_ignore_ascii_case(name) {
+    if !declaration.property.as_str().eq_ignore_ascii_case(name) {
         return None;
     }
 
     if name.starts_with("--") {
-        return Some(declaration.value.clone());
+        return Some((*declaration.value).clone());
     }
     // The canonical form, not the parse: `getPropertyValue` serializes the value (CSSOM §6.7.2),
     // and the grammar is what knows that `NONE` is `none`, that `0` matched as a length is
@@ -268,6 +268,8 @@ impl GosubCssStyleDeclaration {
         } else {
             doc.set_attribute(self.id, "style", &join_declarations(declarations));
         }
+        drop(doc);
+        crate::style_cache::invalidate();
     }
 }
 

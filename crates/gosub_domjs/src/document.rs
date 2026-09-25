@@ -47,11 +47,13 @@ impl GosubDocument {
             HashMap::new(),
             Location::default(),
         );
+        crate::style_cache::invalidate();
         wrap(&ctx, &self.doc, id)
     }
 
     pub fn create_text_node<'js>(&self, ctx: Ctx<'js>, data: String) -> Result<Value<'js>> {
         let id = self.doc.borrow_mut().create_text(&data, Location::default());
+        crate::style_cache::invalidate();
         wrap(&ctx, &self.doc, id)
     }
 

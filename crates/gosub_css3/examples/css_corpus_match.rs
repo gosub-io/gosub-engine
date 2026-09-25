@@ -126,13 +126,13 @@ fn main() {
         files_ok += 1;
 
         for rule in &sheet.rules {
-            for decl in &rule.declarations {
+            for decl in rule.declarations() {
                 total_decls += 1;
-                if decl.property.starts_with("--") {
+                if decl.property.is_custom() {
                     custom_decls += 1;
                     continue;
                 }
-                let prop = decl.property.to_ascii_lowercase();
+                let prop = decl.property.as_str().to_ascii_lowercase();
                 let Some(def) = defs.find_property(&prop) else {
                     *unknown_props.entry(prop).or_default() += 1;
                     continue;

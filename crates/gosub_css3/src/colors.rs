@@ -1,6 +1,6 @@
 use cow_utils::CowUtils;
 use std::convert::From;
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Formatter};
 use std::str::FromStr;
 
 use colors_transform::Color;
@@ -754,7 +754,7 @@ pub fn lch_to_srgb(lightness: f32, chroma: f32, hue_deg: f32) -> (f32, f32, f32)
 /// a hex triple or `rgb()` is an sRGB colour and comes back through `rgb()`; one written
 /// `hsl()` or `hwb()` does too, but only while every component is present; and the rest keep the
 /// notation they were written in, because no other notation can say what they say.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ColorSyntax {
     /// A keyword, a hex triple, `rgb()` or `rgba()`. Components are 0-255.
     Rgb,
@@ -775,7 +775,7 @@ pub enum ColorSyntax {
 }
 
 /// The colour spaces `color()` can name (css-color-4 §10).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PredefinedSpace {
     Srgb,
     SrgbLinear,
@@ -833,16 +833,21 @@ impl PredefinedSpace {
 /// is the point of the type. A converted colour cannot say which space it was in, cannot say a
 /// component was missing, and cannot be given back the way it was written - and all three are
 /// things the CSSOM is required to report.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct CssColor {
     pub syntax: ColorSyntax,
-    /// The three components, in the units of `syntax`.
+    /// The three components followed by alpha, in the units of `syntax`.
     ///
     /// Held at the precision they were parsed with. Narrowing them to `f32` costs a digit that
     /// the CSSOM reports: `128/255` is `0.50196078`, and an `f32` says `0.50196081`.
-    pub components: [Option<f64>; 3],
-    /// Alpha, 0 to 1.
-    pub alpha: Option<f64>,
+    ///
+    /// Packed with [`Self::missing`] rather than stored as four `Option<f64>`, which cost 64
+    /// bytes to carry 32: every `Option` pays eight for a tag that says one bit. `CssColor` is
+    /// the largest variant of `CssValue`, so those spare bytes were charged to every value in
+    /// the engine, declared or computed, whether or not it was a colour.
+    values: [f64; 4],
+    /// Which of `values` are the CSS-wide `none`: bit 0-2 the components, bit 3 alpha.
+    missing: u8,
     /// Whether this is a computed value rather than a specified one.
     ///
     /// The two serialize differently in one place: an `hsl()` or `hwb()` colour that has to keep
@@ -850,6 +855,109 @@ pub struct CssColor {
     /// as percentages once computed. `element.style.color = "hsl(120 80% none)"` reads back
     /// `hsl(120 80 none)`, while `getComputedStyle` reports `hsl(120 80% none)`.
     pub computed: bool,
+}
+
+/// Printed as the components and alpha it represents, not as the packed pair that holds them.
+///
+/// The packing is a storage decision; a reader of a debug dump wants to see `[Some(238.0), ...]`
+/// and an alpha, and the correctness gate compares those dumps across changes like this one.
+impl Debug for CssColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CssColor")
+            .field("syntax", &self.syntax)
+            .field("components", &self.components())
+            .field("alpha", &self.alpha())
+            .field("computed", &self.computed)
+            .finish()
+    }
+}
+
+impl CssColor {
+    /// The colour exactly as stored, for a caller that needs identity rather than equality.
+    ///
+    /// [`PartialEq`] answers whether two colours *are the same colour*, comparing converted
+    /// sRGB with a tolerance, which is the right question almost everywhere and the wrong one
+    /// for a pool: two colours a fraction of a channel apart would collapse into one, and the
+    /// one that survived would be the one serialised back to the page.
+    #[must_use]
+    pub(crate) fn exact_parts(&self) -> (ColorSyntax, [u64; 4], u8, bool) {
+        (
+            self.syntax,
+            [
+                self.values[0].to_bits(),
+                self.values[1].to_bits(),
+                self.values[2].to_bits(),
+                self.values[3].to_bits(),
+            ],
+            self.missing,
+            self.computed,
+        )
+    }
+
+    /// The three components, `None` where the colour says `none`.
+    #[must_use]
+    pub fn components(&self) -> [Option<f64>; 3] {
+        [self.component(0), self.component(1), self.component(2)]
+    }
+
+    /// Component `index` (0-2), or alpha at index 3. `None` means the CSS-wide `none`.
+    #[must_use]
+    pub fn component(&self, index: usize) -> Option<f64> {
+        if self.missing & (1 << index) == 0 {
+            Some(self.values[index])
+        } else {
+            None
+        }
+    }
+
+    /// Component `index` with `none` read as zero, which is what every conversion wants.
+    ///
+    /// Separate from [`Self::component`] because it is on the hot path: `to_rgb` runs for every
+    /// colour comparison (`PartialEq` converts both sides), and building an `Option` only to
+    /// unwrap it showed up as a 6% regression on the cascade of a colour-heavy sheet.
+    #[must_use]
+    fn channel(&self, index: usize) -> f64 {
+        if self.missing & (1 << index) == 0 {
+            self.values[index]
+        } else {
+            0.0
+        }
+    }
+
+    /// Alpha, 0 to 1, or `None` for `none`.
+    #[must_use]
+    pub fn alpha(&self) -> Option<f64> {
+        self.component(3)
+    }
+
+    /// A colour from its components and alpha, `None` for each `none`.
+    #[must_use]
+    pub fn from_parts(syntax: ColorSyntax, components: [Option<f64>; 3], alpha: Option<f64>, computed: bool) -> Self {
+        let mut values = [0.0; 4];
+        let mut missing = 0u8;
+        for (index, value) in components.iter().chain(std::iter::once(&alpha)).enumerate() {
+            match value {
+                Some(value) => values[index] = *value,
+                None => missing |= 1 << index,
+            }
+        }
+        Self {
+            syntax,
+            values,
+            missing,
+            computed,
+        }
+    }
+
+    /// Replace the components, keeping the syntax, alpha and computed flag.
+    pub fn set_components(&mut self, components: [Option<f64>; 3]) {
+        *self = Self::from_parts(self.syntax, components, self.alpha(), self.computed);
+    }
+
+    /// Replace alpha, keeping everything else.
+    pub fn set_alpha(&mut self, alpha: Option<f64>) {
+        *self = Self::from_parts(self.syntax, self.components(), alpha, self.computed);
+    }
 }
 
 /// Two colours are the same when they describe the same colour, whatever notation each was
@@ -865,12 +973,12 @@ impl CssColor {
     /// An sRGB colour from 0-255 channels and a 0-255 alpha, which is how [`RgbColor`] holds it.
     #[must_use]
     pub fn srgb(r: f32, g: f32, b: f32, a: f32) -> Self {
-        Self {
-            syntax: ColorSyntax::Rgb,
-            components: [Some(f64::from(r)), Some(f64::from(g)), Some(f64::from(b))],
-            alpha: Some(f64::from(a) / 255.0),
-            computed: false,
-        }
+        Self::from_parts(
+            ColorSyntax::Rgb,
+            [Some(f64::from(r)), Some(f64::from(g)), Some(f64::from(b))],
+            Some(f64::from(a) / 255.0),
+            false,
+        )
     }
 
     /// Whether this colour serializes in the notation it was written in, rather than through
@@ -888,7 +996,7 @@ impl CssColor {
     /// Whether any component or the alpha was written `none`.
     #[must_use]
     pub fn has_missing(&self) -> bool {
-        self.alpha.is_none() || self.components.iter().any(Option::is_none)
+        self.alpha().is_none() || self.components().iter().any(Option::is_none)
     }
 
     /// The colour as sRGB, for everything downstream that paints rather than serializes.
@@ -900,11 +1008,11 @@ impl CssColor {
     pub fn to_rgb(&self) -> RgbColor {
         // Narrowed here, at the boundary with the painting triple, rather than on the way in.
         #[expect(clippy::cast_possible_truncation, reason = "a colour channel fits an f32")]
-        let [first, second, third] = self.components.map(|c| c.unwrap_or(0.0) as f32);
+        let [first, second, third] = [self.channel(0) as f32, self.channel(1) as f32, self.channel(2) as f32];
         // A missing alpha is zero, like any other missing component: `none` is not "absent",
         // which would be opaque, but "nothing to contribute" (css-color-4 §12.2).
         #[expect(clippy::cast_possible_truncation, reason = "alpha is a fraction")]
-        let alpha = self.alpha.unwrap_or(0.0) as f32 * 255.0;
+        let alpha = self.channel(3) as f32 * 255.0;
         let (r, g, b) = match self.syntax {
             ColorSyntax::Rgb => (first, second, third),
             ColorSyntax::Hsl => hsl_to_srgb(first, second / 100.0, third / 100.0),
@@ -958,18 +1066,18 @@ impl std::fmt::Display for CssColor {
             // component read as zero.
             if self.computed && self.syntax == ColorSyntax::Rgb && self.has_missing() {
                 let channel = |c: Option<f64>| c.map(|v| v / 255.0);
-                let srgb = CssColor {
-                    syntax: ColorSyntax::Predefined(PredefinedSpace::Srgb),
-                    components: self.components.map(channel),
-                    alpha: self.alpha,
-                    computed: true,
-                };
+                let srgb = CssColor::from_parts(
+                    ColorSyntax::Predefined(PredefinedSpace::Srgb),
+                    self.components().map(channel),
+                    self.alpha(),
+                    true,
+                );
                 return write!(f, "{srgb}");
             }
             return write!(f, "{}", self.to_rgb());
         }
 
-        let [first, second, third] = self.components;
+        let [first, second, third] = self.components();
         let (name, second, third) = match self.syntax {
             // Handled above, where it goes out as the legacy triple. Writing it again here
             // rather than declaring it unreachable keeps the match total.
@@ -982,7 +1090,7 @@ impl std::fmt::Display for CssColor {
             ColorSyntax::Oklab => ("oklab", component(second), component(third)),
             ColorSyntax::Oklch => ("oklch", component(second), component(third)),
             ColorSyntax::Predefined(space) => {
-                let alpha = alpha_suffix(self.alpha);
+                let alpha = alpha_suffix(self.alpha());
                 return write!(
                     f,
                     "color({} {} {} {}{alpha})",
@@ -997,7 +1105,7 @@ impl std::fmt::Display for CssColor {
             f,
             "{name}({} {second} {third}{})",
             component(first),
-            alpha_suffix(self.alpha)
+            alpha_suffix(self.alpha())
         )
     }
 }

@@ -24,7 +24,7 @@ descriptions say what they should cover so we can decide what to write next.
 
 - [Crates overview](crates.md) — one section per workspace crate and how they depend on
   each other. Start here to find where something lives.
-- [The two worlds](two-worlds.md) — why there are two parallel document/style models (the
+- [The two worlds](two-worlds.md) — why there are two parallel document models (the
   `gosub_interface` world where parsing happens and the pipeline's own types), and the
   `GosubDocumentAdapter` seam that joins them. Read this before diving into either.
 - [Module configuration](moduleconfig.md) — the embedder's view of the same thing: what

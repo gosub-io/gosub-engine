@@ -4,6 +4,7 @@
 
 mod fetch;
 mod mdn;
+mod property_ids;
 mod types;
 mod webref;
 
@@ -134,7 +135,25 @@ fn add_bare_fit_content(syntax: &str) -> String {
     }
 }
 
+/// Where the checked-in definition data and the generated id module live, relative to this
+/// tool's own directory, so the offline mode works from any working directory.
+const CHECKED_IN_PROPERTIES: &str = "../../resources/definitions/definitions_properties.json";
+const PROPERTY_IDS_MODULE: &str = "../../src/matcher/property_ids.rs";
+
 fn main() -> Result<()> {
+    // The offline mode reads the definition JSON that is already checked in and writes the
+    // property-id module from it. It is a separate run rather than a step of the regeneration
+    // because it needs no network and is what keeps the ids in step after the data changes.
+    if std::env::args().any(|arg| arg == "--property-ids") {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut paths = std::env::args().skip(1).filter(|arg| arg != "--property-ids");
+        let input = paths
+            .next()
+            .map_or_else(|| here.join(CHECKED_IN_PROPERTIES), Into::into);
+        let output = paths.next().map_or_else(|| here.join(PROPERTY_IDS_MODULE), Into::into);
+        return property_ids::generate(&input, &output);
+    }
+
     eprintln!(
         "{} v{} — regenerate the CSS definition JSON embedded in gosub_css3 from webref + MDN",
         env!("CARGO_BIN_NAME"),

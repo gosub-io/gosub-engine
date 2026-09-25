@@ -3,9 +3,10 @@
 //! This parser is heavily based on the MIT-licensed `CssTree` parser written by Roman Dvornov
 //! (<https://github.com/lahmatiy>). The original can be found at <https://github.com/csstree/csstree>.
 
-use crate::ast::convert_ast_to_stylesheet;
+use crate::ast::{convert_node_into, note_viewport_units};
 use crate::stylesheet::CssStylesheet;
 use crate::tokenizer::Tokenizer;
+use crate::value_pool::ValuePool;
 
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
@@ -21,6 +22,7 @@ pub mod imports;
 pub mod layers;
 pub mod matcher;
 pub mod media_query;
+pub mod memory;
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
@@ -28,6 +30,7 @@ pub mod supports;
 pub mod system;
 pub mod tokenizer;
 mod unicode;
+pub(crate) mod value_pool;
 pub mod walker;
 
 /// Cap on recursive-descent depth, shared by every recursive cycle in the parser.
@@ -119,20 +122,29 @@ impl<'stream> Css3<'stream> {
             self.config.source.as_deref().unwrap_or("")
         );
 
-        let node_tree = match self.config.context {
-            Context::Stylesheet => self.parse_stylesheet_internal(),
-            Context::Rule => self.parse_rule(),
-            Context::AtRule => self.parse_at_rule(true),
-            Context::Declaration => self.parse_declaration(),
-        };
+        // Converted rule by rule rather than whole tree and then whole sheet. The parser hands
+        // over each top-level rule as it finishes it, it becomes the sheet's rules here, and its
+        // nodes are dropped before the next rule is parsed - so the AST never exists in full.
+        // On a 2.2 MB sheet the tree is ~460,000 nodes at 104 bytes each, and holding it was
+        // most of the ~72 MB that parsing cost.
+        let url = self.source.clone();
+        let mut sheet = CssStylesheet::new(self.origin, url.as_str());
+        let mut layers = Vec::new();
+        // One pool for the sheet: a value written by fifty rules is allocated once. It is
+        // dropped when the parse ends; what it handed out lives on in the sheet.
+        let mut pool = ValuePool::default();
+        let emitted =
+            self.parse_stylesheet_streaming(|node| convert_node_into(node, &mut sheet, &mut layers, &mut pool));
 
         timing_stop!(t_id);
 
-        match node_tree {
-            Ok(None) => Err(CssError::new("No node tree found")),
-            Ok(Some(node)) => convert_ast_to_stylesheet(node, self.origin, self.source.clone().as_str()),
-            Err(e) => Err(e),
+        if !emitted? {
+            return Err(CssError::new("No node tree found"));
         }
+        sheet.layers = layers;
+        note_viewport_units(&mut sheet);
+        sheet.shrink_to_fit();
+        Ok(sheet)
     }
 }
 

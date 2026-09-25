@@ -4,7 +4,7 @@ use std::collections::HashMap;
 /// How deep a chain of custom properties referencing other custom properties is followed
 /// (`--a: var(--b); --b: var(--c); …`). Cyclic references are already caught by the
 /// visited-name stack; this only bounds pathological but acyclic chains.
-const MAX_VAR_DEPTH: usize = 32;
+pub(crate) const MAX_VAR_DEPTH: usize = 32;
 
 /// Resolves a single `var(--name[, <fallback>])` against the custom properties in scope.
 ///

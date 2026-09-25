@@ -47,6 +47,10 @@ criterion = { workspace = true, features = ["html_reports"] }
 name = "style"
 harness = false
 
+[[bench]]
+name = "scroll"
+harness = false
+
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,
 # which are allowed per-site with a justification.
