@@ -144,8 +144,11 @@ fn write_node<C: HasDocument>(root: NodeId, doc: &C::Document, buf: &mut String)
                 // writer is a round-trip of the whole tree, so it emits every one.
                 shadow_root = doc.shadow_root(id);
             }
-            // Only reachable through a host's side pointer, which `Step::ShadowRoot` follows.
-            NodeType::ShadowRootNode => continue,
+            // A host writes its shadow root through `Step::ShadowRoot`, wrapper included, and
+            // never enters the root node itself - so this is only reached by a direct call on a
+            // shadow root, which writes the tree's contents alone, like `shadowRoot.innerHTML`.
+            // The declarative wrapper belongs to the host's serialization, not the root's.
+            NodeType::ShadowRootNode => {}
         }
 
         // Reversed, so they pop back in document order.
