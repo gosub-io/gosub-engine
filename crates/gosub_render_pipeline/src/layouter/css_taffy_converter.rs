@@ -12,8 +12,8 @@ use taffy::prelude::{
 };
 use taffy::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
-    GridPlacement, GridTemplateArea, GridTemplateComponent, LengthPercentage, LengthPercentageAuto, Line, Overflow,
-    Point, Position, Rect, Size, Style, TextAlign, TrackSizingFunction,
+    GridPlacement, GridTemplateArea, GridTemplateAreas, GridTemplateComponent, LengthPercentage, LengthPercentageAuto,
+    Line, Overflow, Point, Position, Rect, Size, Style, TextAlign, TrackSizingFunction,
 };
 
 /// Converts CSS properties from a `PipelineDocument` node into a Taffy `Style`.
@@ -72,10 +72,10 @@ impl<'a> CssTaffyConverter<'a> {
         ts.border.left = Self::border_lp(border.left_width);
         ts.size.width = self.dimension(Prop::Width, size.width, ts.size.width);
         ts.size.height = self.dimension(Prop::Height, size.height, ts.size.height);
-        ts.min_size.width = self.dimension(Prop::MinWidth, size.min_width, ts.min_size.width);
-        ts.min_size.height = self.dimension(Prop::MinHeight, size.min_height, ts.min_size.height);
-        ts.max_size.width = self.dimension(Prop::MaxWidth, size.max_width, ts.max_size.width);
-        ts.max_size.height = self.dimension(Prop::MaxHeight, size.max_height, ts.max_size.height);
+        ts.min_size.width = self.lpa(Prop::MinWidth, size.min_width, ts.min_size.width);
+        ts.min_size.height = self.lpa(Prop::MinHeight, size.min_height, ts.min_size.height);
+        ts.max_size.width = self.lpa(Prop::MaxWidth, size.max_width, ts.max_size.width);
+        ts.max_size.height = self.lpa(Prop::MaxHeight, size.max_height, ts.max_size.height);
         ts.aspect_ratio = self.style.box_group.aspect_ratio.or(ts.aspect_ratio);
         ts.gap = self.get_gap(ts.gap);
         ts.align_items = self.get_align_items(Prop::AlignItems, flex.align_items, ts.align_items);
@@ -227,7 +227,7 @@ impl<'a> CssTaffyConverter<'a> {
             && ts.min_size.width.is_auto()
         {
             ts.box_sizing = BoxSizing::BorderBox;
-            ts.max_size.width = Dimension::percent(1.0);
+            ts.max_size.width = LengthPercentageAuto::percent(1.0);
         }
 
         ts
@@ -469,13 +469,31 @@ impl<'a> CssTaffyConverter<'a> {
     }
 
     /// `grid-template-areas`, as the rectangle each area name covers.
-    fn get_grid_areas(&self, default: Vec<GridTemplateArea<String>>) -> Vec<GridTemplateArea<String>> {
+    fn get_grid_areas(&self, default: Option<GridTemplateAreas<String>>) -> Option<GridTemplateAreas<String>> {
         if !self.style.has(Prop::GridTemplateAreas) {
             return default;
         }
         match &*self.style.grid.template_areas {
-            "none" | "" => Vec::new(),
-            areas => parse_grid_areas(areas),
+            "none" | "" => None,
+            source => {
+                // taffy 0.14 wants the template's shape alongside the areas. The rows are the
+                // lines that hold a cell and the columns the widest of them, counted the same way
+                // the parser walks the string so a ragged template agrees with the bounds it
+                // derived.
+                let rows = source.lines().filter(|l| l.split_whitespace().next().is_some()).count();
+                let columns = source.lines().map(|l| l.split_whitespace().count()).max().unwrap_or(0);
+                if rows == 0 || columns == 0 {
+                    return None;
+                }
+                // The shape is kept even when nothing in it is named. `". ." ". ."` declares a
+                // 2x2 explicit grid and no areas at all, and taffy sizes the explicit grid from
+                // these counts, so dropping it would move every auto-placed item.
+                Some(GridTemplateAreas {
+                    areas: parse_grid_areas(source).into_iter().collect(),
+                    row_count: rows as u16,
+                    column_count: columns as u16,
+                })
+            }
         }
     }
 
