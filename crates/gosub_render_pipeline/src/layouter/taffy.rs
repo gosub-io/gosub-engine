@@ -694,11 +694,18 @@ impl TaffyLayouter {
         let font_system = Arc::clone(&self.font_system);
         let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
 
-        if let Err(e) = self
-            .tree
-            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
-                measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
-            })
+        if let Err(e) =
+            self.tree
+                .compute_layout_with_measure(self.root_id, size, |inputs, _node_id, node_context, style| {
+                    taffy::compute_leaf_layout(
+                        inputs,
+                        style,
+                        |_, basis| basis,
+                        |known, available| {
+                            measure_node(&font_system, &mut measure_cache, known, available, node_context)
+                        },
+                    )
+                })
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
             self.measure_cache = measure_cache;
@@ -784,11 +791,18 @@ impl TaffyLayouter {
             width: AvailableSpace::MaxContent,
             height: AvailableSpace::MaxContent,
         };
-        let computed = self
-            .tree
-            .compute_layout_with_measure(taffy_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
-                measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
-            });
+        let computed =
+            self.tree
+                .compute_layout_with_measure(taffy_id, size, |inputs, _node_id, node_context, style| {
+                    taffy::compute_leaf_layout(
+                        inputs,
+                        style,
+                        |_, basis| basis,
+                        |known, available| {
+                            measure_node(&font_system, &mut measure_cache, known, available, node_context)
+                        },
+                    )
+                });
         self.measure_cache = measure_cache;
         if computed.is_err() {
             return None;
@@ -862,8 +876,13 @@ impl TaffyLayouter {
         };
         let result = self
             .tree
-            .compute_layout_with_measure(taffy_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
-                measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
+            .compute_layout_with_measure(taffy_id, size, |inputs, _node_id, node_context, style| {
+                taffy::compute_leaf_layout(
+                    inputs,
+                    style,
+                    |_, basis| basis,
+                    |known, available| measure_node(&font_system, &mut measure_cache, known, available, node_context),
+                )
             });
         self.measure_cache = measure_cache;
         if let Err(e) = result {
@@ -1801,39 +1820,6 @@ impl TaffyLayouter {
         }
     }
 
-    /// Whether any in-flow child of this flex container has an `auto` margin on the main axis.
-    ///
-    /// css-flexbox-1 §8.1: auto margins take the free space *before* the alignment properties see
-    /// it, "because the margins will have stolen all the free space left over after flexing", so
-    /// `justify-content` has no effect on a line that holds one. Taffy applies them the other way
-    /// round: with `justify-content: center` and an image whose `margin-left` and `margin-right`
-    /// are both `auto`, the whole free space went to the left margin and the image came out flush
-    /// against the container's right edge - every "trusted by" logo on ingewikkeld.dev, which is
-    /// exactly `figure { display:flex; justify-content:center }` around
-    /// `img { margin-left:auto; margin-right:auto }`. With `justify-content: flex-start` taffy
-    /// centres the same image correctly, so the fix is to hand it the neutral value.
-    fn flex_child_has_main_axis_auto_margin(&self, layout_tree: &LayoutTree, node: &Node, is_row: bool) -> bool {
-        node.children.iter().any(|child_id| {
-            let Some(child) = layout_tree.render_tree.doc.get_node_by_id(*child_id) else {
-                return false;
-            };
-            if !matches!(child.node_type, NodeType::Element(_)) {
-                return false;
-            }
-            let style = CssTaffyConverter::new(child.node_id, &*layout_tree.render_tree.doc).convert(false);
-            // An absolutely positioned child is not a flex item, and a `display: none` one is not
-            // laid out at all; neither takes any free space.
-            if style.position == Position::Absolute || style.display == Display::None {
-                return false;
-            }
-            if is_row {
-                style.margin.left.is_auto() || style.margin.right.is_auto()
-            } else {
-                style.margin.top.is_auto() || style.margin.bottom.is_auto()
-            }
-        })
-    }
-
     /// Whether an inline box holds nothing but replaced elements that are already bound by their
     /// containing block, so giving the box that container's width cannot move its content.
     ///
@@ -1878,7 +1864,7 @@ impl TaffyLayouter {
                         // `into_option` answers for lengths, so a percentage reads as `None`;
                         // `auto` is ruled out separately.
                         let percentage_max =
-                            !style.max_size.width.is_auto() && style.max_size.width.into_option().is_none();
+                            !style.max_size.width.is_auto() && lpa_length(style.max_size.width).is_none();
                         if !style.size.width.is_auto() || !percentage_max {
                             return false;
                         }
@@ -1921,26 +1907,6 @@ impl TaffyLayouter {
                 // stretches between opposing insets with ones rebased onto its parent, so taffy
                 // sizes it against the CSS containing block rather than whatever ancestor happens
                 // to be its parent. Empty on the first pass. See `abspos::RebasedInsets`.
-                // An auto margin on the main axis has already taken the free space, so the
-                // alignment has none left to distribute (css-flexbox-1 §8.1). Taffy does not
-                // order it that way, so it is handed the neutral value and left to resolve the
-                // margins - which it does correctly. See
-                // `flex_child_has_main_axis_auto_margin`.
-                if taffy_style.display == Display::Flex
-                    && !matches!(
-                        taffy_style.justify_content,
-                        None | Some(AlignContent::FLEX_START) | Some(AlignContent::START)
-                    )
-                {
-                    let is_row = matches!(
-                        taffy_style.flex_direction,
-                        FlexDirection::Row | FlexDirection::RowReverse
-                    );
-                    if self.flex_child_has_main_axis_auto_margin(layout_tree, dom_node, is_row) {
-                        taffy_style.justify_content = Some(AlignContent::FLEX_START);
-                    }
-                }
-
                 // Both halves are needed: the inline box AND the anonymous line box inside it (see
                 // `LineStyle::full_width`). Making only one definite leaves the other shrinking to
                 // the content, and the child's percentage still resolves against itself.
@@ -2805,10 +2771,10 @@ fn min_content_width(
 ///
 /// A percentage keeps its fraction: its base is the containing block's height, which is not known
 /// where the style is built.
-fn max_height_of(max_height: Dimension) -> MaxHeight {
-    match max_height.tag() {
-        taffy::CompactLength::LENGTH_TAG => MaxHeight::Length(max_height.value()),
-        taffy::CompactLength::PERCENT_TAG => MaxHeight::Percent(max_height.value()),
+fn max_height_of(max_height: LengthPercentageAuto) -> MaxHeight {
+    match max_height.expand() {
+        taffy::ExpandedLengthPercentageAuto::Length(px) => MaxHeight::Length(px),
+        taffy::ExpandedLengthPercentageAuto::Percent(fraction) => MaxHeight::Percent(fraction),
         _ => MaxHeight::None,
     }
 }
@@ -2862,6 +2828,17 @@ fn clamp_replaced_to_max_height(
     }
 }
 
+/// The length a `min-`/`max-` size holds, or `None` when it is a percentage, `auto` or `calc()`.
+///
+/// taffy 0.14 types these as `LengthPercentageAuto`, which answers through `expand()` rather than
+/// the raw tag `Dimension::into_option` used to read.
+fn lpa_length(value: LengthPercentageAuto) -> Option<f32> {
+    match value.expand() {
+        taffy::ExpandedLengthPercentageAuto::Length(px) => Some(px),
+        _ => None,
+    }
+}
+
 /// The `max-width` a replaced element inherits from its `max-height`, through the intrinsic
 /// ratio - css-sizing-4 §5.2.1 calls it the transferred size.
 ///
@@ -2871,8 +2848,12 @@ fn clamp_replaced_to_max_height(
 /// `max-height: 1.5rem` - laid out 900x24 instead of 24x24.
 ///
 /// `max_width` is returned unchanged when there is no maximum height to transfer.
-fn transferred_max_width(max_height: Dimension, max_width: Dimension, ratio: f32) -> Dimension {
-    let Some(max_h) = max_height.into_option() else {
+fn transferred_max_width(
+    max_height: LengthPercentageAuto,
+    max_width: LengthPercentageAuto,
+    ratio: f32,
+) -> LengthPercentageAuto {
+    let Some(max_h) = lpa_length(max_height) else {
         return max_width;
     };
     let transferred = max_h * ratio;
@@ -2881,9 +2862,9 @@ fn transferred_max_width(max_height: Dimension, max_width: Dimension, ratio: f32
     // under Tailwind's `img { max-width: 100% }` - reads as absent here and the transferred length
     // is taken. The two only disagree when the container is narrower than the transferred size,
     // which for a logo capped at 24px means a container narrower than that.
-    match max_width.into_option() {
-        Some(existing) => Dimension::length(existing.min(transferred)),
-        None => Dimension::length(transferred),
+    match lpa_length(max_width) {
+        Some(existing) => LengthPercentageAuto::length(existing.min(transferred)),
+        None => LengthPercentageAuto::length(transferred),
     }
 }
 
@@ -3308,54 +3289,42 @@ mod tests {
     /// `max-height: 1.5rem`, laid out 900x24.
     #[test]
     fn a_maximum_height_transfers_to_the_width() {
-        use super::transferred_max_width;
-        use taffy::style::Dimension;
+        use super::{lpa_length, transferred_max_width};
+        use taffy::style::LengthPercentageAuto as Lpa;
 
-        let px = |d: Dimension| d.into_option();
+        let px = lpa_length;
 
         // Square logo, capped at 24px tall: 24px wide. This is the site's case, where the
         // percentage `max-width` comes from Tailwind's `img { max-width: 100% }`.
         assert_eq!(
-            px(transferred_max_width(
-                Dimension::length(24.0),
-                Dimension::percent(1.0),
-                1.0
-            )),
+            px(transferred_max_width(Lpa::length(24.0), Lpa::percent(1.0), 1.0)),
             Some(24.0)
         );
         assert_eq!(
-            px(transferred_max_width(Dimension::length(24.0), Dimension::auto(), 1.0)),
+            px(transferred_max_width(Lpa::length(24.0), Lpa::auto(), 1.0)),
             Some(24.0)
         );
 
         // A wide image keeps its ratio: 24px tall at 4:1 is 96px wide.
         assert_eq!(
-            px(transferred_max_width(Dimension::length(24.0), Dimension::auto(), 4.0)),
+            px(transferred_max_width(Lpa::length(24.0), Lpa::auto(), 4.0)),
             Some(96.0)
         );
 
         // An author's own `max-width` is not widened by the transfer, only narrowed.
         assert_eq!(
-            px(transferred_max_width(
-                Dimension::length(24.0),
-                Dimension::length(10.0),
-                1.0
-            )),
+            px(transferred_max_width(Lpa::length(24.0), Lpa::length(10.0), 1.0)),
             Some(10.0)
         );
         assert_eq!(
-            px(transferred_max_width(
-                Dimension::length(24.0),
-                Dimension::length(80.0),
-                1.0
-            )),
+            px(transferred_max_width(Lpa::length(24.0), Lpa::length(80.0), 1.0)),
             Some(24.0)
         );
 
         // Nothing to transfer: the width's own maximum stands, whatever it is.
-        assert!(transferred_max_width(Dimension::auto(), Dimension::auto(), 1.0).is_auto());
+        assert!(transferred_max_width(Lpa::auto(), Lpa::auto(), 1.0).is_auto());
         assert_eq!(
-            px(transferred_max_width(Dimension::auto(), Dimension::length(80.0), 1.0)),
+            px(transferred_max_width(Lpa::auto(), Lpa::length(80.0), 1.0)),
             Some(80.0)
         );
     }
