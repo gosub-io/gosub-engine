@@ -736,6 +736,14 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             // Relative colour syntax (`rgb(from red r g b)`) uses channel keywords that no
             // grammar in the definitions has, and each component is typed by its channel. It is
             // checked natively, like `alpha()`.
+            // `color-mix()` is checked natively as well. Its percentages are normalized in the
+            // specified value, which the grammar cannot express.
+            if crate::colors::mix::is_color_mix(c_name) {
+                return match crate::colors::mix::canonical(c_args) {
+                    Some(value) => matched_as(input, value),
+                    None => no_match(input),
+                };
+            }
             if crate::colors::relative::is_relative(c_args) && crate::stylesheet::is_color_function(c_name) {
                 return match crate::colors::relative::canonical(c_name, c_args) {
                     Some(value) => MatchResult {

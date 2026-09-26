@@ -404,14 +404,14 @@ fn oklab_to_xyz_d65(oklab: [f64; 3]) -> [f64; 3] {
 
 /// Rectangular to polar. A chroma at or under `epsilon` has no hue, which comes back as NaN.
 /// The thresholds are the sample code's, and absorb rounding error from a round trip.
+/// A hue that comes back NaN also sets a small chroma to zero, so rounding noise does not grow
+/// later (css-color-4 section 4.4.1).
 fn to_polar(v: [f64; 3], epsilon: f64) -> [f64; 3] {
     let chroma = v[1].hypot(v[2]);
-    let hue = if chroma <= epsilon {
-        f64::NAN
-    } else {
-        normalize_hue(v[2].atan2(v[1]).to_degrees())
-    };
-    [v[0], chroma, hue]
+    if chroma <= epsilon {
+        return [v[0], 0.0, f64::NAN];
+    }
+    [v[0], chroma, normalize_hue(v[2].atan2(v[1]).to_degrees())]
 }
 
 fn from_polar(v: [f64; 3]) -> [f64; 3] {
@@ -450,12 +450,14 @@ pub fn hsl_to_srgb(hsl: [f64; 3]) -> [f64; 3] {
 /// sRGB (0-1 channels) to HSL, with NaN for the hue of an achromatic colour.
 #[must_use]
 pub fn srgb_to_hsl(rgb: [f64; 3]) -> [f64; 3] {
+    // The sample code's threshold for a saturation too small to have a hue, on a 0-1 scale.
+    const ACHROMATIC: f64 = 1.0 / 100_000.0;
     let [red, green, blue] = rgb;
     let max = red.max(green).max(blue);
     let min = red.min(green).min(blue);
     let light = (min + max) / 2.0;
     let d = max - min;
-    let mut hue = f64::NAN;
+    let mut hue = rgb_to_hue(rgb);
     let mut sat = 0.0;
     if d != 0.0 {
         sat = if light == 0.0 || light == 1.0 {
@@ -463,13 +465,6 @@ pub fn srgb_to_hsl(rgb: [f64; 3]) -> [f64; 3] {
         } else {
             (max - light) / light.min(1.0 - light)
         };
-        hue = if max == red {
-            (green - blue) / d + if green < blue { 6.0 } else { 0.0 }
-        } else if max == green {
-            (blue - red) / d + 2.0
-        } else {
-            (red - green) / d + 4.0
-        } * 60.0;
     }
     // A colour far outside sRGB can come out with a negative saturation, which is the same
     // colour on the opposite side of the wheel.
@@ -477,10 +472,29 @@ pub fn srgb_to_hsl(rgb: [f64; 3]) -> [f64; 3] {
         hue += 180.0;
         sat = sat.abs();
     }
-    if !hue.is_nan() {
-        hue = normalize_hue(hue);
+    if sat <= ACHROMATIC {
+        return [f64::NAN, sat.max(0.0) * 100.0, light * 100.0];
     }
-    [hue, sat * 100.0, light * 100.0]
+    [normalize_hue(hue), sat * 100.0, light * 100.0]
+}
+
+/// The hue of an sRGB colour in degrees, NaN when all three channels are equal.
+fn rgb_to_hue(rgb: [f64; 3]) -> f64 {
+    let [red, green, blue] = rgb;
+    let max = red.max(green).max(blue);
+    let min = red.min(green).min(blue);
+    let d = max - min;
+    if d == 0.0 {
+        return f64::NAN;
+    }
+    let hue = if max == red {
+        (green - blue) / d + if green < blue { 6.0 } else { 0.0 }
+    } else if max == green {
+        (blue - red) / d + 2.0
+    } else {
+        (red - green) / d + 4.0
+    };
+    normalize_hue(hue * 60.0)
 }
 
 /// HWB to sRGB (0-1 channels). Whiteness and blackness are 0-100, and are normalized when they
@@ -501,15 +515,57 @@ pub fn hwb_to_srgb(hwb: [f64; 3]) -> [f64; 3] {
 pub fn srgb_to_hwb(rgb: [f64; 3]) -> [f64; 3] {
     // The sample code's tolerance for rounding error after several conversions.
     const ACHROMATIC: f64 = 1.0 / 100_000.0;
-    let hsl = srgb_to_hsl(rgb);
     let white = rgb[0].min(rgb[1]).min(rgb[2]);
     let black = 1.0 - rgb[0].max(rgb[1]).max(rgb[2]);
     let hue = if white + black >= 1.0 - ACHROMATIC {
         f64::NAN
     } else {
-        hsl[0]
+        rgb_to_hue(rgb)
     };
     [hue, white * 100.0, black * 100.0]
+}
+
+// --- missing components across spaces -------------------------------------------------------
+
+/// A triple with missing components converted from one space to another.
+///
+/// A missing component reads as zero in the conversion. It is carried forward as missing
+/// into its analogous component in `to`, and when every component of the leftover analogous
+/// set is missing, the whole leftover set in `to` is missing too (css-color-4 section 13.3).
+/// The hue of an achromatic result comes back missing. When the spaces are the same, nothing
+/// is converted and the components come back as they were.
+#[must_use]
+pub fn convert_missing(from: Space, to: Space, v: [Option<f64>; 3]) -> [Option<f64>; 3] {
+    if from == to {
+        return v;
+    }
+    let mut out = convert(from, to, v.map(|c| c.unwrap_or(0.0))).map(|c| (!c.is_nan()).then_some(c));
+    let (from_kinds, to_kinds) = (from.component_kinds(), to.component_kinds());
+    let mut leftover_from_missing = true;
+    let mut leftover_from_any = false;
+    for (index, kind) in from_kinds.iter().enumerate() {
+        let matched = *kind != Analogy::None && to_kinds.contains(kind);
+        if matched {
+            if v[index].is_none() {
+                for (slot, target) in to_kinds.iter().enumerate() {
+                    if target == kind {
+                        out[slot] = None;
+                    }
+                }
+            }
+        } else {
+            leftover_from_any = true;
+            leftover_from_missing &= v[index].is_none();
+        }
+    }
+    if leftover_from_any && leftover_from_missing {
+        for (slot, kind) in to_kinds.iter().enumerate() {
+            if *kind == Analogy::None || !from_kinds.contains(kind) {
+                out[slot] = None;
+            }
+        }
+    }
+    out
 }
 
 // --- the hub ----------------------------------------------------------------------------------

@@ -624,6 +624,24 @@ fn relative_colours_keep_their_form_when_specified_and_resolve_when_computed() {
 }
 
 #[test]
+fn color_mix_keeps_its_form_when_specified_and_mixes_when_computed() {
+    // css-color-5 section 3: the specified value is the function in canonical form, with the
+    // default method left out and the percentages filled in. The computed value is the mix, in
+    // the interpolation space.
+    let value = eval(
+        "<div id=a></div><div id=b></div>",
+        "const e = id => document.getElementById(id); \
+         e('a').style.color = 'color-mix(in oklab, 25% red, blue)'; \
+         e('b').style.color = 'color-mix(in srgb, red, transparent)'; \
+         const g = id => e(id).style.color + ' => ' + getComputedStyle(e(id)).color; \
+         g('a') + '|' + g('b');",
+    );
+    let (a, b) = value.split_once('|').expect("two values");
+    assert!(a.starts_with("color-mix(red 25%, blue 75%) => oklab("), "{a}");
+    assert_eq!(b, "color-mix(in srgb, red, transparent) => color(srgb 1 0 0 / 0.5)");
+}
+
+#[test]
 fn a_missing_colour_component_is_not_zero() {
     // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
     // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation

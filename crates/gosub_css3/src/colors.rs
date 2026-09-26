@@ -6,6 +6,7 @@ use std::str::FromStr;
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
 
+pub(crate) mod mix;
 pub(crate) mod relative;
 pub mod space;
 
@@ -1084,6 +1085,15 @@ impl ColorSyntax {
 }
 
 impl CssColor {
+    /// The three components converted to `space`, in the units [`space`] converts in, with
+    /// missing components carried forward (see [`space::convert_missing`]).
+    #[must_use]
+    pub fn in_space(&self, to: Space) -> [Option<f64>; 3] {
+        let scale = if self.syntax == ColorSyntax::Rgb { 255.0 } else { 1.0 };
+        let own = self.components().map(|c| c.map(|v| v / scale));
+        space::convert_missing(self.syntax.space(), to, own)
+    }
+
     /// The three components in the units [`space`] converts in, with a missing one read as zero.
     ///
     /// These are the notation's own units, except for `rgb()`, whose 0-255 channels are

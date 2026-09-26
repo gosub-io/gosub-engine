@@ -18,7 +18,7 @@
 
 use cow_utils::CowUtils;
 
-use super::space::{self, normalize_hue, Analogy, Space};
+use super::space::{self, normalize_hue, Space};
 use super::{is_named_color, is_system_color, ColorSyntax, CssColor, PredefinedSpace, RgbColor};
 use crate::functions::calc;
 use crate::matcher::property_definitions::get_css_definitions;
@@ -222,7 +222,7 @@ pub(crate) fn canonical(name: &str, args: &[CssValue]) -> Option<CssValue> {
 }
 
 /// The origin, checked against `<color>` and put in its canonical form.
-fn canonical_origin(origin: &CssValue) -> Option<CssValue> {
+pub(crate) fn canonical_origin(origin: &CssValue) -> Option<CssValue> {
     // A CSS-wide keyword is valid as a whole declaration, never as a colour inside one.
     if let CssValue::String(word) = origin {
         let word = word.cow_to_ascii_lowercase();
@@ -381,7 +381,7 @@ fn with_alpha(origin: CssColor, alpha: Option<&CssValue>, target: &Target) -> Op
 }
 
 /// The origin as a colour, or `None` when it can only be resolved later (see the module docs).
-fn resolve_origin(origin: &CssValue) -> Option<CssColor> {
+pub(crate) fn resolve_origin(origin: &CssValue) -> Option<CssColor> {
     match origin {
         CssValue::Color(color) => Some(*color),
         CssValue::String(word) => {
@@ -402,37 +402,15 @@ fn resolve_origin(origin: &CssValue) -> Option<CssColor> {
 /// The origin's components in the target's space and units, `None` for a missing one, and its
 /// alpha.
 ///
-/// A component missing in the origin stays missing when the origin is already in the target's
-/// space. Across spaces a missing component is read as zero (css-color-4 §12.2), and only the
-/// hue of an achromatic result can come out missing: `lch(from black l c h)` has no hue.
+/// A component missing in the origin stays missing in the target's analogous component, as
+/// [`CssColor::in_space`] describes. The hue of an achromatic result also comes out missing:
+/// `lch(from black l c h)` has no hue.
 fn channels_of(origin: &CssColor, target: ColorSyntax) -> ([Option<f64>; 3], Option<f64>) {
-    let (from, to) = (origin.syntax.space(), target.space());
+    let to = target.space();
     // `rgb()` counts its channels in 255ths, every other sRGB notation in ones.
-    let origin_scale = if origin.syntax == ColorSyntax::Rgb { 255.0 } else { 1.0 };
     let target_scale = if target == ColorSyntax::Rgb { 255.0 } else { 1.0 };
 
-    let mut channels = if from == to {
-        origin
-            .components()
-            .map(|component| component.map(|value| value / origin_scale))
-    } else {
-        let mut converted =
-            space::convert(from, to, origin.space_components()).map(|value| (!value.is_nan()).then_some(value));
-        // A component missing in the origin stays missing in the analogous component of the
-        // target (css-color-5 §4, via css-color-4 §12.2), such as lightness in both spaces.
-        let (from_kinds, to_kinds) = (from.component_kinds(), to.component_kinds());
-        for (index, component) in origin.components().iter().enumerate() {
-            let kind = from_kinds[index];
-            if component.is_none() && kind != Analogy::None {
-                for (slot, target_kind) in to_kinds.iter().enumerate() {
-                    if *target_kind == kind {
-                        converted[slot] = None;
-                    }
-                }
-            }
-        }
-        converted
-    };
+    let mut channels = origin.in_space(to);
     for channel in &mut channels {
         *channel = channel.map(|value| value * target_scale);
     }
