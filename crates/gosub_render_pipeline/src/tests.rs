@@ -1363,6 +1363,83 @@ mod rendertree_from_engine {
         assert!(laid_out.arena.len() < DEPTH, "the subtree past the cap must be dropped");
     }
 
+    /// The tree builder caps nesting at 512 levels, but a document can be built without it, and
+    /// the layout depth cap only bounds the walks over the layout tree. Two layout passes walk the
+    /// DOM instead - collecting tables and sizing inline boxes - and the cascade's inherited
+    /// values drop as a chain as long as the tree is deep. At 20,000 levels each of those
+    /// overflowed a 2 MiB stack.
+    #[test]
+    fn a_deep_tree_built_without_the_parser_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use gosub_html5::node::HTML_NAMESPACE;
+        use gosub_shared::byte_stream::Location;
+
+        const DEPTH: usize = 20_000;
+
+        for tag in ["div", "span"] {
+            let boxes = std::thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || {
+                    let mut doc = html_compile::<Config>("<html><body></body></html>");
+                    let html = doc.children(doc.root())[0];
+                    let mut parent = *doc.children(html).last().expect("body");
+                    for _ in 0..DEPTH {
+                        let child =
+                            doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
+                        doc.attach(child, parent, None);
+                        parent = child;
+                    }
+                    let text = doc.create_text("x", Location::default());
+                    doc.attach(text, parent, None);
+                    doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+
+                    let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                    render_tree.parse().expect("render tree");
+                    let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+                    laid_out.arena.len()
+                })
+                .expect("spawn")
+                .join()
+                .unwrap_or_else(|_| panic!("<{tag}> x {DEPTH}: layout must not abort the process"));
+
+            assert!(
+                boxes < DEPTH,
+                "<{tag}>: the subtree past the layout cap must be dropped"
+            );
+        }
+    }
+
+    /// The same depth through the parser, which is what a page gets: the tree builder caps it at
+    /// 512 levels before any of the passes above see it.
+    #[test]
+    fn a_page_nesting_twenty_thousand_inline_boxes_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const DEPTH: usize = 20_000;
+
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body>{}x{}</body></html>",
+                    "<span>".repeat(DEPTH),
+                    "</span>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+            })
+            .expect("spawn")
+            .join()
+            .expect("layout must not abort the process");
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;

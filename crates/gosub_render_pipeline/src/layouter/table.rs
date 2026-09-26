@@ -5,7 +5,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::float::float_side;
-use crate::layouter::taffy::TaffyLayouter;
+use crate::layouter::taffy::{TaffyLayouter, MAX_LAYOUT_DEPTH};
 use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use gosub_interface::style::{Display, LengthPercentage, LengthPercentageAuto, Position, Prop};
 use std::cell::RefCell;
@@ -623,7 +623,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // been updated by the outer table's apply_positions call.
     let mut table_nodes: Vec<(DomNodeId, LayoutElementId)> = Vec::new();
     if let Some(root_dom_id) = doc.root() {
-        collect_tables_preorder(&*doc, root_dom_id, &dom_to_layout, &mut table_nodes);
+        collect_tables_preorder(&*doc, root_dom_id, &dom_to_layout, &mut table_nodes, 0);
     }
 
     log::info!("lattice: post_process_tables found {} table node(s)", table_nodes.len());
@@ -889,19 +889,29 @@ fn collect_subtree(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut Hash
 }
 
 /// Pre-order DFS that collects all `display: table` nodes into `out`, parents first.
+///
+/// This walks the DOM, not the layout tree, so the layout depth cap does not bound it on its
+/// own: a document nesting 20,000 elements overflowed the stack here. It stops at
+/// [`MAX_LAYOUT_DEPTH`] instead. Nothing is lost by that - every level of the DOM path to a box
+/// is a level of the layout tree too, so a node deeper than the cap has no layout box and would
+/// never have been collected.
 fn collect_tables_preorder(
     doc: &dyn PipelineDocument,
     id: DomNodeId,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     out: &mut Vec<(DomNodeId, LayoutElementId)>,
+    depth: usize,
 ) {
     if is_table_box(doc, id) {
         if let Some(&layout_id) = dom_to_layout.get(&id) {
             out.push((id, layout_id));
         }
     }
+    if depth > MAX_LAYOUT_DEPTH {
+        return;
+    }
     for child in doc.children(id) {
-        collect_tables_preorder(doc, child, dom_to_layout, out);
+        collect_tables_preorder(doc, child, dom_to_layout, out, depth + 1);
     }
 }
 

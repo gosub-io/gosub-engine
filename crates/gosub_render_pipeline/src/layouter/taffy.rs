@@ -1071,7 +1071,7 @@ impl TaffyLayouter {
                             .computed_style(element_node.dom_node_id)
                             .declared_display(),
                         None | Some(CssDisplay::Inline)
-                    ) && self.inline_box_content_is_container_bound(layout_tree, &node)
+                    ) && self.inline_box_content_is_container_bound(layout_tree, &node, 0)
                 }),
         };
         let bands = self.float_insets.get(&element_node.dom_node_id).cloned();
@@ -1845,7 +1845,14 @@ impl TaffyLayouter {
     /// The box itself then spans its container, so a small logo inside a wide link gets a link box,
     /// and therefore a hit area, wider than the image. Accepted deliberately: the alternative is
     /// inline layout that is not a flex container.
-    fn inline_box_content_is_container_bound(&self, layout_tree: &LayoutTree, node: &Node) -> bool {
+    ///
+    /// The nested-inline case recurses over the DOM, once per level, so `depth` stops it at
+    /// [`MAX_LAYOUT_DEPTH`]: a document nesting 20,000 `<span>`s overflowed the stack here. Past
+    /// the cap the answer is "no", the shrink-wrap default, and the content is not laid out anyway.
+    fn inline_box_content_is_container_bound(&self, layout_tree: &LayoutTree, node: &Node, depth: usize) -> bool {
+        if depth >= MAX_LAYOUT_DEPTH {
+            return false;
+        }
         let mut found_replaced = false;
         for child_id in &node.children {
             let Some(child) = layout_tree.render_tree.doc.get_node_by_id(*child_id) else {
@@ -1880,7 +1887,7 @@ impl TaffyLayouter {
                             .declared_display(),
                         None | Some(CssDisplay::Inline)
                     );
-                    if !inline || !self.inline_box_content_is_container_bound(layout_tree, &child) {
+                    if !inline || !self.inline_box_content_is_container_bound(layout_tree, &child, depth + 1) {
                         return false;
                     }
                     found_replaced = true;
@@ -1918,7 +1925,7 @@ impl TaffyLayouter {
                         .declared_display(),
                     None | Some(CssDisplay::Inline)
                 ) && taffy_style.size.width.is_auto()
-                    && self.inline_box_content_is_container_bound(layout_tree, dom_node)
+                    && self.inline_box_content_is_container_bound(layout_tree, dom_node, 0)
                 {
                     taffy_style.size.width = Dimension::percent(1.0);
                 }
