@@ -19,7 +19,7 @@ use crate::layouter::text::get_text_layout;
 use crate::layouter::{
     box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
     ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
-    LayoutTree, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT, SELECT_POPUP_SHADOW,
+    LayoutTree, MaxHeight, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT, SELECT_POPUP_SHADOW,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -431,6 +431,7 @@ impl TaffyContext {
         node_id: DomNodeId,
         placeholder: bool,
         alt: Option<String>,
+        max_height: MaxHeight,
     ) -> TaffyContext {
         TaffyContext::Image(ElementContextImage {
             node_id,
@@ -439,15 +440,23 @@ impl TaffyContext {
             dimension,
             placeholder,
             alt,
+            max_height,
         })
     }
 
-    fn svg(src: &str, media_id: MediaId, dimension: geo::Dimension, node_id: DomNodeId) -> TaffyContext {
+    fn svg(
+        src: &str,
+        media_id: MediaId,
+        dimension: geo::Dimension,
+        node_id: DomNodeId,
+        max_height: MaxHeight,
+    ) -> TaffyContext {
         TaffyContext::Svg(ElementContextSvg {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            max_height,
         })
     }
 }
@@ -1792,6 +1801,39 @@ impl TaffyLayouter {
         }
     }
 
+    /// Whether any in-flow child of this flex container has an `auto` margin on the main axis.
+    ///
+    /// css-flexbox-1 §8.1: auto margins take the free space *before* the alignment properties see
+    /// it, "because the margins will have stolen all the free space left over after flexing", so
+    /// `justify-content` has no effect on a line that holds one. Taffy applies them the other way
+    /// round: with `justify-content: center` and an image whose `margin-left` and `margin-right`
+    /// are both `auto`, the whole free space went to the left margin and the image came out flush
+    /// against the container's right edge - every "trusted by" logo on ingewikkeld.dev, which is
+    /// exactly `figure { display:flex; justify-content:center }` around
+    /// `img { margin-left:auto; margin-right:auto }`. With `justify-content: flex-start` taffy
+    /// centres the same image correctly, so the fix is to hand it the neutral value.
+    fn flex_child_has_main_axis_auto_margin(&self, layout_tree: &LayoutTree, node: &Node, is_row: bool) -> bool {
+        node.children.iter().any(|child_id| {
+            let Some(child) = layout_tree.render_tree.doc.get_node_by_id(*child_id) else {
+                return false;
+            };
+            if !matches!(child.node_type, NodeType::Element(_)) {
+                return false;
+            }
+            let style = CssTaffyConverter::new(child.node_id, &*layout_tree.render_tree.doc).convert(false);
+            // An absolutely positioned child is not a flex item, and a `display: none` one is not
+            // laid out at all; neither takes any free space.
+            if style.position == Position::Absolute || style.display == Display::None {
+                return false;
+            }
+            if is_row {
+                style.margin.left.is_auto() || style.margin.right.is_auto()
+            } else {
+                style.margin.top.is_auto() || style.margin.bottom.is_auto()
+            }
+        })
+    }
+
     /// Whether an inline box holds nothing but replaced elements that are already bound by their
     /// containing block, so giving the box that container's width cannot move its content.
     ///
@@ -1879,6 +1921,26 @@ impl TaffyLayouter {
                 // stretches between opposing insets with ones rebased onto its parent, so taffy
                 // sizes it against the CSS containing block rather than whatever ancestor happens
                 // to be its parent. Empty on the first pass. See `abspos::RebasedInsets`.
+                // An auto margin on the main axis has already taken the free space, so the
+                // alignment has none left to distribute (css-flexbox-1 §8.1). Taffy does not
+                // order it that way, so it is handed the neutral value and left to resolve the
+                // margins - which it does correctly. See
+                // `flex_child_has_main_axis_auto_margin`.
+                if taffy_style.display == Display::Flex
+                    && !matches!(
+                        taffy_style.justify_content,
+                        None | Some(AlignContent::FLEX_START) | Some(AlignContent::START)
+                    )
+                {
+                    let is_row = matches!(
+                        taffy_style.flex_direction,
+                        FlexDirection::Row | FlexDirection::RowReverse
+                    );
+                    if self.flex_child_has_main_axis_auto_margin(layout_tree, dom_node, is_row) {
+                        taffy_style.justify_content = Some(AlignContent::FLEX_START);
+                    }
+                }
+
                 // Both halves are needed: the inline box AND the anonymous line box inside it (see
                 // `LineStyle::full_width`). Making only one definite leaves the other shrinking to
                 // the content, and the child's percentage still resolves against itself.
@@ -2031,7 +2093,13 @@ impl TaffyLayouter {
                             };
 
                             taffy_context = Some(if is_svg {
-                                TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id)
+                                TaffyContext::svg(
+                                    src.as_str(),
+                                    media_id,
+                                    dimension,
+                                    dom_node.node_id,
+                                    max_height_of(taffy_style.max_size.height),
+                                )
                             } else {
                                 TaffyContext::image(
                                     src.as_str(),
@@ -2040,6 +2108,7 @@ impl TaffyLayouter {
                                     dom_node.node_id,
                                     is_placeholder,
                                     alt,
+                                    max_height_of(taffy_style.max_size.height),
                                 )
                             });
                         }
@@ -2093,6 +2162,7 @@ impl TaffyLayouter {
                                 media_id,
                                 dimension,
                                 dom_node.node_id,
+                                max_height_of(taffy_style.max_size.height),
                             ));
                         }
                         Err(e) => {
@@ -2731,6 +2801,67 @@ fn min_content_width(
         .fold(0.0_f64, f64::max)
 }
 
+/// Read a taffy `max-height` back into the form the measure callback can use.
+///
+/// A percentage keeps its fraction: its base is the containing block's height, which is not known
+/// where the style is built.
+fn max_height_of(max_height: Dimension) -> MaxHeight {
+    match max_height.tag() {
+        taffy::CompactLength::LENGTH_TAG => MaxHeight::Length(max_height.value()),
+        taffy::CompactLength::PERCENT_TAG => MaxHeight::Percent(max_height.value()),
+        _ => MaxHeight::None,
+    }
+}
+
+/// Bound a replaced element's measured size by its `max-height`, keeping the intrinsic ratio.
+///
+/// Taffy clamps the height by `max-height` but leaves the width where it was, so the image is
+/// stretched: every ingewikkeld.dev client logo taller than its 64px box came out at its full
+/// intrinsic width, psybizz at 600x68 for a 600x223 image. `transferred_max_width` closes that
+/// where the maximum is a length, by turning it into a `max-width` when the style is built. A
+/// **percentage** cannot be turned into one there - `max-height: 100%` resolves against the
+/// containing block's height, which taffy knows and the converter does not - but it reaches the
+/// measure callback as the available height, so it is applied here instead.
+///
+/// Only when taffy has not already fixed the width: `known_dimensions.width` is a decision, not a
+/// suggestion, and a measurement must not contradict it. Taffy asks without a known width while it
+/// is sizing the content, which is the answer that decides the box.
+fn clamp_replaced_to_max_height(
+    measured: Size<f32>,
+    known: Size<Option<f32>>,
+    available: Size<AvailableSpace>,
+    max_height: MaxHeight,
+    intrinsic: geo::Dimension,
+) -> Size<f32> {
+    if known.width.is_some() {
+        return measured;
+    }
+    let limit = match max_height {
+        MaxHeight::None => return measured,
+        MaxHeight::Length(px) => px,
+        MaxHeight::Percent(fraction) => match available.height {
+            AvailableSpace::Definite(height) => height * fraction,
+            // Against an indefinite height a percentage maximum computes to none (css-sizing-3).
+            _ => return measured,
+        },
+    };
+    if !limit.is_finite() || limit <= 0.0 || measured.height <= limit {
+        return measured;
+    }
+
+    let (iw, ih) = (intrinsic.width as f32, intrinsic.height as f32);
+    if iw <= 0.0 || ih <= 0.0 {
+        return Size {
+            width: measured.width,
+            height: limit,
+        };
+    }
+    Size {
+        width: (limit * iw / ih).min(measured.width),
+        height: limit,
+    }
+}
+
 /// The `max-width` a replaced element inherits from its `max-height`, through the intrinsic
 /// ratio - css-sizing-4 §5.2.1 calls it the transferred size.
 ///
@@ -2796,12 +2927,14 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             image_ctx.node_id,
             image_ctx.placeholder,
             image_ctx.alt.clone(),
+            image_ctx.max_height,
         ),
         Some(TaffyContext::Svg(svg_ctx)) => ElementContext::svg(
             svg_ctx.src.as_str(),
             svg_ctx.media_id,
             svg_ctx.dimension,
             svg_ctx.node_id,
+            svg_ctx.max_height,
         ),
         Some(TaffyContext::FormControl(fc)) => ElementContext::FormControl(fc.clone()),
         None => ElementContext::None,
@@ -2947,10 +3080,22 @@ fn measure_node(
         // derive the other from the intrinsic aspect ratio, so e.g. an
         // `height: 30px` logo keeps its shape instead of stretching to its full
         // intrinsic width.
-        Some(TaffyContext::Image(image_ctx)) => measure_replaced(known_dimensions, image_ctx.dimension),
+        Some(TaffyContext::Image(image_ctx)) => clamp_replaced_to_max_height(
+            measure_replaced(known_dimensions, image_ctx.dimension),
+            known_dimensions,
+            available_space,
+            image_ctx.max_height,
+            image_ctx.dimension,
+        ),
         // SVG-backed <img> elements carry their intrinsic size the same way.
         // Without this arm they measured as 0x0 and collapsed (e.g. the HN logo).
-        Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(known_dimensions, svg_ctx.dimension),
+        Some(TaffyContext::Svg(svg_ctx)) => clamp_replaced_to_max_height(
+            measure_replaced(known_dimensions, svg_ctx.dimension),
+            known_dimensions,
+            available_space,
+            svg_ctx.max_height,
+            svg_ctx.dimension,
+        ),
         // No aspect ratio: `width: 100%` on an input must not scale its height.
         Some(TaffyContext::FormControl(fc)) => Size {
             width: known_dimensions.width.unwrap_or(fc.dimension.width as f32),
