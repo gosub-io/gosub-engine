@@ -602,6 +602,28 @@ fn a_colour_keeps_the_space_it_was_written_in() {
 }
 
 #[test]
+fn relative_colours_keep_their_form_when_specified_and_resolve_when_computed() {
+    // css-color-5 §4: the specified value is the function as written, in canonical form. The
+    // computed value is the resolved colour: `color(srgb ...)` for the sRGB notations, the
+    // function's own space otherwise, with the hue of an achromatic colour missing.
+    let value = eval(
+        "<div id=a></div><div id=b></div><div id=c></div>",
+        "const e = id => document.getElementById(id); \
+         e('a').style.color = 'rgba(from RebeccaPurple r g b)'; \
+         e('b').style.color = 'oklch(from color(display-p3 0 0 0) l c h)'; \
+         e('c').style.color = 'alpha(from red / 0.5)'; \
+         const g = id => e(id).style.color + ' => ' + getComputedStyle(e(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c');",
+    );
+    assert_eq!(
+        value,
+        "rgb(from rebeccapurple r g b) => color(srgb 0.4 0.2 0.6)|\
+         oklch(from color(display-p3 0 0 0) l c h) => oklch(0 0 none)|\
+         alpha(from red / 0.5) => color(srgb 1 0 0 / 0.5)"
+    );
+}
+
+#[test]
 fn a_missing_colour_component_is_not_zero() {
     // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
     // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation

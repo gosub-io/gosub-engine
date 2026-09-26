@@ -6,6 +6,11 @@ use std::str::FromStr;
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
 
+pub(crate) mod relative;
+pub mod space;
+
+use space::Space;
+
 // The named-color table lives in gosub_shared so the render pipeline can resolve
 // the same names without depending on this crate; re-exported here for existing users.
 pub use gosub_shared::css_colors::{
@@ -780,6 +785,7 @@ pub enum PredefinedSpace {
     Srgb,
     SrgbLinear,
     DisplayP3,
+    DisplayP3Linear,
     A98Rgb,
     ProphotoRgb,
     Rec2020,
@@ -795,12 +801,36 @@ impl PredefinedSpace {
             PredefinedSpace::Srgb => "srgb",
             PredefinedSpace::SrgbLinear => "srgb-linear",
             PredefinedSpace::DisplayP3 => "display-p3",
+            PredefinedSpace::DisplayP3Linear => "display-p3-linear",
             PredefinedSpace::A98Rgb => "a98-rgb",
             PredefinedSpace::ProphotoRgb => "prophoto-rgb",
             PredefinedSpace::Rec2020 => "rec2020",
             PredefinedSpace::XyzD50 => "xyz-d50",
             PredefinedSpace::XyzD65 => "xyz-d65",
         }
+    }
+
+    /// The conversion space this names.
+    #[must_use]
+    pub fn space(self) -> Space {
+        match self {
+            PredefinedSpace::Srgb => Space::Srgb,
+            PredefinedSpace::SrgbLinear => Space::SrgbLinear,
+            PredefinedSpace::DisplayP3 => Space::DisplayP3,
+            PredefinedSpace::DisplayP3Linear => Space::DisplayP3Linear,
+            PredefinedSpace::A98Rgb => Space::A98Rgb,
+            PredefinedSpace::ProphotoRgb => Space::ProphotoRgb,
+            PredefinedSpace::Rec2020 => Space::Rec2020,
+            PredefinedSpace::XyzD50 => Space::XyzD50,
+            PredefinedSpace::XyzD65 => Space::XyzD65,
+        }
+    }
+
+    /// Whether this is one of the XYZ spaces, whose components `color()` names `x y z` rather
+    /// than `r g b`.
+    #[must_use]
+    pub fn is_xyz(self) -> bool {
+        matches!(self, PredefinedSpace::XyzD50 | PredefinedSpace::XyzD65)
     }
 
     /// The space a `color()` keyword names, or `None` when it names none of them.
@@ -810,6 +840,7 @@ impl PredefinedSpace {
             "srgb" => PredefinedSpace::Srgb,
             "srgb-linear" => PredefinedSpace::SrgbLinear,
             "display-p3" => PredefinedSpace::DisplayP3,
+            "display-p3-linear" => PredefinedSpace::DisplayP3Linear,
             "a98-rgb" => PredefinedSpace::A98Rgb,
             "prophoto-rgb" => PredefinedSpace::ProphotoRgb,
             "rec2020" => PredefinedSpace::Rec2020,
@@ -1021,11 +1052,50 @@ impl CssColor {
             ColorSyntax::Oklch => oklch_to_srgb(first, second, third),
             ColorSyntax::Lab => lab_to_srgb(first, second, third),
             ColorSyntax::Lch => lch_to_srgb(first, second, third),
-            // Every predefined space is read as though it were sRGB. Converting between them is
-            // a matrix apiece and nothing downstream asks for it yet.
-            ColorSyntax::Predefined(_) => (first * 255.0, second * 255.0, third * 255.0),
+            ColorSyntax::Predefined(PredefinedSpace::Srgb) => (first * 255.0, second * 255.0, third * 255.0),
+            // Every other predefined space is converted, and anything outside sRGB is clipped,
+            // since only sRGB is painted.
+            ColorSyntax::Predefined(space) => {
+                let srgb = space::convert(space.space(), Space::Srgb, self.space_components());
+                #[expect(clippy::cast_possible_truncation, reason = "a colour channel fits an f32")]
+                let channel = |c: f64| (c.clamp(0.0, 1.0) * 255.0) as f32;
+                (channel(srgb[0]), channel(srgb[1]), channel(srgb[2]))
+            }
         };
         RgbColor::new(r, g, b, alpha)
+    }
+}
+
+impl ColorSyntax {
+    /// The space this notation's components are in.
+    #[must_use]
+    pub fn space(self) -> Space {
+        match self {
+            ColorSyntax::Rgb => Space::Srgb,
+            ColorSyntax::Hsl => Space::Hsl,
+            ColorSyntax::Hwb => Space::Hwb,
+            ColorSyntax::Lab => Space::Lab,
+            ColorSyntax::Lch => Space::Lch,
+            ColorSyntax::Oklab => Space::Oklab,
+            ColorSyntax::Oklch => Space::Oklch,
+            ColorSyntax::Predefined(space) => space.space(),
+        }
+    }
+}
+
+impl CssColor {
+    /// The three components in the units [`space`] converts in, with a missing one read as zero.
+    ///
+    /// These are the notation's own units, except for `rgb()`, whose 0-255 channels are
+    /// converted as 0-1.
+    #[must_use]
+    pub fn space_components(&self) -> [f64; 3] {
+        let scale = if self.syntax == ColorSyntax::Rgb { 255.0 } else { 1.0 };
+        [
+            self.channel(0) / scale,
+            self.channel(1) / scale,
+            self.channel(2) / scale,
+        ]
     }
 }
 

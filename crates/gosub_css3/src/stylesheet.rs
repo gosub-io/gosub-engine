@@ -1515,7 +1515,7 @@ fn reduce_color_component(value: &CssValue) -> CssValue {
 /// `None` is a component written `none`, which css-color-4 §12.2 calls *missing* and which is
 /// not the same as zero. `scale` is what a percentage means here: 255 for an sRGB channel, 100
 /// for a percentage that stays a percentage, 1 for a `color()` component.
-fn color_component(value: &CssValue, scale: f64) -> Option<Option<f64>> {
+pub(crate) fn color_component(value: &CssValue, scale: f64) -> Option<Option<f64>> {
     match value {
         // css-values-4 §10.9: NaN becomes zero and an infinity clamps to the end of the range.
         CssValue::Number(number, _) => Some(Some(finite(*number, scale))),
@@ -1529,7 +1529,7 @@ fn color_component(value: &CssValue, scale: f64) -> Option<Option<f64>> {
 }
 
 /// A hue, which may be written as a plain number or as any angle unit (css-color-4 §7).
-fn color_hue(value: &CssValue) -> Option<Option<f64>> {
+pub(crate) fn color_hue(value: &CssValue) -> Option<Option<f64>> {
     match value {
         CssValue::Unit(angle, unit) => {
             let degrees = match unit.as_str() {
@@ -1563,7 +1563,7 @@ fn finite(value: f64, scale: f64) -> f64 {
 
 /// Alpha is a fraction, and a value outside it is brought back in rather than rejected
 /// (css-color-4 §4.1): `lab(0 0 0 / 300%)` is opaque, not invalid.
-fn clamp_alpha(alpha: f64) -> f64 {
+pub(crate) fn clamp_alpha(alpha: f64) -> f64 {
     alpha.clamp(0.0, 1.0)
 }
 
@@ -1634,6 +1634,15 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<CssColor> {
 /// as `lab(calc(150) 0 0)`, not as `lab(100 0 0)` - so the parse refuses to fold such a colour
 /// at all and leaves the function standing. The computed value is where the arithmetic is done.
 pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: bool) -> Option<CssColor> {
+    // Relative colour syntax, including `alpha(from ...)`, keeps its specified form as
+    // written. Only the computed stage can resolve the colour.
+    if crate::colors::relative::is_relative(args) {
+        return if resolve_math {
+            crate::colors::relative::resolve(name, args)
+        } else {
+            None
+        };
+    }
     if !is_color_function(name) {
         return None;
     }
@@ -1754,6 +1763,8 @@ pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: b
     }
     if matches!(syntax, ColorSyntax::Lch | ColorSyntax::Oklch) {
         components[1] = components[1].map(|chroma| chroma.max(0.0));
+        // A hue is an angle, and serializes normalized to `[0, 360)`.
+        components[2] = components[2].map(crate::colors::space::normalize_hue);
     }
 
     let color = CssColor::from_parts(syntax, components, alpha.map(clamp_alpha), false);
