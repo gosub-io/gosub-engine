@@ -355,3 +355,20 @@ fn a_cloned_host_does_not_share_the_original_shadow_tree() {
         "the root still belongs to the original"
     );
 }
+
+// ── serialization ────────────────────────────────────────────────────────────
+
+#[test]
+fn a_shadow_root_serializes_as_its_contents() {
+    let doc = parse("<div><template shadowrootmode=open><span>shadow</span></template><p>light</p></div>");
+    let host = find::<Config>(&doc, "div").unwrap();
+    let root = doc.shadow_root(host).unwrap();
+
+    // Written directly, a shadow root is its contents - `shadowRoot.innerHTML` - without the
+    // declarative wrapper, which is how the *host* declares it and so belongs to the host.
+    assert_eq!(doc.write_from_node(root), "<span>shadow</span>");
+    assert_eq!(
+        doc.write_from_node(host),
+        "<div><template shadowrootmode=\"open\"><span>shadow</span></template><p>light</p></div>"
+    );
+}
