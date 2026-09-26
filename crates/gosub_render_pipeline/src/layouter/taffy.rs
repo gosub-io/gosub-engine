@@ -2858,13 +2858,17 @@ fn transferred_max_width(
     };
     let transferred = max_h * ratio;
 
-    // `into_option` answers for lengths only, so a percentage `max-width` - which is every image
-    // under Tailwind's `img { max-width: 100% }` - reads as absent here and the transferred length
-    // is taken. The two only disagree when the container is narrower than the transferred size,
-    // which for a logo capped at 24px means a container narrower than that.
-    match lpa_length(max_width) {
-        Some(existing) => LengthPercentageAuto::length(existing.min(transferred)),
-        None => LengthPercentageAuto::length(transferred),
+    // A percentage `max-width` - which is every image under Tailwind's `img { max-width: 100% }` -
+    // is left alone. taffy resolves it against the containing block, and the measure callback
+    // applies the maximum height through the intrinsic ratio anyway, so replacing it with the
+    // transferred length would only lose the smaller of the two: a square image with
+    // `max-width: 100%` and `max-height: 24px` in a 20px container would take 24px.
+    match max_width.expand() {
+        taffy::ExpandedLengthPercentageAuto::Length(existing) => {
+            LengthPercentageAuto::length(existing.min(transferred))
+        }
+        taffy::ExpandedLengthPercentageAuto::Auto => LengthPercentageAuto::length(transferred),
+        _ => max_width,
     }
 }
 
@@ -3294,11 +3298,11 @@ mod tests {
 
         let px = lpa_length;
 
-        // Square logo, capped at 24px tall: 24px wide. This is the site's case, where the
-        // percentage `max-width` comes from Tailwind's `img { max-width: 100% }`.
+        // A percentage `max-width` is left for taffy to resolve against the containing block,
+        // which may be narrower than the transferred length.
         assert_eq!(
-            px(transferred_max_width(Lpa::length(24.0), Lpa::percent(1.0), 1.0)),
-            Some(24.0)
+            transferred_max_width(Lpa::length(24.0), Lpa::percent(1.0), 1.0),
+            Lpa::percent(1.0)
         );
         assert_eq!(
             px(transferred_max_width(Lpa::length(24.0), Lpa::auto(), 1.0)),

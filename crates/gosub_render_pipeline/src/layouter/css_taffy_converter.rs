@@ -476,20 +476,20 @@ impl<'a> CssTaffyConverter<'a> {
         match &*self.style.grid.template_areas {
             "none" | "" => None,
             source => {
-                let areas = parse_grid_areas(source);
-                if areas.is_empty() {
+                // taffy 0.14 wants the template's shape alongside the areas. The rows are the
+                // lines that hold a cell and the columns the widest of them, counted the same way
+                // the parser walks the string so a ragged template agrees with the bounds it
+                // derived.
+                let rows = source.lines().filter(|l| l.split_whitespace().next().is_some()).count();
+                let columns = source.lines().map(|l| l.split_whitespace().count()).max().unwrap_or(0);
+                if rows == 0 || columns == 0 {
                     return None;
                 }
-                // taffy 0.14 wants the template's shape alongside the areas. The rows are the
-                // non-empty lines and the columns the widest of them, counted the same way the
-                // parser walks the string so a ragged template agrees with the bounds it derived.
-                let rows = source
-                    .lines()
-                    .filter(|l| !l.split_whitespace().next().is_none())
-                    .count();
-                let columns = source.lines().map(|l| l.split_whitespace().count()).max().unwrap_or(0);
+                // The shape is kept even when nothing in it is named. `". ." ". ."` declares a
+                // 2x2 explicit grid and no areas at all, and taffy sizes the explicit grid from
+                // these counts, so dropping it would move every auto-placed item.
                 Some(GridTemplateAreas {
-                    areas: areas.into_iter().collect(),
+                    areas: parse_grid_areas(source).into_iter().collect(),
                     row_count: rows as u16,
                     column_count: columns as u16,
                 })
