@@ -2119,8 +2119,10 @@ mod tests {
         // A bare numeric is NOT a color.
         assert!(!ok("color", "0"));
         assert!(!ok("background-color", "1"));
-        // The alpha() FUNCTION still matches as a color-function alternative.
-        assert!(ok("color", "alpha(50%)"));
+        // alpha() still matches as a colour function, in its relative form, the only form
+        // css-color-5 defines.
+        assert!(ok("color", "alpha(from red / 50%)"));
+        assert!(!ok("color", "alpha(50%)"));
         // Colors themselves are unaffected, including 8-digit hex.
         assert!(ok("color", "#00000026"));
         assert!(ok("background-color", "#00000026"));

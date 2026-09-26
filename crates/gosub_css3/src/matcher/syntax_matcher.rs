@@ -617,9 +617,16 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // through to the permissive catch-all below (any string would match <color>),
                 // and it must not match bare numerics either - that made `color: 0` valid and
                 // let a leading `0` offset in box-shadow claim the shadow-color slot. No data
-                // source carries its argument grammar, so arguments are accepted opaquely.
+                // source carries its argument grammar. `alpha(from <color> / <alpha>)` is
+                // relative colour syntax that only sets the alpha (css-color-5 §4.5), so it is
+                // checked natively, like the other relative colours.
                 "alpha()" => match value {
-                    CssValue::Function(name, _) if name.eq_ignore_ascii_case("alpha") => return first_match(input),
+                    CssValue::Function(name, args) if name.eq_ignore_ascii_case("alpha") => {
+                        return match crate::colors::relative::canonical(name, args) {
+                            Some(value) => matched_as(input, value),
+                            None => no_match(input),
+                        };
+                    }
                     _ => {}
                 },
                 // Identifiers are ident-like tokens only: the parser lowers them to String.
@@ -724,6 +731,20 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
 
             if !name.eq_ignore_ascii_case(c_name) {
                 return no_match(input);
+            }
+
+            // Relative colour syntax (`rgb(from red r g b)`) uses channel keywords that no
+            // grammar in the definitions has, and each component is typed by its channel. It is
+            // checked natively, like `alpha()`.
+            if crate::colors::relative::is_relative(c_args) && crate::stylesheet::is_color_function(c_name) {
+                return match crate::colors::relative::canonical(c_name, c_args) {
+                    Some(value) => MatchResult {
+                        remainder: input.get(1..).unwrap_or(&[]),
+                        matched: true,
+                        matched_values: vec![value],
+                    },
+                    None => no_match(input),
+                };
             }
 
             match arguments {
