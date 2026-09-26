@@ -508,51 +508,82 @@ impl<'a> CssTaffyConverter<'a> {
     }
 }
 
-/// Parse a single grid track token ("1fr", "200px", "auto", "50%") into a TrackSizingFunction.
+/// A track breadth that is a plain length or percentage (`200px`, `50%`, `1.5em`), which is the
+/// part both sides of a track size share. `fr` and the keywords are handled by the callers,
+/// because the two sides accept different ones.
+fn parse_track_length(token: &str) -> Option<taffy::LengthPercentage> {
+    // Zero is the one length CSS lets you write without a unit, and `minmax(0, 1fr)` - the shape
+    // Tailwind emits for an equal-width grid - is where it turns up.
+    if let Ok(v) = token.parse::<f32>() {
+        return (v == 0.0).then(|| taffy::LengthPercentage::length(0.0));
+    }
+    if let Some(rest) = token.strip_suffix("px") {
+        return Some(taffy::LengthPercentage::length(rest.trim().parse().ok()?));
+    }
+    if let Some(rest) = token.strip_suffix("em") {
+        let v: f32 = rest.trim().parse().ok()?;
+        return Some(taffy::LengthPercentage::length(v * 16.0));
+    }
+    if let Some(rest) = token.strip_suffix('%') {
+        let v: f32 = rest.trim().parse().ok()?;
+        return Some(taffy::LengthPercentage::percent(v / 100.0));
+    }
+    None
+}
+
+/// The minimum of a track size. css-grid-1 calls it `<inflexible-breadth>`: a length, a
+/// percentage, `auto`, `min-content` or `max-content` - never an `fr`, which is why the two sides
+/// are parsed apart.
+fn parse_min_track(token: &str) -> Option<MinTrackSizingFunction> {
+    match token {
+        "auto" => Some(MinTrackSizingFunction::AUTO),
+        "min-content" => Some(MinTrackSizingFunction::MIN_CONTENT),
+        "max-content" => Some(MinTrackSizingFunction::MAX_CONTENT),
+        _ => parse_track_length(token).map(MinTrackSizingFunction::from),
+    }
+}
+
+/// The maximum of a track size: everything a minimum accepts, plus `fr`.
+fn parse_max_track(token: &str) -> Option<MaxTrackSizingFunction> {
+    match token {
+        "auto" => Some(MaxTrackSizingFunction::AUTO),
+        "min-content" => Some(MaxTrackSizingFunction::MIN_CONTENT),
+        "max-content" => Some(MaxTrackSizingFunction::MAX_CONTENT),
+        _ => {
+            if let Some(rest) = token.strip_suffix("fr") {
+                let v: f32 = rest.trim().parse().ok()?;
+                return Some(MaxTrackSizingFunction::from_fr(v));
+            }
+            parse_track_length(token).map(MaxTrackSizingFunction::from)
+        }
+    }
+}
+
+/// Parse a single grid track token ("1fr", "200px", "auto", "50%", "minmax(0, 1fr)") into a
+/// TrackSizingFunction.
+///
+/// `minmax()` used to be missing, and a track list holding one parsed to nothing, so the whole
+/// template was dropped and the grid fell back to a single implicit column - which is how
+/// ingewikkeld.dev's "trusted by" grid, `repeat(7, minmax(0, 1fr))`, put every logo on a row of
+/// its own. `split_grid_tokens` already keeps the call whole; only reading it was missing.
 fn parse_grid_track(token: &str) -> Option<TrackSizingFunction> {
     let token = token.trim();
-    if token == "auto" {
-        return Some(minmax(MinTrackSizingFunction::AUTO, MaxTrackSizingFunction::AUTO));
+
+    if token.get(..7).is_some_and(|f| f.eq_ignore_ascii_case("minmax(")) && token.ends_with(')') {
+        let args = &token[7..token.len() - 1];
+        // Neither side can hold a comma of its own - both are single breadths - so one split is
+        // the whole of it.
+        let (min, max) = args.split_once(',')?;
+        return Some(minmax(parse_min_track(min.trim())?, parse_max_track(max.trim())?));
     }
-    if token == "min-content" {
-        return Some(minmax(
-            MinTrackSizingFunction::MIN_CONTENT,
-            MaxTrackSizingFunction::MIN_CONTENT,
-        ));
-    }
-    if token == "max-content" {
-        return Some(minmax(
-            MinTrackSizingFunction::MAX_CONTENT,
-            MaxTrackSizingFunction::MAX_CONTENT,
-        ));
-    }
+
+    // A bare `fr` is a maximum with a zero minimum; every other single value is both sides at
+    // once.
     if let Some(rest) = token.strip_suffix("fr") {
         let v: f32 = rest.trim().parse().ok()?;
         return Some(minmax(MinTrackSizingFunction::ZERO, MaxTrackSizingFunction::from_fr(v)));
     }
-    if let Some(rest) = token.strip_suffix("px") {
-        let v: f32 = rest.trim().parse().ok()?;
-        return Some(minmax(
-            MinTrackSizingFunction::from_length(v),
-            MaxTrackSizingFunction::from_length(v),
-        ));
-    }
-    if let Some(rest) = token.strip_suffix('%') {
-        let v: f32 = rest.trim().parse().ok()?;
-        let lp = taffy::LengthPercentage::percent(v / 100.0);
-        return Some(minmax(
-            MinTrackSizingFunction::from(lp),
-            MaxTrackSizingFunction::from(lp),
-        ));
-    }
-    if let Some(rest) = token.strip_suffix("em") {
-        let v: f32 = rest.trim().parse().ok()?;
-        return Some(minmax(
-            MinTrackSizingFunction::from_length(v * 16.0),
-            MaxTrackSizingFunction::from_length(v * 16.0),
-        ));
-    }
-    None
+    Some(minmax(parse_min_track(token)?, parse_max_track(token)?))
 }
 
 /// Split a track list into top-level tokens, keeping function calls like `repeat(3, 1fr)` or
@@ -927,6 +958,28 @@ mod grid_template_tests {
         assert_eq!(parse_grid_template("1fr 1fr 1fr").unwrap().len(), 3);
         assert_eq!(parse_grid_template("210px 1fr").unwrap().len(), 2);
         assert_eq!(parse_grid_template("1fr").unwrap().len(), 1);
+    }
+
+    /// `minmax()` had no branch of its own, so a track list holding one parsed to nothing and the
+    /// whole template was dropped - the grid then fell back to a single implicit column. That is
+    /// what put every ingewikkeld.dev "trusted by" logo on a row of its own, and every Tailwind
+    /// `grid-cols-N`, which expands to exactly this, with it.
+    #[test]
+    fn minmax_tracks_parse() {
+        assert_eq!(parse_grid_template("minmax(0, 1fr) minmax(0, 1fr)").unwrap().len(), 2);
+        assert_eq!(parse_grid_template("repeat(7, minmax(0, 1fr))").unwrap().len(), 7);
+        assert_eq!(parse_grid_template("minmax(100px, 1fr) auto").unwrap().len(), 2);
+        assert_eq!(
+            parse_grid_template("minmax(min-content, max-content)").unwrap().len(),
+            1
+        );
+        assert_eq!(parse_grid_template("minmax(10%, 50%)").unwrap().len(), 1);
+        // The unitless zero is the one CSS allows, and `minmax(0, 1fr)` is where it shows up.
+        assert_eq!(parse_grid_template("minmax(0,1fr)").unwrap().len(), 1);
+        // An `fr` is not a valid minimum (css-grid-1 `<inflexible-breadth>`).
+        assert!(parse_grid_template("minmax(1fr, 1fr)").is_none());
+        // A unitless number that is not zero is not a length.
+        assert!(parse_grid_template("minmax(10, 1fr)").is_none());
     }
 
     #[test]

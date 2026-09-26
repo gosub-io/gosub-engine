@@ -66,6 +66,22 @@ pub struct ElementContextSvg {
     pub media_id: MediaId,
     /// `Dimension::ZERO` when not known yet.
     pub dimension: Dimension,
+    /// As [`ElementContextImage::max_height`]: an SVG-backed `<img>` is a replaced element with an
+    /// intrinsic ratio too, and stretches the same way without it.
+    pub max_height: MaxHeight,
+}
+
+/// An image's `max-height`, carried through to the measure callback.
+///
+/// A percentage cannot be resolved where the style is built: its base is the containing block's
+/// height, which only taffy knows, and it reaches the measure callback as the available height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MaxHeight {
+    /// No maximum, so the image is free to take its intrinsic height.
+    None,
+    Length(f32),
+    /// The fraction, so `max-height: 100%` is `Percent(1.0)`.
+    Percent(f32),
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +99,10 @@ pub struct ElementContextImage {
     /// nothing meaningful - a broken/placeholder load, or a fully transparent image. Browsers
     /// display alt text in these cases (never over a normally-decoded, visible image).
     pub alt: Option<String>,
+    /// The CSS `max-height`, which bounds the height and - through the intrinsic ratio - the
+    /// width too. Taffy clamps the height by it but does not carry that across to the width, so
+    /// the measure callback does; see `measure_node`.
+    pub max_height: MaxHeight,
 }
 
 /// A native form control widget: kind, initial state, and the intrinsic size that stands in for
@@ -328,6 +348,7 @@ impl ElementContext {
         node_id: DomNodeId,
         placeholder: bool,
         alt: Option<String>,
+        max_height: MaxHeight,
     ) -> ElementContext {
         Self::Image(ElementContextImage {
             node_id,
@@ -336,15 +357,23 @@ impl ElementContext {
             dimension,
             placeholder,
             alt,
+            max_height,
         })
     }
 
-    pub fn svg(src: &str, media_id: MediaId, dimension: Dimension, node_id: DomNodeId) -> ElementContext {
+    pub fn svg(
+        src: &str,
+        media_id: MediaId,
+        dimension: Dimension,
+        node_id: DomNodeId,
+        max_height: MaxHeight,
+    ) -> ElementContext {
         Self::Svg(ElementContextSvg {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            max_height,
         })
     }
 }
