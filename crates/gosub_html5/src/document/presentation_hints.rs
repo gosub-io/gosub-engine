@@ -168,6 +168,54 @@ fn maps_bgcolor(tag: &str) -> bool {
     matches!(tag, "body" | "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th")
 }
 
+/// `align` on the elements that take it (HTML §15.3.3), as a `text-align` value.
+///
+/// On the block and table elements the attribute moves block-level descendants as well as text,
+/// which is what the `-webkit-` keywords are for; on a paragraph or a heading it is plain text
+/// alignment. `middle` is an old synonym for `center` that only the first group accepts.
+fn align(tag: &str, raw: &str) -> Option<&'static str> {
+    let value = raw
+        .trim_matches(|c: char| c.is_ascii_whitespace())
+        .cow_to_ascii_lowercase();
+    match tag {
+        "div" | "caption" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th" => match value.as_ref() {
+            "left" => Some("-webkit-left"),
+            "right" => Some("-webkit-right"),
+            "center" | "middle" => Some("-webkit-center"),
+            "justify" => Some("justify"),
+            _ => None,
+        },
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => match value.as_ref() {
+            "left" => Some("left"),
+            "right" => Some("right"),
+            "center" => Some("center"),
+            "justify" => Some("justify"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `valign` on the table parts that take it (HTML §15.3.10), as a `vertical-align` value. The
+/// user-agent sheet's `vertical-align: inherit` on rows and cells carries a section's or a row's
+/// value down to its cells.
+fn valign(tag: &str, raw: &str) -> Option<&'static str> {
+    if !matches!(tag, "col" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th") {
+        return None;
+    }
+    match raw
+        .trim_matches(|c: char| c.is_ascii_whitespace())
+        .cow_to_ascii_lowercase()
+        .as_ref()
+    {
+        "top" => Some("top"),
+        "middle" => Some("middle"),
+        "bottom" => Some("bottom"),
+        "baseline" => Some("baseline"),
+        _ => None,
+    }
+}
+
 /// What an element's attributes say about it in CSS, as the body of a declaration block.
 ///
 /// `lookup` reads an attribute of the element itself. A cell's padding comes from the `<table>`
@@ -217,6 +265,13 @@ pub fn hints_for<'a>(
         if let Some(color) = lookup("bgcolor").and_then(legacy_color) {
             push(&mut out, "background-color", &color);
         }
+    }
+
+    if let Some(value) = lookup("align").and_then(|raw| align(tag, raw)) {
+        push(&mut out, "text-align", value);
+    }
+    if let Some(value) = lookup("valign").and_then(|raw| valign(tag, raw)) {
+        push(&mut out, "vertical-align", value);
     }
 
     // §15.3.9, the dimension attributes: a replaced element's `width` is a CSS width.
@@ -357,5 +412,29 @@ mod tests {
         assert_eq!(bg("body").as_deref(), Some("background-color:#00ff00"));
         assert_eq!(bg("tr").as_deref(), Some("background-color:#00ff00"));
         assert_eq!(bg("div"), None);
+    }
+
+    /// `align` on a cell or a `<div>` moves blocks as well as text, so it maps to the `-webkit-`
+    /// keywords; on a paragraph it is plain text alignment, and elsewhere it means nothing.
+    #[test]
+    fn align_maps_to_the_keyword_its_element_needs() {
+        let aligned = |tag: &str, value: &'static str| {
+            hints_for(tag, false, move |name| (name == "align").then_some(value), none, false)
+        };
+        assert_eq!(aligned("td", "right").as_deref(), Some("text-align:-webkit-right"));
+        assert_eq!(aligned("DIV", " Middle ").as_deref(), Some("text-align:-webkit-center"));
+        assert_eq!(aligned("tr", "justify").as_deref(), Some("text-align:justify"));
+        assert_eq!(aligned("p", "center").as_deref(), Some("text-align:center"));
+        assert_eq!(aligned("p", "middle"), None);
+        assert_eq!(aligned("span", "right"), None);
+        assert_eq!(aligned("td", "sideways"), None);
+    }
+
+    #[test]
+    fn valign_maps_on_the_table_parts() {
+        let valigned = |tag: &str| hints_for(tag, false, |name| (name == "valign").then_some("top"), none, false);
+        assert_eq!(valigned("td").as_deref(), Some("vertical-align:top"));
+        assert_eq!(valigned("tbody").as_deref(), Some("vertical-align:top"));
+        assert_eq!(valigned("div"), None);
     }
 }

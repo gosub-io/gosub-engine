@@ -918,6 +918,11 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         }
     );
 
+    // The two keywords that are defined by the parent's value read it here, while the style still
+    // holds what it inherited. `match-parent` computes to the parent's value (CSS Text 3 §6.1),
+    // and `-internal-center` is the HTML rendering section's `<th>` rule: centre, but only where
+    // the parent left `text-align` at its initial value.
+    let parent_align = style.inherited.text_align;
     apply_inherited!(
         map,
         style,
@@ -927,13 +932,16 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         text_align,
         |value| as_string(value).map(|keyword| match keyword {
             "right" => TextAlign::Right,
-            // `-webkit-center` is what the HTML rendering spec's user-agent sheet gives
-            // `<caption>`; it is plain centring.
-            "center" | "-webkit-center" => TextAlign::Center,
+            "center" => TextAlign::Center,
             "justify" => TextAlign::Justify,
             "start" => TextAlign::Start,
             "end" => TextAlign::End,
-            "match-parent" => TextAlign::MatchParent,
+            "match-parent" | "-webkit-match-parent" => parent_align,
+            "-internal-center" if parent_align == TextAlign::Start => TextAlign::Center,
+            "-internal-center" => parent_align,
+            "-webkit-left" => TextAlign::WebkitLeft,
+            "-webkit-right" => TextAlign::WebkitRight,
+            "-webkit-center" => TextAlign::WebkitCenter,
             _ => TextAlign::Left,
         })
     );

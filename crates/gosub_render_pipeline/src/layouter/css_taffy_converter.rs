@@ -404,13 +404,17 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    /// `text-align` inherits, so this reads the computed value rather than asking whether this
-    /// element declared one. `left`/`right` collapse onto `start`/`end` as elsewhere (LTR).
+    /// Taffy's `text_align` places a block container's block-level children, which CSS
+    /// `text-align` never does (CSS 2.1 §16.2: it aligns inline content). Only the `-webkit-`
+    /// keywords the HTML rendering section gives `<center>` and the `align` attribute move
+    /// blocks, and those are what taffy's legacy alignment is for. The line boxes read the
+    /// computed value themselves. `text-align` inherits, so this reads the computed value rather
+    /// than asking whether this element declared one.
     fn get_text_align(&self, default: TextAlign) -> TextAlign {
         match self.style.inherited.text_align {
-            CssTextAlign::Center => TextAlign::LegacyCenter,
-            CssTextAlign::Start | CssTextAlign::Left => TextAlign::LegacyLeft,
-            CssTextAlign::End | CssTextAlign::Right => TextAlign::LegacyRight,
+            CssTextAlign::WebkitCenter => TextAlign::LegacyCenter,
+            CssTextAlign::WebkitLeft => TextAlign::LegacyLeft,
+            CssTextAlign::WebkitRight => TextAlign::LegacyRight,
             _ => default,
         }
     }

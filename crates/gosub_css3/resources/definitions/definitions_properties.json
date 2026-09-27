@@ -5795,7 +5795,7 @@
   },
   {
     "name": "text-align",
-    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
+    "syntax": "start | end | left | right | center | justify | match-parent | justify-all | -webkit-left | -webkit-right | -webkit-center | -webkit-match-parent | -internal-center",
     "computed": [
       "asSpecifiedExceptMatchParent"
     ],

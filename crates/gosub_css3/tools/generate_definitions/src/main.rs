@@ -27,7 +27,7 @@ fn strip_trailing_comma_multiplier(re: &Regex, syntax: &str) -> String {
 
 /// Overrides for upstream PROPERTY grammars where both sources are wrong or
 /// incomplete for real-world CSS.
-const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 3] = [
+const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 4] = [
     // webref only carries the modern space-separated basic-shape <rect()>, but
     // the dominant real-world clip syntax is the legacy comma-separated CSS2
     // rect() (MDN's <shape>). Accept both.
@@ -44,6 +44,16 @@ const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 3] = [
     (
         "column-rule",
         "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    ),
+    // The HTML rendering section needs keywords no CSS spec defines: `<center>` and `align` on
+    // the table and block elements centre (or push aside) their block-level descendants as well
+    // as their text, which plain `center` does not, and `<th>` centres only where its parent
+    // left `text-align` at its initial value. The user-agent sheet spells these the way the
+    // engines do, and pages use the `-webkit-` ones directly.
+    (
+        "text-align",
+        "start | end | left | right | center | justify | match-parent | justify-all | -webkit-left \
+         | -webkit-right | -webkit-center | -webkit-match-parent | -internal-center",
     ),
 ];
 

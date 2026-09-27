@@ -960,7 +960,6 @@ const INITIAL_IS_PROSE: &[&str] = &[
     "noneButOverriddenInUserAgentCSS",
     "noPracticalInitialValue",
     "autoForSmartphoneBrowsersSupportingInflation",
-    "startOrNamelessValueIfLTRRightIfRTL",
     "zoomForTheTopLevelNoneForTheRest",
 ];
 
@@ -984,6 +983,14 @@ impl RawInitial {
 
         if INITIAL_IS_PROSE.contains(&text.as_str()) {
             return None;
+        }
+
+        // `text-align`'s entry names CSS 2's initial value, which depended on the direction. CSS
+        // Text 3 §6.1 made it `start`, which is the same thing in either direction. Without a
+        // value, `text-align: initial` resolved to nothing and the element inherited instead -
+        // which is how a quirks-mode table's `text-align: initial` still took a `<center>`'s.
+        if text == "startOrNamelessValueIfLTRRightIfRTL" {
+            return Some(CssValue::String("start".to_string()));
         }
 
         // A handful read as several values (`0% 0%`, `50% 50% 0`, `snapInterval(0px, 100%)`), and
