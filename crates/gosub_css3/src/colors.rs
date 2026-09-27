@@ -6,6 +6,7 @@ use std::str::FromStr;
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
 
+pub(crate) mod layers;
 pub(crate) mod mix;
 pub(crate) mod relative;
 pub mod space;

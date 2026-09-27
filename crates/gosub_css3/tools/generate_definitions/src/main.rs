@@ -72,11 +72,15 @@ const PROPERTY_LONGHAND_PATCHES: [(&str, &[&str]); 1] = [
 /// lists them with an EMPTY syntax (which the generator skips) and MDN
 /// references them from <shape> without defining them. Definitions per
 /// CSS2.1 §11.1.2.
-const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
+///
+/// `<color-layers()>` comes from the css-color-6 editor's draft, which webref
+/// does not carry yet.
+const MISSING_VALUE_PATCHES: [(&str, &str); 5] = [
     ("<top>", "<length> | auto"),
     ("<right>", "<length> | auto"),
     ("<bottom>", "<length> | auto"),
     ("<left>", "<length> | auto"),
+    ("<color-layers()>", "color-layers( [ <blend-mode> , ]? <color># )"),
 ];
 
 /// Pins value definitions that multiple specs define differently, so the
@@ -110,11 +114,12 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 7] = [
         "<radial-gradient-syntax>",
         "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
     ),
-    // css-color-5 makes color-mix() a <color>, and upstream does not list it in
-    // <color-function>. Without it `color: color-mix(in srgb, red, blue)` is dropped.
+    // css-color-5 makes color-mix() a <color>, and css-color-6 does the same for
+    // color-layers(). Upstream lists neither in <color-function>, so a value
+    // such as `color: color-mix(in srgb, red, blue)` was dropped.
     (
         "<color-function>",
-        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()>",
+        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()>",
     ),
     // The css-color-5 editor's draft makes the interpolation method optional and
     // takes one or more colours. Upstream still has the two-colour form.
