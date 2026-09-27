@@ -712,6 +712,45 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // Before the overlays below, which copy the table boxes.
     flow_shifts.apply(layout_tree);
 
+    // A caption sits outside the table box, in the wrapper box around it (CSS 2 §17.4), so the
+    // table's border and background go round the grid alone. Until here the table's box has
+    // been that wrapper - the space the flow around it makes room for, and the origin both table
+    // passes place the grid from - so it is split only now. The caption's band moves into the
+    // table's margin, which leaves the margin box, and with it the table's place in its flow,
+    // as it was. Lattice already put the caption out past the table's border and padding.
+    for &(table_dom_id, table_layout_id) in &table_nodes {
+        let Some(caption) = doc
+            .children(table_dom_id)
+            .into_iter()
+            .find(|&child| is_caption_box(&*doc, child))
+        else {
+            continue;
+        };
+        let Some(band) = dom_to_layout
+            .get(&caption)
+            .and_then(|id| layout_tree.arena.get(id))
+            .map(|el| el.box_model.border_box.height)
+        else {
+            continue;
+        };
+        let bottom = doc.computed_style(caption).inherited.caption_side == gosub_interface::style::CaptionSide::Bottom;
+        let (above, below) = if bottom { (0.0, band) } else { (band, 0.0) };
+        let Some(table_el) = layout_tree.arena.get_mut(&table_layout_id) else {
+            continue;
+        };
+        let bm = table_el.box_model;
+        let bb = bm.border_box;
+        let mut margin = bm.margin;
+        margin.top += above;
+        margin.bottom += below;
+        table_el.box_model = BoxModel::new(
+            Rect::new(bb.x, bb.y + above, bb.width, (bb.height - band).max(0.0)),
+            bm.padding,
+            bm.border,
+            margin,
+        );
+    }
+
     // Collapsed borders paint IN FRONT of all table content (css-tables /
     // w3c/csswg-drafts#11570): append a synthetic overlay element as each collapsed
     // table's last child. The paint-order DFS then emits the cells' border strips after
@@ -1013,6 +1052,11 @@ fn collect_tables_preorder(
 fn is_table_box(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
     let style = doc.computed_style(id);
     style.has(Prop::Display) && matches!(style.box_group.display, Display::Table | Display::InlineTable)
+}
+
+fn is_caption_box(doc: &dyn PipelineDocument, id: DomNodeId) -> bool {
+    let style = doc.computed_style(id);
+    style.has(Prop::Display) && style.box_group.display == Display::TableCaption
 }
 
 /// Whether a table collapses its borders. Inherited, so the computed value is the answer

@@ -1778,4 +1778,38 @@ mod layout_tests {
 
         assert_approx!(w, 100.0, "the perimeter halves fit inside the available width");
     }
+
+    /// A caption belongs to the wrapper around the table box, so under the separated model it
+    /// is placed out past the table's own border and padding (positions are relative to the
+    /// table's content box) and is as wide as the table's border box.
+    #[test]
+    fn a_caption_sits_outside_the_tables_border_and_padding() {
+        let layout = |bottom: bool| {
+            let mut tree = MockTree::new(0.0, 0.0);
+            let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 4.0, 3.0);
+            let cap = tree.alloc(TableRole::Caption, Some("cap".into()), 1, 1, None, Some(30.0), 0.0, 0.0);
+            tree.add_child(root, cap);
+            tree.caption_bottom = bottom;
+            let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, body);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(body, row);
+            let a = tree.alloc_cell(cell("a").content_width(100.0).content_height(20.0).padding(0.0));
+            tree.add_child(row, a);
+            let (w, h) = compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+            let cap = tree.layout(cap).expect("caption laid out");
+            (w, h, (cap.position.x, cap.position.y, cap.size.width))
+        };
+
+        let (w, h, cap) = layout(false);
+        assert_approx!(w, 100.0, "grid width");
+        assert_approx!(h, 50.0, "grid plus caption");
+        assert_approx!(cap.0, -7.0, "left of the table's border and padding");
+        assert_approx!(cap.1, -7.0, "above the table's border and padding");
+        assert_approx!(cap.2, 114.0, "the table's border-box width");
+
+        let (_, _, cap) = layout(true);
+        assert_approx!(cap.1, 27.0, "below the grid, its padding and its border");
+        assert_approx!(cap.2, 114.0, "the table's border-box width");
+    }
 }
