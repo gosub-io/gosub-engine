@@ -37,12 +37,6 @@ pub fn set_layout_viewport(width: f32, height: f32) {
     }
 }
 
-/// The current viewport (CSS px) for resolving viewport-relative units on this thread.
-fn layout_viewport() -> (f32, f32) {
-    let env = media_environment();
-    (env.width, env.height)
-}
-
 static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
@@ -1271,38 +1265,21 @@ impl CssValue {
 
     pub(crate) fn unit_to_px_f64(&self) -> f64 {
         match self {
-            CssValue::Unit(val, unit) => match unit.as_str() {
-                "px" => *val,
-                "em" => *val * 16.0,
-                "rem" => *val * 16.0,
-                // Absolute physical units - 1in = 96px
-                "pt" => *val * (96.0 / 72.0),
-                "pc" => *val * (96.0 / 6.0),
-                "in" => *val * 96.0,
-                "cm" => *val * (96.0 / 2.54),
-                "mm" => *val * (96.0 / 25.4),
-                "q" => *val * (96.0 / 101.6),
-                // Viewport units - resolved against the current layout viewport (CSS px),
-                // falling back to 1280×800 until the render flow sets the real size.
-                //
-                // The small (`sv*`), large (`lv*`) and dynamic (`dv*`) viewports all resolve to
-                // that same size on purpose. They differ only where the UA has interfaces that
-                // dynamically expand and retract - a phone browser's address bar - and css-values-4
-                // says that a UA without them has all three equal to the initial containing block.
-                // The engine has no such chrome, so they are equal here by the spec rather than by
-                // omission. Give them their own sizes if an embedder ever grows retractable UI.
-                "vw" | "svw" | "lvw" | "dvw" => *val * f64::from(layout_viewport().0) / 100.0,
-                "vh" | "svh" | "lvh" | "dvh" => *val * f64::from(layout_viewport().1) / 100.0,
-                "vmin" => {
-                    let (w, h) = layout_viewport();
-                    *val * f64::from(w.min(h)) / 100.0
+            // Every conversion is in the one unit table the computed stage uses. What reaches here
+            // unresolved is read as it would be with no element to hand: 16px to an `em` and a
+            // `rem`, the current layout viewport for the viewport units.
+            CssValue::Unit(val, unit) => {
+                let units = crate::functions::calc::Units {
+                    em_px: Some(16.0),
+                    rem_px: Some(16.0),
+                    viewport: true,
+                };
+                match crate::functions::calc::to_canonical(*val, &unit.cow_to_ascii_lowercase(), &units) {
+                    Some((canonical, px)) if canonical == "px" => px,
+                    // An angle or a time has no length; the number is all there is to give.
+                    _ => *val,
                 }
-                "vmax" => {
-                    let (w, h) = layout_viewport();
-                    *val * f64::from(w.max(h)) / 100.0
-                }
-                _ => *val,
-            },
+            }
             CssValue::String(value) => {
                 if value.ends_with("px") {
                     value.trim_end_matches("px").parse::<f64>().unwrap_or(0.0)

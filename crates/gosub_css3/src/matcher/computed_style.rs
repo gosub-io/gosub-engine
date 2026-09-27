@@ -110,34 +110,13 @@ fn as_function(value: &CssValue) -> Option<(&str, &[CssValue])> {
     }
 }
 
-/// How much of the element's own font-size one unit of `unit` is worth, for the font-relative
-/// units the computed stage leaves unresolved.
-///
-/// Real font metrics would answer these; these factors are the stand-ins that have always been
-/// used. `ch` is the advance of "0", `ex` the x-height, `lh` a line box. 0.55 rather than the
-/// spec's 0.5 fallback for `ch`: proportional faces sit nearer 0.52-0.6em, and 0.5 makes a
-/// `max-width: 17ch` wrap a line early.
-fn font_relative_factor(unit: &str) -> Option<f32> {
-    match unit {
-        "em" => Some(1.0),
-        "ch" => Some(0.55),
-        "ex" => Some(0.5),
-        "ic" => Some(1.0),
-        "lh" => Some(1.4),
-        _ => None,
-    }
-}
-
 /// A `<length-percentage>` in the element's own font-size context.
 ///
-/// `em` and `rem` are already pixels by the time a value gets here - the computed stage does
-/// them, which is where css-values says they belong. What arrives unresolved is the handful of
-/// units nothing can give a value to without font metrics.
-fn length_percentage(value: &CssValue, font_size: f32) -> Option<LengthPercentage> {
-    if let Some((number, unit)) = as_unit(value) {
-        if let Some(factor) = font_relative_factor(unit) {
-            return Some(LengthPercentage::Px(number * factor * font_size));
-        }
+/// Every length unit is already pixels by the time a value gets here: the computed stage
+/// converts them all, the font-relative ones against this element's font-size, which is where
+/// css-values says they belong.
+fn length_percentage(value: &CssValue, _font_size: f32) -> Option<LengthPercentage> {
+    if as_unit(value).is_some() {
         return Some(LengthPercentage::Px(value.unit_to_px()));
     }
     if let Some(pct) = as_percentage(value) {
@@ -808,14 +787,11 @@ fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&
     style.inherited_mut().font_size_declared_in_chain = true;
     style.declared.set(Prop::FontSize);
 
-    // An `em` on `font-size` is a multiple of the *parent's* size, which is the basis the
-    // cascade already resolved it against. What is left is the keywords, and a percentage on
-    // the off chance the computed stage did not settle it.
-    style.inherited_mut().font_size = if let Some((number, unit)) = as_unit(declared) {
-        match font_relative_factor(unit) {
-            Some(factor) => number * factor * parent_font_size,
-            None => declared.unit_to_px(),
-        }
+    // An `em` (or `ex`, `ch`) on `font-size` is a multiple of the *parent's* size, which is the
+    // basis the cascade already resolved it against. What is left is the keywords, and a
+    // percentage on the off chance the computed stage did not settle it.
+    style.inherited_mut().font_size = if as_unit(declared).is_some() {
+        declared.unit_to_px()
     } else if let Some(pct) = as_percentage(declared) {
         parent_font_size * pct / 100.0
     } else if let Some(number) = as_number(declared) {
@@ -924,11 +900,8 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         inherited_mut,
         line_height,
         |value| {
-            if let Some((number, unit)) = as_unit(value) {
-                return Some(LineHeight::Px(match font_relative_factor(unit) {
-                    Some(factor) => number * factor * font_size,
-                    None => value.unit_to_px(),
-                }));
+            if as_unit(value).is_some() {
+                return Some(LineHeight::Px(value.unit_to_px()));
             }
             if let Some(pct) = as_percentage(value) {
                 return Some(LineHeight::Px(font_size * pct / 100.0));
@@ -2241,12 +2214,41 @@ mod tests {
                     ("max-width", CssValue::Unit(17.0, "ch".to_string())),
                     ("min-width", CssValue::Unit(2.0, "ex".to_string())),
                 ],
-                16.0,
+                // The cascade measures every property but `font-size` against the element's own
+                // font-size.
+                20.0,
             ),
             None,
         );
         assert_eq!(style.size.max_width, LengthPercentageAuto::Px(17.0 * 0.55 * 20.0));
         assert_eq!(style.size.min_width, LengthPercentageAuto::Px(2.0 * 0.5 * 20.0));
+    }
+
+    /// Every length unit the grammar accepts has a conversion. These all used to be read as
+    /// their bare number of pixels: `50cqw` was 50px.
+    #[test]
+    fn every_accepted_length_unit_converts() {
+        crate::stylesheet::set_layout_viewport(1280.0, 800.0);
+        let width = |value: f64, unit: &str| {
+            let style = computed_style(
+                &map_with(&[("width", CssValue::Unit(value, unit.to_string()))], 16.0),
+                None,
+            );
+            style.size.width
+        };
+        let px = LengthPercentageAuto::Px;
+        // No element is a query container, so container units are the small viewport's.
+        assert_eq!(width(50.0, "cqw"), px(640.0));
+        assert_eq!(width(10.0, "cqmin"), px(80.0));
+        // The logical viewport units, in the horizontal writing mode.
+        assert_eq!(width(10.0, "vi"), px(128.0));
+        assert_eq!(width(10.0, "svb"), px(80.0));
+        assert_eq!(width(10.0, "dvmin"), px(80.0));
+        assert_eq!(width(10.0, "lvmax"), px(128.0));
+        // The root font-metric units, against the root's 16px here.
+        assert_eq!(width(2.0, "rlh"), px(2.0 * 1.4 * 16.0));
+        assert_eq!(width(10.0, "rch"), px(10.0 * 0.55 * 16.0));
+        assert_eq!(width(1.0, "cap"), px(0.7 * 16.0));
     }
 
     /// The absolute `font-size` keywords are the CSS scale with `medium` at 16px; the relative

@@ -80,12 +80,9 @@ pub fn resolve_attr<C: HasDocument>(values: &[CssValue], doc: &C::Document, id: 
     use_fallback()
 }
 
-/// The units `<attr-unit>` allows: the dimension units of css-values, which is every unit this
-/// engine converts. A word that is not one of them is not a type, and the fallback applies.
+/// The units `<attr-unit>` allows: every dimension unit of css-values, which is the table
+/// validation reads. A word that is not one of them is not a type, and the fallback applies.
 fn is_known_unit(unit: &str) -> bool {
-    const UNITS: [&str; 30] = [
-        "em", "rem", "ex", "rex", "cap", "rcap", "ch", "rch", "ic", "ric", "lh", "rlh", "vw", "vh", "vi", "vb", "vmin",
-        "vmax", "cm", "mm", "q", "in", "pt", "pc", "px", "deg", "grad", "rad", "turn", "fr",
-    ];
-    UNITS.iter().any(|known| unit.eq_ignore_ascii_case(known))
+    crate::functions::calc::unit_datatype(&unit.cow_to_ascii_lowercase())
+        .is_some_and(|datatype| !matches!(datatype, "number" | "percentage"))
 }

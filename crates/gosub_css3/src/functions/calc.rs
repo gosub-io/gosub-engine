@@ -560,22 +560,28 @@ fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
         "q" => px(96.0 / 101.6),
         "em" => units.em_px.map(f64::from).and_then(px),
         "rem" => units.rem_px.map(f64::from).and_then(px),
-        "vw" | "svw" | "lvw" | "dvw" => units.viewport.then(|| f64::from(viewport().0) / 100.0).and_then(px),
-        "vh" | "svh" | "lvh" | "dvh" => units.viewport.then(|| f64::from(viewport().1) / 100.0).and_then(px),
-        "vmin" => units
-            .viewport
-            .then(|| {
-                let (w, h) = viewport();
-                f64::from(w.min(h)) / 100.0
-            })
-            .and_then(px),
-        "vmax" => units
-            .viewport
-            .then(|| {
-                let (w, h) = viewport();
-                f64::from(w.max(h)) / 100.0
-            })
-            .and_then(px),
+        // The small, large and dynamic viewports are all the layout viewport: they only differ
+        // where the UA has chrome that expands and retracts, which this engine does not
+        // (css-values-4 §6.1.2). The logical `i` and `b` units are the width and height, since
+        // the engine lays out in the horizontal writing mode only.
+        //
+        // Container units fall back to the small viewport units when the element has no query
+        // container (css-contain-3 §8.1), and no element has one here: `container-type` is not
+        // implemented. Without this, `50cqw` was read as 50px.
+        "vw" | "svw" | "lvw" | "dvw" | "vi" | "svi" | "lvi" | "dvi" | "cqw" | "cqi" => viewport_px(units, |w, _| w),
+        "vh" | "svh" | "lvh" | "dvh" | "vb" | "svb" | "lvb" | "dvb" | "cqh" | "cqb" => viewport_px(units, |_, h| h),
+        "vmin" | "svmin" | "lvmin" | "dvmin" | "cqmin" => viewport_px(units, f32::min),
+        "vmax" | "svmax" | "lvmax" | "dvmax" | "cqmax" => viewport_px(units, f32::max),
+        // The font-metric units, against the element's font (`ex`) or the root's (`rex`). Real
+        // metrics would answer these; the factors are the stand-ins the engine has always used,
+        // kept in this one place. 0.55 for `ch` rather than the spec's 0.5 fallback: proportional
+        // faces sit nearer 0.52-0.6em, and 0.5 makes a `max-width: 17ch` wrap a line early. `lh`
+        // is a `normal` line box.
+        _ if font_metric_factor(unit).is_some() => {
+            let (factor, root) = font_metric_factor(unit)?;
+            let basis = if root { units.rem_px } else { units.em_px };
+            basis.map(|basis| f64::from(basis) * factor).and_then(px)
+        }
         "deg" => Some(("deg".to_string(), 1.0)),
         "grad" => Some(("deg".to_string(), 0.9)),
         "rad" => Some(("deg".to_string(), 180.0 / std::f64::consts::PI)),
@@ -589,6 +595,31 @@ fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
         "dpcm" => Some(("dppx".to_string(), 2.54 / 96.0)),
         _ => None,
     }
+}
+
+/// A viewport length, one percent of the side `side` picks out of the layout viewport.
+fn viewport_px(units: &Units, side: impl Fn(f32, f32) -> f32) -> Option<(String, f64)> {
+    let (w, h) = viewport();
+    units
+        .viewport
+        .then(|| ("px".to_string(), f64::from(side(w, h)) / 100.0))
+}
+
+/// How many of the font-size one font-metric unit is, and whether that is the root's font-size.
+fn font_metric_factor(unit: &str) -> Option<(f64, bool)> {
+    let (base, root) = match unit.strip_prefix('r') {
+        Some(base @ ("ex" | "ch" | "cap" | "ic" | "lh")) => (base, true),
+        _ => (unit, false),
+    };
+    let factor = match base {
+        "ex" => 0.5,
+        "ch" => 0.55,
+        "cap" => 0.7,
+        "ic" => 1.0,
+        "lh" => 1.4,
+        _ => return None,
+    };
+    Some((factor, root))
 }
 
 fn viewport() -> (f32, f32) {
@@ -1719,9 +1750,10 @@ mod tests {
         assert_eq!(body("progress(10em, 0px, 10em)", &computed).as_deref(), Some("1"));
         assert_eq!(parsed("progress(1vw, 0px, 10px)"), None);
 
-        // `ch` depends on a font this never sees, so it stays unresolved at every stage.
+        // `ch` depends on the element's font, so it waits for the computed stage too, where it
+        // takes the stand-in advance of 0.55em that layout has always used.
         assert_eq!(parsed("progress(1ch, 0px, 10px)"), None);
-        assert_eq!(body("progress(1ch, 0px, 10px)", &computed), None);
+        assert_eq!(body("progress(1ch, 0px, 10px)", &computed).as_deref(), Some("0.55"));
 
         // Different datatypes are not a question of conversion - there is no answer.
         assert_eq!(parsed("progress(10deg, 0, 10)"), None);

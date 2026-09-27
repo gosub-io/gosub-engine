@@ -336,8 +336,9 @@ fn a_computed_length_is_in_canonical_units() {
         ("width", "round(10cm, 6cm)", "453.5433px"),
         ("width", "1in", "96px"),
         ("width", "12pt", "16px"),
-        // Units with nothing to resolve against travel on as written.
-        ("width", "10ch", "10ch"),
+        // A font-metric unit is a length too, measured with the stand-in advance of 0.55em
+        // until the engine has real font metrics.
+        ("width", "10ch", "88px"),
     ];
 
     for (property, input, expected) in cases {
