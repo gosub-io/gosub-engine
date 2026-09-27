@@ -55,19 +55,41 @@ pub fn compute_table_layout<T: TableTree>(
         .max()
         .unwrap_or(0);
 
-    // A caption-only table still needs CAPMIN and the caption's own layout, so it
-    // takes the full path with an empty grid.
-    if n_cols == 0 && model.caption.is_none() {
+    // A table's specified size is its border box whenever `box-sizing` says so, which the
+    // user-agent sheet does for every table (the HTML rendering section's `table` rule). The
+    // extents this returns are the grid's, so a specified size loses the table's own edges
+    // first: the border and padding under the separated model, and the perimeter border halves
+    // under collapse (below), where the table has no padding and its border joined the grid's.
+    let border_box = matches!(tree.css_length(table_node, CssProp::BoxSizing), CssLength::Px(v) if v == 1.0);
+    let (own_edges_x, own_edges_y) = if border_box && !collapse {
+        let (border, padding) = (read_border(tree, table_node), read_padding(tree, table_node));
+        (
+            border.horizontal() + padding.horizontal(),
+            border.vertical() + padding.vertical(),
+        )
+    } else {
+        (0.0, 0.0)
+    };
+
+    // A caption-only table still needs CAPMIN and the caption's own layout, and rows without
+    // cells still have heights of their own to lay out, so both take the full path with an
+    // empty grid.
+    let has_rows = header_grids
+        .iter()
+        .chain(body_grids.iter())
+        .chain(footer_grids.iter())
+        .any(|g| g.n_rows > 0);
+    if n_cols == 0 && model.caption.is_none() && !has_rows {
         // No grid, but the element's specified size still applies (§17.5.2/3: the used
         // size is the greater of the specified size and the grid extent - zero here).
         // Extents are content-box; the caller wraps border and padding around them.
         let w = match tree.css_length(table_node, CssProp::Width) {
-            CssLength::Px(w) => w.max(0.0),
-            CssLength::Percent(p) => (p / 100.0 * available_width).max(0.0),
+            CssLength::Px(w) => (w - own_edges_x).max(0.0),
+            CssLength::Percent(p) => (p / 100.0 * available_width - own_edges_x).max(0.0),
             _ => 0.0,
         };
         let h = match tree.css_length(table_node, CssProp::Height) {
-            CssLength::Px(h) => h.max(0.0),
+            CssLength::Px(h) => (h - own_edges_y).max(0.0),
             _ => 0.0,
         };
         return Ok((w, h));
@@ -96,8 +118,9 @@ pub fn compute_table_layout<T: TableTree>(
     }
 
     // Resolve the explicit table width, if any; auto tables shrink-to-fit
-    // inside `compute_column_widths`.
-    let explicit_table_width = match tree.css_length(model.node, CssProp::Width) {
+    // inside `compute_column_widths`. The table's own edges come off a border-box
+    // width further down, once the collapsed perimeter is known.
+    let specified_table_width = match tree.css_length(model.node, CssProp::Width) {
         CssLength::Px(w) => Some(w),
         CssLength::Percent(p) => Some(p / 100.0 * available_width),
         _ => None,
@@ -142,11 +165,38 @@ pub fn compute_table_layout<T: TableTree>(
         None => 0.0,
     };
 
+    // Under collapse the table's border box spans OUTER border edge to outer border
+    // edge (matching browsers): the perimeter cells' outer border halves live inside
+    // the table box, not in its margin. Grow the box by the widest perimeter half on
+    // each side and shift the grid inward to make room.
+    let perimeter = if collapse {
+        perimeter_halves::<T>(&collapsed_borders, n_cols, &all_grids)
+    } else {
+        BOX_EDGES_ZERO
+    };
+    let own_edges_x = if border_box && collapse {
+        perimeter.left + perimeter.right
+    } else {
+        own_edges_x
+    };
+    let explicit_table_width = specified_table_width.map(|w| (w - own_edges_x).max(0.0));
+
+    // An auto table shrinks to fit its containing block with its whole border box, whatever
+    // `box-sizing` says, so the grid is capped at what is left after the table's own edges.
+    // Percentages still resolve against the containing block itself.
+    let fit_edges_x = if collapse {
+        perimeter.left + perimeter.right
+    } else {
+        read_border(tree, table_node).horizontal() + read_padding(tree, table_node).horizontal()
+    };
+    let fit_width = (available_width - fit_edges_x).max(0.0);
+
     let (col_widths, table_width) = compute_column_widths(
         tree,
         n_cols,
         explicit_table_width,
         available_width,
+        fit_width,
         spacing_x,
         &all_grids,
         model.sizing,
@@ -162,15 +212,6 @@ pub fn compute_table_layout<T: TableTree>(
         );
     }
 
-    // Under collapse the table's border box spans OUTER border edge to outer border
-    // edge (matching browsers): the perimeter cells' outer border halves live inside
-    // the table box, not in its margin. Grow the box by the widest perimeter half on
-    // each side and shift the grid inward to make room.
-    let perimeter = if collapse {
-        perimeter_halves::<T>(&collapsed_borders, n_cols, &all_grids)
-    } else {
-        BOX_EDGES_ZERO
-    };
     let table_width = table_width + perimeter.left + perimeter.right;
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
@@ -340,6 +381,14 @@ pub fn compute_table_layout<T: TableTree>(
         );
         if caption_bottom {
             total_height += caption_height;
+        }
+    }
+
+    // With no columns there are no cells for extra height to go to, so the specified height
+    // simply applies, as it did when such a table skipped the grid altogether.
+    if n_cols == 0 {
+        if let CssLength::Px(h) = tree.css_length(table_node, CssProp::Height) {
+            total_height = total_height.max(h - own_edges_y);
         }
     }
 

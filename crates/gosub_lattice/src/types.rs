@@ -88,6 +88,8 @@ pub enum CssProp {
     VerticalAlign,
     /// `caption-side`: `top` | `bottom`
     CaptionSide,
+    /// `box-sizing` on the table: `border-box` | `content-box`
+    BoxSizing,
 }
 
 /// Inset values for a single box edge (top / right / bottom / left), in pixels.

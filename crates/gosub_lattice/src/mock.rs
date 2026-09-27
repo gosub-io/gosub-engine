@@ -305,6 +305,8 @@ pub struct MockTree {
     pub collapse: bool,
     /// `caption-side: bottom` on the caption node, via the Px(1.0) sentinel.
     pub caption_bottom: bool,
+    /// `box-sizing: border-box` on the table node, via the Px(1.0) sentinel.
+    pub border_box: bool,
 }
 
 impl MockTree {
@@ -317,6 +319,7 @@ impl MockTree {
             fixed_layout: false,
             collapse: false,
             caption_bottom: false,
+            border_box: false,
         }
     }
 
@@ -442,6 +445,7 @@ impl TableTree for MockTree {
             CssProp::TableLayout if node.role == TableRole::Table && self.fixed_layout => CssLength::Px(1.0),
             CssProp::BorderCollapse if node.role == TableRole::Table && self.collapse => CssLength::Px(1.0),
             CssProp::CaptionSide if node.role == TableRole::Caption && self.caption_bottom => CssLength::Px(1.0),
+            CssProp::BoxSizing if node.role == TableRole::Table && self.border_box => CssLength::Px(1.0),
             _ => CssLength::Auto,
         }
     }

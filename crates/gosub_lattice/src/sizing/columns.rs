@@ -39,7 +39,7 @@ pub fn column_specs<T: TableTree>(tree: &T, model: &TableModel<T::NodeId>) -> Ve
 /// and any specified width to its column(s); colspan cells distribute their
 /// requirement over the spanned columns. The used table width is the explicit
 /// width (floored at the min-content total) or, when auto, shrink-to-fit
-/// between the min- and max-content totals capped by `available_width`.
+/// between the min- and max-content totals capped by `fit_width`.
 /// Columns then grow from their min toward their max, with any extra space
 /// distributed over the auto columns.
 ///
@@ -49,7 +49,10 @@ pub fn compute_column_widths<T: TableTree>(
     tree: &mut T,
     n_cols: usize,
     explicit_table_width: Option<f64>,
+    // The containing block's width, which percentages resolve against.
     available_width: f64,
+    // What an auto table may fill: `available_width` less the table's own edges.
+    fit_width: f64,
     border_spacing_x: f64,
     grids: &[&SectionGrid<T::NodeId>],
     sizing: TableSizing,
@@ -61,14 +64,14 @@ pub fn compute_column_widths<T: TableTree>(
     capmin: f64,
 ) -> (Vec<f64>, f64) {
     if n_cols == 0 {
-        return (Vec::new(), capmin.max(0.0));
+        return (Vec::new(), explicit_table_width.unwrap_or(0.0).max(capmin).max(0.0));
     }
 
     // Total space consumed by border-spacing gutters.
     let spacing_total = (n_cols as f64 + 1.0) * border_spacing_x;
 
     if sizing == TableSizing::Fixed {
-        let table_width = explicit_table_width.unwrap_or(available_width).max(capmin);
+        let table_width = explicit_table_width.unwrap_or(fit_width).max(capmin);
         let available = (table_width - spacing_total).max(0.0);
         let widths = fixed_column_widths(tree, n_cols, available, grids, col_specs, collapsed_borders);
         return (widths, table_width);
@@ -150,10 +153,10 @@ pub fn compute_column_widths<T: TableTree>(
 
     let used_width = match explicit_table_width {
         Some(w) => w.max(cmin + spacing_total),
-        None if !has_intrinsic => available_width,
+        None if !has_intrinsic => fit_width,
         // Shrink-to-fit: as wide as the content wants, capped by the containing
         // block, but never below the min-content total.
-        None => (cmax + spacing_total).min(available_width).max(cmin + spacing_total),
+        None => (cmax + spacing_total).min(fit_width).max(cmin + spacing_total),
     }
     .max(capmin);
 

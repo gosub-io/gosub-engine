@@ -19,6 +19,8 @@ pub struct SectionGrid<N> {
     cells: Vec<PlacedCell<N>>,
     pub n_cols: usize,
     pub n_rows: usize,
+    /// The row element behind each grid row, `None` for an anonymous row.
+    pub row_nodes: Vec<Option<N>>,
 }
 
 impl<N: Copy> SectionGrid<N> {
@@ -129,7 +131,13 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
     // TABLE-wide column count (spans may reach into columns other sections
     // define) via [`SectionGrid::clamp_colspans`].
     let n_cols = cells.iter().map(|c| c.col + 1).max().unwrap_or(0);
-    SectionGrid { cells, n_cols, n_rows }
+    let row_nodes = rows.iter().map(|row| row.node).collect();
+    SectionGrid {
+        cells,
+        n_cols,
+        n_rows,
+        row_nodes,
+    }
 }
 
 // Internal helpers
