@@ -1709,4 +1709,73 @@ mod layout_tests {
         assert_approx!(layout(false), 104.0, "content-box: the perimeter halves wrap the width");
         assert_approx!(layout(true), 100.0, "border-box: the perimeter halves are inside it");
     }
+
+    /// Rows without a single cell leave the table with no columns, but they are still rows: an
+    /// empty spacer row keeps its height and gets laid out.
+    #[test]
+    fn rows_without_cells_keep_their_height() {
+        let (mut tree, root) = table_with_rows(vec![(Some(5.0), vec![]), (Some(7.0), vec![])]);
+
+        let (_, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let rows = tree.nodes_with_role(TableRole::Row);
+        let heights: Vec<f64> = rows
+            .iter()
+            .map(|&r| tree.layout(r).expect("row laid out").size.height)
+            .collect();
+        assert_approx!(heights[0], 5.0, "first row");
+        assert_approx!(heights[1], 7.0, "second row");
+        assert_approx!(h, 12.0, "table height");
+    }
+
+    /// With no columns the table is still at least its specified size, as it was when such a
+    /// table skipped the grid altogether.
+    #[test]
+    fn rows_without_cells_keep_the_tables_specified_size() {
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, Some(100.0), Some(50.0), 0.0, 0.0);
+        let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, body);
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, Some(5.0), 0.0, 0.0);
+        tree.add_child(body, row);
+
+        let (w, h) = compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        assert_approx!(w, 100.0, "specified width");
+        assert_approx!(h, 50.0, "specified height beats the 5px row");
+    }
+
+    /// An auto table shrinks to fit its containing block with its border box, so the grid gets
+    /// what is left after the table's own border - whatever `box-sizing` says.
+    #[test]
+    fn an_auto_table_fits_its_border_inside_the_available_width() {
+        let layout = |border_box: bool| {
+            let mut tree = MockTree::new(0.0, 0.0);
+            tree.border_box = border_box;
+            let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 10.0, 0.0);
+            let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, body);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(body, row);
+            let a = tree.alloc_cell(cell("a").content_width(500.0).padding(0.0));
+            tree.add_child(row, a);
+            compute_table_layout(&mut tree, root, 100.0, None).expect("layout").0
+        };
+        assert_approx!(layout(false), 80.0, "content-box: 100 less 20px of border");
+        assert_approx!(layout(true), 80.0, "border-box: 100 less 20px of border");
+    }
+
+    /// Under collapse the returned width already includes the perimeter border halves, so an
+    /// auto table that wants more room than there is comes out at exactly the available width.
+    #[test]
+    fn an_auto_collapsed_table_fits_the_available_width() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .collapse()
+            .body_row(vec![cell("a").content_width(500.0).border(10.0).padding(0.0)])
+            .into_tree();
+
+        let (w, _) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        assert_approx!(w, 100.0, "the perimeter halves fit inside the available width");
+    }
 }

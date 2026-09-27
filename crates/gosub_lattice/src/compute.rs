@@ -71,9 +71,15 @@ pub fn compute_table_layout<T: TableTree>(
         (0.0, 0.0)
     };
 
-    // A caption-only table still needs CAPMIN and the caption's own layout, so it
-    // takes the full path with an empty grid.
-    if n_cols == 0 && model.caption.is_none() {
+    // A caption-only table still needs CAPMIN and the caption's own layout, and rows without
+    // cells still have heights of their own to lay out, so both take the full path with an
+    // empty grid.
+    let has_rows = header_grids
+        .iter()
+        .chain(body_grids.iter())
+        .chain(footer_grids.iter())
+        .any(|g| g.n_rows > 0);
+    if n_cols == 0 && model.caption.is_none() && !has_rows {
         // No grid, but the element's specified size still applies (§17.5.2/3: the used
         // size is the greater of the specified size and the grid extent - zero here).
         // Extents are content-box; the caller wraps border and padding around them.
@@ -175,11 +181,22 @@ pub fn compute_table_layout<T: TableTree>(
     };
     let explicit_table_width = specified_table_width.map(|w| (w - own_edges_x).max(0.0));
 
+    // An auto table shrinks to fit its containing block with its whole border box, whatever
+    // `box-sizing` says, so the grid is capped at what is left after the table's own edges.
+    // Percentages still resolve against the containing block itself.
+    let fit_edges_x = if collapse {
+        perimeter.left + perimeter.right
+    } else {
+        read_border(tree, table_node).horizontal() + read_padding(tree, table_node).horizontal()
+    };
+    let fit_width = (available_width - fit_edges_x).max(0.0);
+
     let (col_widths, table_width) = compute_column_widths(
         tree,
         n_cols,
         explicit_table_width,
         available_width,
+        fit_width,
         spacing_x,
         &all_grids,
         model.sizing,
@@ -364,6 +381,14 @@ pub fn compute_table_layout<T: TableTree>(
         );
         if caption_bottom {
             total_height += caption_height;
+        }
+    }
+
+    // With no columns there are no cells for extra height to go to, so the specified height
+    // simply applies, as it did when such a table skipped the grid altogether.
+    if n_cols == 0 {
+        if let CssLength::Px(h) = tree.css_length(table_node, CssProp::Height) {
+            total_height = total_height.max(h - own_edges_y);
         }
     }
 
