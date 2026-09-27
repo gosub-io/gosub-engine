@@ -388,6 +388,11 @@ impl TableTree for PipelineTableTree<'_> {
                 gosub_interface::style::CaptionSide::Bottom => CssLength::Px(1.0),
                 gosub_interface::style::CaptionSide::Top => CssLength::Auto,
             },
+            // Px(1.0) = `box-sizing: border-box`.
+            CssProp::BoxSizing => match style.box_group.box_sizing {
+                gosub_interface::style::BoxSizing::BorderBox => CssLength::Px(1.0),
+                gosub_interface::style::BoxSizing::ContentBox => CssLength::Auto,
+            },
             // Resolved by the dedicated trait method, not css_length.
             CssProp::VerticalAlign => CssLength::Auto,
         }

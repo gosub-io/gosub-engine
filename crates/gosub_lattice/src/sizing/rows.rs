@@ -6,6 +6,10 @@ use crate::TableTree;
 
 /// Compute the height of each row in a section.
 ///
+/// A row starts at its own explicit CSS `height`: CSS 2 §17.5.3 makes a row the tallest of that,
+/// its cells' heights and what their content needs, so the cells can only grow it. That is what
+/// keeps an empty `<tr style="height: 5px">` spacer row 5px tall.
+///
 /// Pass 1 - non-spanning cells:
 /// 1. Call [`TableTree::layout_cell`] to let the implementor run normal layout
 ///    (block/flex/inline) inside the cell and get the actual content height.
@@ -30,7 +34,14 @@ pub fn compute_row_heights<T: TableTree>(
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
     baseline_shifts: &mut HashMap<T::NodeId, f64>,
 ) -> Vec<f64> {
-    let mut heights = vec![0.0_f64; grid.n_rows];
+    let mut heights: Vec<f64> = grid
+        .row_nodes
+        .iter()
+        .map(|&node| match node.map(|node| tree.css_length(node, CssProp::Height)) {
+            Some(CssLength::Px(px)) => px.max(0.0),
+            _ => 0.0,
+        })
+        .collect();
 
     // Baseline alignment (CSS 2 §17.5.3): cells with `vertical-align: baseline` share a
     // row baseline - the deepest first-line baseline among them; shallower cells shift

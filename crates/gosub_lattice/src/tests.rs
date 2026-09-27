@@ -11,7 +11,7 @@
 #[cfg(test)]
 mod layout_tests {
     use crate::compute::compute_table_layout;
-    use crate::mock::{cell, MockTable};
+    use crate::mock::{cell, MockTable, MockTree};
     use crate::types::TableRole;
 
     fn approx(a: f64, b: f64) -> bool {
@@ -1628,5 +1628,85 @@ mod layout_tests {
             110.0,
             "auto col = (300-80)/2"
         );
+    }
+
+    /// A one-body table built by hand, so rows can carry a height of their own: each entry is
+    /// the row's explicit `height` and its cells.
+    fn table_with_rows(rows: Vec<(Option<f64>, Vec<crate::mock::MockCell>)>) -> (MockTree, u32) {
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, body);
+        for (height, cells) in rows {
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, height, 0.0, 0.0);
+            tree.add_child(body, row);
+            for mc in cells {
+                let id = tree.alloc_cell(mc);
+                tree.add_child(row, id);
+            }
+        }
+        (tree, root)
+    }
+
+    /// CSS 2 §17.5.3: a row is the tallest of its own `height` and its cells, so the row's
+    /// height is a minimum the cells can only grow - and an empty spacer row keeps it.
+    #[test]
+    fn a_rows_own_height_is_a_minimum() {
+        let (mut tree, root) = table_with_rows(vec![
+            (Some(30.0), vec![cell("a").height(20.0).padding(0.0)]),
+            (Some(5.0), vec![]),
+            (Some(8.0), vec![cell("c").height(12.0).padding(0.0)]),
+        ]);
+
+        let (_, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let rows = tree.nodes_with_role(TableRole::Row);
+        let heights: Vec<f64> = rows.iter().map(|&r| tree.layout(r).unwrap().size.height).collect();
+        assert_approx!(heights[0], 30.0, "row height beats a shorter cell");
+        assert_approx!(heights[1], 5.0, "an empty row keeps its height");
+        assert_approx!(heights[2], 12.0, "a taller cell beats the row height");
+        assert_approx!(h, 47.0, "table height");
+    }
+
+    /// The table's specified width is its border box under `box-sizing: border-box`, so the grid
+    /// gets what is left after the table's own border and padding.
+    #[test]
+    fn a_border_box_table_width_includes_its_edges() {
+        let layout = |border_box: bool| {
+            let mut tree = MockTree::new(0.0, 0.0);
+            tree.border_box = border_box;
+            let root = tree.alloc(TableRole::Table, None, 1, 1, Some(100.0), None, 1.0, 2.0);
+            let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, body);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(body, row);
+            let a = tree.alloc_cell(cell("a").padding(0.0));
+            tree.add_child(row, a);
+            compute_table_layout(&mut tree, root, 400.0, None).expect("layout").0
+        };
+        assert_approx!(layout(false), 100.0, "content-box: the grid is the specified width");
+        assert_approx!(
+            layout(true),
+            94.0,
+            "border-box: 100 less 2px of border and 4px of padding"
+        );
+    }
+
+    /// Under collapse the table has no padding and its border joined the grid's, so a border-box
+    /// width loses the perimeter border halves instead - and the box still comes out at the
+    /// specified width.
+    #[test]
+    fn a_collapsed_border_box_table_is_its_specified_width() {
+        let layout = |border_box: bool| {
+            let (mut tree, root) = MockTable::new(400.0)
+                .width(100.0)
+                .collapse()
+                .body_row(vec![cell("a").border(4.0).padding(0.0)])
+                .into_tree();
+            tree.border_box = border_box;
+            compute_table_layout(&mut tree, root, 400.0, None).expect("layout").0
+        };
+        assert_approx!(layout(false), 104.0, "content-box: the perimeter halves wrap the width");
+        assert_approx!(layout(true), 100.0, "border-box: the perimeter halves are inside it");
     }
 }
