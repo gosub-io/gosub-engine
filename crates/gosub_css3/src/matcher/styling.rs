@@ -1055,7 +1055,14 @@ impl CssProperty {
                     color.computed = true;
                     return CssValue::Color(color);
                 }
-                CssValue::Function(name, args.into_iter().map(|a| self.resolve_colors(a)).collect())
+                // Resolving the arguments can turn one into a colour - `currentcolor` on `color`
+                // - after which the function folds where it could not before.
+                let args: Vec<CssValue> = args.into_iter().map(|a| self.resolve_colors(a)).collect();
+                if let Some(mut color) = crate::stylesheet::fold_color_function(&name, &args, true) {
+                    color.computed = true;
+                    return CssValue::Color(color);
+                }
+                CssValue::Function(name, args)
             }
             CssValue::List(items) => CssValue::List(items.into_iter().map(|item| self.resolve_colors(item)).collect()),
             other => other,

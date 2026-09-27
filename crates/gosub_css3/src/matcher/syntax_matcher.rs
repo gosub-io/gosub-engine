@@ -738,6 +738,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             // checked natively, like `alpha()`.
             // `color-mix()` is checked natively as well. Its percentages are normalized in the
             // specified value, which the grammar cannot express.
+            if crate::colors::contrast::is_contrast_color(c_name) {
+                return match crate::colors::contrast::canonical(c_args) {
+                    Some(value) => matched_as(input, value),
+                    None => no_match(input),
+                };
+            }
             if crate::colors::layers::is_color_layers(c_name) {
                 return match crate::colors::layers::canonical(c_args) {
                     Some(value) => matched_as(input, value),

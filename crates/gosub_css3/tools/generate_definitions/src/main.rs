@@ -74,13 +74,15 @@ const PROPERTY_LONGHAND_PATCHES: [(&str, &[&str]); 1] = [
 /// CSS2.1 §11.1.2.
 ///
 /// `<color-layers()>` comes from the css-color-6 editor's draft, which webref
-/// does not carry yet.
-const MISSING_VALUE_PATCHES: [(&str, &str); 5] = [
+/// does not carry yet. `<contrast-color()>` is the simplified form in the
+/// css-color-5 editor's draft.
+const MISSING_VALUE_PATCHES: [(&str, &str); 6] = [
     ("<top>", "<length> | auto"),
     ("<right>", "<length> | auto"),
     ("<bottom>", "<length> | auto"),
     ("<left>", "<length> | auto"),
     ("<color-layers()>", "color-layers( [ <blend-mode> , ]? <color># )"),
+    ("<contrast-color()>", "contrast-color( <color> )"),
 ];
 
 /// Pins value definitions that multiple specs define differently, so the
@@ -114,12 +116,13 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 7] = [
         "<radial-gradient-syntax>",
         "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
     ),
-    // css-color-5 makes color-mix() a <color>, and css-color-6 does the same for
-    // color-layers(). Upstream lists neither in <color-function>, so a value
-    // such as `color: color-mix(in srgb, red, blue)` was dropped.
+    // css-color-5 makes color-mix() and contrast-color() a <color>, and
+    // css-color-6 does the same for color-layers(). Upstream lists none of them
+    // in <color-function>, so a value such as `color: color-mix(in srgb, red,
+    // blue)` was dropped.
     (
         "<color-function>",
-        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()>",
+        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()> | <contrast-color()>",
     ),
     // The css-color-5 editor's draft makes the interpolation method optional and
     // takes one or more colours. Upstream still has the two-colour form.
