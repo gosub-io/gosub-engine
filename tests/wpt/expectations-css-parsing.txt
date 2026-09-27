@@ -483,11 +483,13 @@ FILE css/css-align/parsing/place-content-shorthand.html
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should set align-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should set justify-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "normal" should not set unrelated longhands
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "first baseline" should set justify-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "first baseline" should not set unrelated longhands
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should set align-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should set justify-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "last baseline flex-start" should not set unrelated longhands
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-around" should set align-content
+PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-around" should set justify-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-around" should not set unrelated longhands
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-evenly unsafe end" should set align-content
 PASS css/css-align/parsing/place-content-shorthand.html :: e.style['place-content'] = "space-evenly unsafe end" should set justify-content
@@ -538,6 +540,7 @@ PASS css/css-align/parsing/place-items-invalid.html :: e.style['place-items'] = 
 PASS css/css-align/parsing/place-items-invalid.html :: e.style['place-items'] = "baseline safe" should not set the property value
 FILE css/css-align/parsing/place-items-shorthand.html
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "normal" should set align-items
+PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "normal" should set justify-items
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "normal" should not set unrelated longhands
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "first baseline" should not set unrelated longhands
 PASS css/css-align/parsing/place-items-shorthand.html :: e.style['place-items'] = "last baseline flex-start" should set align-items
@@ -583,6 +586,7 @@ PASS css/css-align/parsing/place-self-invalid.html :: e.style['place-self'] = "n
 PASS css/css-align/parsing/place-self-invalid.html :: e.style['place-self'] = "baseline safe" should not set the property value
 FILE css/css-align/parsing/place-self-shorthand.html
 PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "normal" should set align-self
+PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "normal" should set justify-self
 PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "normal" should not set unrelated longhands
 PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "first baseline" should not set unrelated longhands
 PASS css/css-align/parsing/place-self-shorthand.html :: e.style['place-self'] = "last baseline flex-start" should set align-self
