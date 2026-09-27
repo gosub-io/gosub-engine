@@ -2033,6 +2033,115 @@ mod rendertree_from_engine {
         assert_eq!(widths, [50.0, 60.0, 70.0, 90.0, 40.0]);
     }
 
+    /// A table's `height` is a minimum its rows grow into, and what follows the table starts
+    /// below that height, not below the rows' content. Chromium gives the auto row all 280px
+    /// of extra here and leaves the row whose cell has a height of its own alone.
+    #[test]
+    fn a_tables_height_stretches_its_rows() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                table { border-spacing: 0; }
+                td { padding: 0; }
+            </style></head>
+            <body style="margin:0">
+                <table id="t" style="height: 300px">
+                    <tr><td id="a">a</td></tr>
+                    <tr><td id="b" style="height: 20px">b</td></tr>
+                </table>
+                <div id="after">after</div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["t", "a", "b", "after"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [table, a, b, after] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        });
+
+        assert!((table.height - 300.0).abs() < 1.0, "table height {}", table.height);
+        assert!(
+            (b.height - 20.0).abs() < 1.0,
+            "the fixed row's cell stays 20px: {}",
+            b.height
+        );
+        assert!(
+            (a.height - 280.0).abs() < 1.0,
+            "the auto row's cell takes the rest: {}",
+            a.height
+        );
+        assert!(
+            (after.y - (table.y + table.height)).abs() < 1.0,
+            "#after at y={} should start at the table's bottom {}",
+            after.y,
+            table.y + table.height
+        );
+    }
+
+    /// Indentation, a comment and a hidden input between the rows generate no boxes, so they
+    /// must not become anonymous rows: the table is exactly its two 20px rows.
+    #[test]
+    fn whitespace_comments_and_hidden_elements_between_rows_make_no_rows() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                table { border-spacing: 0; }
+                td { padding: 0; height: 20px; }
+            </style></head>
+            <body style="margin:0">
+                <table id="t">
+                    <!-- first -->
+                    <tr><td>a</td></tr>
+                    <input type="hidden" name="x" value="y">
+                    <tr><td>b</td></tr>
+                </table>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let table_dom = find_node_by_id_attr(&adapter.doc, root, "t").expect("#t");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let table = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == table_dom)
+            .expect("#t in the layout tree")
+            .box_model
+            .border_box;
+        assert!(
+            (table.height - 40.0).abs() < 1.0,
+            "table height {} should be its two 20px rows",
+            table.height
+        );
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;

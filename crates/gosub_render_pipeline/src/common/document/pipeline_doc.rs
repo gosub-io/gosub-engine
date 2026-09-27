@@ -489,6 +489,13 @@ pub trait PipelineDocument: Send + Sync {
     fn node_kind(&self, id: NodeId) -> PipelineNodeKind;
     fn tag_name(&self, id: NodeId) -> Option<String>;
     fn is_display_none(&self, id: NodeId) -> bool;
+    /// Whether `id` generates no box among a table's parts: whitespace that collapses away, a
+    /// comment, a `display: none` element. The anonymous table boxes in [`Self::children`] are
+    /// built around these, so any left among a table's, row group's or row's children sit
+    /// between proper parts and have nothing to lay out.
+    fn generates_no_table_box(&self, _id: NodeId) -> bool {
+        false
+    }
     fn parent(&self, id: NodeId) -> Option<NodeId>;
     fn html_node_id(&self) -> Option<NodeId>;
     fn body_node_id(&self) -> Option<NodeId>;
@@ -1675,6 +1682,10 @@ where
 {
     fn root(&self) -> Option<NodeId> {
         self.html_node_id().or_else(|| Some(self.doc.root()))
+    }
+
+    fn generates_no_table_box(&self, id: NodeId) -> bool {
+        self.run_skippable(id)
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
