@@ -297,7 +297,7 @@
   },
   {
     "name": "<color-function>",
-    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()>"
+    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()> | <contrast-color()>"
   },
   {
     "name": "<color-interpolation-method>",
@@ -442,6 +442,10 @@
   {
     "name": "<contrast()>",
     "syntax": "contrast( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<contrast-color()>",
+    "syntax": "contrast-color( <color> )"
   },
   {
     "name": "<control-point>",

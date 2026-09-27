@@ -3568,6 +3568,21 @@ PASS css/css-color/parsing/color-computed-color-mix-function.html :: Property co
 PASS css/css-color/parsing/color-computed-color-mix-function.html :: Property color value 'color-mix(in srgb, red 0%, green 0%, blue 100%)'
 PASS css/css-color/parsing/color-computed-color-mix-function.html :: Property color value 'color-mix(in srgb, red 0%, green 0%, blue 50%)'
 FILE css/css-color/parsing/color-computed-contrast-color-function.html
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(white)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(black)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(pink)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color(srgb 1 0 1 / 0.5))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(lab(0.2 0.5 0.2))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color(srgb 10 10 10))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color(srgb -10 -10 -10))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(contrast-color(pink))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color(srgb calc(1 + 1 / 1) calc(1 + 1 / 1) calc(1 + 1 / 1)))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'color-mix(in srgb, contrast-color(blue) 100%, purple)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'rgb(from contrast-color(blue) r g b)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color-mix(blue, green))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(rgb(from orange r g b))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(transparent)'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(rgba(255, 255, 255, 0.2))'
 FILE css/css-color/parsing/color-computed-hex-color.html
 PASS css/css-color/parsing/color-computed-hex-color.html :: Property color value '#fff' [Valid 3-digit hex]
 PASS css/css-color/parsing/color-computed-hex-color.html :: Property color value '#ffff' [Valid 4-digit hex]
@@ -10955,6 +10970,23 @@ PASS css/css-color/parsing/color-valid-color-mix-function.html :: e.style['color
 PASS css/css-color/parsing/color-valid-color-mix-function.html :: e.style['color'] = "color-mix(in srgb, red 0%)" should set the property value
 PASS css/css-color/parsing/color-valid-color-mix-function.html :: e.style['color'] = "color-mix(in srgb, red 0%, green 0%, blue 0%)" should set the property value
 FILE css/css-color/parsing/color-valid-contrast-color-function.html
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(white)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(black)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(pink)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(color(srgb 1 0 1 / 0.5))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(lab(0.2 0.5 0.2))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(color(srgb 10 10 10))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(color(srgb -10 -10 -10))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(contrast-color(pink))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(currentcolor)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(color(srgb calc(0.5) calc(1 + 1 / 1) 1 / .5))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "color-mix(contrast-color(blue) 100%, purple 0%)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "rgb(from contrast-color(blue) r g b)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(color-mix(blue, green))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(rgb(from blue r g b))" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(buttonface)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(transparent)" should set the property value
+PASS css/css-color/parsing/color-valid-contrast-color-function.html :: e.style['background-color'] = "contrast-color(rgba(255, 255, 255, 0.2))" should set the property value
 FILE css/css-color/parsing/color-valid-hsl.html
 PASS css/css-color/parsing/color-valid-hsl.html :: e.style['color'] = "hsl(120 30% 50%)" should set the property value
 PASS css/css-color/parsing/color-valid-hsl.html :: e.style['color'] = "hsl(120 30% 50% / 0.5)" should set the property value

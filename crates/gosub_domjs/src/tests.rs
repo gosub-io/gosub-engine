@@ -663,6 +663,27 @@ fn color_layers_composites_from_the_top_layer_down() {
 }
 
 #[test]
+fn contrast_color_picks_white_or_black() {
+    // css-color-5 section 8: the result is white or black, whichever contrasts more with the
+    // argument as a background. It also works inside other colour functions.
+    let value = eval(
+        "<div id=a></div><div id=b></div><div id=c></div>",
+        "const e = id => document.getElementById(id); \
+         e('a').style.color = 'contrast-color(Pink)'; \
+         e('b').style.color = 'contrast-color(navy)'; \
+         e('c').style.color = 'rgb(from contrast-color(navy) r g b / 0.5)'; \
+         const g = id => e(id).style.color + ' => ' + getComputedStyle(e(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c');",
+    );
+    assert_eq!(
+        value,
+        "contrast-color(pink) => rgb(0, 0, 0)|\
+         contrast-color(navy) => rgb(255, 255, 255)|\
+         rgb(from contrast-color(navy) r g b / 0.5) => color(srgb 1 1 1 / 0.5)"
+    );
+}
+
+#[test]
 fn a_missing_colour_component_is_not_zero() {
     // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
     // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation
