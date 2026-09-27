@@ -55,6 +55,9 @@ pub struct Css3<'stream> {
     source: String,
     /// Current recursive-descent depth; capped to prevent stack overflow on adversarial input.
     recursion_depth: usize,
+    /// Set when a block was too deep to parse and was skipped up to its closing `}`. The rule
+    /// that owns the block then consumes that `}` and is dropped, instead of resynchronising.
+    skipped_deep_block: bool,
 }
 
 impl<'stream> Css3<'stream> {
@@ -67,6 +70,7 @@ impl<'stream> Css3<'stream> {
             origin,
             source: source.to_string(),
             recursion_depth: 0,
+            skipped_deep_block: false,
         }
     }
 

@@ -277,10 +277,19 @@ fn apply_recursive(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many boxes the table passes moved on this thread. Tests use it to check that the
+    /// work grows with the size of the page and not with its square.
+    pub(crate) static TRANSLATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn translate_box_model(bm: &mut BoxModel, offset: Coordinate) {
     if offset.x == 0.0 && offset.y == 0.0 {
         return;
     }
+    #[cfg(test)]
+    TRANSLATIONS.with(|n| n.set(n.get() + 1));
     bm.border_box.x += offset.x;
     bm.border_box.y += offset.y;
     bm.padding_box.x += offset.x;
@@ -662,6 +671,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // One-time raw-vs-collapsed border corrections for skipped-relayout cells,
     // persistent across both passes (see apply_recursive).
     let mut border_corrected: HashSet<DomNodeId> = HashSet::new();
+    let mut flow_shifts = FlowShifts::default();
     let is_nested = |dom_id: DomNodeId| -> bool {
         let mut cur = doc.parent(dom_id);
         while let Some(p) = cur {
@@ -690,9 +700,12 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
                 table_layout_id,
                 nested.contains(&table_dom_id),
                 &mut border_corrected,
+                &mut flow_shifts,
             );
         }
     }
+    // Before the overlays below, which copy the table boxes.
+    flow_shifts.apply(layout_tree);
 
     // Collapsed borders paint IN FRONT of all table content (css-tables /
     // w3c/csswg-drafts#11570): append a synthetic overlay element as each collapsed
@@ -764,6 +777,7 @@ fn lay_out_one_table(
     table_layout_id: LayoutElementId,
     is_nested: bool,
     border_corrected: &mut HashSet<DomNodeId>,
+    flow_shifts: &mut FlowShifts,
 ) {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -848,7 +862,7 @@ fn lay_out_one_table(
                         );
                     }
                     if delta.abs() > 0.5 {
-                        shift_flow_below(layout_tree, table_layout_id, old.y + old.height, delta);
+                        flow_shifts.record(layout_tree, table_layout_id, old.y + old.height, delta);
                     }
                 }
             }
@@ -859,40 +873,92 @@ fn lay_out_one_table(
     }
 }
 
-/// Translate every layout element that sits below `old_bottom` by `delta` and
-/// grow the resized table's ancestors, approximating the block reflow that the
-/// table's new height would cause. The table's own subtree is exempt (lattice
-/// already positioned it), as are its ancestors (they grow instead of moving).
-fn shift_flow_below(layout_tree: &mut LayoutTree, table_layout_id: LayoutElementId, old_bottom: f64, delta: f64) {
-    let mut exempt: HashSet<LayoutElementId> = HashSet::new();
-    collect_subtree(layout_tree, table_layout_id, &mut exempt);
+/// The flow shifts caused by tables whose real height differs from the first taffy pass.
+///
+/// Each one moves every layout element below the table by the change in height, except the
+/// table's own subtree (lattice already placed it) and its ancestors (they grow instead).
+/// Applying each shift as it happened scanned and moved the whole arena once per table, so a
+/// page of many tables was quadratic. 10,000 sibling tables took 19 s. The shifts are recorded
+/// here instead and applied in one pass at the end.
+///
+/// That gives the same layout tree because nothing the table passes read depends on where
+/// another table sits. A table and its cells are placed relative to the table's own box, so each
+/// table works in its own unshifted coordinates, and the thresholds are recorded in those same
+/// coordinates. Only nodes already detached from the tree can end up in a different place.
+///
+/// The one exception is a table that resizes in both passes, which a table holding a nested
+/// table does: its second `old_bottom` already includes its first change, but nothing below it
+/// has moved yet. So each threshold is taken back to the table's original bottom. Applied one
+/// at a time, everything at or below that bottom took both shifts, and it still does.
+#[derive(Default)]
+struct FlowShifts {
+    /// `(threshold, delta)` per shift, in recording order.
+    shifts: Vec<(f64, f64)>,
+    /// The shifts each element is exempt from, by index into `shifts`.
+    exempt: HashMap<LayoutElementId, Vec<usize>>,
+    /// The sum of the deltas recorded so far, per table.
+    recorded: HashMap<LayoutElementId, f64>,
+}
 
-    let mut ancestors: Vec<LayoutElementId> = Vec::new();
-    let mut cur = layout_tree.arena.get(&table_layout_id).and_then(|e| e.parent);
-    while let Some(id) = cur {
-        ancestors.push(id);
-        cur = layout_tree.arena.get(&id).and_then(|e| e.parent);
-    }
-    exempt.extend(ancestors.iter().copied());
+impl FlowShifts {
+    /// Record that everything below `old_bottom` moves by `delta`, and grow the table's
+    /// ancestors by `delta` now. Heights are not read by the passes that follow.
+    fn record(&mut self, layout_tree: &mut LayoutTree, table_layout_id: LayoutElementId, old_bottom: f64, delta: f64) {
+        let earlier = self.recorded.entry(table_layout_id).or_default();
+        let threshold = old_bottom - *earlier;
+        *earlier += delta;
 
-    let ids: Vec<LayoutElementId> = layout_tree.arena.keys().copied().collect();
-    for id in ids {
-        if exempt.contains(&id) {
-            continue;
+        let index = self.shifts.len();
+        self.shifts.push((threshold, delta));
+
+        let mut subtree = HashSet::new();
+        collect_subtree(layout_tree, table_layout_id, &mut subtree);
+        for id in subtree {
+            self.exempt.entry(id).or_default().push(index);
         }
-        if let Some(el) = layout_tree.arena.get_mut(&id) {
-            if el.box_model.border_box.y >= old_bottom - 0.5 {
-                translate_box_model(&mut el.box_model, Coordinate::new(0.0, delta));
-            }
-        }
-    }
 
-    for id in ancestors {
-        if let Some(el) = layout_tree.arena.get_mut(&id) {
+        let mut cur = layout_tree.arena.get(&table_layout_id).and_then(|e| e.parent);
+        while let Some(id) = cur {
+            self.exempt.entry(id).or_default().push(index);
+            let Some(el) = layout_tree.arena.get_mut(&id) else {
+                break;
+            };
             el.box_model.border_box.height += delta;
             el.box_model.padding_box.height += delta;
             el.box_model.content_box.height += delta;
             el.box_model.margin_box.height += delta;
+            cur = el.parent;
+        }
+    }
+
+    /// Move every element by the sum of the shifts whose threshold it sits at or below.
+    /// Sorted thresholds and prefix sums make that one binary search per element.
+    fn apply(self, layout_tree: &mut LayoutTree) {
+        if self.shifts.is_empty() {
+            return;
+        }
+        // An element at `y` takes a shift when `y >= threshold - 0.5`.
+        let applies = |threshold: f64, y: f64| y >= threshold - 0.5;
+
+        let mut sorted = self.shifts.clone();
+        sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut prefix = Vec::with_capacity(sorted.len() + 1);
+        prefix.push(0.0);
+        for &(_, delta) in &sorted {
+            prefix.push(prefix[prefix.len() - 1] + delta);
+        }
+
+        for (id, el) in layout_tree.arena.iter_mut() {
+            let y = el.box_model.border_box.y;
+            let taken = sorted.partition_point(|&(threshold, _)| applies(threshold, y));
+            let mut offset = prefix[taken];
+            for &index in self.exempt.get(id).map(Vec::as_slice).unwrap_or_default() {
+                let (threshold, delta) = self.shifts[index];
+                if applies(threshold, y) {
+                    offset -= delta;
+                }
+            }
+            translate_box_model(&mut el.box_model, Coordinate::new(0.0, offset));
         }
     }
 }

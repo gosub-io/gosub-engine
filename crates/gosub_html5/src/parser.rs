@@ -15,6 +15,7 @@ use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::parser::helper::{
     is_html_integration_point, is_mathml_integration_point, is_special, matches_tag_and_attrs_without_order,
 };
+use crate::parser::open_elements::OpenElements;
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
@@ -36,6 +37,7 @@ use url::Url;
 
 mod attr_replacements;
 pub mod errors;
+mod open_elements;
 pub mod query;
 mod quirks;
 pub mod tree_builder;
@@ -186,7 +188,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     /// out for matching, must survive into a reprocess. See `process_html_content`.
     current_token_rewritten: bool,
     /// Stack of open elements
-    open_elements: Vec<NodeId>,
+    open_elements: OpenElements,
     /// Current head element
     head_element: Option<NodeId>,
     /// Current form element
@@ -342,7 +344,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             },
             reprocess_token: false,
             current_token_rewritten: false,
-            open_elements: Vec::new(),
+            open_elements: OpenElements::default(),
             head_element: None,
             form_element: None,
             scripting_enabled: options.as_ref().is_none_or(|o| o.scripting_enabled),
@@ -385,7 +387,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             },
             reprocess_token: false,
             current_token_rewritten: false,
-            open_elements: Vec::new(),
+            open_elements: OpenElements::default(),
             head_element: None,
             form_element: None,
             scripting_enabled: true,
@@ -2187,63 +2189,76 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// Checks if the given element is in given scope
     fn is_in_scope(&self, tag: &str, namespace: &str, scope: Scope) -> bool {
-        for &node_id in self.open_elements.iter().rev() {
-            if self.document.node_type(node_id) != NodeType::ElementNode {
-                return false;
+        // Asked before every block start tag, so it is cached. See `OpenElements`.
+        if matches!(scope, Scope::Button) && tag == "p" && namespace == HTML_NAMESPACE {
+            return self
+                .open_elements
+                .has_p_in_button_scope(|node_id| self.scope_step(node_id, tag, namespace, scope));
+        }
+        self.open_elements
+            .iter()
+            .rev()
+            .find_map(|&node_id| self.scope_step(node_id, tag, namespace, scope))
+            .unwrap_or(false)
+    }
+
+    /// One step of the scope walk. `Some(true)` when `node_id` is the element looked for,
+    /// `Some(false)` when it ends the scope, `None` to go on to the next entry down.
+    fn scope_step(&self, node_id: NodeId, tag: &str, namespace: &str, scope: Scope) -> Option<bool> {
+        if self.document.node_type(node_id) != NodeType::ElementNode {
+            return Some(false);
+        }
+
+        let node_tag = self.document.tag_name(node_id).unwrap_or_default();
+        let node_ns = self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE);
+
+        if node_tag == tag && node_ns == namespace {
+            return Some(true);
+        }
+
+        let default_html_scope = [
+            "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+        ];
+        let default_mathml_scope = ["mo", "mi", "ms", "mn", "mtext", "annotation-xml"];
+        let default_svg_scope = ["foreignObject", "desc", "title"];
+        match scope {
+            Scope::Regular => {
+                if (node_ns == HTML_NAMESPACE && default_html_scope.contains(&node_tag))
+                    || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
+                    || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
+                {
+                    return Some(false);
+                }
             }
-
-            let node_tag = self.document.tag_name(node_id).unwrap_or_default();
-            let node_ns = self.document.namespace(node_id).unwrap_or(HTML_NAMESPACE);
-
-            if node_tag == tag && node_ns == namespace {
-                return true;
+            Scope::ListItem => {
+                if (node_ns == HTML_NAMESPACE
+                    && (default_html_scope.contains(&node_tag) || ["ol", "ul"].contains(&node_tag)))
+                    || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
+                    || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
+                {
+                    return Some(false);
+                }
             }
-
-            let default_html_scope = [
-                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
-            ];
-            let default_mathml_scope = ["mo", "mi", "ms", "mn", "mtext", "annotation-xml"];
-            let default_svg_scope = ["foreignObject", "desc", "title"];
-            match scope {
-                Scope::Regular => {
-                    if (node_ns == HTML_NAMESPACE && default_html_scope.contains(&node_tag))
-                        || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
-                        || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
-                    {
-                        return false;
-                    }
+            Scope::Button => {
+                if (node_ns == HTML_NAMESPACE && (default_html_scope.contains(&node_tag) || node_tag == "button"))
+                    || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
+                    || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
+                {
+                    return Some(false);
                 }
-                Scope::ListItem => {
-                    if (node_ns == HTML_NAMESPACE
-                        && (default_html_scope.contains(&node_tag) || ["ol", "ul"].contains(&node_tag)))
-                        || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
-                        || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
-                    {
-                        return false;
-                    }
+            }
+            Scope::Table => {
+                if node_ns == HTML_NAMESPACE && ["html", "template", "table"].contains(&node_tag) {
+                    return Some(false);
                 }
-                Scope::Button => {
-                    if (node_ns == HTML_NAMESPACE && (default_html_scope.contains(&node_tag) || node_tag == "button"))
-                        || (node_ns == MATHML_NAMESPACE && default_mathml_scope.contains(&node_tag))
-                        || (node_ns == SVG_NAMESPACE && default_svg_scope.contains(&node_tag))
-                    {
-                        return false;
-                    }
-                }
-                Scope::Table => {
-                    if node_ns == HTML_NAMESPACE && ["html", "template", "table"].contains(&node_tag) {
-                        return false;
-                    }
-                }
-                Scope::Select => {
-                    if !(node_ns == HTML_NAMESPACE && ["optgroup", "option"].contains(&node_tag)) {
-                        return false;
-                    }
+            }
+            Scope::Select => {
+                if !(node_ns == HTML_NAMESPACE && ["optgroup", "option"].contains(&node_tag)) {
+                    return Some(false);
                 }
             }
         }
-
-        false
+        None
     }
 
     /// Closes a table cell and switches the insertion mode to `InRow`

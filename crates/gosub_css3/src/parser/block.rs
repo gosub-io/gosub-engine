@@ -123,8 +123,53 @@ impl Css3<'_> {
 
     /// Blocks nest through `parse_block` -> `parse_at_rule`/`parse_rule` -> `parse_block`, so the
     /// body runs one recursion level deeper.
+    ///
+    /// A block past the depth cap is skipped whole, up to its closing `}`, and the rule that owns
+    /// it is dropped. The rules around it are kept. Firefox and WebKit do the same. cssparser
+    /// fails a block past 75 levels and the rule list skips that rule. WebKit drops a style rule
+    /// past 128 levels. Before, recovery stopped short of the dropped rule's `}`, so each
+    /// enclosing block closed one brace early and the rule after the whole nest was lost.
     pub fn parse_block(&mut self, mode: BlockParseMode) -> CssResult<Node> {
+        if self.recursion_depth >= crate::MAX_RECURSION_DEPTH {
+            // `recurse` refuses this block below. Skip it first so the owning rule can end.
+            self.skip_block_contents();
+            self.skipped_deep_block = true;
+        }
         self.recurse(|parser| parser.parse_block_inner(mode))
+    }
+
+    /// Consumes the rest of the current block without parsing it, and stops before the `}` that
+    /// closes it. Brackets are counted, not recursed into, so any depth costs no stack.
+    fn skip_block_contents(&mut self) {
+        let mut depth: usize = 0;
+        loop {
+            let t = self.tokenizer.lookahead(0);
+            match t.token_type {
+                TokenType::Eof => break,
+                TokenType::RCurly if depth == 0 => break,
+                TokenType::LParen | TokenType::LBracket | TokenType::LCurly | TokenType::Function(_) => {
+                    depth += 1;
+                }
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+            self.tokenizer.consume();
+        }
+    }
+
+    /// Error recovery for a rule that failed to parse. When its block was skipped for being too
+    /// deep, the parser sits at that block's `}`, so consuming it ends the rule. Otherwise skip
+    /// to the end of the rule.
+    pub(crate) fn recover_from_rule_error(&mut self) {
+        if std::mem::take(&mut self.skipped_deep_block) {
+            if self.tokenizer.lookahead(0).token_type == TokenType::RCurly {
+                self.tokenizer.consume();
+            }
+            return;
+        }
+        self.parse_until_rule_end();
     }
 
     fn parse_block_inner(&mut self, mode: BlockParseMode) -> CssResult<Node> {
@@ -323,5 +368,89 @@ mod tests {
             "expected .good rule to parse:\n{out}"
         );
         assert!(out.contains("property: color"), "expected .good's declaration:\n{out}");
+    }
+
+    /// A rule nested past the cap is dropped, and only that rule. Recovery used to stop before
+    /// the dropped rule's `}`, so every enclosing block closed one brace early and the rule
+    /// after the nest was read as part of it and lost.
+    #[test]
+    fn a_rule_past_the_cap_is_dropped_and_its_neighbours_kept() {
+        let depth = MAX_RECURSION_DEPTH + 5;
+        let cases = [
+            (
+                "@media",
+                format!(
+                    ".before{{top:1px}} {}.deep{{top:2px}}{} .after{{top:3px}}",
+                    "@media screen{".repeat(depth),
+                    "}".repeat(depth)
+                ),
+            ),
+            (
+                "&",
+                format!(
+                    ".before{{top:1px}} {}top:2px{} .after{{top:3px}}",
+                    ".n{&.m{".repeat(depth / 2),
+                    "}}".repeat(depth / 2)
+                ),
+            ),
+        ];
+        for (kind, css) in cases {
+            let out = parse_recovering(&css);
+            assert!(out.contains("[ClassSelector] before"), "{kind}: lost .before:\n{out}");
+            assert!(out.contains("[ClassSelector] after"), "{kind}: lost .after:\n{out}");
+            assert!(
+                !out.contains("[ClassSelector] deep"),
+                "{kind}: kept the rule past the cap"
+            );
+            assert_eq!(out.matches("property: top").count(), 2, "{kind}:\n{out}");
+        }
+    }
+
+    /// Inside the nest, the rule next to the dropped one stays in its own block.
+    #[test]
+    fn a_sibling_of_a_rule_past_the_cap_stays_in_its_block() {
+        let css = format!(
+            "@media print{{ {}.deep{{top:1px}}{} .keep{{top:2px}} }} .after{{top:3px}}",
+            "@media screen{".repeat(MAX_RECURSION_DEPTH + 5),
+            "}".repeat(MAX_RECURSION_DEPTH + 5)
+        );
+        let out = parse_recovering(&css);
+        let keep = out.find("[ClassSelector] keep").expect(".keep lost");
+        let after = out.find("[ClassSelector] after").expect(".after lost");
+        // `.keep` is still inside `@media print`, so it is indented further than `.after`.
+        let indent = |at: usize| at - out[..at].rfind('\n').map_or(0, |n| n + 1);
+        assert!(indent(keep) > indent(after), "{out}");
+    }
+
+    /// After a rule past the cap, a later broken rule still skips its whole block.
+    #[test]
+    fn a_later_broken_rule_still_recovers_after_a_skipped_one() {
+        let depth = MAX_RECURSION_DEPTH + 5;
+        let css = format!(
+            "{}.deep{{top:1px}}{} .x{{--v:{}1{}}} .b{{top:2px}} .bad{{ @#$ {{junk}} }} .good{{top:3px}}",
+            "@media screen{".repeat(depth),
+            "}".repeat(depth),
+            "{".repeat(depth),
+            "}".repeat(depth)
+        );
+        let out = parse_recovering(&css);
+        assert!(out.contains("[ClassSelector] b"), "{out}");
+        assert!(out.contains("[ClassSelector] good"), "{out}");
+    }
+
+    /// A value nested past the cap drops that declaration only.
+    #[test]
+    fn a_value_past_the_cap_drops_only_its_declaration() {
+        let depth = MAX_RECURSION_DEPTH + 5;
+        let css = format!(
+            ".a{{color:red;width:{}1px{};height:2px}} .after{{top:3px}}",
+            "calc(".repeat(depth),
+            ")".repeat(depth)
+        );
+        let out = parse_recovering(&css);
+        assert!(out.contains("property: color"), "{out}");
+        assert!(!out.contains("property: width"), "{out}");
+        assert!(out.contains("property: height"), "{out}");
+        assert!(out.contains("[ClassSelector] after"), "{out}");
     }
 }

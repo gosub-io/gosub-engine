@@ -180,7 +180,7 @@ impl Css3<'_> {
         match self.parse_at_rule_internal(is_declaration) {
             Ok(at_rule_node) => Ok(Some(at_rule_node)),
             Err(err) if self.config.ignore_errors => {
-                self.parse_until_rule_end();
+                self.recover_from_rule_error();
                 log::warn!("Ignoring error in parse_at_rule: {err:?}");
                 Ok(None)
             }
