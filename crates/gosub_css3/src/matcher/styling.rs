@@ -1356,6 +1356,21 @@ impl InheritedValues {
     }
 }
 
+/// Unlinks the chain one level at a time. The derived drop recursed once per level, so a document
+/// nesting 20,000 elements aborted on the stack when its styles were dropped. Stops at the first
+/// level something else still holds, which is where the derived drop would have stopped too.
+impl Drop for InheritedValues {
+    fn drop(&mut self) {
+        let mut next = self.parent.take();
+        while let Some(level) = next {
+            next = match Arc::try_unwrap(level) {
+                Ok(mut level) => level.parent.take(),
+                Err(_) => None,
+            };
+        }
+    }
+}
+
 /// Map of all declared values for a single node. Note that these are only the defined properties, not
 /// the non-existing properties.
 ///
@@ -1755,6 +1770,52 @@ mod tests {
 
         let prop = props.get("not-exists");
         assert!(prop.is_none());
+    }
+
+    /// One level per element, so a document nesting 200,000 elements builds a chain this long.
+    /// The derived drop recursed once per level and aborted the process on a 2 MiB stack.
+    #[test]
+    fn a_long_inherited_chain_drops_without_recursing() {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let mut chain: Option<Arc<InheritedValues>> = None;
+                for _ in 0..200_000 {
+                    chain = Some(Arc::new(InheritedValues {
+                        parent: chain.take(),
+                        inheriting: Vec::new(),
+                        rest: Vec::new(),
+                    }));
+                }
+                drop(chain);
+            })
+            .expect("spawn")
+            .join()
+            .expect("dropping the chain must not abort the process");
+    }
+
+    /// Dropping a child must leave the levels someone else still holds intact.
+    #[test]
+    fn dropping_a_level_keeps_shared_ancestors() {
+        let color = id("color");
+        let root = Arc::new(InheritedValues {
+            parent: None,
+            inheriting: vec![(color, CssValue::String("red".into()))],
+            rest: Vec::new(),
+        });
+        let middle = Arc::new(InheritedValues {
+            parent: Some(Arc::clone(&root)),
+            inheriting: Vec::new(),
+            rest: Vec::new(),
+        });
+        let leaf = InheritedValues {
+            parent: Some(Arc::clone(&middle)),
+            inheriting: Vec::new(),
+            rest: Vec::new(),
+        };
+        drop(root);
+        drop(leaf);
+        assert_eq!(middle.get(color), Some(&CssValue::String("red".into())));
     }
 
     #[test]
