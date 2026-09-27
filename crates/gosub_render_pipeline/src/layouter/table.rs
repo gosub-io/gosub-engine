@@ -885,20 +885,31 @@ fn lay_out_one_table(
 /// another table sits. A table and its cells are placed relative to the table's own box, so each
 /// table works in its own unshifted coordinates, and the thresholds are recorded in those same
 /// coordinates. Only nodes already detached from the tree can end up in a different place.
+///
+/// The one exception is a table that resizes in both passes, which a table holding a nested
+/// table does: its second `old_bottom` already includes its first change, but nothing below it
+/// has moved yet. So each threshold is taken back to the table's original bottom. Applied one
+/// at a time, everything at or below that bottom took both shifts, and it still does.
 #[derive(Default)]
 struct FlowShifts {
     /// `(threshold, delta)` per shift, in recording order.
     shifts: Vec<(f64, f64)>,
     /// The shifts each element is exempt from, by index into `shifts`.
     exempt: HashMap<LayoutElementId, Vec<usize>>,
+    /// The sum of the deltas recorded so far, per table.
+    recorded: HashMap<LayoutElementId, f64>,
 }
 
 impl FlowShifts {
     /// Record that everything below `old_bottom` moves by `delta`, and grow the table's
     /// ancestors by `delta` now. Heights are not read by the passes that follow.
     fn record(&mut self, layout_tree: &mut LayoutTree, table_layout_id: LayoutElementId, old_bottom: f64, delta: f64) {
+        let earlier = self.recorded.entry(table_layout_id).or_default();
+        let threshold = old_bottom - *earlier;
+        *earlier += delta;
+
         let index = self.shifts.len();
-        self.shifts.push((old_bottom, delta));
+        self.shifts.push((threshold, delta));
 
         let mut subtree = HashSet::new();
         collect_subtree(layout_tree, table_layout_id, &mut subtree);

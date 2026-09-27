@@ -198,7 +198,11 @@ mod tests {
     /// Through the parser. Every `<div>` asks whether a `p` is in button scope, and 20,000
     /// nested ones used to walk the whole stack each time, some 200 million steps. Now each
     /// entry is looked at about once.
+    ///
+    /// Not under `debug_parser`: that prints the whole open-element stack after every token,
+    /// which is quadratic at this depth on its own and ran the all-features CI job out of time.
     #[test]
+    #[cfg(not(feature = "debug_parser"))]
     fn parsing_nested_blocks_is_linear_in_depth() {
         use crate::document::document_impl::DocumentImpl;
         use crate::parser::Html5Parser;

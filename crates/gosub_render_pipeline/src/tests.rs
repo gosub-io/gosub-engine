@@ -1524,16 +1524,78 @@ mod rendertree_from_engine {
             moves <= 4 * boxes,
             "{moves} box moves for {boxes} boxes; the flow shifts are quadratic again"
         );
-        // The tables still stack. Each one starts below the previous one.
-        let mut tops: Vec<f64> = laid_out
+        // The tables still stack. Each one starts at or below the bottom of the previous one;
+        // increasing tops alone would let them overlap.
+        let mut tables: Vec<_> = laid_out
             .arena
             .values()
             .filter(|el| laid_out.render_tree.doc.tag_name(el.dom_node_id).as_deref() == Some("table"))
-            .map(|el| el.box_model.border_box.y)
+            .map(|el| el.box_model.border_box)
             .collect();
-        tops.sort_by(f64::total_cmp);
-        assert_eq!(tops.len(), TABLES);
-        assert!(tops.windows(2).all(|w| w[1] > w[0]), "tables overlap");
+        tables.sort_by(|a, b| a.y.total_cmp(&b.y));
+        assert_eq!(tables.len(), TABLES);
+        for pair in tables.windows(2) {
+            assert!(pair[0].height > 0.0, "empty table at y={}", pair[0].y);
+            assert!(
+                pair[1].y >= pair[0].y + pair[0].height - 0.5,
+                "table at y={} overlaps the one above it, which ends at {}",
+                pair[1].y,
+                pair[0].y + pair[0].height
+            );
+        }
+    }
+
+    /// A table holding a nested table changes height in both table passes: once when it is laid
+    /// out parents-first, and again when the second pass re-lays it after the nested table has
+    /// grown. The block after it has to take both shifts and still start at its bottom.
+    #[test]
+    fn a_table_resized_in_both_passes_pushes_what_follows_by_both() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><body style="margin:0">
+                <table id="outer"><tr><td>
+                    <table><tr><td style="height: 100px">x</td><td style="height: 300px">y</td></tr></table>
+                </td></tr></table>
+                <div id="after">after</div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let outer_dom = find_node_by_id_attr(&adapter.doc, root, "outer").expect("#outer");
+        let after_dom = find_node_by_id_attr(&adapter.doc, root, "after").expect("#after");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let border_box = |dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        };
+        let outer = border_box(outer_dom);
+        let after = border_box(after_dom);
+
+        assert!(
+            outer.height >= 300.0,
+            "outer table did not grow around its nested tables: {outer:?}"
+        );
+        assert!(
+            (after.y - (outer.y + outer.height)).abs() < 1.0,
+            "#after at y={} should start at the outer table's bottom {}",
+            after.y,
+            outer.y + outer.height
+        );
     }
 
     #[test]
