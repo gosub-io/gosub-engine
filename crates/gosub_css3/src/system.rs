@@ -1,4 +1,5 @@
 use crate::functions::attr::resolve_attr;
+use crate::functions::env::resolve_env;
 use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{single_value, ExpandedDeclaration};
@@ -972,6 +973,8 @@ fn resolve_value(
                 Some(resolve_var(args, custom_props))
             } else if name.eq_ignore_ascii_case("attr") {
                 Some(attr(args))
+            } else if name.eq_ignore_ascii_case("env") {
+                Some(resolve_env(args))
             } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
                 // Unresolved, the whole declaration fails validation - the UA sheet uses it on
                 // form controls.
@@ -1117,6 +1120,31 @@ mod tests {
         let props = custom(&[("--a", "var(--b)"), ("--b", "var(--a)")]);
         let value = resolve_substitutions(&declared("color: rgb(var(--a) 0 0)"), &props, &attr);
         assert_eq!(value, CssValue::List(vec![]));
+    }
+
+    /// `env()` is substituted like a `var()`, with the engine's environment in place of the
+    /// custom properties - so the common safe-area idiom survives instead of dropping the
+    /// declaration (css-env-1 §3).
+    #[test]
+    fn an_env_is_substituted_from_the_environment() {
+        assert_eq!(resolve("padding-top: env(safe-area-inset-top)", &[]), unit(0.0, "px"));
+        let value = resolve("padding-top: max(1rem, env(safe-area-inset-top))", &[]);
+        assert_eq!(
+            value,
+            CssValue::Function(
+                "max".to_string(),
+                vec![unit(1.0, "rem"), CssValue::Comma, unit(0.0, "px")]
+            )
+        );
+        // An unknown name takes its fallback, which may itself hold a `var()`.
+        assert_eq!(
+            resolve("height: env(titlebar-area-height, var(--bar))", &[("--bar", "33px")]),
+            unit(33.0, "px")
+        );
+        assert_eq!(
+            resolve("height: env(titlebar-area-height)", &[]),
+            CssValue::List(vec![])
+        );
     }
 
     #[test]
