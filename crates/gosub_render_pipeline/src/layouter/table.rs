@@ -59,16 +59,49 @@ impl<'a> PipelineTableTree<'a> {
     /// Such cells keep the first-pass height approximation: re-running taffy on
     /// them would clobber the box models lattice computed for the inner table.
     fn subtree_contains_table(&self, id: DomNodeId) -> bool {
+        self.subtree_contains_table_bounded(id, 0).0
+    }
+
+    /// `(contains a table, gave up on depth)`.
+    ///
+    /// This walks the DOM, not the layout tree, so the layout depth cap does not bound it on its
+    /// own - the same hole `collect_tables_preorder` closes, and a cell holding 20,000 nested
+    /// elements reached it here. It stops at [`MAX_LAYOUT_DEPTH`] for the same reason: every
+    /// level of the DOM path to a box is a level of the layout tree too, so a table deeper than
+    /// the cap has no layout box, and the caller's nested-table branch would find no height for
+    /// it either.
+    ///
+    /// A truncated answer is *not* cached. The bound is on depth below the node being asked
+    /// about, so the same node can be reached at different depths from different cells; caching
+    /// a `false` that only means "did not look far enough" would hand it to a shallower caller
+    /// that would have looked deep enough.
+    fn subtree_contains_table_bounded(&self, id: DomNodeId, depth: usize) -> (bool, bool) {
         if let Some(&hit) = self.contains_table_cache.borrow().get(&id) {
-            return hit;
+            return (hit, false);
         }
-        let hit = self
-            .doc
-            .children(id)
-            .iter()
-            .any(|&child| is_table_box(self.doc, child) || self.subtree_contains_table(child));
-        self.contains_table_cache.borrow_mut().insert(id, hit);
-        hit
+        if depth >= MAX_LAYOUT_DEPTH {
+            return (false, true);
+        }
+
+        let mut hit = false;
+        let mut truncated = false;
+        for &child in self.doc.children(id).iter() {
+            if is_table_box(self.doc, child) {
+                hit = true;
+                break;
+            }
+            let (child_hit, child_truncated) = self.subtree_contains_table_bounded(child, depth + 1);
+            truncated |= child_truncated;
+            if child_hit {
+                hit = true;
+                break;
+            }
+        }
+
+        if !truncated {
+            self.contains_table_cache.borrow_mut().insert(id, hit);
+        }
+        (hit, truncated)
     }
 
     /// Sum of the border-box heights of the nested tables directly contained in a cell (not
@@ -153,102 +186,92 @@ fn apply_recursive(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
 ) {
-    for child_id in doc.children(id) {
-        match pending.get(&child_id) {
-            None => {
-                // Non-table-structure node: shift it by the accumulated translation
-                // so it stays correctly positioned relative to its parent cell.
-                if let Some(&layout_id) = dom_to_layout.get(&child_id) {
-                    if let Some(element) = arena.get_mut(&layout_id) {
-                        translate_box_model(&mut element.box_model, offset);
+    // Iterative, because this walks the DOM rather than the layout tree and so is not bounded by
+    // the layout depth cap: a cell holding 20,000 nested elements overflowed the stack here, and
+    // on a successful table layout the subtree is walked a second time. Unlike the other DOM
+    // walks in this file it cannot simply stop at the cap - a pending cell can sit at a shallow
+    // depth underneath a deep subtree, and its position still has to be applied.
+    //
+    // Children are pushed in reverse so they pop in document order, which keeps the traversal -
+    // and every box it writes - identical to the recursion this replaces.
+    let mut stack = vec![(id, parent_abs, offset)];
+    while let Some((id, parent_abs, offset)) = stack.pop() {
+        for child_id in doc.children(id).into_iter().rev() {
+            match pending.get(&child_id) {
+                None => {
+                    // Non-table-structure node: shift it by the accumulated translation
+                    // so it stays correctly positioned relative to its parent cell.
+                    if let Some(&layout_id) = dom_to_layout.get(&child_id) {
+                        if let Some(element) = arena.get_mut(&layout_id) {
+                            translate_box_model(&mut element.box_model, offset);
+                        }
                     }
+                    stack.push((child_id, parent_abs, offset));
                 }
-                apply_recursive(
-                    doc,
-                    child_id,
-                    parent_abs,
-                    offset,
-                    pending,
-                    edge_owners,
-                    relaid,
-                    border_corrected,
-                    dom_to_layout,
-                    arena,
-                );
-            }
-            Some(cell_layout) => {
-                let abs = Coordinate::new(
-                    parent_abs.x + cell_layout.position.x,
-                    parent_abs.y + cell_layout.position.y,
-                );
-                // Read old position before overwriting so we can compute the
-                // translation needed for non-pending children of this cell.
-                let old_abs = dom_to_layout
-                    .get(&child_id)
-                    .and_then(|&lid| arena.get(&lid))
-                    .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))
-                    .unwrap_or(abs);
-                if let Some(&layout_id) = dom_to_layout.get(&child_id) {
-                    if let Some(element) = arena.get_mut(&layout_id) {
-                        element.box_model = cell_layout_to_box_model(cell_layout, abs);
-                        element.collapsed_borders = edge_owners.get(&child_id).map(|&owners| CollapsedCellBorders {
-                            widths: [
-                                cell_layout.border.top as f32,
-                                cell_layout.border.right as f32,
-                                cell_layout.border.bottom as f32,
-                                cell_layout.border.left as f32,
-                            ],
-                            outsets: cell_layout.border_outsets.map(|v| v as f32),
-                            owners,
-                        });
+                Some(cell_layout) => {
+                    let abs = Coordinate::new(
+                        parent_abs.x + cell_layout.position.x,
+                        parent_abs.y + cell_layout.position.y,
+                    );
+                    // Read old position before overwriting so we can compute the
+                    // translation needed for non-pending children of this cell.
+                    let old_abs = dom_to_layout
+                        .get(&child_id)
+                        .and_then(|&lid| arena.get(&lid))
+                        .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))
+                        .unwrap_or(abs);
+                    if let Some(&layout_id) = dom_to_layout.get(&child_id) {
+                        if let Some(element) = arena.get_mut(&layout_id) {
+                            element.box_model = cell_layout_to_box_model(cell_layout, abs);
+                            element.collapsed_borders =
+                                edge_owners.get(&child_id).map(|&owners| CollapsedCellBorders {
+                                    widths: [
+                                        cell_layout.border.top as f32,
+                                        cell_layout.border.right as f32,
+                                        cell_layout.border.bottom as f32,
+                                        cell_layout.border.left as f32,
+                                    ],
+                                    outsets: cell_layout.border_outsets.map(|v| v as f32),
+                                    owners,
+                                });
+                        }
                     }
-                }
-                // vertical-align: only cells whose subtree was re-anchored at the
-                // cell top this pass get the shift, so it applies exactly once.
-                let valign_shift = if relaid.contains(&child_id) {
-                    cell_layout.content_offset_y
-                } else {
-                    0.0
-                };
-                // Skipped-relayout collapsed cells (nested-table guard): their children were
-                // positioned by the FIRST taffy pass with the raw CSS border widths, but the
-                // collapse geometry replaced those with half the resolved boundary. Shift the
-                // subtree by the difference so content sits at the collapsed content origin.
-                // Rows are in `pending` too but never collapsed cells; `edge_owners` is the
-                // exact "collapsed cell" predicate.
-                let border_delta = if !relaid.contains(&child_id)
-                    && edge_owners.contains_key(&child_id)
-                    && border_corrected.insert(child_id)
-                {
-                    let child_border = &doc.computed_style(child_id).border;
-                    let raw_left = f64::from(child_border.left_width);
-                    let raw_top = f64::from(child_border.top_width);
-                    let dl = cell_layout.border.left - raw_left;
-                    let dt = cell_layout.border.top - raw_top;
-                    if dl != 0.0 || dt != 0.0 {
-                        Coordinate::new(dl, dt)
+                    // vertical-align: only cells whose subtree was re-anchored at the
+                    // cell top this pass get the shift, so it applies exactly once.
+                    let valign_shift = if relaid.contains(&child_id) {
+                        cell_layout.content_offset_y
+                    } else {
+                        0.0
+                    };
+                    // Skipped-relayout collapsed cells (nested-table guard): their children were
+                    // positioned by the FIRST taffy pass with the raw CSS border widths, but the
+                    // collapse geometry replaced those with half the resolved boundary. Shift the
+                    // subtree by the difference so content sits at the collapsed content origin.
+                    // Rows are in `pending` too but never collapsed cells; `edge_owners` is the
+                    // exact "collapsed cell" predicate.
+                    let border_delta = if !relaid.contains(&child_id)
+                        && edge_owners.contains_key(&child_id)
+                        && border_corrected.insert(child_id)
+                    {
+                        let child_border = &doc.computed_style(child_id).border;
+                        let raw_left = f64::from(child_border.left_width);
+                        let raw_top = f64::from(child_border.top_width);
+                        let dl = cell_layout.border.left - raw_left;
+                        let dt = cell_layout.border.top - raw_top;
+                        if dl != 0.0 || dt != 0.0 {
+                            Coordinate::new(dl, dt)
+                        } else {
+                            Coordinate::ZERO
+                        }
                     } else {
                         Coordinate::ZERO
-                    }
-                } else {
-                    Coordinate::ZERO
-                };
-                let child_offset = Coordinate::new(
-                    abs.x - old_abs.x + border_delta.x,
-                    abs.y - old_abs.y + valign_shift + border_delta.y,
-                );
-                apply_recursive(
-                    doc,
-                    child_id,
-                    abs,
-                    child_offset,
-                    pending,
-                    edge_owners,
-                    relaid,
-                    border_corrected,
-                    dom_to_layout,
-                    arena,
-                );
+                    };
+                    let child_offset = Coordinate::new(
+                        abs.x - old_abs.x + border_delta.x,
+                        abs.y - old_abs.y + valign_shift + border_delta.y,
+                    );
+                    stack.push((child_id, abs, child_offset));
+                }
             }
         }
     }
