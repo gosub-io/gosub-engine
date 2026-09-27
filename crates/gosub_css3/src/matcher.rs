@@ -2,6 +2,7 @@ pub(crate) mod bloom;
 pub mod computed_style;
 pub mod expansion;
 pub mod index;
+mod keyword_coverage;
 pub mod property_definitions;
 pub mod property_ids;
 pub mod shorthands;
