@@ -24,6 +24,7 @@ use gosub_interface::style::{
     TextWrap, VerticalAlign, WhiteSpace, ZIndex,
 };
 
+use crate::colors::{CssColor, RgbColor};
 use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
@@ -232,6 +233,51 @@ fn color(value: &CssValue) -> Option<Color> {
 /// Whether a value is the `currentcolor` keyword, which stands for the element's own `color`.
 fn is_current_color(value: &CssValue) -> bool {
     as_string(value).is_some_and(|keyword| keyword.eq_ignore_ascii_case("currentcolor"))
+}
+
+/// Whether `currentcolor` appears anywhere in a value, however deeply nested.
+fn mentions_current_color(value: &CssValue) -> bool {
+    match value {
+        CssValue::Function(_, args) | CssValue::List(args) => args.iter().any(mentions_current_color),
+        other => is_current_color(other),
+    }
+}
+
+/// A value with every `currentcolor` in it replaced by `current`.
+fn with_current_color(value: &CssValue, current: Color) -> CssValue {
+    match value {
+        CssValue::Function(name, args) => CssValue::Function(
+            name.clone(),
+            args.iter().map(|arg| with_current_color(arg, current)).collect(),
+        ),
+        CssValue::List(items) => CssValue::List(items.iter().map(|item| with_current_color(item, current)).collect()),
+        other if is_current_color(other) => CssValue::Color(CssColor::from(RgbColor::new(
+            f32::from(current.r),
+            f32::from(current.g),
+            f32::from(current.b),
+            f32::from(current.a),
+        ))),
+        other => other.clone(),
+    }
+}
+
+/// The colour a value names on a property where `currentcolor` stands for `current`.
+///
+/// The computed value keeps `currentcolor` wherever it sits, so a colour function built on it -
+/// `contrast-color(currentcolor)`, `color-mix(in srgb, currentcolor, red)` - arrives here still
+/// a function. This is the used value, where the element's colour is known: put it in and fold.
+fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
+    if is_current_color(value) {
+        return Some(current);
+    }
+    if let CssValue::Function(name, args) = value {
+        if args.iter().any(mentions_current_color) {
+            let args: Vec<CssValue> = args.iter().map(|arg| with_current_color(arg, current)).collect();
+            let folded = crate::stylesheet::fold_color_function(name, &args, true)?;
+            return color(&CssValue::Color(folded));
+        }
+    }
+    color(value)
 }
 
 /// The first colour token of a `background` shorthand (`#fff url(...) no-repeat`).
@@ -1482,12 +1528,7 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     style.border_mut().right_color = current;
     style.border_mut().bottom_color = current;
     style.border_mut().left_color = current;
-    let border_color = move |value: &CssValue| {
-        if is_current_color(value) {
-            return Some(current);
-        }
-        color(value)
-    };
+    let border_color = move |value: &CssValue| color_or_current(value, current);
     apply!(
         map,
         style,
@@ -1603,10 +1644,10 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         outline_mut,
         color,
         move |value: &CssValue| {
-            if is_current_color(value) || as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
+            if as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
                 return Some(current);
             }
-            color(value)
+            color_or_current(value, current)
         }
     );
 
@@ -1630,12 +1671,7 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         BackgroundColor,
         background_mut,
         color,
-        move |value: &CssValue| {
-            if is_current_color(value) {
-                return Some(current);
-            }
-            color(value)
-        }
+        move |value: &CssValue| color_or_current(value, current)
     );
     // The `background` shorthand keeps its own entry and is never expanded into the longhands,
     // so a page that writes `background: #fff url(x)` is only visible there.
@@ -2038,6 +2074,31 @@ mod tests {
         assert_eq!(style.border.left_color, blue);
         assert_eq!(style.background.color, blue);
         assert_eq!(style.outline.color, blue);
+    }
+
+    /// A colour function built on `currentcolor` stays a function in the computed value, and
+    /// folds here once the element's colour is known.
+    #[test]
+    fn current_color_inside_a_colour_function_folds() {
+        let contrast = || CssValue::Function("contrast-color".to_string(), vec![keyword("currentcolor")]);
+
+        let style = computed_style(
+            &map(&[
+                ("color", keyword("white")),
+                ("background-color", contrast()),
+                ("border-left-color", contrast()),
+                ("outline-color", contrast()),
+            ]),
+            None,
+        );
+        let black = Color::rgba(0, 0, 0, 255);
+        assert_eq!(style.background.color, black);
+        assert_eq!(style.border.left_color, black);
+        assert_eq!(style.outline.color, black);
+
+        // On `color` itself `currentcolor` is the inherited colour, initial black here.
+        let style = computed_style(&map(&[("color", contrast())]), None);
+        assert_eq!(style.inherited.color, Color::rgba(255, 255, 255, 255));
     }
 
     /// An undeclared border colour follows the *inherited* colour when the element declares no
