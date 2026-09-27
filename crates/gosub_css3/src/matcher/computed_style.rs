@@ -280,19 +280,20 @@ fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
     color(value)
 }
 
-/// The first colour token of a `background` shorthand (`#fff url(...) no-repeat`).
-fn shorthand_background_color(value: &CssValue) -> Option<Color> {
+/// The first colour token of a `background` shorthand (`#fff url(...) no-repeat`), with
+/// `currentcolor` standing for `current`.
+fn shorthand_background_color(value: &CssValue, current: Color) -> Option<Color> {
     if let Some(keyword) = as_string(value) {
         if let Some(system) = system_color(keyword) {
             return Some(system);
         }
     }
-    if let Some(direct) = color(value) {
+    if let Some(direct) = color_or_current(value, current) {
         return Some(direct);
     }
     as_list(value)?.iter().find_map(|item| match item {
-        CssValue::Color(_) => color(item),
-        CssValue::String(keyword) => system_color(keyword),
+        CssValue::Color(_) | CssValue::Function(..) => color_or_current(item, current),
+        CssValue::String(keyword) => system_color(keyword).or_else(|| is_current_color(item).then_some(current)),
         _ => None,
     })
 }
@@ -1683,7 +1684,7 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
             BackgroundColor,
             background_mut,
             color,
-            shorthand_background_color
+            move |value: &CssValue| shorthand_background_color(value, current)
         );
     }
 
@@ -2095,6 +2096,18 @@ mod tests {
         assert_eq!(style.background.color, black);
         assert_eq!(style.border.left_color, black);
         assert_eq!(style.outline.color, black);
+
+        // The `background` shorthand, on its own and among the other layer tokens.
+        let url = CssValue::Function("url".to_string(), vec![keyword("\"x.gif\"")]);
+        let white = Color::rgba(255, 255, 255, 255);
+        for (shorthand, expected) in [
+            (contrast(), black),
+            (CssValue::List(vec![url.clone(), contrast()]), black),
+            (CssValue::List(vec![url, keyword("currentcolor")]), white),
+        ] {
+            let style = computed_style(&map(&[("color", keyword("white")), ("background", shorthand)]), None);
+            assert_eq!(style.background.color, expected);
+        }
 
         // On `color` itself `currentcolor` is the inherited colour, initial black here.
         let style = computed_style(&map(&[("color", contrast())]), None);
