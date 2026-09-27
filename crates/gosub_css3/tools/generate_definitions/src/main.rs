@@ -82,7 +82,7 @@ const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
 /// Pins value definitions that multiple specs define differently, so the
 /// choice is explicit instead of an artifact of decode order (first spec
 /// wins).
-const VALUE_SYNTAX_PATCHES: [(&str, &str); 5] = [
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 7] = [
     // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
     // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
     // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
@@ -109,6 +109,18 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 5] = [
     (
         "<radial-gradient-syntax>",
         "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    // css-color-5 makes color-mix() a <color>, and upstream does not list it in
+    // <color-function>. Without it `color: color-mix(in srgb, red, blue)` is dropped.
+    (
+        "<color-function>",
+        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()>",
+    ),
+    // The css-color-5 editor's draft makes the interpolation method optional and
+    // takes one or more colours. Upstream still has the two-colour form.
+    (
+        "<color-mix()>",
+        "color-mix( [ <color-interpolation-method> , ]? [ <color> && <percentage [0,100]>? ]# )",
     ),
     // A mask layer names its boxes <geometry-box>, while every mask longhand
     // takes <coord-box> - two spellings of the same set, from css-masking-1 and

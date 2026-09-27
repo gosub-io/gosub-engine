@@ -1636,6 +1636,13 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<CssColor> {
 pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: bool) -> Option<CssColor> {
     // Relative colour syntax, including `alpha(from ...)`, keeps its specified form as
     // written. Only the computed stage can resolve the colour.
+    if crate::colors::mix::is_color_mix(name) {
+        return if resolve_math {
+            crate::colors::mix::resolve(args)
+        } else {
+            None
+        };
+    }
     if crate::colors::relative::is_relative(args) {
         return if resolve_math {
             crate::colors::relative::resolve(name, args)

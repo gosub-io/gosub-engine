@@ -297,7 +297,7 @@
   },
   {
     "name": "<color-function>",
-    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()>"
+    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()>"
   },
   {
     "name": "<color-interpolation-method>",
@@ -305,7 +305,7 @@
   },
   {
     "name": "<color-mix()>",
-    "syntax": "color-mix( <color-interpolation-method> , [ <color> && <percentage [0,100]>? ]#{2})"
+    "syntax": "color-mix( [ <color-interpolation-method> , ]? [ <color> && <percentage [0,100]>? ]# )"
   },
   {
     "name": "<color-space>",
