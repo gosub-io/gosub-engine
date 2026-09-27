@@ -1812,4 +1812,186 @@ mod layout_tests {
         assert_approx!(cap.1, 27.0, "below the grid, its padding and its border");
         assert_approx!(cap.2, 114.0, "the table's border-box width");
     }
+
+    // A table's specified height. Every expectation below is what Chromium lays out for the
+    // same table with `border-spacing: 0` and cells without padding.
+
+    /// Row heights, in row order, and the returned table height.
+    fn row_heights_and_height(tree: &mut MockTree, root: u32) -> (Vec<f64>, f64) {
+        let (_, h) = compute_table_layout(tree, root, 100.0, None).expect("layout");
+        let rows = tree.nodes_with_role(TableRole::Row);
+        let heights = rows
+            .iter()
+            .map(|&r| tree.layout(r).expect("row laid out").size.height)
+            .collect();
+        (heights, h)
+    }
+
+    fn line(label: &str) -> crate::mock::MockCell {
+        cell(label).content_height(10.0).padding(0.0)
+    }
+
+    #[test]
+    fn a_tables_height_goes_to_its_auto_rows() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .height(200.0)
+            .body_row(vec![line("a")])
+            .body_row(vec![line("b").height(30.0)])
+            .into_tree();
+        let (rows, h) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 170.0, "the auto row takes all of it");
+        assert_approx!(rows[1], 30.0, "a cell's own height fixes its row");
+        assert_approx!(h, 200.0, "table height");
+    }
+
+    #[test]
+    fn a_tables_height_grows_fixed_rows_in_proportion_when_there_is_nothing_else() {
+        let (mut tree, root) = table_with_rows(vec![(Some(20.0), vec![line("a")]), (Some(60.0), vec![line("b")])]);
+        tree.set_height(root, 200.0);
+        let (rows, h) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 50.0, "20 of 80");
+        assert_approx!(rows[1], 150.0, "60 of 80");
+        assert_approx!(h, 200.0, "table height");
+    }
+
+    #[test]
+    fn a_tables_height_goes_to_the_body_not_the_header_or_footer() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .height(200.0)
+            .header_row(vec![line("h")])
+            .body_row(vec![line("b")])
+            .footer_row(vec![line("f")])
+            .into_tree();
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 10.0, "thead");
+        assert_approx!(rows[1], 180.0, "tbody");
+        assert_approx!(rows[2], 10.0, "tfoot");
+    }
+
+    #[test]
+    fn a_tables_height_is_shared_over_its_bodies_in_proportion() {
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, Some(200.0), 0.0, 0.0);
+        for c in [line("a"), line("b").height(30.0)] {
+            let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, body);
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(body, row);
+            let id = tree.alloc_cell(c);
+            tree.add_child(row, id);
+        }
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        // By body height, 10:30, although the second row is fixed by its cell.
+        assert_approx!(rows[0], 50.0, "first tbody");
+        assert_approx!(rows[1], 150.0, "second tbody");
+    }
+
+    #[test]
+    fn a_tables_height_skips_rows_without_cells_unless_that_is_all_there_is() {
+        let (mut tree, root) = table_with_rows(vec![(None, vec![line("a")]), (None, vec![])]);
+        tree.set_height(root, 200.0);
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 200.0, "the row with a cell");
+        assert_approx!(rows[1], 0.0, "the row without");
+
+        let (mut tree, root) = table_with_rows(vec![(Some(5.0), vec![]), (None, vec![])]);
+        tree.set_height(root, 200.0);
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 5.0, "the fixed empty row");
+        assert_approx!(rows[1], 195.0, "the auto empty row");
+    }
+
+    #[test]
+    fn a_percentage_row_is_its_share_of_the_tables_height() {
+        let (mut tree, root) = table_with_rows(vec![
+            (None, vec![line("a")]),
+            (None, vec![line("b")]),
+            (None, vec![line("c")]),
+        ]);
+        tree.set_height(root, 200.0);
+        let first = tree.nodes_with_role(TableRole::Row)[0];
+        tree.set_height_pct(first, 50.0);
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 100.0, "50% of 200");
+        assert_approx!(rows[1], 50.0, "half the rest");
+        assert_approx!(rows[2], 50.0, "half the rest");
+    }
+
+    #[test]
+    fn a_border_box_tables_height_loses_its_edges_and_gutters() {
+        let mut tree = MockTree::new(0.0, 4.0);
+        tree.border_box = true;
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, Some(200.0), 10.0, 5.0);
+        let body = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, body);
+        for label in ["a", "b"] {
+            let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(body, row);
+            let id = tree.alloc_cell(line(label));
+            tree.add_child(row, id);
+        }
+        let (rows, h) = row_heights_and_height(&mut tree, root);
+        // 200 less 20 of border, 10 of padding and three 4px gutters, halved.
+        assert_approx!(rows[0], 79.0, "first row");
+        assert_approx!(rows[1], 79.0, "second row");
+        assert_approx!(h, 170.0, "the grid, inside the border and padding");
+    }
+
+    #[test]
+    fn a_caption_is_outside_the_tables_height() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .height(200.0)
+            .caption(10.0, false)
+            .body_row(vec![line("a")])
+            .into_tree();
+        let (rows, h) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 200.0, "the row fills the table height");
+        assert_approx!(h, 210.0, "plus the caption");
+
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .height(200.0)
+            .caption(10.0, false)
+            .into_tree();
+        let (_, h) = row_heights_and_height(&mut tree, root);
+        assert_approx!(h, 210.0, "with no rows the height is empty space under the caption");
+    }
+
+    #[test]
+    fn a_collapsed_tables_height_holds_its_perimeter_halves_under_border_box() {
+        let layout = |border_box: bool| {
+            let (mut tree, root) = MockTable::new(100.0)
+                .spacing(0.0, 0.0)
+                .height(200.0)
+                .collapse()
+                .body_row(vec![line("a").border(10.0)])
+                .body_row(vec![line("b").border(2.0)])
+                .into_tree();
+            tree.border_box = border_box;
+            row_heights_and_height(&mut tree, root).1
+        };
+        // The perimeter halves are 5px on top (the 10px border) and 1px below (the 2px one).
+        assert_approx!(layout(true), 200.0, "border-box: the halves are inside the height");
+        assert_approx!(
+            layout(false),
+            206.0,
+            "content-box: the rows fill 200, the halves wrap it"
+        );
+    }
+
+    #[test]
+    fn a_rowspanning_cells_height_does_not_fix_its_rows() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .height(200.0)
+            .body_row(vec![line("a").rowspan(2).height(100.0), line("b")])
+            .body_row(vec![line("c")])
+            .into_tree();
+        let (rows, _) = row_heights_and_height(&mut tree, root);
+        assert_approx!(rows[0], 100.0, "first row");
+        assert_approx!(rows[1], 100.0, "second row");
+    }
 }

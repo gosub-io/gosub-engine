@@ -123,6 +123,8 @@ pub struct MockTable {
     available_width: f64,
     /// Explicit CSS `width` on the table element; `None` = auto (shrink-to-fit).
     table_width: Option<f64>,
+    /// Explicit CSS `height` on the table element.
+    table_height: Option<f64>,
     border_spacing_x: f64,
     border_spacing_y: f64,
     fixed_layout: bool,
@@ -155,6 +157,12 @@ impl MockTable {
     /// Explicit CSS `width` on the table element.
     pub fn width(mut self, w: f64) -> Self {
         self.table_width = Some(w);
+        self
+    }
+
+    /// Explicit CSS `height` on the table element.
+    pub fn height(mut self, h: f64) -> Self {
+        self.table_height = Some(h);
         self
     }
 
@@ -210,7 +218,16 @@ impl MockTable {
         let mut tree = MockTree::new(self.border_spacing_x, self.border_spacing_y);
         tree.fixed_layout = self.fixed_layout;
         tree.collapse = self.collapse;
-        let root = tree.alloc(TableRole::Table, None, 1, 1, self.table_width, None, 0.0, 0.0);
+        let root = tree.alloc(
+            TableRole::Table,
+            None,
+            1,
+            1,
+            self.table_width,
+            self.table_height,
+            0.0,
+            0.0,
+        );
 
         if let Some((content_height, bottom)) = self.caption {
             let cap = tree.alloc(TableRole::Caption, Some("caption".into()), 1, 1, None, None, 0.0, 0.0);
@@ -285,6 +302,7 @@ struct MockNode {
     width: Option<f64>,
     width_pct: Option<f64>,
     height: Option<f64>,
+    height_pct: Option<f64>,
     border: f64,
     padding: f64,
     content_width: f64,
@@ -349,6 +367,7 @@ impl MockTree {
                 width,
                 width_pct: None,
                 height,
+                height_pct: None,
                 border,
                 padding,
                 content_width: 0.0,
@@ -382,6 +401,20 @@ impl MockTree {
             node.baseline = mc.baseline;
         }
         id
+    }
+
+    /// Give a node a pixel `height`.
+    pub fn set_height(&mut self, id: u32, h: f64) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.height = Some(h);
+        }
+    }
+
+    /// Give a node a percentage `height`, which wins over a pixel one.
+    pub fn set_height_pct(&mut self, id: u32, p: f64) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.height_pct = Some(p);
+        }
     }
 
     pub fn add_child(&mut self, parent: u32, child: u32) {
@@ -432,7 +465,11 @@ impl TableTree for MockTree {
                 .map(CssLength::Percent)
                 .or(node.width.map(CssLength::Px))
                 .unwrap_or(CssLength::Auto),
-            CssProp::Height => node.height.map(CssLength::Px).unwrap_or(CssLength::Auto),
+            CssProp::Height => node
+                .height_pct
+                .map(CssLength::Percent)
+                .or(node.height.map(CssLength::Px))
+                .unwrap_or(CssLength::Auto),
             CssProp::BorderTopWidth
             | CssProp::BorderRightWidth
             | CssProp::BorderBottomWidth
