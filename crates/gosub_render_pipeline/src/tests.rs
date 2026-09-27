@@ -1411,6 +1411,58 @@ mod rendertree_from_engine {
         }
     }
 
+    /// The same, with a table over it. The table passes walk the DOM on their own account -
+    /// `subtree_contains_table` looks for a nested table under every cell, and `apply_recursive`
+    /// walks a cell's subtree twice to apply the collapsed-border positions - so a *shallow*
+    /// table whose cell holds a deep subtree reaches them however shallow the table itself is.
+    /// The layout depth cap does not bound either walk: one is now bounded in its own right, the
+    /// other runs off an explicit stack.
+    #[test]
+    fn a_deep_subtree_inside_a_table_cell_built_without_the_parser_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use gosub_html5::node::HTML_NAMESPACE;
+        use gosub_shared::byte_stream::Location;
+
+        const DEPTH: usize = 20_000;
+
+        let boxes = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                let mut doc = html_compile::<Config>("<html><body></body></html>");
+                let html = doc.children(doc.root())[0];
+                let body = *doc.children(html).last().expect("body");
+
+                // The table itself is three levels deep; everything below the cell is the load.
+                let mut parent = body;
+                for tag in ["table", "tr", "td"] {
+                    let node = doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
+                    doc.attach(node, parent, None);
+                    parent = node;
+                }
+                for _ in 0..DEPTH {
+                    let child =
+                        doc.create_element("div", Some(HTML_NAMESPACE), Default::default(), Location::default());
+                    doc.attach(child, parent, None);
+                    parent = child;
+                }
+                let text = doc.create_text("x", Location::default());
+                doc.attach(text, parent, None);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+                laid_out.arena.len()
+            })
+            .expect("spawn")
+            .join()
+            .unwrap_or_else(|_| panic!("a table cell holding {DEPTH} nested elements must not abort the process"));
+
+        assert!(boxes < DEPTH, "the subtree past the layout cap must be dropped");
+    }
+
     /// The same depth through the parser, which is what a page gets: the tree builder caps it at
     /// 512 levels before any of the passes above see it.
     #[test]
