@@ -80,9 +80,17 @@ impl<'a> CssTaffyConverter<'a> {
         ts.gap = self.get_gap(ts.gap);
         ts.align_items = self.get_align_items(Prop::AlignItems, flex.align_items, ts.align_items);
         ts.align_self = self.get_align_self(Prop::AlignSelf, flex.align_self, ts.align_self);
-        // Default align-content to FlexStart rather than Taffy's None (= Stretch).
-        ts.align_content =
-            self.get_align_content(Prop::AlignContent, flex.align_content, Some(AlignContent::FLEX_START));
+        // Default align-content to FlexStart rather than Taffy's None (= Stretch), but only where
+        // it means anything. taffy 0.14 applies a non-`normal` `align-content` to block formatting
+        // contexts too, and a block container carrying FlexStart stops a child's bottom margin
+        // collapsing through it: WPT `margin-collapse-min-height-003` went from matching its
+        // reference to drawing a 100x80 green box where a 100x30 one belongs, and every table
+        // fixture grew 16px. On 0.12 block layout ignored the field, so the blanket default was
+        // harmless; now it has to be confined to the layout modes that read it.
+        let align_content_default = matches!(ts.display, Display::Flex | Display::Grid)
+            .then_some(AlignContent::FLEX_START)
+            .or(ts.align_content);
+        ts.align_content = self.get_align_content(Prop::AlignContent, flex.align_content, align_content_default);
         ts.justify_items = self.get_align_items(Prop::JustifyItems, flex.justify_items, ts.justify_items);
         ts.justify_self = self.get_align_self(Prop::JustifySelf, flex.justify_self, ts.justify_self);
         ts.justify_content = self.get_align_content(Prop::JustifyContent, flex.justify_content, ts.justify_content);
