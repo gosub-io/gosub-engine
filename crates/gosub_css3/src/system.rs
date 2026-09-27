@@ -1,7 +1,7 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
-use crate::matcher::expansion::{single_value, ExpandedDeclaration};
+use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId};
@@ -581,6 +581,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // A shorthand sets every one of its longhands; the ones it left out are
                     // reset to their initial value.
                     fix_list.reset_unmentioned(definition, match_value, definitions);
+                    let value = canonical_if_changed(definition, match_value).unwrap_or(value);
 
                     push_declaration(
                         &mut css_map_entry,
