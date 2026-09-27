@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use crate::matcher::property_definitions::get_css_definitions;
+use crate::matcher::property_definitions::{get_css_definitions, PropertyDefinition};
 use crate::matcher::property_ids::PropertyId;
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::no_location;
@@ -113,9 +113,13 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // reads shorthand keys (`background`, `padding`, `text-decoration`) directly.
     let mut entries = Vec::with_capacity(fix_list.entry_count() + 1);
     if let Some(id) = declaration.property.id() {
-        // The declaration's own value is already shared with the rule; `single_value` only
-        // unwraps a one-element list, so reuse the `Arc` when it changes nothing.
-        entries.push((id, single_value_shared(&declaration.value)));
+        let value = match canonical_if_changed(definition, input) {
+            Some(canonical) => Arc::new(canonical),
+            // The declaration's own value is already shared with the rule; `single_value` only
+            // unwraps a one-element list, so reuse the `Arc` when it changes nothing.
+            None => single_value_shared(&declaration.value),
+        };
+        entries.push((id, value));
     }
     entries.extend(fix_list.into_entries());
 
@@ -133,6 +137,24 @@ pub fn single_value_shared(value: &Arc<CssValue>) -> Arc<CssValue> {
         CssValue::List(values) if values.len() == 1 => Arc::new(values[0].clone()),
         _ => Arc::clone(value),
     }
+}
+
+/// The value a declaration is stored with under its own property: what the grammar matched it
+/// as rather than what the author typed.
+///
+/// Keywords are ASCII case-insensitive (css-values-4 §2.5), and the grammar's match is what
+/// knows which tokens are keywords - it spells each one the way the grammar does, and leaves a
+/// string or a custom identifier (`font-family: Verdana`) as written. The longhands a shorthand
+/// expands to always went through it; the declaration's own entry did not, so `position:
+/// ABSOLUTE` reached the typed style as a keyword nothing recognised. `input` must already have
+/// matched `definition`. `None` means the match changes nothing, and the author's value can be
+/// stored as it is.
+#[must_use]
+pub fn canonical_if_changed(definition: &PropertyDefinition, input: &[CssValue]) -> Option<CssValue> {
+    definition
+        .canonical(input)
+        .filter(|canonical| canonical.as_slice() != input)
+        .map(|canonical| single_value(CssValue::from_vec(canonical)))
 }
 
 /// A one-element list is the value itself. `resolve_functions` wraps what it resolves in a list,
@@ -264,6 +286,26 @@ mod tests {
                 CssValue::String("red".to_string())
             )]
         );
+    }
+
+    /// Keywords are case-insensitive, so the declaration's own entry is stored in the grammar's
+    /// spelling - which is what the typed style matches against. An identifier the grammar did
+    /// not match as a keyword keeps the author's case.
+    #[test]
+    fn a_keyword_is_stored_as_the_grammar_spells_it() {
+        let string = |text: &str| CssValue::String(text.to_string());
+        let own = |name: &str, value: CssValue| {
+            let id = PropertyId::from_name(name).expect("a property");
+            entries(&declaration(name, value))
+                .into_iter()
+                .find(|(entry, _)| *entry == id)
+                .map(|(_, value)| value)
+        };
+
+        assert_eq!(own("position", string("ABSOLUTE")), Some(string("absolute")));
+        assert_eq!(own("display", string("Flex")), Some(string("flex")));
+        assert_eq!(own("text-align", string("CENTER")), Some(string("center")));
+        assert_eq!(own("font-family", string("Verdana")), Some(string("Verdana")));
     }
 
     #[test]
