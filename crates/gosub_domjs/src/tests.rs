@@ -642,6 +642,27 @@ fn color_mix_keeps_its_form_when_specified_and_mixes_when_computed() {
 }
 
 #[test]
+fn color_layers_composites_from_the_top_layer_down() {
+    // css-color-6 section 3: the first colour is the top layer. The specified value leaves out
+    // a `normal` blend mode, and the computed value is the composited colour.
+    let value = eval(
+        "<div id=a></div><div id=b></div><div id=c></div>",
+        "const e = id => document.getElementById(id); \
+         e('a').style.color = 'color-layers(normal, rgb(255 0 0 / 0.5), blue)'; \
+         e('b').style.color = 'color-layers(screen, red, blue)'; \
+         e('c').style.color = 'rgb(from color-layers(red, blue) r g b / 0.5)'; \
+         const g = id => e(id).style.color + ' => ' + getComputedStyle(e(id)).color; \
+         g('a') + '|' + g('b') + '|' + g('c');",
+    );
+    assert_eq!(
+        value,
+        "color-layers(rgba(255, 0, 0, 0.5), blue) => color(srgb 0.5 0 0.5)|\
+         color-layers(screen, red, blue) => color(srgb 1 0 1)|\
+         rgb(from color-layers(red, blue) r g b / 0.5) => color(srgb 1 0 0 / 0.5)"
+    );
+}
+
+#[test]
 fn a_missing_colour_component_is_not_zero() {
     // css-color-4 §12.2: a component written `none` is *missing*, which is not the same as
     // zero. An sRGB colour cannot say so, so its computed value moves to the modern notation
