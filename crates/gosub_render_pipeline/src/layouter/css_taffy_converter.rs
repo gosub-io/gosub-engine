@@ -110,20 +110,16 @@ impl<'a> CssTaffyConverter<'a> {
         ts.grid_auto_columns = self.get_grid_auto(Prop::GridAutoColumns, &grid.auto_columns, ts.grid_auto_columns);
         ts.grid_auto_flow = self.get_grid_auto_flow(ts.grid_auto_flow);
         ts.grid_template_areas = self.get_grid_areas(ts.grid_template_areas);
-        ts.grid_row = self.get_grid_line(Prop::GridRow, &grid.row, ts.grid_row);
-        ts.grid_column = self.get_grid_line(Prop::GridColumn, &grid.column, ts.grid_column);
-        // `grid-area` is the shorthand for both axes. The CSS engine does not expand it into
-        // longhands, so it is read here and applied after them - an element that sets both gets
-        // the shorthand, which is the common case (`grid-area: content` with no `grid-row`).
-        //
-        // KNOWN LIMIT: that makes the shorthand win regardless of source order, so a later
-        // `grid-row: 2` after `grid-area: content` is ignored. Computed styles reach this point
-        // with no record of the order they were declared in; fixing it properly means expanding
-        // `grid-area` into its four longhands in the cascade, where the order still exists.
-        if let Some((row, column)) = self.get_grid_area() {
-            ts.grid_row = row;
-            ts.grid_column = column;
-        }
+        // The shorthands (`grid-row`, `grid-column`, `grid-area`) arrive expanded into these four,
+        // in source order, with the omitted ends already filled in (css-grid-2 §8.4).
+        ts.grid_row = Line {
+            start: self.get_grid_line(Prop::GridRowStart, &grid.row_start, ts.grid_row.start),
+            end: self.get_grid_line(Prop::GridRowEnd, &grid.row_end, ts.grid_row.end),
+        };
+        ts.grid_column = Line {
+            start: self.get_grid_line(Prop::GridColumnStart, &grid.column_start, ts.grid_column.start),
+            end: self.get_grid_line(Prop::GridColumnEnd, &grid.column_end, ts.grid_column.end),
+        };
 
         // Adjust display for table and inline elements.
         match self.declared_display() {
@@ -339,13 +335,20 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
+    /// `row-gap` is the space between rows, so taffy's height; `column-gap` its width.
     fn get_gap(&self, default: Size<LengthPercentage>) -> Size<LengthPercentage> {
-        if !self.style.has(Prop::Gap) {
-            return default;
-        }
-        match self.style.flex.gap {
-            CssLengthPercentage::Px(px) => Size::length(px),
-            CssLengthPercentage::Percent(pct) => Size::percent(pct / 100.0),
+        let gap = |prop: Prop, value: CssLengthPercentage, default: LengthPercentage| {
+            if !self.style.has(prop) {
+                return default;
+            }
+            match value {
+                CssLengthPercentage::Px(px) => LengthPercentage::length(px),
+                CssLengthPercentage::Percent(pct) => LengthPercentage::percent(pct / 100.0),
+            }
+        };
+        Size {
+            width: gap(Prop::ColumnGap, self.style.flex.column_gap, default.width),
+            height: gap(Prop::RowGap, self.style.flex.row_gap, default.height),
         }
     }
 
@@ -473,11 +476,11 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    fn get_grid_line(&self, prop: Prop, value: &str, default: Line<GridPlacement>) -> Line<GridPlacement> {
+    fn get_grid_line(&self, prop: Prop, value: &str, default: GridPlacement) -> GridPlacement {
         if !self.style.has(prop) {
             return default;
         }
-        parse_grid_placement(value).unwrap_or(default)
+        parse_single_placement(value)
     }
 
     /// `grid-template-areas`, as the rectangle each area name covers.
@@ -507,14 +510,6 @@ impl<'a> CssTaffyConverter<'a> {
                 })
             }
         }
-    }
-
-    /// `grid-area`, as `(grid-row, grid-column)`. `None` only when the property is not set, so the
-    /// longhands the caller already resolved are kept.
-    fn get_grid_area(&self) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
-        self.style
-            .has(Prop::GridArea)
-            .then(|| declared_grid_area(&self.style.grid.area))
     }
 
     fn get_grid_auto(&self, prop: Prop, value: &str, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
@@ -680,29 +675,6 @@ fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     }
 }
 
-/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", ...).
-fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
-    let s = s.trim();
-    if s == "auto" {
-        return Some(Line {
-            start: GridPlacement::Auto,
-            end: GridPlacement::Auto,
-        });
-    }
-    if let Some(slash) = s.find('/') {
-        let start_str = s[..slash].trim();
-        let end_str = s[slash + 1..].trim();
-        return Some(Line {
-            start: parse_single_placement(start_str),
-            end: parse_single_placement(end_str),
-        });
-    }
-    Some(Line {
-        start: parse_single_placement(s),
-        end: GridPlacement::Auto,
-    })
-}
-
 fn parse_single_placement(s: &str) -> GridPlacement {
     let s = s.trim();
     if s == "auto" {
@@ -770,60 +742,6 @@ fn is_custom_ident(s: &str) -> bool {
         && s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
-/// The placement a *declared* `grid-area` means.
-///
-/// `parse_grid_area` returns `None` for `auto` and `none`, which is right for "this names no
-/// area" - but a declaration that says `auto` is the author resetting both axes, not saying
-/// nothing. Treating the two the same left an earlier `grid-row` standing through a later
-/// `grid-area: auto`.
-fn declared_grid_area(s: &str) -> (Line<GridPlacement>, Line<GridPlacement>) {
-    let auto = || Line {
-        start: GridPlacement::Auto,
-        end: GridPlacement::Auto,
-    };
-    parse_grid_area(s).unwrap_or_else(|| (auto(), auto()))
-}
-
-/// Parse `grid-area` into `(grid-row, grid-column)`.
-///
-/// The shorthand is `<row-start> / <column-start> / <row-end> / <column-end>`, and any part
-/// left out is copied from its opposite when that is a custom ident (so `grid-area: content`
-/// places the item across the whole `content` area).
-fn parse_grid_area(s: &str) -> Option<(Line<GridPlacement>, Line<GridPlacement>)> {
-    let s = s.trim();
-    if s.is_empty() || s == "auto" || s == "none" {
-        return None;
-    }
-    let parts: Vec<&str> = s.split('/').map(str::trim).collect();
-    let placement = |i: usize| parts.get(i).map_or(GridPlacement::Auto, |p| parse_single_placement(p));
-
-    // An omitted end line repeats the start when the start is a name, and is `auto` otherwise -
-    // css-grid-2 §8.4. The same rule gives the column axis its value when only one part is given.
-    let mirror = |from: &GridPlacement, i: usize| match parts.get(i) {
-        Some(part) => parse_single_placement(part),
-        None => match from {
-            GridPlacement::NamedLine(name, idx) => GridPlacement::NamedLine(name.clone(), *idx),
-            _ => GridPlacement::Auto,
-        },
-    };
-
-    let row_start = placement(0);
-    let column_start = mirror(&row_start, 1);
-    let row_end = mirror(&row_start, 2);
-    let column_end = mirror(&column_start, 3);
-
-    Some((
-        Line {
-            start: row_start,
-            end: row_end,
-        },
-        Line {
-            start: column_start,
-            end: column_end,
-        },
-    ))
-}
-
 /// Parse `grid-template-areas` - one row per line, cells separated by whitespace - into the
 /// rectangle each name covers, in taffy's 1-based grid line coordinates.
 ///
@@ -875,8 +793,8 @@ fn parse_grid_areas(s: &str) -> Vec<GridTemplateArea<String>> {
 
 #[cfg(test)]
 mod grid_area_tests {
-    use super::{parse_grid_area, parse_grid_areas};
-    use taffy::{GridPlacement, GridTemplateArea};
+    use super::parse_grid_areas;
+    use taffy::GridTemplateArea;
 
     fn area(name: &str, rows: (u16, u16), columns: (u16, u16)) -> GridTemplateArea<String> {
         GridTemplateArea {
@@ -924,33 +842,6 @@ mod grid_area_tests {
             parsed,
             vec![area("titlebar", (1, 3), (1, 2)), area("columnEnd", (2, 3), (2, 3))]
         );
-    }
-
-    #[test]
-    fn a_single_name_places_the_item_across_the_whole_area() {
-        let (row, column) = parse_grid_area("columnStart").expect("a name is a placement");
-        let named = |name: &str| GridPlacement::NamedLine(name.to_string(), 1);
-        assert_eq!((row.start, row.end), (named("columnStart"), named("columnStart")));
-        assert_eq!((column.start, column.end), (named("columnStart"), named("columnStart")));
-    }
-
-    #[test]
-    fn the_slash_form_fills_each_axis() {
-        let (row, column) = parse_grid_area("2 / 1 / 4 / 3").expect("line numbers are a placement");
-        assert_eq!(
-            (row.start, row.end),
-            (GridPlacement::Line(2.into()), GridPlacement::Line(4.into()))
-        );
-        assert_eq!(
-            (column.start, column.end),
-            (GridPlacement::Line(1.into()), GridPlacement::Line(3.into()))
-        );
-    }
-
-    #[test]
-    fn auto_is_not_a_placement() {
-        assert!(parse_grid_area("auto").is_none());
-        assert!(parse_grid_area("").is_none());
     }
 }
 
@@ -1024,7 +915,7 @@ mod grid_template_tests {
 
 #[cfg(test)]
 mod grid_placement_tests {
-    use super::{declared_grid_area, parse_single_placement, split_index_and_name};
+    use super::{parse_single_placement, split_index_and_name};
     use taffy::prelude::TaffyGridLine;
     use taffy::GridPlacement;
 
@@ -1054,24 +945,6 @@ mod grid_placement_tests {
             GridPlacement::NamedLine("content".to_string(), 1)
         );
         assert_eq!(parse_single_placement("span 2"), GridPlacement::Span(2));
-    }
-
-    /// A declared `grid-area: auto` resets both axes. Reading it as "says nothing" let an earlier
-    /// `grid-row` survive a later reset.
-    #[test]
-    fn a_declared_grid_area_of_auto_resets_both_axes() {
-        for reset in ["auto", "none", ""] {
-            let (row, column) = declared_grid_area(reset);
-            assert_eq!(row.start, GridPlacement::Auto, "{reset:?} row start");
-            assert_eq!(row.end, GridPlacement::Auto, "{reset:?} row end");
-            assert_eq!(column.start, GridPlacement::Auto, "{reset:?} column start");
-            assert_eq!(column.end, GridPlacement::Auto, "{reset:?} column end");
-        }
-
-        // A real area still places the item across it.
-        let (row, column) = declared_grid_area("content");
-        assert_eq!(row.start, GridPlacement::NamedLine("content".to_string(), 1));
-        assert_eq!(column.end, GridPlacement::NamedLine("content".to_string(), 1));
     }
 
     #[test]

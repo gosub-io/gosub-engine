@@ -526,6 +526,15 @@ impl FixList {
         // `flex` is the one common shorthand whose omitted values are not the longhand initials
         // (css-flexbox-1 §7.1.1): a lone `flex: 1` means `1 1 0`, not `1 1 auto`, and the
         // difference is whether three `flex: 1` columns come out equal or sized by their content.
+        // A CSS-wide keyword on a shorthand is that keyword on every longhand (css-cascade-5
+        // §7.3). The grammar accepts it without placing it anywhere, so nothing below would see
+        // it - and `a { text-decoration: inherit }` left the user-agent underline in place.
+        if let [keyword] = input {
+            if crate::matcher::styling::css_wide_keyword(keyword).is_some() {
+                self.set_every_longhand(shorthand, keyword, definitions);
+                return;
+            }
+        }
         if shorthand.name() == "flex" {
             self.reset_flex(input);
             return;
@@ -558,6 +567,7 @@ impl FixList {
         {
             self.insert("list-style-type", CssValue::String("none".to_string()));
         }
+        self.copy_omitted_second(shorthand, input);
         for name in shorthand.expanded_properties() {
             let (Some(id), Some(def)) = (PropertyId::from_name(&name), definitions.find_property(&name)) else {
                 continue;
@@ -574,6 +584,55 @@ impl FixList {
                 None => log::debug!("{}: no initial value to reset {name} to", shorthand.name()),
             }
         }
+    }
+
+    /// Give every longhand of `shorthand`, through any nested shorthands, the same value.
+    fn set_every_longhand(&mut self, shorthand: &PropertyDefinition, value: &CssValue, definitions: &CssDefinitions) {
+        for name in shorthand.expanded_properties() {
+            let Some(def) = definitions.find_property(&name) else {
+                continue;
+            };
+            if def.is_shorthand() {
+                self.set_every_longhand(def, value, definitions);
+            } else {
+                self.insert(&name, value.clone());
+            }
+        }
+    }
+
+    /// The shorthands of the form `<first> <second>?` whose omitted second value is a copy of the
+    /// first, rather than the second longhand's initial value: `gap` (css-align-3 §8.3),
+    /// `place-content` (§5.5), `place-items` (§6.3) and `place-self` (§6.2). Left to the general
+    /// reset, `place-items: center` centred only one axis and `gap: 1em` spaced only the rows.
+    ///
+    /// When only the first longhand was set, the whole declaration was its value, so that is
+    /// what the second gets - in the grammar's spelling, as the first one got it.
+    fn copy_omitted_second(&mut self, shorthand: &PropertyDefinition, input: &[CssValue]) {
+        let Some((first, second)) = COPIES_OMITTED_SECOND
+            .iter()
+            .find(|(name, _, _)| *name == shorthand.name())
+            .map(|(_, first, second)| (*first, *second))
+        else {
+            return;
+        };
+        let (Some(first), Some(second)) = (PropertyId::from_name(first), PropertyId::from_name(second)) else {
+            return;
+        };
+        if !self.touched.contains(&first) || self.touched.contains(&second) {
+            return;
+        }
+        let values = shorthand.canonical(input).unwrap_or_else(|| input.to_vec());
+        // `place-content: baseline` is the exception: a baseline position has no meaning on the
+        // inline axis, so the second value is `start` instead of a copy (css-align-3 §5.5).
+        let is_baseline = values
+            .last()
+            .is_some_and(|last| matches!(last, CssValue::String(word) if word == "baseline"));
+        let value = if shorthand.name() == "place-content" && is_baseline {
+            CssValue::String("start".to_string())
+        } else {
+            CssValue::from_vec(values)
+        };
+        self.insert_id(second, value);
     }
 
     /// Reset the {1,4}-multiplier counter for a specific shorthand name.
@@ -1457,6 +1516,15 @@ fn grid_area(input: &[CssValue], fix_list: &mut FixList) {
     fix_list.insert("grid-row-end", row_end_value);
     fix_list.insert("grid-column-end", column_end_value);
 }
+
+/// See [`FixList::copy_omitted_second`]: the shorthand, its first longhand, and the second one
+/// that copies it when omitted.
+const COPIES_OMITTED_SECOND: &[(&str, &str, &str)] = &[
+    ("gap", "row-gap", "column-gap"),
+    ("place-content", "align-content", "justify-content"),
+    ("place-items", "align-items", "justify-items"),
+    ("place-self", "align-self", "justify-self"),
+];
 
 /// Longhands that share a grammar piece, in the order the spec hands the pieces to them: the
 /// first `<time>` of a transition is its duration and the second its delay

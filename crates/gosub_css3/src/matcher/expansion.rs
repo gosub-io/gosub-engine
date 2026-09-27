@@ -109,8 +109,8 @@ fn expand_declaration(declaration: &CssDeclaration) -> ExpandedDeclaration {
     // A longhand that is itself a shorthand (`border-color` under `border`) is expanded in turn.
     fix_list.resolve_nested(definitions);
 
-    // The declaration itself is kept under its own name as well as expanded: the render pipeline
-    // reads shorthand keys (`background`, `padding`, `text-decoration`) directly.
+    // The declaration itself is kept under its own name as well as expanded, for serialising it
+    // back (`element.style.gap`); the typed style reads only the longhands.
     let mut entries = Vec::with_capacity(fix_list.entry_count() + 1);
     if let Some(id) = declaration.property.id() {
         // The declaration's own value is already shared with the rule; `single_value` only

@@ -1842,15 +1842,10 @@ where
         };
         let map = arc.as_ref();
 
-        let mut layers = Vec::new();
-        for key in ["background-image", "background"] {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
-                layers = property_gradient_layers::<C::CssSystem>(p);
-                if !layers.is_empty() {
-                    break;
-                }
-            }
-        }
+        // The `background` shorthand arrives expanded; its layers are in `background-image`.
+        let mut layers = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background-image")
+            .map(property_gradient_layers::<C::CssSystem>)
+            .unwrap_or_default();
         if layers.is_empty() {
             return Vec::new();
         }
@@ -1927,9 +1922,6 @@ where
                 }
             }
         };
-        // The shorthand mixes position and size (split by `/`); reading its bare lengths as a
-        // position is unreliable, so only take position/size from the dedicated longhands.
-        scan("background", false, false);
         scan("background-repeat", false, false);
         scan("background-size", true, false);
         scan("background-position", false, true);

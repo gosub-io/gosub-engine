@@ -521,7 +521,8 @@ pub enum Prop {
     FlexGrow,
     FlexShrink,
     FlexWrap,
-    Gap,
+    RowGap,
+    ColumnGap,
     AlignItems,
     AlignSelf,
     AlignContent,
@@ -529,9 +530,10 @@ pub enum Prop {
     JustifySelf,
     JustifyContent,
 
-    GridRow,
-    GridColumn,
-    GridArea,
+    GridRowStart,
+    GridRowEnd,
+    GridColumnStart,
+    GridColumnEnd,
     GridTemplateRows,
     GridTemplateColumns,
     GridAutoRows,
@@ -723,7 +725,8 @@ pub struct FlexGroup {
     pub grow: f32,
     pub shrink: f32,
     pub wrap: FlexWrap,
-    pub gap: LengthPercentage,
+    pub row_gap: LengthPercentage,
+    pub column_gap: LengthPercentage,
     pub align_items: AlignValue,
     pub align_self: AlignValue,
     pub align_content: AlignValue,
@@ -736,9 +739,10 @@ pub struct FlexGroup {
 /// space is open (`repeat(3, minmax(100px, 1fr))`) and the layouter has the parser for it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridGroup {
-    pub row: Arc<str>,
-    pub column: Arc<str>,
-    pub area: Arc<str>,
+    pub row_start: Arc<str>,
+    pub row_end: Arc<str>,
+    pub column_start: Arc<str>,
+    pub column_end: Arc<str>,
     pub template_rows: Arc<str>,
     pub template_columns: Arc<str>,
     pub auto_rows: Arc<str>,
@@ -1006,7 +1010,8 @@ impl ComputedStyle {
                 grow: 0.0,
                 shrink: 1.0,
                 wrap: FlexWrap::NoWrap,
-                gap: LengthPercentage::ZERO,
+                row_gap: LengthPercentage::ZERO,
+                column_gap: LengthPercentage::ZERO,
                 align_items: AlignValue::Normal,
                 align_self: AlignValue::Auto,
                 align_content: AlignValue::Normal,
@@ -1015,9 +1020,10 @@ impl ComputedStyle {
                 justify_content: AlignValue::Normal,
             }),
             grid: Arc::new(GridGroup {
-                row: Arc::from("auto"),
-                column: Arc::from("auto"),
-                area: Arc::from("auto"),
+                row_start: Arc::from("auto"),
+                row_end: Arc::from("auto"),
+                column_start: Arc::from("auto"),
+                column_end: Arc::from("auto"),
                 template_rows: Arc::from("none"),
                 template_columns: Arc::from("none"),
                 auto_rows: Arc::from("auto"),
@@ -1081,9 +1087,10 @@ impl HeapSize for BackgroundGroup {
 
 impl HeapSize for GridGroup {
     fn heap_size(&self, walk: &mut Walk) {
-        self.row.heap_size(walk);
-        self.column.heap_size(walk);
-        self.area.heap_size(walk);
+        self.row_start.heap_size(walk);
+        self.row_end.heap_size(walk);
+        self.column_start.heap_size(walk);
+        self.column_end.heap_size(walk);
         self.template_rows.heap_size(walk);
         self.template_columns.heap_size(walk);
         self.auto_rows.heap_size(walk);

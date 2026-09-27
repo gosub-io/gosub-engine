@@ -25,16 +25,12 @@ use gosub_interface::style::{
 };
 
 use crate::colors::{CssColor, RgbColor};
-use crate::matcher::property_ids::{LonghandId, PropertyId, ShorthandId, PROPERTY_COUNT};
+use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
 
 const fn longhand(id: LonghandId) -> PropertyId {
     PropertyId::Longhand(id)
-}
-
-const fn shorthand(id: ShorthandId) -> PropertyId {
-    PropertyId::Shorthand(id)
 }
 
 /// The value of one property on this element, or `None` when the map has no entry for it or the
@@ -280,24 +276,6 @@ fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
     color(value)
 }
 
-/// The first colour token of a `background` shorthand (`#fff url(...) no-repeat`), with
-/// `currentcolor` standing for `current`.
-fn shorthand_background_color(value: &CssValue, current: Color) -> Option<Color> {
-    if let Some(keyword) = as_string(value) {
-        if let Some(system) = system_color(keyword) {
-            return Some(system);
-        }
-    }
-    if let Some(direct) = color_or_current(value, current) {
-        return Some(direct);
-    }
-    as_list(value)?.iter().find_map(|item| match item {
-        CssValue::Color(_) | CssValue::Function(..) => color_or_current(item, current),
-        CssValue::String(keyword) => system_color(keyword).or_else(|| is_current_color(item).then_some(current)),
-        _ => None,
-    })
-}
-
 // ── `url()` ──────────────────────────────────────────────────────────────────
 
 /// The first `url(...)` target in a value tree, dequoted.
@@ -376,10 +354,8 @@ fn grid_track_list(value: &CssValue) -> Option<String> {
 
 /// A grid placement (`content`, `1 / 3`) as one string.
 fn grid_placement(value: &CssValue) -> Option<String> {
-    if let Some(string) = as_string(value) {
-        return Some(string.to_string());
-    }
-    Some(as_list(value)?.iter().map(grid_text).collect::<Vec<_>>().join(" "))
+    let text = grid_text(value);
+    (!text.is_empty()).then_some(text)
 }
 
 /// `grid-template-areas`: one quoted string per row, joined with a character an area name
@@ -534,7 +510,6 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
             PropertyId::Longhand(LonghandId::LetterSpacing),
             PropertyId::Longhand(LonghandId::CaptionSide),
             PropertyId::Longhand(LonghandId::BorderCollapse),
-            PropertyId::Shorthand(ShorthandId::TextDecoration),
             PropertyId::Longhand(LonghandId::TextDecorationLine),
             PropertyId::Longhand(LonghandId::BorderSpacing),
         ],
@@ -555,7 +530,8 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
             PropertyId::Longhand(LonghandId::Resize),
             PropertyId::Longhand(LonghandId::ScrollbarWidth),
             PropertyId::Longhand(LonghandId::AspectRatio),
-            PropertyId::Shorthand(ShorthandId::TextWrap),
+            PropertyId::Longhand(LonghandId::TextWrapMode),
+            PropertyId::Longhand(LonghandId::TextWrapStyle),
             PropertyId::Longhand(LonghandId::TableLayout),
             PropertyId::Longhand(LonghandId::VerticalAlign),
         ],
@@ -623,7 +599,6 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
         G_BACKGROUND,
         &[
             PropertyId::Longhand(LonghandId::BackgroundColor),
-            PropertyId::Shorthand(ShorthandId::Background),
             PropertyId::Longhand(LonghandId::BackgroundImage),
         ],
     ),
@@ -648,7 +623,8 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
             PropertyId::Longhand(LonghandId::FlexGrow),
             PropertyId::Longhand(LonghandId::FlexShrink),
             PropertyId::Longhand(LonghandId::FlexWrap),
-            PropertyId::Shorthand(ShorthandId::Gap),
+            PropertyId::Longhand(LonghandId::RowGap),
+            PropertyId::Longhand(LonghandId::ColumnGap),
             PropertyId::Longhand(LonghandId::AlignItems),
             PropertyId::Longhand(LonghandId::AlignSelf),
             PropertyId::Longhand(LonghandId::AlignContent),
@@ -664,9 +640,10 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
             PropertyId::Longhand(LonghandId::GridTemplateColumns),
             PropertyId::Longhand(LonghandId::GridAutoRows),
             PropertyId::Longhand(LonghandId::GridAutoColumns),
-            PropertyId::Shorthand(ShorthandId::GridRow),
-            PropertyId::Shorthand(ShorthandId::GridColumn),
-            PropertyId::Shorthand(ShorthandId::GridArea),
+            PropertyId::Longhand(LonghandId::GridRowStart),
+            PropertyId::Longhand(LonghandId::GridRowEnd),
+            PropertyId::Longhand(LonghandId::GridColumnStart),
+            PropertyId::Longhand(LonghandId::GridColumnEnd),
             PropertyId::Longhand(LonghandId::GridTemplateAreas),
             PropertyId::Longhand(LonghandId::GridAutoFlow),
         ],
@@ -1037,52 +1014,29 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     resolve_border_spacing(map, style, font_size);
 }
 
-/// `text-decoration-line`, read from the shorthand as well: the shorthand keeps its own entry
-/// and is never expanded into the longhand, so a page that writes `text-decoration: none` is
-/// only visible there.
+/// `text-decoration-line`, from the longhand the `text-decoration` shorthand expands to.
+///
+/// Read by presence rather than through [`value`]: a `text-decoration` that names no line resets
+/// the longhand to its initial `none`, which the map holds as [`CssValue::None`] - the same value
+/// [`value`] reads as "nothing declared". Here it is a declaration, and it takes the underline
+/// away (`a { text-decoration: red }` is not underlined).
 fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
-    if let Some(property) = map.get_id(shorthand(ShorthandId::TextDecoration)) {
-        if matches!(property.computed, CssValue::None) {
-            style.inherited_mut().text_decoration_line = TextDecorationLine::NONE;
-            style.declared.set(Prop::TextDecorationLine);
-            return;
-        }
-        if let Some(keyword) = as_string(&property.computed) {
-            let line = if keyword == "none" || keyword == "initial" || keyword == "unset" {
-                Some(TextDecorationLine::NONE)
-            } else if keyword.contains("underline") {
-                Some(TextDecorationLine {
-                    underline: true,
-                    line_through: false,
-                })
-            } else if keyword.contains("line-through") {
-                Some(TextDecorationLine {
-                    underline: false,
-                    line_through: true,
-                })
-            } else {
-                None
-            };
-            if let Some(line) = line {
-                style.inherited_mut().text_decoration_line = line;
-                style.declared.set(Prop::TextDecorationLine);
-                return;
-            }
-        }
+    let Some(property) = map.get_id(longhand(LonghandId::TextDecorationLine)) else {
+        return;
+    };
+    let mut line = TextDecorationLine::NONE;
+    let mut read = |keyword: &str| match keyword {
+        "underline" => line.underline = true,
+        "line-through" => line.line_through = true,
+        _ => {}
+    };
+    match &property.computed {
+        CssValue::String(keyword) => read(keyword),
+        CssValue::List(values) => values.iter().filter_map(as_string).for_each(read),
+        _ => {}
     }
-
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::TextDecorationLine),
-        TextDecorationLine,
-        inherited_mut,
-        text_decoration_line,
-        |value| as_string(value).map(|keyword| TextDecorationLine {
-            underline: keyword.contains("underline"),
-            line_through: keyword.contains("line-through"),
-        })
-    );
+    style.inherited_mut().text_decoration_line = line;
+    style.declared.set(Prop::TextDecorationLine);
 }
 
 /// `border-spacing` is one declaration feeding two axes: one length applies to both, two are
@@ -1269,21 +1223,20 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         |value| as_number(value).map(Some)
     );
 
-    apply!(
-        map,
-        style,
-        shorthand(ShorthandId::TextWrap),
-        TextWrap,
-        box_mut,
-        text_wrap,
-        |value| as_string(value).map(|keyword| match keyword {
-            "nowrap" => TextWrap::NoWrap,
-            "balance" => TextWrap::Balance,
-            "pretty" => TextWrap::Pretty,
-            "stable" => TextWrap::Stable,
+    // `text-wrap` is a shorthand for these two (css-text-4 §5.1); one field holds both, since a
+    // line that does not wrap has no style of wrapping.
+    let mode = value(map, longhand(LonghandId::TextWrapMode)).and_then(as_string);
+    let wrap_style = value(map, longhand(LonghandId::TextWrapStyle)).and_then(as_string);
+    if mode.is_some() || wrap_style.is_some() {
+        style.box_mut().text_wrap = match (mode, wrap_style) {
+            (Some("nowrap"), _) => TextWrap::NoWrap,
+            (_, Some("balance")) => TextWrap::Balance,
+            (_, Some("pretty")) => TextWrap::Pretty,
+            (_, Some("stable")) => TextWrap::Stable,
             _ => TextWrap::Wrap,
-        })
-    );
+        };
+        style.declared.set(Prop::TextWrap);
+    }
 
     apply!(
         map,
@@ -1674,29 +1627,9 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         color,
         move |value: &CssValue| color_or_current(value, current)
     );
-    // The `background` shorthand keeps its own entry and is never expanded into the longhands,
-    // so a page that writes `background: #fff url(x)` is only visible there.
-    if !style.has(Prop::BackgroundColor) {
-        apply!(
-            map,
-            style,
-            shorthand(ShorthandId::Background),
-            BackgroundColor,
-            background_mut,
-            color,
-            move |value: &CssValue| shorthand_background_color(value, current)
-        );
-    }
-
-    for id in [
-        longhand(LonghandId::BackgroundImage),
-        shorthand(ShorthandId::Background),
-    ] {
-        if let Some(url) = value(map, id).and_then(first_url) {
-            style.background_mut().image = Some(Arc::from(url));
-            style.declared.set(Prop::BackgroundImage);
-            break;
-        }
+    if let Some(url) = value(map, longhand(LonghandId::BackgroundImage)).and_then(first_url) {
+        style.background_mut().image = Some(Arc::from(url));
+        style.declared.set(Prop::BackgroundImage);
     }
 }
 
@@ -1795,9 +1728,26 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         })
     );
 
-    apply!(map, style, shorthand(ShorthandId::Gap), Gap, flex_mut, gap, |value| {
-        length_percentage(value, font_size)
-    });
+    // `normal` is 0 in flex and grid layout, which is all that reads these, so it is left to the
+    // initial value rather than mapped.
+    apply!(
+        map,
+        style,
+        longhand(LonghandId::RowGap),
+        RowGap,
+        flex_mut,
+        row_gap,
+        |value| { length_percentage(value, font_size) }
+    );
+    apply!(
+        map,
+        style,
+        longhand(LonghandId::ColumnGap),
+        ColumnGap,
+        flex_mut,
+        column_gap,
+        |value| length_percentage(value, font_size)
+    );
 
     let align = |value: &CssValue| as_string(value).map(align_of);
     apply!(
@@ -1895,34 +1845,25 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         track_list
     );
 
-    let placement = |value: &CssValue| grid_placement(value).map(Arc::from);
-    apply!(
-        map,
-        style,
-        shorthand(ShorthandId::GridRow),
-        GridRow,
-        grid_mut,
-        row,
-        placement
-    );
-    apply!(
-        map,
-        style,
-        shorthand(ShorthandId::GridColumn),
-        GridColumn,
-        grid_mut,
-        column,
-        placement
-    );
-    apply!(
-        map,
-        style,
-        shorthand(ShorthandId::GridArea),
-        GridArea,
-        grid_mut,
-        area,
-        placement
-    );
+    for (id, prop) in [
+        (LonghandId::GridRowStart, Prop::GridRowStart),
+        (LonghandId::GridRowEnd, Prop::GridRowEnd),
+        (LonghandId::GridColumnStart, Prop::GridColumnStart),
+        (LonghandId::GridColumnEnd, Prop::GridColumnEnd),
+    ] {
+        let Some(line) = value(map, longhand(id)).and_then(grid_placement) else {
+            continue;
+        };
+        let line: Arc<str> = Arc::from(line);
+        let grid = style.grid_mut();
+        match prop {
+            Prop::GridRowStart => grid.row_start = line,
+            Prop::GridRowEnd => grid.row_end = line,
+            Prop::GridColumnStart => grid.column_start = line,
+            _ => grid.column_end = line,
+        }
+        style.declared.set(prop);
+    }
 
     apply!(
         map,
@@ -1989,6 +1930,207 @@ mod tests {
 
     fn map(declarations: &[(&str, CssValue)]) -> CssProperties {
         map_with(declarations, 16.0)
+    }
+
+    /// The cascaded map for a declaration block written as CSS, the way a stylesheet produces
+    /// one: parsed, validated and expanded, with later declarations winning. This is the helper
+    /// for anything a shorthand's expansion decides.
+    fn map_of(css: &str) -> CssProperties {
+        let config = gosub_shared::config::ParserConfig {
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let sheet = crate::Css3::parse_str(&format!("a {{ {css} }}"), config, CssOrigin::Author, "test")
+            .expect("the test stylesheet parses");
+        let mut map = CssProperties::new();
+        let mut order = 0;
+        for expanded in sheet.rules[0].expanded() {
+            let crate::matcher::expansion::ExpandedDeclaration::Resolved { entries, important } = expanded else {
+                continue;
+            };
+            for (id, value) in entries {
+                order += 1;
+                if map.get_id(*id).is_none() {
+                    map.insert_id(*id, CssProperty::new(*id));
+                }
+                let property = map.get_id_mut(*id).expect("just inserted");
+                property.declared.push(DeclarationProperty {
+                    value: std::sync::Arc::clone(value),
+                    origin: CssOrigin::Author,
+                    important: *important,
+                    location: no_location(),
+                    specificity: Specificity::new(0, 0, 1),
+                    shadow_depth: 0,
+                    order,
+                    layer: None,
+                    attached: false,
+                });
+            }
+        }
+        for (_, property) in map.iter_ids_mut() {
+            property.font_size_basis = 16.0;
+            property.root_font_size_basis = 16.0;
+            property.mark_dirty();
+            property.compute_value();
+        }
+        map
+    }
+
+    fn style_of(css: &str) -> ComputedStyle {
+        computed_style(&map_of(css), None)
+    }
+
+    /// The typed style reads the longhands a shorthand expands to, so the later declaration wins
+    /// whichever of the two it is written as.
+    #[test]
+    fn a_longhand_after_its_shorthand_wins() {
+        let underline = TextDecorationLine {
+            underline: true,
+            line_through: false,
+        };
+        assert_eq!(
+            style_of("text-decoration: underline").inherited.text_decoration_line,
+            underline
+        );
+        // The user-agent `a` rule against an author override, in one block.
+        assert_eq!(
+            style_of("text-decoration: underline; text-decoration-line: none")
+                .inherited
+                .text_decoration_line,
+            TextDecorationLine::NONE
+        );
+        // A shorthand naming no line resets it, so this is not underlined either.
+        let red = style_of("text-decoration: red");
+        assert_eq!(red.inherited.text_decoration_line, TextDecorationLine::NONE);
+        assert!(red.has(Prop::TextDecorationLine));
+        assert_eq!(
+            style_of("text-decoration: underline line-through")
+                .inherited
+                .text_decoration_line,
+            TextDecorationLine {
+                underline: true,
+                line_through: true,
+            }
+        );
+
+        let red = Color::rgba(255, 0, 0, 255);
+        let blue = Color::rgba(0, 0, 255, 255);
+        assert_eq!(
+            style_of("background: red; background-color: blue").background.color,
+            blue
+        );
+        assert_eq!(
+            style_of("background-color: blue; background: red").background.color,
+            red
+        );
+        let layers = style_of("background: url(a.png), linear-gradient(red, blue) green");
+        assert_eq!(layers.background.color, Color::rgba(0, 128, 0, 255));
+        assert_eq!(layers.background.image.as_deref(), Some("a.png"));
+    }
+
+    /// A CSS-wide keyword on a shorthand reaches every longhand (css-cascade-5 §7.3), so the
+    /// cascade resolves each of them - and a later shorthand `inherit` beats an earlier longhand.
+    #[test]
+    fn a_css_wide_keyword_on_a_shorthand_sets_its_longhands() {
+        let declared = |css: &str, name: &str| {
+            let map = map_of(css);
+            let id = PropertyId::from_name(name).expect("a longhand");
+            map.get_id(id)
+                .and_then(|property| property.declared.last().map(|d| (*d.value).clone()))
+        };
+        let inherit = Some(CssValue::String("inherit".to_string()));
+        assert_eq!(
+            declared(
+                "text-decoration-line: underline; text-decoration: inherit",
+                "text-decoration-line"
+            ),
+            inherit
+        );
+        for name in ["margin-top", "margin-right", "margin-bottom", "margin-left"] {
+            assert_eq!(declared("margin: inherit", name), inherit, "{name}");
+        }
+        // Through a nested shorthand as well: `border` holds `border-top`, which holds these.
+        assert_eq!(
+            declared("border: initial", "border-top-width"),
+            Some(CssValue::String("initial".to_string()))
+        );
+    }
+
+    #[test]
+    fn text_wrap_is_read_from_its_two_longhands() {
+        assert_eq!(style_of("text-wrap-mode: nowrap").box_group.text_wrap, TextWrap::NoWrap);
+        assert_eq!(style_of("text-wrap: balance").box_group.text_wrap, TextWrap::Balance);
+        assert_eq!(
+            style_of("text-wrap: nowrap balance").box_group.text_wrap,
+            TextWrap::NoWrap
+        );
+        assert_eq!(style_of("text-wrap: wrap").box_group.text_wrap, TextWrap::Wrap);
+    }
+
+    /// `gap` and the `place-*` shorthands copy an omitted second value from the first
+    /// (css-align-3 §5.5, §6.2, §6.3, §8.3), and each axis can be set on its own.
+    #[test]
+    fn the_second_axis_copies_the_first_when_omitted() {
+        let gaps = |css: &str| {
+            let style = style_of(css);
+            (style.flex.row_gap, style.flex.column_gap)
+        };
+        let px = LengthPercentage::Px;
+        assert_eq!(gaps("gap: 5px"), (px(5.0), px(5.0)));
+        assert_eq!(gaps("gap: 10px 20px"), (px(10.0), px(20.0)));
+        assert_eq!(gaps("column-gap: 12px"), (px(0.0), px(12.0)));
+        assert_eq!(gaps("gap: 4px; row-gap: 9px"), (px(9.0), px(4.0)));
+
+        let items = style_of("place-items: center");
+        assert_eq!(
+            (items.flex.align_items, items.flex.justify_items),
+            (AlignValue::Center, AlignValue::Center)
+        );
+        let content = style_of("place-content: space-between");
+        assert_eq!(
+            (content.flex.align_content, content.flex.justify_content),
+            (AlignValue::SpaceBetween, AlignValue::SpaceBetween)
+        );
+        let baseline = style_of("place-content: baseline");
+        assert_eq!(
+            (baseline.flex.align_content, baseline.flex.justify_content),
+            (AlignValue::Baseline, AlignValue::Start)
+        );
+        let own = style_of("place-self: end");
+        assert_eq!(
+            (own.flex.align_self, own.flex.justify_self),
+            (AlignValue::End, AlignValue::End)
+        );
+    }
+
+    /// The grid shorthands arrive as their four lines, in source order: a later `grid-row` after
+    /// `grid-area` now moves the item, which the layouter's own shorthand reader could not do.
+    #[test]
+    fn grid_placement_is_read_from_the_four_lines() {
+        let lines = |css: &str| {
+            let style = style_of(css);
+            let grid = &style.grid;
+            [
+                grid.row_start.to_string(),
+                grid.row_end.to_string(),
+                grid.column_start.to_string(),
+                grid.column_end.to_string(),
+            ]
+        };
+        assert_eq!(
+            lines("grid-area: content"),
+            ["content", "content", "content", "content"]
+        );
+        assert_eq!(lines("grid-area: 2 / 1 / 4 / 3"), ["2", "4", "1", "3"]);
+        assert_eq!(lines("grid-row: span 2"), ["span 2", "auto", "auto", "auto"]);
+        assert_eq!(
+            lines("grid-area: content; grid-row: 2"),
+            ["2", "auto", "content", "content"]
+        );
+        assert_eq!(
+            lines("grid-row: 1 / 3; grid-area: auto"),
+            ["auto", "auto", "auto", "auto"]
+        );
     }
 
     fn px(value: f64) -> CssValue {
@@ -2097,16 +2239,17 @@ mod tests {
         assert_eq!(style.border.left_color, black);
         assert_eq!(style.outline.color, black);
 
-        // The `background` shorthand, on its own and among the other layer tokens.
-        let url = CssValue::Function("url".to_string(), vec![keyword("\"x.gif\"")]);
+        // Through the `background` shorthand, on its own and among the other layer tokens.
         let white = Color::rgba(255, 255, 255, 255);
-        for (shorthand, expected) in [
-            (contrast(), black),
-            (CssValue::List(vec![url.clone(), contrast()]), black),
-            (CssValue::List(vec![url, keyword("currentcolor")]), white),
+        for (css, expected) in [
+            ("color: white; background: contrast-color(currentcolor)", black),
+            (
+                "color: white; background: url(\"x.gif\") contrast-color(currentcolor)",
+                black,
+            ),
+            ("color: white; background: url(\"x.gif\") currentcolor", white),
         ] {
-            let style = computed_style(&map(&[("color", keyword("white")), ("background", shorthand)]), None);
-            assert_eq!(style.background.color, expected);
+            assert_eq!(style_of(css).background.color, expected, "{css}");
         }
 
         // On `color` itself `currentcolor` is the inherited colour, initial black here.
@@ -2161,34 +2304,32 @@ mod tests {
         assert_eq!(style.outline.width, 0.0, "no outline style means no ring");
     }
 
-    /// The `text-decoration` shorthand keeps its own entry and is never expanded, so a page
-    /// that writes `text-decoration: none` is only visible there.
+    /// `text-decoration` reaches the typed style through the longhand it expands to.
     #[test]
-    fn text_decoration_is_read_from_the_shorthand_too() {
-        let style = computed_style(&map(&[("text-decoration", keyword("none"))]), None);
+    fn text_decoration_is_read_through_its_longhand() {
+        let style = style_of("text-decoration: none");
         assert_eq!(style.inherited.text_decoration_line, TextDecorationLine::NONE);
         assert!(style.has(Prop::TextDecorationLine));
 
-        let style = computed_style(&map(&[("text-decoration", keyword("underline"))]), None);
-        assert!(style.inherited.text_decoration_line.underline);
-
-        let style = computed_style(&map(&[("text-decoration-line", keyword("line-through"))]), None);
-        assert!(style.inherited.text_decoration_line.line_through);
+        assert!(
+            style_of("text-decoration: underline")
+                .inherited
+                .text_decoration_line
+                .underline
+        );
+        assert!(
+            style_of("text-decoration-line: line-through")
+                .inherited
+                .text_decoration_line
+                .line_through
+        );
     }
 
-    /// The `background` shorthand is not expanded either, so its colour and its `url()` are
-    /// read out of it.
+    /// The `background` shorthand's colour and `url()` reach the typed style through its
+    /// longhands.
     #[test]
     fn the_background_shorthand_gives_up_its_colour_and_image() {
-        let shorthand = CssValue::List(vec![
-            CssValue::String("#ffffff".to_string()),
-            CssValue::Function(
-                "url".to_string(),
-                vec![CssValue::String("\"grayarrow.gif\"".to_string())],
-            ),
-            CssValue::String("no-repeat".to_string()),
-        ]);
-        let style = computed_style(&map(&[("background", shorthand)]), None);
+        let style = style_of("background: #ffffff url(\"grayarrow.gif\") no-repeat");
         assert_eq!(style.background.color, Color::rgba(255, 255, 255, 255));
         assert_eq!(style.background.image.as_deref(), Some("grayarrow.gif"));
     }
