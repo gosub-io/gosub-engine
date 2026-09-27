@@ -1896,9 +1896,13 @@ mod tests {
     fn the_initial_keyword_resolves_to_the_property_s_initial_value() {
         // css-cascade §7.1. The parser lowers the CSS-wide keywords to a plain string, so that is
         // the form this has to recognise; the dedicated `CssValue::Initial` variant is checked too
-        // because callers that build values directly produce it.
-        for keyword in [CssValue::String("initial".to_string()), CssValue::Initial] {
-            let mut prop = CssProperty::new(id("width"));
+        // because callers that build values directly produce it. `text-align`'s definition names
+        // its initial value in prose, which resolved to nothing and so inherited instead.
+        let cases = [("width", "auto"), ("text-align", "start")];
+        for ((name, initial), keyword) in cases.into_iter().flat_map(|case| {
+            [CssValue::String("initial".to_string()), CssValue::Initial].map(|keyword| (case, keyword))
+        }) {
+            let mut prop = CssProperty::new(id(name));
             prop.declared.push(DeclarationProperty {
                 value: keyword.into(),
                 origin: CssOrigin::Author,
@@ -1911,7 +1915,7 @@ mod tests {
                 attached: false,
             });
 
-            assert_eq!(prop.compute_value(), &CssValue::String("auto".to_string()));
+            assert_eq!(prop.compute_value(), &CssValue::String(initial.to_string()), "{name}");
         }
     }
 

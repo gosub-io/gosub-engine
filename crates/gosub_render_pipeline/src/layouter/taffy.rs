@@ -261,7 +261,7 @@ pub(crate) type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 /// `justify` stays `None`: the shaper stretches a wrapped run itself, and flexing a single item
 /// can't emulate that.
 fn line_box_justify(align: TextAlign) -> Option<taffy::JustifyContent> {
-    match align {
+    match align.for_inline_content() {
         TextAlign::Center => Some(taffy::JustifyContent::CENTER),
         TextAlign::End | TextAlign::Right => Some(taffy::JustifyContent::FLEX_END),
         _ => None,
@@ -2163,7 +2163,7 @@ impl TaffyLayouter {
                 // `left`/`right` are physical and `start`/`end` logical; they only coincide in LTR,
                 // which is all the pipeline handles today. Collapse them here rather than in the
                 // cascade, so the distinction survives for when direction is honoured.
-                let alignment = match text_style.text_align {
+                let alignment = match text_style.text_align.for_inline_content() {
                     TextAlign::Center => FontAlignment::Center,
                     TextAlign::End | TextAlign::Right => FontAlignment::End,
                     TextAlign::Justify => FontAlignment::Justify,

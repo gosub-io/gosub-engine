@@ -257,7 +257,26 @@ pub enum TextAlign {
     Justify,
     Start,
     End,
-    MatchParent,
+    /// `-webkit-left`, `-webkit-right` and `-webkit-center`: the HTML rendering section's
+    /// alignment for `<center>` and the `align` attribute, which moves the element's block-level
+    /// descendants as well as its text.
+    WebkitLeft,
+    WebkitRight,
+    WebkitCenter,
+}
+
+impl TextAlign {
+    /// How the element's line boxes align their content, with the `-webkit-` keywords folded
+    /// onto the plain ones they align text like.
+    #[must_use]
+    pub fn for_inline_content(self) -> Self {
+        match self {
+            Self::WebkitLeft => Self::Left,
+            Self::WebkitRight => Self::Right,
+            Self::WebkitCenter => Self::Center,
+            other => other,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
