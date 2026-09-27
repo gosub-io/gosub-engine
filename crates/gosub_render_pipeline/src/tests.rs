@@ -1492,6 +1492,50 @@ mod rendertree_from_engine {
             .expect("layout must not abort the process");
     }
 
+    /// Each table whose real height differs from the first taffy pass moves the flow below it.
+    /// That used to scan and move the whole layout tree once per table, so a page of many
+    /// sibling tables did work in the square of its size. 10,000 took 19 s in a release build.
+    /// The moves are now applied once, so each box moves at most once for them.
+    #[test]
+    fn sibling_tables_move_each_box_a_bounded_number_of_times() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::table::TRANSLATIONS;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const TABLES: usize = 500;
+
+        let html = format!(
+            "<html><body>{}</body></html>",
+            "<table><tr><td>x</td></tr></table>".repeat(TABLES)
+        );
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+        render_tree.parse().expect("render tree");
+
+        TRANSLATIONS.with(|n| n.set(0));
+        let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        let moves = TRANSLATIONS.with(|n| n.get());
+
+        // One move per box for the flow shifts, plus what lattice does inside each table.
+        let boxes = laid_out.arena.len();
+        assert!(
+            moves <= 4 * boxes,
+            "{moves} box moves for {boxes} boxes; the flow shifts are quadratic again"
+        );
+        // The tables still stack. Each one starts below the previous one.
+        let mut tops: Vec<f64> = laid_out
+            .arena
+            .values()
+            .filter(|el| laid_out.render_tree.doc.tag_name(el.dom_node_id).as_deref() == Some("table"))
+            .map(|el| el.box_model.border_box.y)
+            .collect();
+        tops.sort_by(f64::total_cmp);
+        assert_eq!(tops.len(), TABLES);
+        assert!(tops.windows(2).all(|w| w[1] > w[0]), "tables overlap");
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;
