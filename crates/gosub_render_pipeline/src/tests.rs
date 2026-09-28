@@ -1794,6 +1794,80 @@ mod rendertree_from_engine {
         near(a3.border_box.y - top, 218.0, "a3 follows caption and table");
     }
 
+    /// A table whose height changes moves what follows it in its own column only. The column
+    /// beside it stays put, and what comes after the row moves only as far as the row's bottom
+    /// did - not at all when the other column is the taller one. Chromium lays this out the same
+    /// way; the checks are relative to the table so they hold whichever way it resizes.
+    #[test]
+    fn a_growing_table_moves_only_its_own_column() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; font: 16px/20px monospace; }
+                .row { display: flex; align-items: flex-start; }
+                .col { width: 200px; }
+                table { border-spacing: 0; }
+                td { padding: 0; }
+                caption { height: 30px; }
+            </style></head>
+            <body>
+                <div id="r1" class="row">
+                    <div class="col"><div style="height: 50px"></div><div id="a1" style="height: 10px"></div></div>
+                    <div class="col">
+                        <table id="t1" style="height: 120px"><caption>cap</caption><tr><td>x</td></tr></table>
+                        <div id="b1" style="height: 10px"></div>
+                    </div>
+                </div>
+                <div id="below1" style="height: 10px"></div>
+                <div id="r2" class="row">
+                    <div class="col"><div style="height: 400px"></div><div id="a2" style="height: 10px"></div></div>
+                    <div class="col">
+                        <table id="t2" style="height: 120px"><caption>cap</caption><tr><td>x</td></tr></table>
+                        <div id="b2" style="height: 10px"></div>
+                    </div>
+                </div>
+                <div id="below2" style="height: 10px"></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["r1", "a1", "t1", "b1", "below1", "r2", "a2", "t2", "b2", "below2"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [r1, a1, t1, b1, below1, r2, a2, t2, b2, below2] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        });
+        let near = |got: f64, want: f64, what: &str| assert!((got - want).abs() < 1.0, "{what}: {got}, want {want}");
+
+        let t1_bottom = t1.y + t1.height - r1.y;
+        near(a1.y - r1.y, 50.0, "the column beside t1 does not move");
+        near(b1.y - r1.y, t1_bottom, "the block under t1 follows it");
+        near(
+            below1.y - r1.y,
+            (t1_bottom + 10.0).max(60.0),
+            "the row ends at its taller column",
+        );
+        near(a2.y - r2.y, 400.0, "the column beside t2 does not move");
+        near(b2.y, t2.y + t2.height, "the block under t2 follows it");
+        near(below2.y - r2.y, 410.0, "the row keeps the height of its taller column");
+    }
+
     /// A table holding a nested table changes height in both table passes: once when it is laid
     /// out parents-first, and again when the second pass re-lays it after the nested table has
     /// grown. The block after it has to take both shifts and still start at its bottom.

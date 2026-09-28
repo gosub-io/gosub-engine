@@ -937,7 +937,7 @@ fn lay_out_one_table(
                         );
                     }
                     if delta.abs() > 0.5 {
-                        flow_shifts.record(layout_tree, table_layout_id, old.y + old.height, delta);
+                        flow_shifts.record(table_layout_id, old.y + old.height, delta);
                     }
                 }
             }
@@ -950,105 +950,167 @@ fn lay_out_one_table(
 
 /// The flow shifts caused by tables whose real height differs from the first taffy pass.
 ///
-/// Each one moves every layout element below the table by the change in height, except the
-/// table's own subtree (lattice already placed it) and its ancestors (they grow instead).
+/// A table that changes height moves what follows it in its flow, and its ancestors grow to
+/// hold it. What follows is decided level by level, from the table up: in each ancestor, the
+/// children that start at or below the old bottom of the child that grew move by that growth,
+/// and the ancestor itself grows by as much as its lowest child bottom moved. So a table in one
+/// column of a flex row moves what is under it in that column, not the column beside it, and
+/// the row grows only if that column was the tallest.
+///
 /// Applying each shift as it happened scanned and moved the whole arena once per table, so a
 /// page of many tables was quadratic. 10,000 sibling tables took 19 s. The shifts are recorded
-/// here instead and applied in one pass at the end.
+/// here instead and applied in one pass at the end, working in unshifted coordinates
+/// throughout: nothing the table passes read depends on where another table sits, and a table
+/// and its cells are placed relative to the table's own box.
 ///
-/// That gives the same layout tree because nothing the table passes read depends on where
-/// another table sits. A table and its cells are placed relative to the table's own box, so each
-/// table works in its own unshifted coordinates, and the thresholds are recorded in those same
-/// coordinates. Only nodes already detached from the tree can end up in a different place.
-///
-/// The one exception is a table that resizes in both passes, which a table holding a nested
-/// table does: its second `old_bottom` already includes its first change, but nothing below it
-/// has moved yet. So each threshold is taken back to the table's original bottom. Applied one
-/// at a time, everything at or below that bottom took both shifts, and it still does.
+/// A table that resizes in both passes, as one holding a nested table does, is recorded once:
+/// against its original bottom, with both changes added up.
 #[derive(Default)]
 struct FlowShifts {
-    /// `(threshold, delta)` per shift, in recording order.
-    shifts: Vec<(f64, f64)>,
-    /// The shifts each element is exempt from, by index into `shifts`.
-    exempt: HashMap<LayoutElementId, Vec<usize>>,
-    /// The sum of the deltas recorded so far, per table.
-    recorded: HashMap<LayoutElementId, f64>,
+    /// Per resized table: its original bottom and its total change in height.
+    tables: HashMap<LayoutElementId, (f64, f64)>,
 }
 
 impl FlowShifts {
-    /// Record that everything below `old_bottom` moves by `delta`, and grow the table's
-    /// ancestors by `delta` now. Heights are not read by the passes that follow.
-    fn record(&mut self, layout_tree: &mut LayoutTree, table_layout_id: LayoutElementId, old_bottom: f64, delta: f64) {
-        let earlier = self.recorded.entry(table_layout_id).or_default();
-        let threshold = old_bottom - *earlier;
-        *earlier += delta;
-
-        let index = self.shifts.len();
-        self.shifts.push((threshold, delta));
-
-        let mut subtree = HashSet::new();
-        collect_subtree(layout_tree, table_layout_id, &mut subtree);
-        for id in subtree {
-            self.exempt.entry(id).or_default().push(index);
-        }
-
-        let mut cur = layout_tree.arena.get(&table_layout_id).and_then(|e| e.parent);
-        while let Some(id) = cur {
-            self.exempt.entry(id).or_default().push(index);
-            let Some(el) = layout_tree.arena.get_mut(&id) else {
-                break;
-            };
-            el.box_model.border_box.height += delta;
-            el.box_model.padding_box.height += delta;
-            el.box_model.content_box.height += delta;
-            el.box_model.margin_box.height += delta;
-            cur = el.parent;
-        }
+    /// Record that `table` grew by `delta` (negative: shrank) from a bottom at `old_bottom`.
+    fn record(&mut self, table: LayoutElementId, old_bottom: f64, delta: f64) {
+        self.tables
+            .entry(table)
+            .and_modify(|(_, total)| *total += delta)
+            .or_insert((old_bottom, delta));
     }
 
-    /// Move every element by the sum of the shifts whose threshold it sits at or below.
-    /// Sorted thresholds and prefix sums make that one binary search per element.
     fn apply(self, layout_tree: &mut LayoutTree) {
-        if self.shifts.is_empty() {
+        if self.tables.is_empty() {
             return;
         }
-        // An element at `y` takes a shift when `y >= threshold - 0.5`.
-        let applies = |threshold: f64, y: f64| y >= threshold - 0.5;
+        // An element at `y` is below a bottom at `threshold` when `y >= threshold - 0.5`.
+        let below = |threshold: f64, y: f64| y >= threshold - 0.5;
+        let bottom = |el: &LayoutElementNode| el.box_model.border_box.y + el.box_model.border_box.height;
 
-        let mut sorted = self.shifts.clone();
-        sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut prefix = Vec::with_capacity(sorted.len() + 1);
-        prefix.push(0.0);
-        for &(_, delta) in &sorted {
-            prefix.push(prefix[prefix.len() - 1] + delta);
+        // Growth and old bottom of every element that grew: the tables, then their ancestors.
+        // A table's box already holds its new height, so its old bottom is the recorded one.
+        let mut grown: HashMap<LayoutElementId, (f64, f64)> = self
+            .tables
+            .iter()
+            .map(|(&id, &(old_bottom, delta))| (id, (old_bottom, delta)))
+            .collect();
+
+        // The ancestors to resolve, deepest first, so every child's growth is known by the time
+        // its parent is resolved.
+        let mut depth: HashMap<LayoutElementId, usize> = HashMap::new();
+        for &table in self.tables.keys() {
+            let mut chain = Vec::new();
+            let mut cur = layout_tree.arena.get(&table).and_then(|el| el.parent);
+            while let Some(id) = cur {
+                if depth.contains_key(&id) {
+                    break;
+                }
+                chain.push(id);
+                cur = layout_tree.arena.get(&id).and_then(|el| el.parent);
+            }
+            let base = cur.and_then(|id| depth.get(&id)).map_or(0, |&d| d + 1);
+            for (i, &id) in chain.iter().rev().enumerate() {
+                depth.insert(id, base + i);
+            }
+        }
+        let mut ancestors: Vec<LayoutElementId> = depth.keys().copied().collect();
+        ancestors.sort_by_key(|id| std::cmp::Reverse(depth[id]));
+
+        // How far each child moves within its parent.
+        let mut moved: HashMap<LayoutElementId, f64> = HashMap::new();
+        for parent in ancestors {
+            let children = layout_tree
+                .arena
+                .get(&parent)
+                .map(|el| el.children.clone())
+                .unwrap_or_default();
+
+            let mut shifts: Vec<(f64, f64, LayoutElementId)> = children
+                .iter()
+                .filter_map(|&c| grown.get(&c).map(|&(old_bottom, growth)| (old_bottom, growth, c)))
+                .collect();
+            shifts.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut prefix = Vec::with_capacity(shifts.len() + 1);
+            prefix.push(0.0);
+            for &(_, growth, _) in &shifts {
+                prefix.push(prefix[prefix.len() - 1] + growth);
+            }
+
+            let mut old_lowest = f64::NEG_INFINITY;
+            let mut new_lowest = f64::NEG_INFINITY;
+            for &child in &children {
+                let Some(el) = layout_tree.arena.get(&child) else {
+                    continue;
+                };
+                let y = el.box_model.border_box.y;
+                let (old_bottom, growth) = grown.get(&child).copied().unwrap_or((bottom(el), 0.0));
+                let mut offset = prefix[shifts.partition_point(|&(threshold, _, _)| below(threshold, y))];
+                // A child never moves for its own growth, which a zero-height one would.
+                if growth != 0.0 && below(old_bottom, y) {
+                    offset -= growth;
+                }
+                if offset != 0.0 {
+                    moved.insert(child, offset);
+                }
+                old_lowest = old_lowest.max(old_bottom);
+                new_lowest = new_lowest.max(old_bottom + growth + offset);
+            }
+
+            let growth = if old_lowest.is_finite() {
+                new_lowest - old_lowest
+            } else {
+                0.0
+            };
+            if let Some(el) = layout_tree.arena.get(&parent) {
+                grown.insert(parent, (bottom(el), growth));
+            }
         }
 
-        for (id, el) in layout_tree.arena.iter_mut() {
-            let y = el.box_model.border_box.y;
-            let taken = sorted.partition_point(|&(threshold, _)| applies(threshold, y));
-            let mut offset = prefix[taken];
-            for &index in self.exempt.get(id).map(Vec::as_slice).unwrap_or_default() {
-                let (threshold, delta) = self.shifts[index];
-                if applies(threshold, y) {
-                    offset -= delta;
+        // One walk from the root: every element moves with everything above it.
+        let mut visited: HashSet<LayoutElementId> = HashSet::new();
+        let mut stack = vec![(
+            layout_tree.root_id,
+            moved.get(&layout_tree.root_id).copied().unwrap_or(0.0),
+        )];
+        while let Some((id, offset)) = stack.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            let Some(el) = layout_tree.arena.get_mut(&id) else {
+                continue;
+            };
+            translate_box_model(&mut el.box_model, Coordinate::new(0.0, offset));
+            if !self.tables.contains_key(&id) {
+                if let Some(&(_, growth)) = grown.get(&id) {
+                    el.box_model.border_box.height += growth;
+                    el.box_model.padding_box.height += growth;
+                    el.box_model.content_box.height += growth;
+                    el.box_model.margin_box.height += growth;
                 }
             }
+            for &child in &el.children {
+                stack.push((child, offset + moved.get(&child).copied().unwrap_or(0.0)));
+            }
+        }
+
+        // Elements outside the tree (the open `<select>` popup) keep the plain rule: moved by
+        // every table whose old bottom they sit below.
+        let mut by_bottom: Vec<(f64, f64)> = self.tables.values().copied().collect();
+        by_bottom.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut prefix = Vec::with_capacity(by_bottom.len() + 1);
+        prefix.push(0.0);
+        for &(_, delta) in &by_bottom {
+            prefix.push(prefix[prefix.len() - 1] + delta);
+        }
+        for (id, el) in layout_tree.arena.iter_mut() {
+            if visited.contains(id) {
+                continue;
+            }
+            let y = el.box_model.border_box.y;
+            let offset = prefix[by_bottom.partition_point(|&(threshold, _)| below(threshold, y))];
             translate_box_model(&mut el.box_model, Coordinate::new(0.0, offset));
         }
-    }
-}
-
-fn collect_subtree(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut HashSet<LayoutElementId>) {
-    if !out.insert(id) {
-        return;
-    }
-    let children = layout_tree
-        .arena
-        .get(&id)
-        .map(|e| e.children.clone())
-        .unwrap_or_default();
-    for child in children {
-        collect_subtree(layout_tree, child, out);
     }
 }
 
