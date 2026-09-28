@@ -7,8 +7,8 @@ use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId};
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{
-    cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
-    DEFAULT_FONT_SIZE_PX,
+    cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, InheritedLineHeight, ScopeContext,
+    ScopeMatch, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT_PX,
 };
 use crate::stylesheet::{reduce_function, CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
@@ -677,6 +677,61 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
             property.mark_dirty();
         }
     }
+
+    resolve_line_height_basis(map, inherited, own_px);
+}
+
+/// Work out what an `lh` and an `rlh` mean on this element, and tell every property.
+///
+/// Runs once the font-size is known, because a `line-height` of `2`, `150%` or `1.5em` is worth
+/// that much of this element's own font-size. Inside `line-height` and `font-size` an `lh` is
+/// the parent's (css-values-4 §6.1.1), which is what lets `line-height: 2lh` have a value at
+/// all; every other property sees this element's.
+fn resolve_line_height_basis(map: &mut CssProperties, inherited: Option<&CssProperties>, font_px: f32) {
+    let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
+    let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
+
+    for id in [FONT_SIZE, LINE_HEIGHT] {
+        if let Some(property) = map.get_id_mut(id) {
+            property.line_height_basis = Some(parent_lh);
+            property.root_line_height_basis = Some(parent_root_lh);
+            property.mark_dirty();
+        }
+    }
+
+    // Undeclared, `line-height` inherits its computed value: a length as the length, and a
+    // unitless number as the number, which then multiplies this element's own font-size.
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let normal = InheritedLineHeight::FontSizeMultiple(crate::functions::calc::NORMAL_LINE_HEIGHT as f32);
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let inherits = match map.get_id_mut(LINE_HEIGHT) {
+        Some(line_height) => match line_height.compute_value() {
+            CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => InheritedLineHeight::Px(*px as f32),
+            CssValue::Number(factor, _) => InheritedLineHeight::FontSizeMultiple(*factor as f32),
+            // A percentage computes to the length it is worth here, and inherits as that.
+            CssValue::Percentage(pct) => InheritedLineHeight::Px(font_px * *pct as f32 / 100.0),
+            // `normal`, or anything this does not resolve.
+            _ => normal,
+        },
+        None => inherited.map_or(normal, |parent| parent.line_height_inherits),
+    };
+    map.line_height_inherits = inherits;
+    let own_lh = match inherits {
+        InheritedLineHeight::Px(px) => px,
+        InheritedLineHeight::FontSizeMultiple(factor) => font_px * factor,
+    };
+    map.line_height_px = own_lh;
+
+    let root_lh = if inherited.is_some() { parent_root_lh } else { own_lh };
+    map.root_line_height_px = root_lh;
+
+    for (id, property) in map.iter_ids_mut() {
+        if id != FONT_SIZE && id != LINE_HEIGHT {
+            property.line_height_basis = Some(own_lh);
+            property.root_line_height_basis = Some(root_lh);
+            property.mark_dirty();
+        }
+    }
 }
 
 fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
@@ -736,6 +791,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
 
 /// `font-size` is the one property every other property's `em` resolves against.
 const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+const LINE_HEIGHT: PropertyId = PropertyId::Longhand(LonghandId::LineHeight);
 
 /// Whether the property `name` denotes inherits by default.
 #[must_use]

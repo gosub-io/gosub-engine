@@ -1118,18 +1118,15 @@ impl gosub_shared::memory::HeapSize for CssValue {
     }
 }
 
-/// The viewport-relative length units, which resolve against the layout viewport when a
-/// declaration is computed rather than when it is used. Kept in step with the `unit_to_px`
-/// match below.
-const VIEWPORT_UNITS: &[&str] = &["vw", "svw", "lvw", "dvw", "vh", "svh", "lvh", "dvh", "vmin", "vmax"];
-
 impl CssValue {
     /// Whether this value (or anything nested inside it) is expressed in a viewport-relative
     /// unit, and so has to be recomputed when the viewport resizes.
     #[must_use]
     pub fn uses_viewport_units(&self) -> bool {
         match self {
-            CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
+            // Viewport-relative units resolve against the layout viewport when a declaration is
+            // computed, not when it is used; the conversion table decides which units those are.
+            CssValue::Unit(_, unit) => crate::functions::calc::is_viewport_unit(unit),
             // A `calc()` body arrives parsed, so its units are `Unit` values and the recursion
             // below sees them. The text arm covers a `calc()` built by hand with a raw body,
             // which only tests do, and is scanned rather than ignored so such a value still
@@ -1159,7 +1156,7 @@ fn text_uses_viewport_units(text: &str) -> bool {
         .any(|word| {
             let unit = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
             // A bare identifier is not a unit: it has to follow a number.
-            unit.len() != word.len() && VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u))
+            unit.len() != word.len() && crate::functions::calc::is_viewport_unit(unit)
         })
 }
 
@@ -1273,6 +1270,7 @@ impl CssValue {
                     em_px: Some(16.0),
                     rem_px: Some(16.0),
                     viewport: true,
+                    ..Default::default()
                 };
                 match crate::functions::calc::to_canonical(*val, &unit.cow_to_ascii_lowercase(), &units) {
                     Some((canonical, px)) if canonical == "px" => px,
@@ -2046,6 +2044,28 @@ mod test {
         };
         assert!(!calc("var(--overview) + 1px"));
         assert!(!calc("vh"));
+    }
+
+    /// Every unit the conversion table resolves against the viewport has to report it, or a
+    /// value in that unit is not recomputed when the viewport resizes. `cqw` and the logical and
+    /// `s`/`l`/`d` extremes were converted but not reported.
+    #[test]
+    fn every_unit_resolved_against_the_viewport_is_reported() {
+        for unit in [
+            "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svi", "svb", "svmin", "svmax", "lvw", "lvh", "lvi",
+            "lvb", "lvmin", "lvmax", "dvw", "dvh", "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh", "cqi", "cqb", "cqmin",
+            "cqmax",
+        ] {
+            assert!(CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+            assert!(
+                CssValue::Function("calc".to_string(), vec![CssValue::String(format!("50{unit} - 1px"))])
+                    .uses_viewport_units(),
+                "calc body with {unit}"
+            );
+        }
+        for unit in ["px", "em", "rem", "lh", "ch", "cm"] {
+            assert!(!CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+        }
     }
 
     /// Functions whose arguments are parsed properly still work through the recursion.

@@ -64,6 +64,12 @@ pub struct Units {
     pub em_px: Option<f32>,
     /// px per `rem`: the root element's computed font-size.
     pub rem_px: Option<f32>,
+    /// px per `lh`: the element's computed line-height. `None` falls back to a `normal` line box
+    /// against [`Self::em_px`].
+    pub lh_px: Option<f32>,
+    /// px per `rlh`: the root element's computed line-height, with the same fallback against
+    /// [`Self::rem_px`].
+    pub rlh_px: Option<f32>,
     /// Whether `vw` and friends may be resolved against the current layout viewport. False while
     /// parsing, where a resize must still be able to invalidate the declaration.
     pub viewport: bool,
@@ -83,6 +89,7 @@ impl Units {
             em_px: Some(em_px),
             rem_px: Some(rem_px),
             viewport: true,
+            ..Self::default()
         }
     }
 }
@@ -568,15 +575,16 @@ fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
         // Container units fall back to the small viewport units when the element has no query
         // container (css-contain-3 §8.1), and no element has one here: `container-type` is not
         // implemented. Without this, `50cqw` was read as 50px.
-        "vw" | "svw" | "lvw" | "dvw" | "vi" | "svi" | "lvi" | "dvi" | "cqw" | "cqi" => viewport_px(units, |w, _| w),
-        "vh" | "svh" | "lvh" | "dvh" | "vb" | "svb" | "lvb" | "dvb" | "cqh" | "cqb" => viewport_px(units, |_, h| h),
-        "vmin" | "svmin" | "lvmin" | "dvmin" | "cqmin" => viewport_px(units, f32::min),
-        "vmax" | "svmax" | "lvmax" | "dvmax" | "cqmax" => viewport_px(units, f32::max),
+        _ if viewport_side(unit).is_some() => viewport_side(unit).and_then(|side| viewport_px(units, side)),
+        // `lh` and `rlh` are the computed line-heights when the cascade has them (css-values-4
+        // §6.1.1); without, they fall through to the `normal` stand-in below.
+        "lh" if units.lh_px.is_some() => units.lh_px.map(f64::from).and_then(px),
+        "rlh" if units.rlh_px.is_some() => units.rlh_px.map(f64::from).and_then(px),
         // The font-metric units, against the element's font (`ex`) or the root's (`rex`). Real
         // metrics would answer these; the factors are the stand-ins the engine has always used,
         // kept in this one place. 0.55 for `ch` rather than the spec's 0.5 fallback: proportional
         // faces sit nearer 0.52-0.6em, and 0.5 makes a `max-width: 17ch` wrap a line early. `lh`
-        // is a `normal` line box.
+        // without a computed line-height is a `normal` line box.
         _ if font_metric_factor(unit).is_some() => {
             let (factor, root) = font_metric_factor(unit)?;
             let basis = if root { units.rem_px } else { units.em_px };
@@ -595,6 +603,27 @@ fn canonical(unit: &str, units: &Units) -> Option<(String, f64)> {
         "dpcm" => Some(("dppx".to_string(), 2.54 / 96.0)),
         _ => None,
     }
+}
+
+/// Which side of the layout viewport a viewport-relative unit is a percent of, or `None` for any
+/// other unit.
+///
+/// This is the one list of viewport units: [`is_viewport_unit`] reads it too, so a unit the
+/// conversion resolves against the viewport is always one a resize recomputes.
+fn viewport_side(unit: &str) -> Option<fn(f32, f32) -> f32> {
+    match unit {
+        "vw" | "svw" | "lvw" | "dvw" | "vi" | "svi" | "lvi" | "dvi" | "cqw" | "cqi" => Some(|w, _| w),
+        "vh" | "svh" | "lvh" | "dvh" | "vb" | "svb" | "lvb" | "dvb" | "cqh" | "cqb" => Some(|_, h| h),
+        "vmin" | "svmin" | "lvmin" | "dvmin" | "cqmin" => Some(f32::min),
+        "vmax" | "svmax" | "lvmax" | "dvmax" | "cqmax" => Some(f32::max),
+        _ => None,
+    }
+}
+
+/// Whether `unit` resolves against the viewport, in any case.
+#[must_use]
+pub fn is_viewport_unit(unit: &str) -> bool {
+    viewport_side(&unit.cow_to_ascii_lowercase()).is_some()
 }
 
 /// A viewport length, one percent of the side `side` picks out of the layout viewport.
@@ -616,11 +645,15 @@ fn font_metric_factor(unit: &str) -> Option<(f64, bool)> {
         "ch" => 0.55,
         "cap" => 0.7,
         "ic" => 1.0,
-        "lh" => 1.4,
+        "lh" => NORMAL_LINE_HEIGHT,
         _ => return None,
     };
     Some((factor, root))
 }
+
+/// A `normal` line-height as a multiple of the font-size, the stand-in for the font's own
+/// metrics wherever a line-height has to be a length.
+pub const NORMAL_LINE_HEIGHT: f64 = 1.4;
 
 fn viewport() -> (f32, f32) {
     let env = crate::media_query::media_environment();
