@@ -16,15 +16,29 @@ pub(crate) const MAX_VAR_DEPTH: usize = 32;
 /// No tokens at all is a substitution like any other: an empty fallback (`var(--nope,)`) and an
 /// empty custom property (`--x:;`) both splice in nothing and leave the rest of the declaration.
 pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>) -> Option<Vec<CssValue>> {
-    resolve_var_inner(values, custom_props, &mut Vec::new())
+    resolve_var_inner(values, custom_props, &mut Vec::new()).ok()
+}
+
+/// Why a reference did not substitute.
+#[derive(Debug)]
+enum Unresolved {
+    /// Undefined with no usable fallback, or too deep: the reference's own fallback may still
+    /// apply, and an enclosing reference's fallback does.
+    Invalid,
+    /// The custom properties from the named one down to here reference each other. Every one of
+    /// them is invalid at computed-value time (css-variables-1 §2.3), whatever fallbacks their
+    /// own values hold, so this passes through the frames of the cycle without trying one - and
+    /// becomes [`Unresolved::Invalid`] at the property it started from, whose reference is what
+    /// the fallback outside the cycle is for.
+    Cycle(String),
 }
 
 fn resolve_var_inner(
     values: &[CssValue],
     custom_props: &HashMap<String, CssValue>,
     seen: &mut Vec<String>,
-) -> Option<Vec<CssValue>> {
-    let name = values.first().map(ToString::to_string)?;
+) -> Result<Vec<CssValue>, Unresolved> {
+    let name = values.first().map(ToString::to_string).ok_or(Unresolved::Invalid)?;
 
     // `var(--a, <fallback>)`: the arguments arrive as a flat token list with the separator kept
     // as its own `Comma`, so the fallback is everything after the *first* comma. It can be more
@@ -37,13 +51,18 @@ fn resolve_var_inner(
 
     // A `var()` inside the fallback (or inside the substituted value below) is resolved with the
     // same scope, so `var(--a, var(--b, red))` keeps working. An empty fallback is still one.
-    let resolve_fallback = |seen: &mut Vec<String>| substitute(fallback?, custom_props, seen);
+    let resolve_fallback = |seen: &mut Vec<String>| match fallback {
+        Some(tokens) => substitute(tokens, custom_props, seen),
+        None => Err(Unresolved::Invalid),
+    };
 
-    // A cycle (`--a: var(--b); --b: var(--a)`) makes every property in it invalid at
-    // computed-value time. Note this deliberately does not fall through to the fallback:
-    // the reference itself is what is cyclic.
-    if seen.iter().any(|n| n == &name) || seen.len() >= MAX_VAR_DEPTH {
-        return None;
+    // A reference back into the chain being resolved closes a cycle. The reference itself is part
+    // of it, so its own fallback does not apply either.
+    if seen.iter().any(|n| n == &name) {
+        return Err(Unresolved::Cycle(name));
+    }
+    if seen.len() >= MAX_VAR_DEPTH {
+        return Err(Unresolved::Invalid);
     }
 
     let Some(value) = custom_props.get(&name) else {
@@ -62,24 +81,28 @@ fn resolve_var_inner(
     // lazily, at use), so the substituted value has to be resolved in turn.
     seen.push(name);
     let resolved = substitute(std::slice::from_ref(value), custom_props, seen);
-    seen.pop();
+    let name = seen.pop().unwrap_or_default();
 
     match resolved {
-        Some(tokens) => Some(tokens),
-        // The custom property is defined but computes to the guaranteed-invalid value, which
-        // css-variables-1 treats the same as undefined: use the fallback.
-        None => resolve_fallback(seen),
+        Ok(tokens) => Ok(tokens),
+        // This property is inside a cycle that started further out: it is invalid, and so is
+        // this reference to it, fallback or not.
+        Err(Unresolved::Cycle(start)) if start != name => Err(Unresolved::Cycle(start)),
+        // The custom property computes to the guaranteed-invalid value - through a cycle that
+        // started here, or otherwise - which css-variables-1 treats the same as undefined: use
+        // the fallback.
+        Err(_) => resolve_fallback(seen),
     }
 }
 
 /// Replaces every `var()` in `values` with its substitution, splicing multi-token results into
-/// the surrounding list. Returns `None` when any `var()` is unresolvable, so the invalidity
-/// propagates to the declaration.
+/// the surrounding list. Fails when any `var()` is unresolvable, so the invalidity propagates to
+/// the declaration.
 fn substitute(
     values: &[CssValue],
     custom_props: &HashMap<String, CssValue>,
     seen: &mut Vec<String>,
-) -> Option<Vec<CssValue>> {
+) -> Result<Vec<CssValue>, Unresolved> {
     let mut out = Vec::with_capacity(values.len());
     for value in values {
         match value {
@@ -96,7 +119,7 @@ fn substitute(
             other => out.push(other.clone()),
         }
     }
-    Some(out)
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -276,6 +299,45 @@ mod tests {
         assert_eq!(
             resolve_var(&[s("--g"), CssValue::Comma, s("red")], &props),
             Some(vec![s("red")])
+        );
+    }
+
+    /// Custom properties that reference each other are all invalid at computed-value time,
+    /// whatever fallbacks their own values hold (css-variables-1 §2.3); only a fallback outside
+    /// the cycle applies. An empty fallback inside it must not make the cycle look resolved.
+    #[test]
+    fn a_fallback_inside_a_cycle_does_not_rescue_it() {
+        let var = |args: Vec<CssValue>| CssValue::Function("var".to_string(), args);
+        let px = |v: f64| CssValue::Unit(v, "px".to_string());
+        let outer = [s("--a"), CssValue::Comma, px(20.0)];
+        for inner in [
+            var(vec![s("--b")]),
+            var(vec![s("--b"), CssValue::Comma]),
+            var(vec![s("--b"), CssValue::Comma, px(5.0)]),
+        ] {
+            let cycle = props(&[("--a", inner.clone()), ("--b", var(vec![s("--a")]))]);
+            assert_eq!(resolve_var(&outer, &cycle), Some(vec![px(20.0)]), "--a: {inner:?}");
+            assert_eq!(
+                resolve_var(&outer[..1], &cycle),
+                None,
+                "--a: {inner:?} without a fallback"
+            );
+        }
+
+        // A property that references itself through its own fallback is a cycle too.
+        let own = props(&[("--a", var(vec![s("--nope"), CssValue::Comma, var(vec![s("--a")])]))]);
+        assert_eq!(resolve_var(&outer, &own), Some(vec![px(20.0)]));
+
+        // Outside the cycle, a property that only *uses* a cycle member is invalid, and its
+        // reference takes its own fallback as usual.
+        let user = props(&[
+            ("--a", var(vec![s("--b")])),
+            ("--b", var(vec![s("--a")])),
+            ("--c", var(vec![s("--a")])),
+        ]);
+        assert_eq!(
+            resolve_var(&[s("--c"), CssValue::Comma, px(7.0)], &user),
+            Some(vec![px(7.0)])
         );
     }
 

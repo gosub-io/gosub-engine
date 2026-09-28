@@ -1190,6 +1190,20 @@ mod tests {
         );
     }
 
+    /// `--a` and `--b` reference each other, so both are invalid at computed-value time and only
+    /// the fallback outside the cycle applies - whatever fallback `--a`'s own reference holds
+    /// (css-variables-1 §2.3). Chromium gives 20px for all three.
+    #[test]
+    fn a_cycle_is_not_rescued_by_a_fallback_inside_it() {
+        for inner in ["var(--b)", "var(--b,)", "var(--b, 5px)"] {
+            assert_eq!(
+                resolve("width: var(--a, 20px)", &[("--a", inner), ("--b", "var(--a)")]),
+                unit(20.0, "px"),
+                "--a: {inner}"
+            );
+        }
+    }
+
     #[test]
     fn an_attr_inside_a_function_is_substituted() {
         let value = resolve("width: calc(attr(data-w px) * 2)", &[]);
