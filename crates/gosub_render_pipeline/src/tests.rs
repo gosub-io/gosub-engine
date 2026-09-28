@@ -1598,6 +1598,50 @@ mod rendertree_from_engine {
         );
     }
 
+    /// An empty `var()` fallback and an empty custom property both substitute to nothing and
+    /// leave the rest of the declaration standing. The widths are Chromium's for the same page.
+    #[test]
+    fn an_empty_var_substitutes_to_nothing() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                div { width: 10px; height: 1px; }
+                #a { width: 50px var(--nope,); }
+                #b { width: var(--nope,) 60px; }
+                #d { --empty:; width: 70px var(--empty); }
+                #e { --empty:; width: var(--empty, 80px) 90px; }
+                #f { width: var(--nope, var(--nope2,)) 40px; }
+            </style></head>
+            <body><div id="a"></div><div id="b"></div><div id="d"></div><div id="e"></div><div id="f"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["a", "b", "d", "e", "f"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let widths = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+                .width
+        });
+        assert_eq!(widths, [50.0, 60.0, 70.0, 90.0, 40.0]);
+    }
+
     #[test]
     fn opposing_insets_stretch_across_the_containing_block() {
         use crate::common::geo::Dimension;

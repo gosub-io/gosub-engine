@@ -970,18 +970,17 @@ fn resolve_value(
             if depth >= MAX_VAR_DEPTH {
                 return None;
             }
-            let substituted = if name.eq_ignore_ascii_case("var") {
-                Some(resolve_var(args, custom_props))
-            } else if name.eq_ignore_ascii_case("attr") {
+            // `var()` and `env()` can tell an invalid reference from one that substitutes to
+            // nothing (`var(--nope,)`, `env(nope,)`, an empty `--x:;`), which splices no tokens and
+            // keeps the rest of the declaration.
+            if name.eq_ignore_ascii_case("var") {
+                return resolve_list(&resolve_var(args, custom_props)?, custom_props, attr, depth + 1);
+            }
+            if name.eq_ignore_ascii_case("env") {
+                return resolve_list(&resolve_env(args)?, custom_props, attr, depth + 1);
+            }
+            let substituted = if name.eq_ignore_ascii_case("attr") {
                 Some(attr(args))
-            } else if name.eq_ignore_ascii_case("env") {
-                // Unlike the others, `env()` can tell an invalid reference from one that falls
-                // back to nothing (`env(nope,)`), which splices no tokens and keeps the rest of
-                // the declaration.
-                return match resolve_env(args) {
-                    Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
-                    None => None,
-                };
             } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
                 // Unresolved, the whole declaration fails validation - the UA sheet uses it on
                 // form controls.
@@ -995,8 +994,9 @@ fn resolve_value(
             };
 
             match substituted {
-                // Nothing to substitute: the reference is undefined with no usable fallback, or
-                // cyclic. The declaration is invalid at computed-value time.
+                // Nothing to substitute: an `attr()` with no usable value or fallback, or a
+                // `light-dark()` without the branch asked for. The declaration is invalid at
+                // computed-value time.
                 Some(tokens) if tokens.is_empty() => None,
                 // What one substitution produced may itself hold another - a custom property
                 // holding `attr(data-w px)`, an `attr()` fallback holding a `var()`.
@@ -1167,6 +1167,27 @@ mod tests {
     #[test]
     fn an_env_with_an_empty_fallback_substitutes_to_nothing() {
         assert_eq!(resolve("margin: 1px env(titlebar-area-height,)", &[]), unit(1.0, "px"));
+    }
+
+    /// The same holds for `var()` (css-variables-1 §3: `<declaration-value>?`): `var(--nope,)`
+    /// substitutes to nothing, where `var(--nope)` makes the declaration invalid. Chromium
+    /// agrees on every case here.
+    #[test]
+    fn a_var_with_an_empty_fallback_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px var(--nope,)", &[]), unit(1.0, "px"));
+        assert_eq!(resolve("margin: var(--nope, var(--nope2,)) 1px", &[]), unit(1.0, "px"));
+        assert_eq!(resolve("margin: 1px var(--nope)", &[]), CssValue::List(vec![]));
+    }
+
+    /// A custom property may be empty (`--x:;`), and that is a value like any other: it
+    /// substitutes to nothing, and a fallback is not used for it.
+    #[test]
+    fn an_empty_custom_property_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px var(--empty)", &[("--empty", "")]), unit(1.0, "px"));
+        assert_eq!(
+            resolve("margin: var(--empty, 2px) 1px", &[("--empty", "")]),
+            unit(1.0, "px")
+        );
     }
 
     #[test]

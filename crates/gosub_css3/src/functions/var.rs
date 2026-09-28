@@ -8,11 +8,14 @@ pub(crate) const MAX_VAR_DEPTH: usize = 32;
 
 /// Resolves a single `var(--name[, <fallback>])` against the custom properties in scope.
 ///
-/// Returns the substitution tokens, which the caller splices into the surrounding value.
-/// An empty vector means the reference is invalid at computed-value time (the property is
-/// undefined and no fallback was given, or the fallback itself is unresolvable) - the caller
-/// drops the declaration, which is what CSS requires.
-pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>) -> Vec<CssValue> {
+/// Returns the substitution tokens, which the caller splices into the surrounding value, or
+/// `None` when the reference is invalid at computed-value time (the property is undefined and
+/// no fallback was given, the fallback itself is unresolvable, or the reference is cyclic) - the
+/// caller drops the declaration, which is what CSS requires.
+///
+/// No tokens at all is a substitution like any other: an empty fallback (`var(--nope,)`) and an
+/// empty custom property (`--x:;`) both splice in nothing and leave the rest of the declaration.
+pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>) -> Option<Vec<CssValue>> {
     resolve_var_inner(values, custom_props, &mut Vec::new())
 }
 
@@ -20,10 +23,8 @@ fn resolve_var_inner(
     values: &[CssValue],
     custom_props: &HashMap<String, CssValue>,
     seen: &mut Vec<String>,
-) -> Vec<CssValue> {
-    let Some(name) = values.first().map(ToString::to_string) else {
-        return vec![];
-    };
+) -> Option<Vec<CssValue>> {
+    let name = values.first().map(ToString::to_string)?;
 
     // `var(--a, <fallback>)`: the arguments arrive as a flat token list with the separator kept
     // as its own `Comma`, so the fallback is everything after the *first* comma. It can be more
@@ -35,17 +36,14 @@ fn resolve_var_inner(
         .map(|comma| &values[comma + 1..]);
 
     // A `var()` inside the fallback (or inside the substituted value below) is resolved with the
-    // same scope, so `var(--a, var(--b, red))` keeps working.
-    let resolve_fallback = |seen: &mut Vec<String>| match fallback {
-        Some(tokens) if !tokens.is_empty() => substitute(tokens, custom_props, seen),
-        _ => vec![],
-    };
+    // same scope, so `var(--a, var(--b, red))` keeps working. An empty fallback is still one.
+    let resolve_fallback = |seen: &mut Vec<String>| substitute(fallback?, custom_props, seen);
 
     // A cycle (`--a: var(--b); --b: var(--a)`) makes every property in it invalid at
     // computed-value time. Note this deliberately does not fall through to the fallback:
     // the reference itself is what is cyclic.
     if seen.iter().any(|n| n == &name) || seen.len() >= MAX_VAR_DEPTH {
-        return vec![];
+        return None;
     }
 
     let Some(value) = custom_props.get(&name) else {
@@ -66,49 +64,39 @@ fn resolve_var_inner(
     let resolved = substitute(std::slice::from_ref(value), custom_props, seen);
     seen.pop();
 
-    if resolved.is_empty() {
+    match resolved {
+        Some(tokens) => Some(tokens),
         // The custom property is defined but computes to the guaranteed-invalid value, which
         // css-variables-1 treats the same as undefined: use the fallback.
-        return resolve_fallback(seen);
+        None => resolve_fallback(seen),
     }
-    resolved
 }
 
 /// Replaces every `var()` in `values` with its substitution, splicing multi-token results into
-/// the surrounding list. Returns an empty vector when any `var()` is unresolvable, so the
-/// invalidity propagates to the declaration.
-fn substitute(values: &[CssValue], custom_props: &HashMap<String, CssValue>, seen: &mut Vec<String>) -> Vec<CssValue> {
+/// the surrounding list. Returns `None` when any `var()` is unresolvable, so the invalidity
+/// propagates to the declaration.
+fn substitute(
+    values: &[CssValue],
+    custom_props: &HashMap<String, CssValue>,
+    seen: &mut Vec<String>,
+) -> Option<Vec<CssValue>> {
     let mut out = Vec::with_capacity(values.len());
     for value in values {
         match value {
             CssValue::Function(name, args) if name.eq_ignore_ascii_case("var") => {
-                let resolved = resolve_var_inner(args, custom_props, seen);
-                if resolved.is_empty() {
-                    return vec![];
-                }
-                out.extend(resolved);
+                out.extend(resolve_var_inner(args, custom_props, seen)?);
             }
-            CssValue::List(list) => {
-                let resolved = substitute(list, custom_props, seen);
-                if resolved.is_empty() && !list.is_empty() {
-                    return vec![];
-                }
-                out.extend(resolved);
-            }
+            CssValue::List(list) => out.extend(substitute(list, custom_props, seen)?),
             // Any other function may hold a `var()` among its arguments -
             // `linear-gradient(var(--from), white)` - so it is rebuilt around its substituted
             // arguments rather than cloned whole.
             CssValue::Function(name, args) => {
-                let resolved = substitute(args, custom_props, seen);
-                if resolved.is_empty() && !args.is_empty() {
-                    return vec![];
-                }
-                out.push(CssValue::Function(name.clone(), resolved));
+                out.push(CssValue::Function(name.clone(), substitute(args, custom_props, seen)?));
             }
             other => out.push(other.clone()),
         }
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -128,14 +116,14 @@ mod tests {
         let props = props(&[("--color", s("red"))]);
 
         let args = vec![s("--color")];
-        assert_eq!(resolve_var(&args, &props), vec![s("red")]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![s("red")]));
     }
 
     #[test]
     fn falls_back_when_undefined() {
         let props = HashMap::new();
         let args = vec![s("--missing"), CssValue::Comma, s("blue")];
-        assert_eq!(resolve_var(&args, &props), vec![s("blue")]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![s("blue")]));
     }
 
     #[test]
@@ -150,7 +138,7 @@ mod tests {
         ];
         assert_eq!(
             resolve_var(&args, &props),
-            vec![CssValue::Unit(1.0, "px".to_string()), s("solid"), s("red")]
+            Some(vec![CssValue::Unit(1.0, "px".to_string()), s("solid"), s("red")])
         );
     }
 
@@ -166,7 +154,7 @@ mod tests {
         ];
         assert_eq!(
             resolve_var(&args, &props),
-            vec![s("Helvetica"), CssValue::Comma, s("serif")]
+            Some(vec![s("Helvetica"), CssValue::Comma, s("serif")])
         );
     }
 
@@ -178,7 +166,7 @@ mod tests {
             CssValue::Comma,
             CssValue::Function("var".to_string(), vec![s("--b")]),
         ];
-        assert_eq!(resolve_var(&args, &props), vec![s("green")]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![s("green")]));
     }
 
     #[test]
@@ -189,7 +177,7 @@ mod tests {
         ]);
 
         let args = vec![s("--accent")];
-        assert_eq!(resolve_var(&args, &props), vec![s("red")]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![s("red")]));
     }
 
     #[test]
@@ -197,7 +185,7 @@ mod tests {
         let props = props(&[("--accent", CssValue::Function("var".to_string(), vec![s("--nope")]))]);
 
         let args = vec![s("--accent"), CssValue::Comma, s("blue")];
-        assert_eq!(resolve_var(&args, &props), vec![s("blue")]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![s("blue")]));
     }
 
     #[test]
@@ -207,7 +195,7 @@ mod tests {
             ("--b", CssValue::Function("var".to_string(), vec![s("--a")])),
         ]);
 
-        assert_eq!(resolve_var(&[s("--a")], &props), vec![]);
+        assert_eq!(resolve_var(&[s("--a")], &props), None);
     }
 
     #[test]
@@ -228,7 +216,7 @@ mod tests {
 
         assert_eq!(
             resolve_var(&[s("--rule")], &props),
-            vec![CssValue::Unit(1.0, "px".to_string()), s("solid"), s("red")]
+            Some(vec![CssValue::Unit(1.0, "px".to_string()), s("solid"), s("red")])
         );
     }
 
@@ -236,7 +224,7 @@ mod tests {
     fn returns_empty_when_undefined_and_no_fallback() {
         let props = HashMap::new();
         let args = vec![s("--missing")];
-        assert_eq!(resolve_var(&args, &props), vec![]);
+        assert_eq!(resolve_var(&args, &props), None);
     }
 
     #[test]
@@ -247,9 +235,9 @@ mod tests {
 
         assert_eq!(
             resolve_var(&[s("--x"), CssValue::Comma, s("blue")], &props),
-            vec![s("blue")]
+            Some(vec![s("blue")])
         );
-        assert_eq!(resolve_var(&[s("--x")], &props), vec![]);
+        assert_eq!(resolve_var(&[s("--x")], &props), None);
     }
 
     #[test]
@@ -268,10 +256,10 @@ mod tests {
 
         assert_eq!(
             resolve_var(&[s("--g")], &props),
-            vec![CssValue::Function(
+            Some(vec![CssValue::Function(
                 "linear-gradient".to_string(),
                 vec![s("red"), CssValue::Comma, s("white")]
-            )]
+            )])
         );
     }
 
@@ -287,14 +275,24 @@ mod tests {
 
         assert_eq!(
             resolve_var(&[s("--g"), CssValue::Comma, s("red")], &props),
-            vec![s("red")]
+            Some(vec![s("red")])
         );
     }
 
     #[test]
-    fn empty_fallback_is_not_a_value() {
+    fn an_empty_fallback_substitutes_to_nothing() {
         let props = HashMap::new();
         let args = vec![s("--missing"), CssValue::Comma];
-        assert_eq!(resolve_var(&args, &props), vec![]);
+        assert_eq!(resolve_var(&args, &props), Some(vec![]));
+    }
+
+    #[test]
+    fn an_empty_custom_property_substitutes_to_nothing_and_skips_the_fallback() {
+        let props = props(&[("--empty", CssValue::List(vec![]))]);
+        assert_eq!(resolve_var(&[s("--empty")], &props), Some(vec![]));
+        assert_eq!(
+            resolve_var(&[s("--empty"), CssValue::Comma, s("blue")], &props),
+            Some(vec![])
+        );
     }
 }
