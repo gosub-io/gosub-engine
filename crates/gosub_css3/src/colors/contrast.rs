@@ -14,12 +14,6 @@ use super::space::Space;
 use super::{ColorSyntax, CssColor};
 use crate::stylesheet::CssValue;
 
-/// Whether `name` is `contrast-color`.
-#[must_use]
-pub(crate) fn is_contrast_color(name: &str) -> bool {
-    name.eq_ignore_ascii_case("contrast-color")
-}
-
 /// The canonical specified value of `contrast-color(args)`, or `None` when it is not valid.
 #[must_use]
 pub(crate) fn canonical(args: &[CssValue]) -> Option<CssValue> {

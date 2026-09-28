@@ -407,44 +407,9 @@ pub enum MathType {
 }
 
 /// The math functions whose arguments this can evaluate. Anything else - `sin()`, `round()`,
-/// `var()` - makes the whole expression undecidable rather than invalid.
-/// Every function css-values-4 defines as a math function, whether or not this module can yet
-/// evaluate one.
-///
-/// The distinction matters: a math function's *syntax* rules - the whitespace required around
-/// `+` and `-`, most of all - apply to all of them, while [`is_evaluable`] names only the subset
-/// whose value this module can work out. Names are matched case-insensitively and without a
-/// vendor prefix, which callers strip.
-#[must_use]
-pub fn is_math_function_name(name: &str) -> bool {
-    matches!(
-        name.cow_to_ascii_lowercase().as_ref(),
-        "calc"
-            | "calc-size"
-            | "min"
-            | "max"
-            | "clamp"
-            | "progress"
-            | "round"
-            | "mod"
-            | "rem"
-            | "abs"
-            | "sign"
-            | "pow"
-            | "sqrt"
-            | "hypot"
-            | "log"
-            | "exp"
-            | "sin"
-            | "cos"
-            | "tan"
-            | "asin"
-            | "acos"
-            | "atan"
-            | "atan2"
-    )
-}
-
+/// `var()` - makes the whole expression undecidable rather than invalid. Which functions are math
+/// functions at all is the registry's to say (`functions::registry::is_math`); a math function's
+/// syntax rules apply to every one of them, this only to the ones whose value is worked out here.
 fn is_evaluable(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),

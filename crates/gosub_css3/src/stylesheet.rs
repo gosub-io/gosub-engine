@@ -1447,7 +1447,7 @@ impl CssValue {
 /// function where `rgb(1 0 0)` is a `Color`. css-variables-1 §3 says the substituted value is
 /// read as if the author had written it, so it is reduced here the same way.
 pub(crate) fn reduce_function(name: String, args: Vec<CssValue>) -> CssValue {
-    if is_color_function(&name) {
+    if crate::functions::registry::is_color_notation(&name) {
         if let Some(color) = parse_css_color_function(&name, &args) {
             return CssValue::Color(color);
         }
@@ -1458,18 +1458,6 @@ pub(crate) fn reduce_function(name: String, args: Vec<CssValue>) -> CssValue {
         return reduced;
     }
     CssValue::Function(name, args)
-}
-
-/// Parse a CSS color function like `oklch()`, `oklab()`, or `color()` into an RgbColor.
-///
-/// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
-/// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
-/// True for CSS functional color notations that `parse_css_color_function` can resolve.
-pub(crate) fn is_color_function(name: &str) -> bool {
-    matches!(
-        name.cow_to_ascii_lowercase().as_ref(),
-        "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "oklch" | "oklab" | "color"
-    )
 }
 
 /// A `calc()` component of a colour function, reduced to the number it came down to. Anything
@@ -1599,38 +1587,33 @@ fn split_color_args<'a>(name: &str, args: &'a [CssValue]) -> Option<(Vec<&'a Css
 /// own units. Returns `None` when the arguments are not a colour, which leaves the function
 /// alone for a stage that knows more - or drops the declaration, if none does.
 fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<CssColor> {
-    fold_color_function(name, args, false)
+    fold_color_function(name, args, ColorStage::Specified)
+}
+
+/// Which stage is folding a colour function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ColorStage {
+    /// The specified value, read back from `element.style`: a `calc()` inside a component stays
+    /// a `calc()`, and a colour built from other colours keeps its own notation.
+    Specified,
+    /// The computed value, where the arithmetic is done and every colour that can be worked out
+    /// is.
+    Computed,
 }
 
 /// Whether `name` is one of the colour functions and `args` make a colour of it.
 ///
-/// `resolve_math` says which stage is asking. A `calc()` inside a colour component stays a
+/// `stage` says which stage is asking. A `calc()` inside a colour component stays a
 /// `calc()` in the *specified* value - `lab(calc(50 * 3) 0 0)` reads back from `element.style`
 /// as `lab(calc(150) 0 0)`, not as `lab(100 0 0)` - so the parse refuses to fold such a colour
 /// at all and leaves the function standing. The computed value is where the arithmetic is done.
-pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: bool) -> Option<CssColor> {
-    // Relative colour syntax, including `alpha(from ...)`, keeps its specified form as
-    // written. Only the computed stage can resolve the colour.
-    if crate::colors::contrast::is_contrast_color(name) {
-        return if resolve_math {
-            crate::colors::contrast::resolve(args)
-        } else {
-            None
-        };
-    }
-    if crate::colors::layers::is_color_layers(name) {
-        return if resolve_math {
-            crate::colors::layers::resolve(args)
-        } else {
-            None
-        };
-    }
-    if crate::colors::mix::is_color_mix(name) {
-        return if resolve_math {
-            crate::colors::mix::resolve(args)
-        } else {
-            None
-        };
+pub(crate) fn fold_color_function(name: &str, args: &[CssValue], stage: ColorStage) -> Option<CssColor> {
+    // A colour built from other colours, and the relative colour syntax (including
+    // `alpha(from ...)`), keep their specified form as written. Only the computed stage can
+    // resolve the colour.
+    let resolve_math = stage == ColorStage::Computed;
+    if let Some(operation) = crate::functions::registry::color_operation(name) {
+        return if resolve_math { (operation.resolve)(args) } else { None };
     }
     if crate::colors::relative::is_relative(args) {
         return if resolve_math {
@@ -1639,7 +1622,7 @@ pub(crate) fn fold_color_function(name: &str, args: &[CssValue], resolve_math: b
             None
         };
     }
-    if !is_color_function(name) {
+    if !crate::functions::registry::is_color_notation(name) {
         return None;
     }
     let has_calc = args
@@ -1955,7 +1938,7 @@ mod test {
         // specified value has to. Only the computed stage does the sum.
         assert_eq!(parse_css_color_function("lab", &args), None);
         assert_eq!(
-            fold_color_function("lab", &args, true).map(|color| color.components()[0]),
+            fold_color_function("lab", &args, ColorStage::Computed).map(|color| color.components()[0]),
             Some(Some(100.0))
         );
     }
@@ -2310,6 +2293,7 @@ mod test {
         assert!((c.r - 255.0).abs() < 1.0 && c.g < 1.0 && c.b < 1.0, "hsl red got {c:?}");
 
         // A color function collapses to CssValue::Color at AST conversion time.
-        assert!(is_color_function("rgba") && !is_color_function("calc"));
+        assert!(crate::functions::registry::is_color_notation("rgba"));
+        assert!(!crate::functions::registry::is_color_notation("calc"));
     }
 }

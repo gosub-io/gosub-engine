@@ -21,8 +21,9 @@ use cow_utils::CowUtils;
 use super::space::{self, normalize_hue, Space};
 use super::{is_named_color, is_system_color, ColorSyntax, CssColor, PredefinedSpace, RgbColor};
 use crate::functions::calc;
+use crate::functions::registry::{self, FunctionKind};
 use crate::matcher::property_definitions::get_css_definitions;
-use crate::stylesheet::{clamp_alpha, color_component, color_hue, fold_color_function, is_color_function, CssValue};
+use crate::stylesheet::{clamp_alpha, color_component, color_hue, fold_color_function, ColorStage, CssValue};
 use crate::tokenizer::NumberKind;
 
 /// Whether a colour function's arguments are the relative form: they start with `from`.
@@ -139,7 +140,10 @@ fn split<'a>(name: &str, args: &'a [CssValue]) -> Option<Parts<'a>> {
         return None;
     }
     let name = name.cow_to_ascii_lowercase().into_owned();
-    if !is_color_function(&name) && name != "alpha" {
+    if !matches!(
+        registry::kind(&name),
+        Some(FunctionKind::ColorNotation | FunctionKind::RelativeColor)
+    ) {
         return None;
     }
     let origin = args.get(1)?;
@@ -262,7 +266,7 @@ fn canonical_component(value: &CssValue, slot: Slot, target: &Target) -> Option<
         // The tree-counting functions (css-values-5 §8) are integers, which fit any slot, and
         // take no arguments.
         CssValue::Function(name, args) if is_tree_counting(name) && args.is_empty() => Some(value.clone()),
-        CssValue::Function(name, args) if calc::is_math_function_name(name) => {
+        CssValue::Function(name, args) if registry::is_math(name) => {
             // The keywords stand for numbers, so an expression over them is typed as though
             // they were numbers. The expression itself is kept as written.
             let typed = substitute(args, target, &|_| 1.0);
@@ -394,7 +398,7 @@ pub(crate) fn resolve_origin(origin: &CssValue) -> Option<CssColor> {
             }
             RgbColor::try_from_str(&lower).map(CssColor::from)
         }
-        CssValue::Function(name, args) => fold_color_function(name, args, true),
+        CssValue::Function(name, args) => fold_color_function(name, args, ColorStage::Computed),
         _ => None,
     }
 }
@@ -431,7 +435,7 @@ fn evaluate(
     match value {
         CssValue::String(word) if word.eq_ignore_ascii_case("none") => Some(None),
         CssValue::String(word) if target.is_keyword(word) => Some(lookup(&word.cow_to_ascii_lowercase())),
-        CssValue::Function(name, args) if calc::is_math_function_name(name) => {
+        CssValue::Function(name, args) if registry::is_math(name) => {
             // Inside an expression a missing channel is read as zero.
             let args = substitute(args, target, &|word| lookup(word).unwrap_or(0.0));
             let reduced = calc::evaluate_call(name, &args, &calc::Units::none(), true)?;
