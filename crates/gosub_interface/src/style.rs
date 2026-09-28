@@ -445,17 +445,32 @@ impl TextDecorationLine {
 
 // ── Which properties the element's own cascade had a value for ───────────────
 
-/// One property of a [`ComputedStyle`], for the `declared` set.
-///
-/// Every field of a `ComputedStyle` always holds a value, so "the author said nothing" is not
-/// visible in the value itself - and a handful of readers need it: an element with no `display`
-/// of its own falls back to what its tag name means, `z-index: auto` and an undeclared
-/// `z-index` put the box in different stacking branches, and the cell-alignment walk keeps
-/// climbing until it finds an ancestor that declared `vertical-align`.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Prop {
-    Color = 0,
+/// Declares [`Prop`] and [`Prop::ALL`] from one list of variants, so the list a test walks can
+/// never leave one out.
+macro_rules! declare_props {
+    ($($variant:ident),* $(,)?) => {
+        /// One property of a [`ComputedStyle`], for the `declared` set.
+        ///
+        /// Every field of a `ComputedStyle` always holds a value, so "the author said nothing" is not
+        /// visible in the value itself - and a handful of readers need it: an element with no `display`
+        /// of its own falls back to what its tag name means, `z-index: auto` and an undeclared
+        /// `z-index` put the box in different stacking branches, and the cell-alignment walk keeps
+        /// climbing until it finds an ancestor that declared `vertical-align`.
+        #[repr(u8)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Prop {
+            $($variant),*
+        }
+
+        impl Prop {
+            /// Every property, in declaration order.
+            pub const ALL: &'static [Prop] = &[$(Prop::$variant),*];
+        }
+    };
+}
+
+declare_props! {
+    Color,
     FontSize,
     FontFamily,
     FontStyle,
