@@ -1366,6 +1366,7 @@ PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] 
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-clip
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-image
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-origin
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-position
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should set background-repeat
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "none" should not set unrelated longhands
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set background-attachment
@@ -1382,6 +1383,7 @@ PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] 
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-color
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-image
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-origin
+PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-position
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should set background-repeat
 PASS css/css-backgrounds/parsing/background-valid.html :: e.style['background'] = "border-box content-box" should not set unrelated longhands
 FILE css/css-backgrounds/parsing/border-color-computed.html

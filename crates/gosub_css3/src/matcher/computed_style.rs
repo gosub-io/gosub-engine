@@ -917,10 +917,9 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
 
 /// `text-decoration-line`, from the longhand the `text-decoration` shorthand expands to.
 ///
-/// Read by presence rather than through [`value`]: a `text-decoration` that names no line resets
-/// the longhand to its initial `none`, which the map holds as [`CssValue::None`] - the same value
-/// [`value`] reads as "nothing declared". Here it is a declaration, and it takes the underline
-/// away (`a { text-decoration: red }` is not underlined).
+/// A `text-decoration` that names no line resets the longhand to its initial `none`, which is a
+/// declaration like any other: it takes the underline away (`a { text-decoration: red }` is not
+/// underlined).
 fn resolve_text_decoration(map: &CssProperties, style: &mut ComputedStyle) {
     let Some(property) = map.get_id(longhand(LonghandId::TextDecorationLine)) else {
         return;
@@ -1979,6 +1978,16 @@ mod tests {
             style_of("color: GrayText").inherited.color,
             Color::rgba(128, 128, 128, 255)
         );
+    }
+
+    /// `initial` is the property's initial value even where that is `none` or left to the UA,
+    /// so it resets an inherited property instead of keeping what the parent had.
+    #[test]
+    fn initial_resets_an_inherited_property() {
+        let parent = style_of("text-transform: uppercase; font-family: monospace");
+        let child = computed_style(&map_of("text-transform: initial; font-family: initial"), Some(&parent));
+        assert_eq!(child.inherited.text_transform, TextTransform::None);
+        assert_eq!(&*child.inherited.font_family, "serif");
     }
 
     #[test]
