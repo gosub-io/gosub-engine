@@ -19,11 +19,11 @@
 use cow_utils::CowUtils;
 
 use super::space::{self, normalize_hue, Space};
-use super::{is_named_color, is_system_color, ColorSyntax, CssColor, PredefinedSpace, RgbColor};
+use super::{ColorSyntax, CssColor, PredefinedSpace};
 use crate::functions::calc;
 use crate::functions::registry::{self, FunctionKind};
 use crate::matcher::property_definitions::get_css_definitions;
-use crate::stylesheet::{clamp_alpha, color_component, color_hue, fold_color_function, ColorStage, CssValue};
+use crate::stylesheet::{clamp_alpha, color_component, color_hue, CssValue};
 use crate::tokenizer::NumberKind;
 
 /// Whether a colour function's arguments are the relative form: they start with `from`.
@@ -384,23 +384,11 @@ fn with_alpha(origin: CssColor, alpha: Option<&CssValue>, target: &Target) -> Op
     })
 }
 
-/// The origin as a colour, or `None` when it can only be resolved later (see the module docs).
+/// The origin as a colour, or `None` when it can only be resolved later (see the module docs):
+/// `currentcolor`, or a colour function built on it, waits for the element's colour. A system
+/// colour is a colour like any other.
 pub(crate) fn resolve_origin(origin: &CssValue) -> Option<CssColor> {
-    match origin {
-        CssValue::Color(color) => Some(*color),
-        CssValue::String(word) => {
-            let lower = word.cow_to_ascii_lowercase();
-            if lower == "currentcolor" || is_system_color(&lower) {
-                return None;
-            }
-            if lower != "transparent" && !is_named_color(&lower) {
-                return None;
-            }
-            RgbColor::try_from_str(&lower).map(CssColor::from)
-        }
-        CssValue::Function(name, args) => fold_color_function(name, args, ColorStage::Computed),
-        _ => None,
-    }
+    super::resolve::resolve_color(origin, &super::resolve::ColorContext::default()).color()
 }
 
 /// The origin's components in the target's space and units, `None` for a missing one, and its

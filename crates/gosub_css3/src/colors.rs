@@ -10,6 +10,7 @@ pub(crate) mod contrast;
 pub(crate) mod layers;
 pub(crate) mod mix;
 pub(crate) mod relative;
+pub(crate) mod resolve;
 pub mod space;
 
 use space::Space;
@@ -17,7 +18,8 @@ use space::Space;
 // The named-color table lives in gosub_shared so the render pipeline can resolve
 // the same names without depending on this crate; re-exported here for existing users.
 pub use gosub_shared::css_colors::{
-    is_named_color, is_system_color, named_color_hex, CssColorEntry, CSS_COLORNAMES, CSS_SYSTEM_COLOR_NAMES,
+    is_named_color, is_system_color, named_color_hex, system_color_rgba, CssColorEntry, CSS_COLORNAMES,
+    CSS_DEPRECATED_SYSTEM_COLORS, CSS_SYSTEM_COLORS,
 };
 
 /// A RGB color with alpha channel
@@ -100,11 +102,19 @@ impl RgbColor {
         if value.eq_ignore_ascii_case("transparent") {
             return Some(RgbColor::new(0.0, 0.0, 0.0, 0.0));
         }
+        // `currentcolor` is the element's own `color`, which a string cannot say. It is
+        // resolved where that is known ([`resolve::resolve_color`]); here it is not a colour,
+        // rather than the opaque black it used to be.
         if value.eq_ignore_ascii_case("currentcolor") {
-            // @todo: implement currentcolor - it resolves to the element's own `color`, which
-            // is not reachable from here. Black keeps the pre-existing behaviour; returning
-            // `None` instead would silently drop every `currentcolor` declaration.
-            return Some(RgbColor::default());
+            return None;
+        }
+        if let Some((r, g, b, a)) = system_color_rgba(value) {
+            return Some(RgbColor::new(f32::from(r), f32::from(g), f32::from(b), f32::from(a)));
+        }
+        // The user-agent sheet's focus ring (`outline: auto 1px -webkit-focus-ring-color`), which
+        // is the engine's own colour rather than one of css-color-4's system colours.
+        if value.eq_ignore_ascii_case("-webkit-focus-ring-color") || value.eq_ignore_ascii_case("focus-ring-color") {
+            return Some(RgbColor::new(35.0, 130.0, 235.0, 255.0));
         }
 
         if value.starts_with('#') {

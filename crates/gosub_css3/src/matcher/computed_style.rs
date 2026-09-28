@@ -14,7 +14,6 @@
 //! rather than for this one. They are here for now because moving them would change the value
 //! the map reports, and this step changes nothing a map says.
 
-use cow_utils::CowUtils as _;
 use std::sync::{Arc, LazyLock};
 
 use gosub_interface::style::{
@@ -24,6 +23,7 @@ use gosub_interface::style::{
     TextWrap, VerticalAlign, WhiteSpace, ZIndex,
 };
 
+use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
@@ -144,115 +144,35 @@ fn length_px(value: &CssValue, font_size: f32) -> Option<f32> {
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
-/// The system colour a keyword names.
-///
-/// `RgbColor::try_from_str` answers the named colours, and these are not among them, so without
-/// this a `buttonface` would fall through to opaque black. Belongs in the crate's computed
-/// stage, where every other colour keyword resolves; kept here for now so the map keeps saying
-/// exactly what it says today.
-fn system_color(name: &str) -> Option<Color> {
-    let rgba = |r, g, b, a| Some(Color::rgba(r, g, b, a));
-    match name.cow_to_ascii_lowercase().as_ref() {
-        // Highlight / mark
-        "mark" => rgba(255, 255, 0, 255),
-        "marktext" => rgba(0, 0, 0, 255),
-        // Form fields
-        "field" | "canvas" => rgba(255, 255, 255, 255),
-        "fieldtext" | "canvastext" | "buttontext" | "graytext" => rgba(0, 0, 0, 255),
-        "buttonface" | "threedface" => rgba(240, 240, 240, 255),
-        "buttonborder" | "threedlightshadow" | "threedhighlight" => rgba(160, 160, 160, 255),
-        // Gosub blue; the cascade strips the vendor prefix before we see it.
-        "-webkit-focus-ring-color" | "focus-ring-color" => rgba(0x23, 0x82, 0xeb, 255),
-        // Selection / highlights
-        "highlight" | "selecteditem" | "activecaption" => rgba(0, 120, 215, 255),
-        "highlighttext" | "selecteditemtext" | "captiontext" => rgba(255, 255, 255, 255),
-        // Links
-        "linktext" | "activetext" => rgba(0, 0, 238, 255),
-        "visitedtext" => rgba(85, 26, 139, 255),
-        // Misc
-        "accentcolor" => rgba(0, 120, 215, 255),
-        "accentcolortext" => rgba(255, 255, 255, 255),
-        "window" | "appworkspace" | "scrollbar" | "background" | "menu" => rgba(240, 240, 240, 255),
-        "windowtext" | "menutext" | "infotext" | "inactivecaptiontext" => rgba(0, 0, 0, 255),
-        _ => None,
-    }
-}
-
-/// Whether a keyword is one of the CSS-wide ones.
-///
-/// The cascade resolves all five before a value gets here, so this only catches a value built
-/// by hand. Reading one as a colour would paint the element black, which is why it is checked.
-fn is_css_wide(keyword: &str) -> bool {
-    ["initial", "unset", "revert", "revert-layer", "inherit"]
-        .iter()
-        .any(|name| keyword.eq_ignore_ascii_case(name))
+/// A resolved colour, as the typed style carries it.
+#[expect(clippy::cast_possible_truncation, reason = "a colour channel is a byte")]
+#[expect(clippy::cast_sign_loss, reason = "a colour channel is never negative")]
+fn to_color(color: CssColor) -> Color {
+    let rgb = color.to_rgb();
+    Color::rgba(rgb.r as u8, rgb.g as u8, rgb.b as u8, rgb.a as u8)
 }
 
 /// The colour a value names, or `None` when it names none - in which case the property keeps
-/// whatever it would have had.
-#[expect(clippy::cast_possible_truncation, reason = "a colour channel is a byte")]
-#[expect(clippy::cast_sign_loss, reason = "a colour channel is never negative")]
+/// whatever it would have had. `currentcolor` does not name one here; the properties it may
+/// stand in read their colour through [`color_or_current`].
 fn color(value: &CssValue) -> Option<Color> {
-    if let Some(keyword) = as_string(value) {
-        if is_css_wide(keyword) {
-            return None;
-        }
-        if let Some(system) = system_color(keyword) {
-            return Some(system);
-        }
-    }
-    let rgb = value.to_color()?;
-    Some(Color::rgba(rgb.r as u8, rgb.g as u8, rgb.b as u8, rgb.a as u8))
-}
-
-/// Whether a value is the `currentcolor` keyword, which stands for the element's own `color`.
-fn is_current_color(value: &CssValue) -> bool {
-    as_string(value).is_some_and(|keyword| keyword.eq_ignore_ascii_case("currentcolor"))
-}
-
-/// Whether `currentcolor` appears anywhere in a value, however deeply nested.
-fn mentions_current_color(value: &CssValue) -> bool {
-    match value {
-        CssValue::Function(_, args) | CssValue::List(args) => args.iter().any(mentions_current_color),
-        other => is_current_color(other),
-    }
-}
-
-/// A value with every `currentcolor` in it replaced by `current`.
-fn with_current_color(value: &CssValue, current: Color) -> CssValue {
-    match value {
-        CssValue::Function(name, args) => CssValue::Function(
-            name.clone(),
-            args.iter().map(|arg| with_current_color(arg, current)).collect(),
-        ),
-        CssValue::List(items) => CssValue::List(items.iter().map(|item| with_current_color(item, current)).collect()),
-        other if is_current_color(other) => CssValue::Color(CssColor::from(RgbColor::new(
-            f32::from(current.r),
-            f32::from(current.g),
-            f32::from(current.b),
-            f32::from(current.a),
-        ))),
-        other => other.clone(),
-    }
+    resolve_color(value, &ColorContext::default()).color().map(to_color)
 }
 
 /// The colour a value names on a property where `currentcolor` stands for `current`.
 ///
 /// The computed value keeps `currentcolor` wherever it sits, so a colour function built on it -
 /// `contrast-color(currentcolor)`, `color-mix(in srgb, currentcolor, red)` - arrives here still
-/// a function. This is the used value, where the element's colour is known: put it in and fold.
+/// a function. This is the used value, where the element's colour is known.
 fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
-    if is_current_color(value) {
-        return Some(current);
-    }
-    if let CssValue::Function(name, args) = value {
-        if args.iter().any(mentions_current_color) {
-            let args: Vec<CssValue> = args.iter().map(|arg| with_current_color(arg, current)).collect();
-            let folded = crate::stylesheet::fold_color_function(name, &args, crate::stylesheet::ColorStage::Computed)?;
-            return color(&CssValue::Color(folded));
-        }
-    }
-    color(value)
+    let current = CssColor::from(RgbColor::new(
+        f32::from(current.r),
+        f32::from(current.g),
+        f32::from(current.b),
+        f32::from(current.a),
+    ));
+    let context = ColorContext { current: Some(current) };
+    resolve_color(value, &context).color().map(to_color)
 }
 
 // ── `url()` ──────────────────────────────────────────────────────────────────
@@ -2034,6 +1954,30 @@ mod tests {
         assert_eq!(
             declared("border: initial", "border-top-width"),
             Some(CssValue::String("initial".to_string()))
+        );
+    }
+
+    /// A system colour is a colour like any other: it can be the origin of a relative colour
+    /// and a colour in a mix, and a deprecated one takes the value css-color-4 §6.3 maps it to.
+    #[test]
+    fn system_colours_resolve_everywhere_a_colour_does() {
+        let face = Color::rgba(240, 240, 240, 255);
+        assert_eq!(style_of("color: ButtonShadow").inherited.color, face);
+        assert_eq!(
+            style_of("background-color: rgb(from ButtonFace r g b)")
+                .background
+                .color,
+            face
+        );
+        assert_eq!(
+            style_of("background-color: color-mix(in srgb, ButtonShadow, black)")
+                .background
+                .color,
+            Color::rgba(120, 120, 120, 255)
+        );
+        assert_eq!(
+            style_of("color: GrayText").inherited.color,
+            Color::rgba(128, 128, 128, 255)
         );
     }
 

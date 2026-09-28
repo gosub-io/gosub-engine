@@ -3588,6 +3588,7 @@ PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Proper
 PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'rgb(from contrast-color(blue) r g b)'
 PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(color-mix(blue, green))'
 PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(rgb(from orange r g b))'
+PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(buttonface)'
 PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(transparent)'
 PASS css/css-color/parsing/color-computed-contrast-color-function.html :: Property background-color value 'contrast-color(rgba(255, 255, 255, 0.2))'
 FILE css/css-color/parsing/color-computed-hex-color.html
