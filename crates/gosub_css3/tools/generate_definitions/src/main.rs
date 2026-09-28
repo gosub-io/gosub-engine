@@ -129,10 +129,13 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 7] = [
     // css-color-5 makes color-mix() and contrast-color() a <color>, and
     // css-color-6 does the same for color-layers(). Upstream lists none of them
     // in <color-function>, so a value such as `color: color-mix(in srgb, red,
-    // blue)` was dropped.
+    // blue)` was dropped. Upstream does list ictcp(), jzazbz(), jzczhz() and
+    // hdr-color() from the HDR draft, which no engine ships and this one cannot
+    // compute; they are left out, so they fail validation as in browsers. The
+    // list has to match `functions::registry`, which a gosub_css3 test checks.
     (
         "<color-function>",
-        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()> | <color-mix()> | <color-layers()> | <contrast-color()>",
+        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <alpha()> | <color()> | <color-mix()> | <color-layers()> | <contrast-color()>",
     ),
     // The css-color-5 editor's draft makes the interpolation method optional and
     // takes one or more colours. Upstream still has the two-colour form.

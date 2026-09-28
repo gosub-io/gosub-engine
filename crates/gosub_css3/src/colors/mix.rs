@@ -17,12 +17,6 @@ use super::{ColorSyntax, CssColor, PredefinedSpace};
 use crate::functions::calc;
 use crate::stylesheet::CssValue;
 
-/// Whether `name` is `color-mix`.
-#[must_use]
-pub(crate) fn is_color_mix(name: &str) -> bool {
-    name.eq_ignore_ascii_case("color-mix")
-}
-
 /// How hues are interpolated in a polar space (css-color-4 section 13.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HueMethod {
@@ -187,7 +181,7 @@ fn item(segment: &[CssValue]) -> Option<Item<'_>> {
 fn is_percentage(value: &CssValue) -> bool {
     match value {
         CssValue::Percentage(percentage) => (0.0..=100.0).contains(percentage),
-        CssValue::Function(name, args) if calc::is_math_function_name(name) => {
+        CssValue::Function(name, args) if crate::functions::registry::is_math(name) => {
             match calc::math_function_type(name, args, &calc::Units::none()) {
                 calc::MathType::Resolved(kinds) => kinds.len() == 1 && kinds[0] == "percentage",
                 calc::MathType::Unknown => true,

@@ -24,17 +24,6 @@ use crate::matcher::styling::no_location;
 use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
 use gosub_interface::css3::CssOrigin;
 
-/// The arbitrary-substitution functions (css-values-5 §7): they can stand for any tokens at
-/// all, so a declaration holding one cannot be checked against its grammar until it is
-/// substituted. The grammar matcher defers exactly these.
-pub(crate) const ARBITRARY_SUBSTITUTION_FUNCTIONS: [&str; 3] = ["var", "env", "attr"];
-
-/// The functions whose result depends on the element or the environment rather than on the
-/// declaration; see [`crate::system::resolve_functions`]. `light-dark()` is one of them, but it
-/// is not arbitrary: it has a grammar of its own, and a value holding one is validated like any
-/// other before it waits for the element.
-const SUBSTITUTION_FUNCTIONS: [&str; 5] = ["var", "env", "attr", "light-dark", "-internal-light-dark"];
-
 /// One source declaration, prepared as far as it can be without an element.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpandedDeclaration {
@@ -227,7 +216,7 @@ fn placeholder_info() -> FixListInfo {
 fn needs_element(value: &CssValue) -> bool {
     match value {
         CssValue::Function(name, args) => {
-            SUBSTITUTION_FUNCTIONS.iter().any(|f| name.eq_ignore_ascii_case(f)) || args.iter().any(needs_element)
+            crate::functions::registry::is_substitution(name) || args.iter().any(needs_element)
         }
         CssValue::List(values) => values.iter().any(needs_element),
         _ => false,

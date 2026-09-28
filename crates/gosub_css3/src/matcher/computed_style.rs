@@ -248,7 +248,7 @@ fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
     if let CssValue::Function(name, args) = value {
         if args.iter().any(mentions_current_color) {
             let args: Vec<CssValue> = args.iter().map(|arg| with_current_color(arg, current)).collect();
-            let folded = crate::stylesheet::fold_color_function(name, &args, true)?;
+            let folded = crate::stylesheet::fold_color_function(name, &args, crate::stylesheet::ColorStage::Computed)?;
             return color(&CssValue::Color(folded));
         }
     }

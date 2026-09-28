@@ -139,7 +139,7 @@ fn math_spacing_is_valid(node: &CssNode, in_math: bool) -> bool {
         NodeType::Function { name, arguments } => {
             // A math function nested anywhere still has to obey the rule, so the flag only ever
             // turns on as we descend.
-            let inside = in_math || crate::functions::calc::is_math_function_name(name);
+            let inside = in_math || crate::functions::registry::is_math(name);
             arguments.iter().all(|arg| math_spacing_is_valid(arg, inside))
         }
         // `calc()` is parsed by a path of its own and keeps its body as a flat token list, so it

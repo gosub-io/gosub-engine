@@ -1296,6 +1296,22 @@ mod tests {
         }
     }
 
+    /// Every function the registry calls a substitution is substituted here. One that fell
+    /// through to the generic arm would be rebuilt around its arguments and handed to the grammar
+    /// as though it were a value - which is how `env()` used to validate and then mean nothing.
+    #[test]
+    fn every_registered_substitution_function_is_substituted() {
+        use crate::functions::registry::{FunctionKind, FUNCTIONS};
+        for (name, kind) in FUNCTIONS {
+            if !matches!(kind, FunctionKind::Substitution { .. }) {
+                continue;
+            }
+            let call = CssValue::Function((*name).to_string(), vec![CssValue::String("x".to_string())]);
+            let substituted = single_value(resolve_substitutions(&call, &HashMap::new(), &attr));
+            assert_ne!(substituted, call, "{name}() was not substituted");
+        }
+    }
+
     #[test]
     fn an_attr_inside_a_function_is_substituted() {
         let value = resolve("width: calc(attr(data-w px) * 2)", &[]);

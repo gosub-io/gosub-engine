@@ -6883,7 +6883,7 @@
     },
     {
       "name": "<color-function>",
-      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()>"
+      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <alpha()> | <color()> | <color-mix()> | <color-layers()> | <contrast-color()>"
     },
     {
       "name": "<color-interpolation-method>",

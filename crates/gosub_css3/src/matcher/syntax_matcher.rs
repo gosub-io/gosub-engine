@@ -1,6 +1,6 @@
 use crate::colors::{is_named_color, is_system_color, ColorSyntax};
 use crate::functions::calc;
-use crate::matcher::expansion::ARBITRARY_SUBSTITUTION_FUNCTIONS;
+use crate::functions::registry;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
@@ -141,18 +141,13 @@ fn strip_vendor_prefix(s: &str) -> Option<&str> {
 }
 
 /// Returns true when any value in the tree is an arbitrary-substitution function
-/// ([`ARBITRARY_SUBSTITUTION_FUNCTIONS`]), searching inside nested function arguments and lists. Such a value is
+/// ([`registry::is_arbitrary_substitution`]), searching inside nested function arguments and lists. Such a value is
 /// "guaranteed-invalid" to grammar-check until the substitution happens (CSS Variables
 /// L1 §3), so a declaration containing one is valid at parse time for any property,
 /// wherever the function appears (e.g. `1px solid var(--c)`, `rgb(var(--r), 0, 0)`).
 fn contains_substitution(values: &[CssValue]) -> bool {
     values.iter().any(|value| match value {
-        CssValue::Function(name, args) => {
-            ARBITRARY_SUBSTITUTION_FUNCTIONS
-                .iter()
-                .any(|f| name.eq_ignore_ascii_case(f))
-                || contains_substitution(args)
-        }
+        CssValue::Function(name, args) => registry::is_arbitrary_substitution(name) || contains_substitution(args),
         CssValue::List(items) => contains_substitution(items),
         _ => false,
     })
@@ -742,25 +737,13 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             // checked natively, like `alpha()`.
             // `color-mix()` is checked natively as well. Its percentages are normalized in the
             // specified value, which the grammar cannot express.
-            if crate::colors::contrast::is_contrast_color(c_name) {
-                return match crate::colors::contrast::canonical(c_args) {
+            if let Some(operation) = crate::functions::registry::color_operation(c_name) {
+                return match (operation.canonical)(c_args) {
                     Some(value) => matched_as(input, value),
                     None => no_match(input),
                 };
             }
-            if crate::colors::layers::is_color_layers(c_name) {
-                return match crate::colors::layers::canonical(c_args) {
-                    Some(value) => matched_as(input, value),
-                    None => no_match(input),
-                };
-            }
-            if crate::colors::mix::is_color_mix(c_name) {
-                return match crate::colors::mix::canonical(c_args) {
-                    Some(value) => matched_as(input, value),
-                    None => no_match(input),
-                };
-            }
-            if crate::colors::relative::is_relative(c_args) && crate::stylesheet::is_color_function(c_name) {
+            if crate::colors::relative::is_relative(c_args) && crate::functions::registry::is_color_notation(c_name) {
                 return match crate::colors::relative::canonical(c_name, c_args) {
                     Some(value) => MatchResult {
                         remainder: input.get(1..).unwrap_or(&[]),
@@ -1354,7 +1337,7 @@ fn datatype_accepts(datatype: &str, kind: &str) -> bool {
 }
 
 fn is_math_function(name: &str) -> bool {
-    calc::is_math_function_name(strip_vendor_prefix(name).unwrap_or(name))
+    registry::is_math(strip_vendor_prefix(name).unwrap_or(name))
 }
 
 fn is_comma_literal(component: &SyntaxComponent) -> bool {

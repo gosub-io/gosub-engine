@@ -20,12 +20,6 @@ use super::space::Space;
 use super::{ColorSyntax, CssColor, PredefinedSpace};
 use crate::stylesheet::CssValue;
 
-/// Whether `name` is `color-layers`.
-#[must_use]
-pub(crate) fn is_color_layers(name: &str) -> bool {
-    name.eq_ignore_ascii_case("color-layers")
-}
-
 /// A `<blend-mode>` (Compositing and Blending Level 1, section 5.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BlendMode {
