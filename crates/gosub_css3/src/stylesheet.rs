@@ -1450,6 +1450,15 @@ impl CssValue {
 /// function where `rgb(1 0 0)` is a `Color`. css-variables-1 §3 says the substituted value is
 /// read as if the author had written it, so it is reduced here the same way.
 pub(crate) fn reduce_function(name: String, args: Vec<CssValue>) -> CssValue {
+    // `-webkit-calc()` and `-moz-calc()` are older spellings of `calc()`, and browsers read and
+    // serialize them as the unprefixed function. Renaming one here, where every function is built,
+    // is what lets the rest of the engine - the evaluator, the typed style - see one name.
+    let name = match crate::matcher::syntax_matcher::strip_vendor_prefix(&name) {
+        Some(unprefixed) if crate::functions::registry::is_math(unprefixed) => {
+            unprefixed.cow_to_ascii_lowercase().into_owned()
+        }
+        _ => name,
+    };
     if crate::functions::registry::is_color_notation(&name) {
         if let Some(color) = parse_css_color_function(&name, &args) {
             return CssValue::Color(color);

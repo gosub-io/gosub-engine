@@ -1621,6 +1621,12 @@ mod tests {
             style_of("padding-left: calc(10% + 4px)").padding.left,
             LengthPercentage::Calc { px: 4.0, percent: 10.0 }
         );
+        // A vendor-prefixed spelling is the same function.
+        assert_eq!(style_of("width: -moz-calc(50% + 10px)").size.width, calc(10.0, 50.0));
+        assert_eq!(
+            style_of("width: -webkit-calc(10px + 2px)").size.width,
+            LengthPercentageAuto::Px(12.0)
+        );
         // A calc that reduces to one term is that term.
         assert_eq!(
             style_of("width: calc(10px + 2rem)").size.width,
