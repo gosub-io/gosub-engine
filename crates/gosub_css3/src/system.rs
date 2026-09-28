@@ -1182,6 +1182,20 @@ mod tests {
         assert_eq!(value, CssValue::Color(RgbColor::from("#3b82f6").into()));
     }
 
+    /// The indices after the name must be non-negative integers (css-env-1 §3); anything else
+    /// makes the reference malformed, and its fallback does not rescue it.
+    #[test]
+    fn an_env_with_a_malformed_index_invalidates_the_declaration() {
+        assert_eq!(
+            resolve("padding-top: env(safe-area-inset-top bogus, 10px)", &[]),
+            CssValue::List(vec![])
+        );
+        assert_eq!(
+            resolve("padding-top: env(viewport-segment-width 0 1, 10px)", &[]),
+            unit(10.0, "px")
+        );
+    }
+
     fn unit(value: f64, unit: &str) -> CssValue {
         CssValue::Unit(value, unit.to_string())
     }

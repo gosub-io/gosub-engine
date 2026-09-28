@@ -1,4 +1,5 @@
 use crate::stylesheet::CssValue;
+use crate::tokenizer::NumberKind;
 
 /// Resolves a single `env(<name> <integer>*, <fallback>?)` (css-env-1 §3).
 ///
@@ -20,13 +21,23 @@ pub fn resolve_env(args: &[CssValue]) -> Option<Vec<CssValue>> {
         None => (args, None),
     };
 
-    // No name at all (`env(, 10px)`) is not a reference that falls back; it is malformed.
+    // No name at all (`env(, 10px)`) is not a reference that falls back; it is malformed. So is
+    // anything after the name that is not an index, which must be a non-negative integer. The
+    // parser gives a bare `0` a value of its own.
     let known = match reference {
         [CssValue::String(name)] => environment_variable(name),
-        [CssValue::String(_), ..] => None,
+        [CssValue::String(_), indices @ ..] if indices.iter().all(is_index) => None,
         _ => return None,
     };
     known.or_else(|| fallback.map(<[CssValue]>::to_vec))
+}
+
+fn is_index(value: &CssValue) -> bool {
+    match value {
+        CssValue::Zero => true,
+        CssValue::Number(n, NumberKind::Integer) => *n >= 0.0,
+        _ => false,
+    }
 }
 
 /// The value of a one-dimensional environment variable, or `None` for a name this engine does
@@ -119,5 +130,21 @@ mod tests {
             px(100.0),
         ];
         assert_eq!(resolve_env(&indexed), Some(vec![px(100.0)]));
+    }
+
+    #[test]
+    fn an_index_must_be_a_non_negative_integer() {
+        let int = |v: f64| CssValue::Number(v, crate::tokenizer::NumberKind::Integer);
+        let with = |index: CssValue| resolve_env(&[s("viewport-segment-width"), index, CssValue::Comma, px(10.0)]);
+        // A bare `0` is its own value in the parser, and it is a valid index.
+        assert_eq!(with(CssValue::Zero), Some(vec![px(10.0)]));
+        assert_eq!(with(int(2.0)), Some(vec![px(10.0)]));
+        // Anything else after the name makes the reference malformed, and a fallback cannot
+        // make a malformed reference valid.
+        assert_eq!(with(s("bogus")), None);
+        assert_eq!(with(int(-1.0)), None);
+        assert_eq!(with(CssValue::Number(1.5, crate::tokenizer::NumberKind::Number)), None);
+        assert_eq!(with(CssValue::Number(1.0, crate::tokenizer::NumberKind::Number)), None);
+        assert_eq!(with(px(1.0)), None);
     }
 }
