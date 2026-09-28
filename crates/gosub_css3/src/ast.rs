@@ -400,18 +400,21 @@ fn collect_rule(
             // tokens that did convert would leave `margin: 1px <unconvertible>` behind as
             // `margin: 1px`, which is not what the author wrote.
             let mut css_values = Vec::with_capacity(value.len());
+            let mut converted = true;
             for node in value {
                 match CssValue::parse_ast_node(node) {
                     Ok(value) => css_values.push(value),
                     Err(err) => {
                         log::debug!("Declaration dropped, {property}: {err}");
-                        css_values.clear();
+                        converted = false;
                         break;
                     }
                 }
             }
 
-            if css_values.is_empty() {
+            // Only a custom property can arrive with no value at all (`--x:;`, which the parser
+            // lets through), and for one that is a value: it substitutes to nothing.
+            if !converted || (css_values.is_empty() && !property.starts_with("--")) {
                 continue;
             }
 
