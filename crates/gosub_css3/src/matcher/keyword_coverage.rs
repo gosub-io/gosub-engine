@@ -208,6 +208,13 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
 const ALIASES: &[(&str, &str, Gap)] = &[
     // `display: flow` is the block-level `display: block flow`, which is `block` (css-display-3 §2).
     ("display", "flow", Gap::Merged),
+    // `text-align: match-parent` computes to the parent's value (css-text-3 §7.1), and
+    // `-webkit-match-parent` is its prefixed spelling. With no parent, as here, that is `start`.
+    ("text-align", "-webkit-match-parent", Gap::Merged),
+    ("text-align", "match-parent", Gap::Merged),
+    // `-internal-center` is the HTML rendering section's `<th>` rule: `center`, unless the parent
+    // aligns its text some other way. With no parent, as here, that is `center`.
+    ("text-align", "-internal-center", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar
