@@ -1,4 +1,5 @@
 use crate::functions::attr::resolve_attr;
+use crate::functions::env::resolve_env;
 use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
@@ -973,6 +974,14 @@ fn resolve_value(
                 Some(resolve_var(args, custom_props))
             } else if name.eq_ignore_ascii_case("attr") {
                 Some(attr(args))
+            } else if name.eq_ignore_ascii_case("env") {
+                // Unlike the others, `env()` can tell an invalid reference from one that falls
+                // back to nothing (`env(nope,)`), which splices no tokens and keeps the rest of
+                // the declaration.
+                return match resolve_env(args) {
+                    Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
+                    None => None,
+                };
             } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
                 // Unresolved, the whole declaration fails validation - the UA sheet uses it on
                 // form controls.
@@ -1120,6 +1129,46 @@ mod tests {
         assert_eq!(value, CssValue::List(vec![]));
     }
 
+    /// `env()` is substituted like a `var()`, with the engine's environment in place of the
+    /// custom properties - so the common safe-area idiom survives instead of dropping the
+    /// declaration (css-env-1 §3).
+    #[test]
+    fn an_env_is_substituted_from_the_environment() {
+        assert_eq!(resolve("padding-top: env(safe-area-inset-top)", &[]), unit(0.0, "px"));
+        let value = resolve("padding-top: max(1rem, env(safe-area-inset-top))", &[]);
+        assert_eq!(
+            value,
+            CssValue::Function(
+                "max".to_string(),
+                vec![unit(1.0, "rem"), CssValue::Comma, unit(0.0, "px")]
+            )
+        );
+        // An unknown name takes its fallback, which may itself hold a `var()`.
+        assert_eq!(
+            resolve("height: env(titlebar-area-height, var(--bar))", &[("--bar", "33px")]),
+            unit(33.0, "px")
+        );
+        assert_eq!(
+            resolve("height: env(titlebar-area-height)", &[]),
+            CssValue::List(vec![])
+        );
+    }
+
+    /// `env()` needs a name before its fallback. Without one the reference is malformed and the
+    /// declaration invalid - it must not fall through to the fallback and override an earlier
+    /// declaration that was fine.
+    #[test]
+    fn an_env_without_a_name_invalidates_the_declaration() {
+        assert_eq!(resolve("padding-top: env(, 10px)", &[]), CssValue::List(vec![]));
+    }
+
+    /// A fallback may be empty (css-env-1 §3: `<declaration-value>?`). `env(nope,)` then
+    /// substitutes to nothing, which is not the same as `env(nope)` with no fallback at all.
+    #[test]
+    fn an_env_with_an_empty_fallback_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px env(titlebar-area-height,)", &[]), unit(1.0, "px"));
+    }
+
     #[test]
     fn an_attr_inside_a_function_is_substituted() {
         let value = resolve("width: calc(attr(data-w px) * 2)", &[]);
@@ -1132,6 +1181,20 @@ mod tests {
         // which is not what `rgb(59 130 246)` is.
         let value = resolve("color: rgb(var(--channels))", &[("--channels", "59 130 246")]);
         assert_eq!(value, CssValue::Color(RgbColor::from("#3b82f6").into()));
+    }
+
+    /// The indices after the name must be non-negative integers (css-env-1 §3); anything else
+    /// makes the reference malformed, and its fallback does not rescue it.
+    #[test]
+    fn an_env_with_a_malformed_index_invalidates_the_declaration() {
+        assert_eq!(
+            resolve("padding-top: env(safe-area-inset-top bogus, 10px)", &[]),
+            CssValue::List(vec![])
+        );
+        assert_eq!(
+            resolve("padding-top: env(viewport-segment-width 0 1, 10px)", &[]),
+            unit(10.0, "px")
+        );
     }
 
     fn unit(value: f64, unit: &str) -> CssValue {

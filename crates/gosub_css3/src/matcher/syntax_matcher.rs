@@ -1,5 +1,6 @@
 use crate::colors::{is_named_color, is_system_color, ColorSyntax};
 use crate::functions::calc;
+use crate::matcher::expansion::ARBITRARY_SUBSTITUTION_FUNCTIONS;
 use crate::matcher::shorthands::{copy_resolver, ShorthandResolver};
 use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::stylesheet::CssValue;
@@ -139,15 +140,18 @@ fn strip_vendor_prefix(s: &str) -> Option<&str> {
     })
 }
 
-/// Returns true when any value in the tree is a substitution function (`var()` or
-/// `env()`), searching inside nested function arguments and lists. Such a value is
+/// Returns true when any value in the tree is an arbitrary-substitution function
+/// ([`ARBITRARY_SUBSTITUTION_FUNCTIONS`]), searching inside nested function arguments and lists. Such a value is
 /// "guaranteed-invalid" to grammar-check until the substitution happens (CSS Variables
 /// L1 §3), so a declaration containing one is valid at parse time for any property,
 /// wherever the function appears (e.g. `1px solid var(--c)`, `rgb(var(--r), 0, 0)`).
 fn contains_substitution(values: &[CssValue]) -> bool {
     values.iter().any(|value| match value {
         CssValue::Function(name, args) => {
-            name.eq_ignore_ascii_case("var") || name.eq_ignore_ascii_case("env") || contains_substitution(args)
+            ARBITRARY_SUBSTITUTION_FUNCTIONS
+                .iter()
+                .any(|f| name.eq_ignore_ascii_case(f))
+                || contains_substitution(args)
         }
         CssValue::List(items) => contains_substitution(items),
         _ => false,
