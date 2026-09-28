@@ -156,12 +156,29 @@ pub fn single_value_shared(value: &Arc<CssValue>) -> Arc<CssValue> {
 /// ABSOLUTE` reached the typed style as a keyword nothing recognised. `input` must already have
 /// matched `definition`. `None` means the match changes nothing, and the author's value can be
 /// stored as it is.
+///
+/// The grammar is matched a second time to get this, so it is only done when a token could be a
+/// keyword in the wrong case. Nearly every declaration is written in lowercase already, and a
+/// second match of every one made the cascade of a large utility sheet 40% slower.
 #[must_use]
 pub fn canonical_if_changed(definition: &PropertyDefinition, input: &[CssValue]) -> Option<CssValue> {
+    if !input.iter().any(has_uppercase_ident) {
+        return None;
+    }
     definition
         .canonical(input)
         .filter(|canonical| canonical.as_slice() != input)
         .map(|canonical| single_value(CssValue::from_vec(canonical)))
+}
+
+/// Whether `value` holds an identifier with an uppercase letter - the only thing a keyword's
+/// canonical spelling can differ in that the typed style cares about.
+fn has_uppercase_ident(value: &CssValue) -> bool {
+    match value {
+        CssValue::String(text) => text.bytes().any(|byte| byte.is_ascii_uppercase()),
+        CssValue::List(values) => values.iter().any(has_uppercase_ident),
+        _ => false,
+    }
 }
 
 /// A one-element list is the value itself. `resolve_functions` wraps what it resolves in a list,
