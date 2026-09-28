@@ -48,6 +48,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("overflow-y", Prop::OverflowY, |s| {
         format!("{:?}", s.box_group.overflow_y)
     }),
+    ("scrollbar-width", Prop::ScrollbarWidth, |s| {
+        format!("{:?}", s.box_group.scrollbar_width)
+    }),
     ("table-layout", Prop::TableLayout, |s| {
         format!("{:?}", s.box_group.table_layout)
     }),
@@ -69,6 +72,7 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("white-space", Prop::WhiteSpace, |s| {
         format!("{:?}", s.inherited.white_space)
     }),
+    ("text-wrap", Prop::TextWrap, |s| format!("{:?}", s.box_group.text_wrap)),
     ("caption-side", Prop::CaptionSide, |s| {
         format!("{:?}", s.inherited.caption_side)
     }),
@@ -175,11 +179,19 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("justify-self", "right", Gap::Merged),
     ("justify-self", "self-end", Gap::Merged),
     ("justify-self", "self-start", Gap::Merged),
+    // outline-style: `auto` is its own value (css-ui-4), the UA's focus ring; it becomes `solid`.
+    ("outline-style", "auto", Gap::Merged),
+    // scrollbar-width: only a plain number is read, so none of its keywords is ever set.
+    ("scrollbar-width", "auto", Gap::Dropped),
+    ("scrollbar-width", "none", Gap::Dropped),
+    ("scrollbar-width", "thin", Gap::Dropped),
     // text-align: `justify-all` justifies the last line too; it becomes `left`.
     ("text-align", "justify-all", Gap::Merged),
     // text-transform: `full-width`/`full-size-kana` do nothing.
     ("text-transform", "full-size-kana", Gap::Merged),
     ("text-transform", "full-width", Gap::Merged),
+    // text-wrap: `auto` has no TextWrap variant and lands on `wrap`.
+    ("text-wrap", "auto", Gap::Merged),
     // vertical-align: the baseline keywords of css-inline-3 land on `Baseline` or `Other`.
     ("vertical-align", "alphabetic", Gap::Merged),
     ("vertical-align", "center", Gap::Merged),
@@ -196,8 +208,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
 const ALIASES: &[(&str, &str, Gap)] = &[
     // `display: flow` is the block-level `display: block flow`, which is `block` (css-display-3 §2).
     ("display", "flow", Gap::Merged),
-    // `outline-style: auto` is whatever the UA draws for a focus ring; the engine draws it solid.
-    ("outline-style", "auto", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar
