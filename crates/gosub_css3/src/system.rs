@@ -550,6 +550,23 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 .and_then(|id| Some((id, definitions.definition(id)?)))
             {
                 Some((id, definition)) => {
+                    let tokens = |value: &CssValue| -> Vec<CssValue> {
+                        match value {
+                            CssValue::List(list) => list.clone(),
+                            other => vec![other.clone()],
+                        }
+                    };
+                    // A declaration that only turns invalid now, once its substitutions are made,
+                    // is invalid at computed-value time (css-variables-1 §3.1). It already won its
+                    // place in the cascade on its parse-time validity, so it is not dropped - that
+                    // would let an earlier rule show through - but computes as `unset`, exactly as
+                    // though the author had written that.
+                    let value = if definition.matches(&tokens(&value)) {
+                        value
+                    } else {
+                        log::debug!("Invalid at computed-value time, so unset: {declaration:?}");
+                        CssValue::String("unset".to_string())
+                    };
                     let match_value = if let CssValue::List(value) = &value {
                         &**value
                     } else {
@@ -990,8 +1007,8 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
 /// replaced by the custom property's tokens and the result is then read as if the author had
 /// written it that way. `attr()` (css-values-5 §12.1) and `light-dark()` substitute the same way.
 ///
-/// An empty result is the guaranteed-invalid value: the declaration matches no grammar and is
-/// dropped by the caller.
+/// An empty result is the guaranteed-invalid value: the declaration matches no grammar, and the
+/// caller computes it as `unset` (invalid at computed-value time, css-variables-1 §3.1).
 pub fn resolve_functions<C: HasDocument>(
     value: &CssValue,
     doc: &C::Document,
