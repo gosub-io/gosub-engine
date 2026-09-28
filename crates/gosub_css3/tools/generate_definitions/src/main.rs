@@ -3,6 +3,7 @@
 //! property metadata. See README.md for the full data-flow description.
 
 mod fetch;
+mod keywords;
 mod mdn;
 mod property_ids;
 mod types;
@@ -172,11 +173,23 @@ fn add_bare_fit_content(syntax: &str) -> String {
 /// tool's own directory, so the offline mode works from any working directory.
 const CHECKED_IN_PROPERTIES: &str = "../../resources/definitions/definitions_properties.json";
 const PROPERTY_IDS_MODULE: &str = "../../src/matcher/property_ids.rs";
+const CHECKED_IN_VALUES: &str = "../../resources/definitions/definitions_values.json";
+const KEYWORDS_MODULE: &str = "../../src/matcher/keywords.rs";
 
 fn main() -> Result<()> {
     // The offline mode reads the definition JSON that is already checked in and writes the
     // property-id module from it. It is a separate run rather than a step of the regeneration
     // because it needs no network and is what keeps the ids in step after the data changes.
+    // The keyword enums are the same kind of offline output: one enum per property whose
+    // grammar is a plain choice of keywords, read from the same checked-in JSON.
+    if std::env::args().any(|arg| arg == "--keywords") {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        return keywords::generate(
+            &here.join(CHECKED_IN_PROPERTIES),
+            &here.join(CHECKED_IN_VALUES),
+            &here.join(KEYWORDS_MODULE),
+        );
+    }
     if std::env::args().any(|arg| arg == "--property-ids") {
         let here = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut paths = std::env::args().skip(1).filter(|arg| arg != "--property-ids");
