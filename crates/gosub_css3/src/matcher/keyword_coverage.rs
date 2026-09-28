@@ -132,10 +132,7 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("clear", "block-end", Gap::Merged),
     ("clear", "block-start", Gap::Merged),
     ("clear", "both-block", Gap::Merged),
-    ("clear", "both-inline", Gap::Merged),
     ("clear", "bottom", Gap::Merged),
-    ("clear", "inline-end", Gap::Merged),
-    ("clear", "inline-start", Gap::Merged),
     ("clear", "top", Gap::Merged),
     // display: no Display variant, so each becomes a block (css-display-3 gives each its own box).
     ("display", "contents", Gap::Merged),
@@ -186,7 +183,6 @@ const KNOWN_GAPS: &[(&str, &str, Gap)] = &[
     ("scrollbar-width", "none", Gap::Dropped),
     ("scrollbar-width", "thin", Gap::Dropped),
     // text-align: `justify-all` justifies the last line too; it becomes `left`.
-    ("text-align", "justify-all", Gap::Merged),
     // text-transform: `full-width`/`full-size-kana` do nothing.
     ("text-transform", "full-size-kana", Gap::Merged),
     ("text-transform", "full-width", Gap::Merged),
@@ -215,6 +211,13 @@ const ALIASES: &[(&str, &str, Gap)] = &[
     // `-internal-center` is the HTML rendering section's `<th>` rule: `center`, unless the parent
     // aligns its text some other way. With no parent, as here, that is `center`.
     ("text-align", "-internal-center", Gap::Merged),
+    // The logical sides are the physical ones in the horizontal, left-to-right writing mode the
+    // engine lays out in (css-logical-1 §2.2), and `both-inline` is both of them.
+    ("clear", "inline-start", Gap::Merged),
+    ("clear", "inline-end", Gap::Merged),
+    ("clear", "both-inline", Gap::Merged),
+    // `justify-all` justifies the last line as well; the line boxes know one justification.
+    ("text-align", "justify-all", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar
@@ -319,6 +322,22 @@ fn gaps() -> Vec<(String, String, Gap)> {
     found.retain(|(name, keyword, gap)| !ALIASES.contains(&(name.as_str(), keyword.as_str(), *gap)));
     found.sort();
     found
+}
+
+/// The generated keyword enums name exactly the keywords the grammar the engine runs accepts.
+/// They are generated from the same data offline, so this is what catches a definitions change
+/// without a regeneration (`cargo run -p generate_definitions -- --keywords`).
+#[test]
+fn the_generated_keyword_enums_match_the_grammar() {
+    for (property, keywords) in crate::matcher::keywords::KEYWORD_SETS {
+        let mut generated: Vec<String> = keywords.iter().map(|k| (*k).to_string()).collect();
+        generated.sort();
+        assert_eq!(
+            generated,
+            grammar_keywords(property),
+            "{property}: regenerate the keyword enums"
+        );
+    }
 }
 
 #[test]

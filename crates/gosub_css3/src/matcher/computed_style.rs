@@ -25,6 +25,11 @@ use gosub_interface::style::{
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
+use crate::matcher::keywords::{
+    BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
+    FlexDirectionKeyword, Keyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword,
+    WhiteSpaceKeyword,
+};
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
@@ -300,19 +305,26 @@ fn display_of(keyword: &str) -> Display {
     }
 }
 
-fn border_style_of(keyword: &str) -> BorderStyle {
+/// A `<line-style>`. The four `border-*-style` longhands share that grammar, so the top side's
+/// generated enum reads all four; a test holds the four keyword lists equal.
+fn border_style_of(keyword: BorderTopStyleKeyword) -> BorderStyle {
     match keyword {
-        "hidden" => BorderStyle::Hidden,
-        "solid" => BorderStyle::Solid,
-        "dashed" => BorderStyle::Dashed,
-        "dotted" => BorderStyle::Dotted,
-        "double" => BorderStyle::Double,
-        "groove" => BorderStyle::Groove,
-        "ridge" => BorderStyle::Ridge,
-        "inset" => BorderStyle::Inset,
-        "outset" => BorderStyle::Outset,
-        _ => BorderStyle::None,
+        BorderTopStyleKeyword::None => BorderStyle::None,
+        BorderTopStyleKeyword::Hidden => BorderStyle::Hidden,
+        BorderTopStyleKeyword::Solid => BorderStyle::Solid,
+        BorderTopStyleKeyword::Dashed => BorderStyle::Dashed,
+        BorderTopStyleKeyword::Dotted => BorderStyle::Dotted,
+        BorderTopStyleKeyword::Double => BorderStyle::Double,
+        BorderTopStyleKeyword::Groove => BorderStyle::Groove,
+        BorderTopStyleKeyword::Ridge => BorderStyle::Ridge,
+        BorderTopStyleKeyword::Inset => BorderStyle::Inset,
+        BorderTopStyleKeyword::Outset => BorderStyle::Outset,
     }
+}
+
+/// The keyword a value spells, for a property whose grammar is a plain choice of keywords.
+fn keyword<K: Keyword>(value: &CssValue) -> Option<K> {
+    as_string(value).and_then(K::from_ident)
 }
 
 fn align_of(keyword: &str) -> AlignValue {
@@ -773,19 +785,23 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     read!(map, style, TextAlign, inherited_mut, text_align, |value| as_string(
         value
     )
+    .and_then(TextAlignKeyword::from_ident)
     .map(|keyword| match keyword {
-        "right" => TextAlign::Right,
-        "center" => TextAlign::Center,
-        "justify" => TextAlign::Justify,
-        "start" => TextAlign::Start,
-        "end" => TextAlign::End,
-        "match-parent" | "-webkit-match-parent" => parent_align,
-        "-internal-center" if parent_align == TextAlign::Start => TextAlign::Center,
-        "-internal-center" => parent_align,
-        "-webkit-left" => TextAlign::WebkitLeft,
-        "-webkit-right" => TextAlign::WebkitRight,
-        "-webkit-center" => TextAlign::WebkitCenter,
-        _ => TextAlign::Left,
+        TextAlignKeyword::Left => TextAlign::Left,
+        TextAlignKeyword::Right => TextAlign::Right,
+        TextAlignKeyword::Center => TextAlign::Center,
+        TextAlignKeyword::Justify => TextAlign::Justify,
+        // `justify-all` also justifies the last line (css-text-3 §7.1); the line boxes know only
+        // one justification, and `justify` is the nearer of the two.
+        TextAlignKeyword::JustifyAll => TextAlign::Justify,
+        TextAlignKeyword::Start => TextAlign::Start,
+        TextAlignKeyword::End => TextAlign::End,
+        TextAlignKeyword::MatchParent | TextAlignKeyword::WebkitMatchParent => parent_align,
+        TextAlignKeyword::InternalCenter if parent_align == TextAlign::Start => TextAlign::Center,
+        TextAlignKeyword::InternalCenter => parent_align,
+        TextAlignKeyword::WebkitLeft => TextAlign::WebkitLeft,
+        TextAlignKeyword::WebkitRight => TextAlign::WebkitRight,
+        TextAlignKeyword::WebkitCenter => TextAlign::WebkitCenter,
     }));
 
     read!(map, style, TextTransform, inherited_mut, text_transform, |value| {
@@ -802,13 +818,14 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     read!(map, style, WhiteSpace, inherited_mut, white_space, |value| as_string(
         value
     )
+    .and_then(WhiteSpaceKeyword::from_ident)
     .map(|keyword| match keyword {
-        "pre" => WhiteSpace::Pre,
-        "nowrap" => WhiteSpace::NoWrap,
-        "pre-wrap" => WhiteSpace::PreWrap,
-        "pre-line" => WhiteSpace::PreLine,
-        "break-spaces" => WhiteSpace::BreakSpaces,
-        _ => WhiteSpace::Normal,
+        WhiteSpaceKeyword::Normal => WhiteSpace::Normal,
+        WhiteSpaceKeyword::Pre => WhiteSpace::Pre,
+        WhiteSpaceKeyword::Nowrap => WhiteSpace::NoWrap,
+        WhiteSpaceKeyword::PreWrap => WhiteSpace::PreWrap,
+        WhiteSpaceKeyword::PreLine => WhiteSpace::PreLine,
+        WhiteSpaceKeyword::BreakSpaces => WhiteSpace::BreakSpaces,
     }));
 
     read!(map, style, LetterSpacing, inherited_mut, letter_spacing, |value| Some(
@@ -821,15 +838,16 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
     read!(map, style, CaptionSide, inherited_mut, caption_side, |value| as_string(
         value
     )
+    .and_then(CaptionSideKeyword::from_ident)
     .map(|keyword| match keyword {
-        "bottom" | "block-end" => CaptionSide::Bottom,
-        _ => CaptionSide::Top,
+        CaptionSideKeyword::Top => CaptionSide::Top,
+        CaptionSideKeyword::Bottom => CaptionSide::Bottom,
     }));
 
     read!(map, style, BorderCollapse, inherited_mut, border_collapse, |value| {
-        as_string(value).map(|keyword| match keyword {
-            "collapse" => BorderCollapse::Collapse,
-            _ => BorderCollapse::Separate,
+        keyword(value).map(|keyword| match keyword {
+            BorderCollapseKeyword::Collapse => BorderCollapse::Collapse,
+            BorderCollapseKeyword::Separate => BorderCollapse::Separate,
         })
     });
 
@@ -910,23 +928,34 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
     });
 
     read!(map, style, Clear, box_mut, clear, |value| {
-        as_string(value).map(|keyword| match keyword {
-            "left" => Clear::Left,
-            "right" => Clear::Right,
-            "both" => Clear::Both,
-            _ => Clear::None,
+        keyword(value).map(|keyword| match keyword {
+            // The logical sides are the physical ones in the horizontal, left-to-right writing
+            // mode the engine lays out in (css-logical-1 §2.2).
+            ClearKeyword::Left | ClearKeyword::InlineStart => Clear::Left,
+            ClearKeyword::Right | ClearKeyword::InlineEnd => Clear::Right,
+            ClearKeyword::Both | ClearKeyword::BothInline => Clear::Both,
+            // The block-axis values clear page floats (css-page-floats-3), which the engine does
+            // not lay out, so there is nothing for them to clear.
+            ClearKeyword::None
+            | ClearKeyword::BlockStart
+            | ClearKeyword::BlockEnd
+            | ClearKeyword::Top
+            | ClearKeyword::Bottom
+            | ClearKeyword::BothBlock => Clear::None,
         })
     });
 
-    read!(map, style, BoxSizing, box_mut, box_sizing, |value| as_string(value)
-        .map(|keyword| match keyword {
-            "border-box" => BoxSizing::BorderBox,
-            _ => BoxSizing::ContentBox,
-        }));
+    read!(map, style, BoxSizing, box_mut, box_sizing, |value| keyword(value).map(
+        |keyword| match keyword {
+            BoxSizingKeyword::BorderBox => BoxSizing::BorderBox,
+            BoxSizingKeyword::ContentBox => BoxSizing::ContentBox,
+        }
+    ));
 
-    read!(map, style, OverflowX, box_mut, overflow_x, |value| as_string(value)
+    // `overflow-x` and `overflow-y` share one grammar, so one enum reads both.
+    read!(map, style, OverflowX, box_mut, overflow_x, |value| keyword(value)
         .map(overflow_of));
-    read!(map, style, OverflowY, box_mut, overflow_y, |value| as_string(value)
+    read!(map, style, OverflowY, box_mut, overflow_y, |value| keyword(value)
         .map(overflow_of));
 
     read!(map, style, ZIndex, box_mut, z_index, |value| {
@@ -970,10 +999,10 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style.declared.set(Prop::TextWrap);
     }
 
-    read!(map, style, TableLayout, box_mut, table_layout, |value| as_string(value)
+    read!(map, style, TableLayout, box_mut, table_layout, |value| keyword(value)
         .map(|keyword| match keyword {
-            "fixed" => TableLayout::Fixed,
-            _ => TableLayout::Auto,
+            TableLayoutKeyword::Fixed => TableLayout::Fixed,
+            TableLayoutKeyword::Auto => TableLayout::Auto,
         }));
 
     read!(map, style, VerticalAlign, box_mut, vertical_align, |value| as_string(
@@ -994,13 +1023,13 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
     }));
 }
 
-fn overflow_of(keyword: &str) -> Overflow {
+fn overflow_of(keyword: OverflowXKeyword) -> Overflow {
     match keyword {
-        "hidden" => Overflow::Hidden,
-        "clip" => Overflow::Clip,
-        "scroll" => Overflow::Scroll,
-        "auto" => Overflow::Auto,
-        _ => Overflow::Visible,
+        OverflowXKeyword::Visible => Overflow::Visible,
+        OverflowXKeyword::Hidden => Overflow::Hidden,
+        OverflowXKeyword::Clip => Overflow::Clip,
+        OverflowXKeyword::Scroll => Overflow::Scroll,
+        OverflowXKeyword::Auto => Overflow::Auto,
     }
 }
 
@@ -1034,7 +1063,7 @@ fn resolve_padding(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
 }
 
 fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    let bstyle = |value: &CssValue| as_string(value).map(border_style_of);
+    let bstyle = |value: &CssValue| keyword(value).map(border_style_of);
     read!(map, style, BorderTopStyle, border_mut, top_style, bstyle);
     read!(map, style, BorderRightStyle, border_mut, right_style, bstyle);
     read!(map, style, BorderBottomStyle, border_mut, bottom_style, bstyle);
@@ -1088,14 +1117,18 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
 }
 
 fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    read!(map, style, OutlineStyle, outline_mut, style, |value| as_string(value)
-        .map(|keyword| {
+    read!(map, style, OutlineStyle, outline_mut, style, |value| keyword(value)
+        .map(|keyword| match keyword {
             // `auto`, the user-agent focus ring, paints as a solid line.
-            if keyword.eq_ignore_ascii_case("auto") {
-                BorderStyle::Solid
-            } else {
-                border_style_of(keyword)
-            }
+            OutlineStyleKeyword::Auto | OutlineStyleKeyword::Solid => BorderStyle::Solid,
+            OutlineStyleKeyword::None => BorderStyle::None,
+            OutlineStyleKeyword::Dotted => BorderStyle::Dotted,
+            OutlineStyleKeyword::Dashed => BorderStyle::Dashed,
+            OutlineStyleKeyword::Double => BorderStyle::Double,
+            OutlineStyleKeyword::Groove => BorderStyle::Groove,
+            OutlineStyleKeyword::Ridge => BorderStyle::Ridge,
+            OutlineStyleKeyword::Inset => BorderStyle::Inset,
+            OutlineStyleKeyword::Outset => BorderStyle::Outset,
         }));
 
     let declared_width = value(map, longhand(LonghandId::OutlineWidth));
@@ -1180,12 +1213,12 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
         length_percentage_auto(value, font_size)
     ));
 
-    read!(map, style, FlexDirection, flex_mut, direction, |value| as_string(value)
+    read!(map, style, FlexDirection, flex_mut, direction, |value| keyword(value)
         .map(|keyword| match keyword {
-            "row-reverse" => FlexDirection::RowReverse,
-            "column" => FlexDirection::Column,
-            "column-reverse" => FlexDirection::ColumnReverse,
-            _ => FlexDirection::Row,
+            FlexDirectionKeyword::Row => FlexDirection::Row,
+            FlexDirectionKeyword::RowReverse => FlexDirection::RowReverse,
+            FlexDirectionKeyword::Column => FlexDirection::Column,
+            FlexDirectionKeyword::ColumnReverse => FlexDirection::ColumnReverse,
         }));
 
     read!(map, style, FlexGrow, flex_mut, grow, as_number);
@@ -1511,6 +1544,36 @@ mod tests {
             }
         }
         assert!(unread.is_empty(), "declared but not recorded:\n{}", unread.join("\n"));
+    }
+
+    /// One generated enum reads the four `border-*-style` longhands and both `overflow-*`, which
+    /// is only right while their grammars agree.
+    #[test]
+    fn longhands_read_through_one_enum_share_its_keywords() {
+        use crate::matcher::keywords::{
+            BorderBottomStyleKeyword, BorderLeftStyleKeyword, BorderRightStyleKeyword, OverflowYKeyword,
+        };
+        fn names<K: Keyword>() -> Vec<&'static str> {
+            K::ALL.iter().map(|keyword| keyword.name()).collect()
+        }
+        let top = names::<BorderTopStyleKeyword>();
+        assert_eq!(names::<BorderRightStyleKeyword>(), top);
+        assert_eq!(names::<BorderBottomStyleKeyword>(), top);
+        assert_eq!(names::<BorderLeftStyleKeyword>(), top);
+        assert_eq!(names::<OverflowYKeyword>(), names::<OverflowXKeyword>());
+    }
+
+    /// The logical `clear` values are the physical sides in the left-to-right, horizontal writing
+    /// mode the engine lays out in, and `justify-all` justifies.
+    #[test]
+    fn logical_and_newer_keywords_mean_what_they_say() {
+        assert_eq!(style_of("clear: inline-start").box_group.clear, Clear::Left);
+        assert_eq!(style_of("clear: inline-end").box_group.clear, Clear::Right);
+        assert_eq!(style_of("clear: both-inline").box_group.clear, Clear::Both);
+        assert_eq!(
+            style_of("text-align: justify-all").inherited.text_align,
+            TextAlign::Justify
+        );
     }
 
     #[test]
