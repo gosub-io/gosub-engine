@@ -550,29 +550,6 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 .and_then(|id| Some((id, definitions.definition(id)?)))
             {
                 Some((id, definition)) => {
-                    let tokens = |value: &CssValue| -> Vec<CssValue> {
-                        match value {
-                            CssValue::List(list) => list.clone(),
-                            other => vec![other.clone()],
-                        }
-                    };
-                    // A declaration that only turns invalid now, once its substitutions are made,
-                    // is invalid at computed-value time (css-variables-1 §3.1). It already won its
-                    // place in the cascade on its parse-time validity, so it is not dropped - that
-                    // would let an earlier rule show through - but computes as `unset`, exactly as
-                    // though the author had written that.
-                    let value = if definition.matches(&tokens(&value)) {
-                        value
-                    } else {
-                        log::debug!("Invalid at computed-value time, so unset: {declaration:?}");
-                        CssValue::String("unset".to_string())
-                    };
-                    let match_value = if let CssValue::List(value) = &value {
-                        &**value
-                    } else {
-                        slice::from_ref(&value)
-                    };
-
                     // Tag the expanded longhands with this declaration's cascade origin
                     // and specificity, so e.g. an author `margin: 0` outranks the UA
                     // `body { margin: 8px }` instead of losing to it on processing order.
@@ -592,10 +569,30 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     // rule's `margin: 0` (count→1) would corrupt a later rule's
                     // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
                     fix_list.reset_multiplier(declaration.property.as_str());
-                    if !definition.matches_and_shorthands(match_value, &mut fix_list) {
+
+                    // One match does both jobs in the common case: it validates the substituted
+                    // value and expands it. Only a declaration that fails it is matched again, to
+                    // tell the two ways of failing apart - and checking validity with a separate
+                    // match up front made every `var()` declaration pay for two, which on a page
+                    // built from utility classes was a 40% slower cascade.
+                    let value = if definition.matches_and_shorthands(as_tokens(&value), &mut fix_list) {
+                        value
+                    } else if definition.matches(as_tokens(&value)) {
+                        // Valid, but a shorthand whose longhands the expansion cannot place.
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
-                    }
+                    } else {
+                        // A declaration that only turns invalid now, once its substitutions are
+                        // made, is invalid at computed-value time (css-variables-1 §3.1). It
+                        // already won its place in the cascade on its parse-time validity, so it
+                        // is not dropped - that would let an earlier rule show through - but
+                        // computes as `unset`, exactly as though the author had written that.
+                        log::debug!("Invalid at computed-value time, so unset: {declaration:?}");
+                        let unset = CssValue::String("unset".to_string());
+                        definition.matches_and_shorthands(slice::from_ref(&unset), &mut fix_list);
+                        unset
+                    };
+                    let match_value = as_tokens(&value);
                     // A shorthand sets every one of its longhands; the ones it left out are
                     // reset to their initial value.
                     fix_list.reset_unmentioned(definition, match_value, definitions);
@@ -646,6 +643,14 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     resolve_font_size_basis(&mut css_map_entry, inherited);
 
     Some(css_map_entry)
+}
+
+/// A declaration's value as the token list the grammar matches: a list's items, or the one value.
+fn as_tokens(value: &CssValue) -> &[CssValue] {
+    match value {
+        CssValue::List(values) => values,
+        other => slice::from_ref(other),
+    }
 }
 
 /// Work out what an `em` and a `rem` mean on this element, and tell every property.
