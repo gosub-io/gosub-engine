@@ -1598,6 +1598,74 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A declaration whose substitution fails is invalid at computed-value time, not at parse
+    /// time (css-variables-1 §3.1): it still wins the cascade, and then computes as `unset`. An
+    /// earlier rule does not show through it. Every expectation is Chromium's for the same page.
+    #[test]
+    fn a_declaration_invalid_at_computed_value_time_is_unset() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{Color, FontStyle, LengthPercentageAuto};
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                div { width: 10px; margin: 5px; }
+                p { color: rgb(0, 0, 255); }
+                #w { width: var(--nope); }
+                #g { --col: red; width: var(--col); }
+                #m { margin: var(--nope); }
+                #l { width: var(--nope); }
+                div#l { width: 30px; }
+                #c { color: var(--nope); }
+                #cp { color: rgb(0, 128, 0); }
+                #fp { font-size: 20px; font-style: italic; }
+                #f { font-size: 30px; font: var(--nope); }
+            </style></head>
+            <body><div id="w"></div><div id="g"></div><div id="m"></div><div id="l"></div>
+            <section id="cp"><p id="c">x</p></section><section id="fp"><p id="f">x</p></section></body></html>
+        "#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+
+        // Not inherited: `unset` is `initial`, so the earlier 10px goes.
+        assert_eq!(
+            adapter.computed_style(node("w")).size.width,
+            LengthPercentageAuto::Auto,
+            "#w"
+        );
+        // Substituting fine but to something the grammar rejects is the same failure.
+        assert_eq!(
+            adapter.computed_style(node("g")).size.width,
+            LengthPercentageAuto::Auto,
+            "#g"
+        );
+        // A shorthand unsets every longhand.
+        let style = adapter.computed_style(node("m"));
+        let margin = &style.margin;
+        assert_eq!(margin.top, LengthPercentageAuto::Px(0.0), "#m top");
+        assert_eq!(margin.left, LengthPercentageAuto::Px(0.0), "#m left");
+        // It only matters when it wins: a more specific valid declaration still does.
+        assert_eq!(
+            adapter.computed_style(node("l")).size.width,
+            LengthPercentageAuto::Px(30.0),
+            "#l"
+        );
+        // Inherited: `unset` is `inherit`, so the parent's green, not the `p` rule's blue.
+        assert_eq!(
+            adapter.computed_style(node("c")).inherited.color,
+            Color::rgba(0, 128, 0, 255),
+            "#c"
+        );
+        // A shorthand whose longhands inherit: each of them inherits, rather than going back
+        // to its initial value.
+        let style = adapter.computed_style(node("f"));
+        assert_eq!(style.inherited.font_size, 20.0, "#f font-size");
+        assert_eq!(style.inherited.font_style, FontStyle::Italic, "#f font-style");
+    }
+
     /// An empty `var()` fallback and an empty custom property both substitute to nothing and
     /// leave the rest of the declaration standing. The widths are Chromium's for the same page.
     #[test]
