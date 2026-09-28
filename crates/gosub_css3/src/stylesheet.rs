@@ -1392,7 +1392,10 @@ impl CssValue {
         match value {
             "initial" => return Ok(CssValue::Initial),
             "inherit" => return Ok(CssValue::Inherit),
-            "none" => return Ok(CssValue::None),
+            // The keyword, as the stylesheet parser produces it. `CssValue::None` is "no value";
+            // reading an initial value of `none` as that made `initial` resolve to nothing, and
+            // an inherited property then kept its parent's value.
+            "none" => return Ok(CssValue::String("none".to_string())),
             "" => return Ok(CssValue::String(String::new())),
             _ => {}
         }

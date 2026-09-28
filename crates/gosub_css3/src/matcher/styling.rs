@@ -1555,6 +1555,19 @@ impl CssProperties {
                     if matches!(property.computed, CssValue::None) {
                         return None;
                     }
+                    // A property that does not inherit is only read from here by a child's
+                    // explicit `inherit`, and a parent at the initial value hands down the same
+                    // thing by having no entry. Shorthands reset most of their longhands to that
+                    // value, so leaving those out keeps them from being copied into every
+                    // element's record.
+                    if !id.inherited()
+                        && get_css_definitions()
+                            .definition(id)
+                            .and_then(|definition| definition.initial_value.as_ref())
+                            == Some(&property.computed)
+                    {
+                        return None;
+                    }
                     Some((id, property.computed.clone()))
                 })
                 .partition(|(id, _)| id.inherited());

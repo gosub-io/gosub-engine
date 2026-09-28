@@ -974,12 +974,16 @@ impl RawInitial {
         }
     }
 
-    /// The initial value this describes, if it describes one at all.
-    fn value(&self) -> Option<CssValue> {
+    /// The initial value this describes for the property `name`, if it describes one at all.
+    fn value(&self, name: &str) -> Option<CssValue> {
         let RawInitial::Value(text) = self else {
             // A shorthand's initial is its longhand list; the longhands carry the values.
             return None;
         };
+
+        if let Some((_, value)) = INITIAL_OVERRIDES.iter().find(|(property, _)| *property == name) {
+            return Some(initial_token(value));
+        }
 
         if INITIAL_IS_PROSE.contains(&text.as_str()) {
             return None;
@@ -993,15 +997,35 @@ impl RawInitial {
             return Some(CssValue::String("start".to_string()));
         }
 
-        // A handful read as several values (`0% 0%`, `50% 50% 0`, `snapInterval(0px, 100%)`), and
-        // `CssValue::parse_str` reads one. Rather than invent a single value that is none of
-        // them, leave those without an initial until the whole declaration is parsed here.
-        if text.contains(' ') || text.contains(',') {
+        // A function (`snapInterval(0px, 100%)`, a Microsoft extension) is not a value this can
+        // read token by token.
+        if text.contains(['(', ',']) {
             return None;
         }
-
-        CssValue::parse_str(text).ok()
+        // Several values (`0% 0%`, `50% 50% 0`) are the list the stylesheet parser would make.
+        let tokens: Vec<CssValue> = text.split_whitespace().map(initial_token).collect();
+        Some(CssValue::from_vec(tokens))
     }
+}
+
+/// Initial values the definitions data gets wrong or leaves to the UA, by property.
+const INITIAL_OVERRIDES: [(&str, &str); 3] = [
+    // "depends on user agent": the family the engine's typed style falls back to. Without a value
+    // `font-family: initial` resolved to nothing and kept the parent's family.
+    ("font-family", "serif"),
+    // The data says `black`, a copy of `flood-color`'s; css-filter-effects-1 §15.5 says 1.
+    ("flood-opacity", "1"),
+    // The same copy of `stop-color`'s initial; SVG 2 §13.2.3 says 1.
+    ("stop-opacity", "1"),
+];
+
+/// One token of an initial value, as the stylesheet parser would read it: a bare zero is its
+/// own variant, which every `<length>`, `<time>` and `<angle>` grammar accepts.
+fn initial_token(text: &str) -> CssValue {
+    if text == "0" {
+        return CssValue::Zero;
+    }
+    CssValue::parse_str(text).unwrap_or_else(|_| CssValue::String(text.to_string()))
 }
 
 /// Read one of the compiled-in definition files, entry by entry.
@@ -1221,13 +1245,14 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawPrope
             }
         };
 
+        let initial_value = entry.initial.value(&entry.name);
         properties.insert(
             entry.name.clone(),
             PropertyDefinition {
                 name: entry.name,
                 syntax,
                 computed: entry.computed,
-                initial_value: entry.initial.value(),
+                initial_value,
                 inherited: entry.inherited,
                 resolved: false,
                 shorthands: None,
@@ -2714,5 +2739,62 @@ mod generated_ids {
         assert_eq!(PropertyId::from_name("colour"), None);
         assert_eq!(PropertyId::from_name("--brand"), None);
         assert_eq!(PropertyId::from_name(""), None);
+    }
+}
+
+#[cfg(test)]
+mod initial_values {
+    use super::*;
+    use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT};
+
+    /// Longhands whose initial value still does not match their own grammar, and why. Each is a
+    /// vendor or draft property whose data disagrees with its grammar; none is read by the engine.
+    const KNOWN_MISMATCHES: [&str; 15] = [
+        // Microsoft's `snapInterval()` and "depends on the user agent".
+        "-ms-content-zoom-snap-points",
+        "-ms-scroll-snap-points-x",
+        "-ms-scroll-snap-points-y",
+        "-ms-scrollbar-3dlight-color",
+        "-ms-scrollbar-base-color",
+        // Old WebKit spellings (`border`, `padding`, `source-over`) of the standard mask values.
+        "-webkit-mask-clip",
+        "-webkit-mask-composite",
+        "-webkit-mask-origin",
+        "-webkit-box-reflect",
+        // `all` has no initial value of its own.
+        "all",
+        // Drafts whose data has moved on from its grammar.
+        "initial-letter-align",
+        "position-visibility",
+        "speak-as",
+        "text-emphasis-position",
+        // `<paint>` names a colour the data spells as a bare keyword.
+        "fill",
+    ];
+
+    /// Every longhand's initial value is a value its own grammar accepts, so `initial` means
+    /// what the property's definition says - and not nothing, which it used to for the
+    /// properties whose initial is `none`, several values, or a bare `0`.
+    #[test]
+    fn every_initial_value_matches_its_grammar() {
+        let definitions = get_css_definitions();
+        let mut mismatched = Vec::new();
+        for index in 0..LONGHAND_COUNT {
+            let id = PropertyId::Longhand(LonghandId::from_index(index).expect("every slot is filled"));
+            let definition = definitions.definition(id).expect("every longhand has a definition");
+            let tokens = match definitions.initial_value(id) {
+                Some(CssValue::List(tokens)) => tokens,
+                Some(value) => vec![value],
+                None => Vec::new(),
+            };
+            if !definition.matches(&tokens) && !KNOWN_MISMATCHES.contains(&id.name()) {
+                mismatched.push(format!("{} = {:?}", id.name(), id.initial_source()));
+            }
+        }
+        assert!(
+            mismatched.is_empty(),
+            "initial values that do not match their grammar:\n{}",
+            mismatched.join("\n")
+        );
     }
 }

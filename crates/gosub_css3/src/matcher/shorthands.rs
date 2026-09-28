@@ -2336,7 +2336,7 @@ mod tests {
             Some(&CssValue::String("infinite".into()))
         );
         assert!(
-            matches!(value_of(&animation, "animation-fill-mode"), Some(CssValue::None)),
+            matches!(value_of(&animation, "animation-fill-mode"), Some(CssValue::String(s)) if s == "none"),
             "fill-mode is reset to its initial `none`"
         );
 
