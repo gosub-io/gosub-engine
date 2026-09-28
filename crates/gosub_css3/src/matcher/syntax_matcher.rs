@@ -134,7 +134,7 @@ fn is_css_wide_keyword(input: &[CssValue]) -> bool {
 const VENDOR_PREFIXES: [&str; 6] = ["-webkit-", "-moz-", "-ms-", "-o-", "-khtml-", "-apple-"];
 
 /// Returns the remainder of `s` after a known vendor prefix, or None.
-fn strip_vendor_prefix(s: &str) -> Option<&str> {
+pub(crate) fn strip_vendor_prefix(s: &str) -> Option<&str> {
     VENDOR_PREFIXES.iter().find_map(|p| {
         (s.len() > p.len() && s.get(..p.len()).is_some_and(|head| head.eq_ignore_ascii_case(p))).then(|| &s[p.len()..])
     })

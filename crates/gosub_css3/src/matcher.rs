@@ -11,4 +11,4 @@ pub mod property_ids;
 pub mod shorthands;
 pub mod styling;
 pub mod syntax;
-mod syntax_matcher;
+pub(crate) mod syntax_matcher;

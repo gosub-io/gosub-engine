@@ -2268,6 +2268,9 @@ impl TaffyLayouter {
                     LetterSpacing::Normal => 0.0,
                     LetterSpacing::Length(CssLengthPercentage::Px(px)) => f64::from(px),
                     LetterSpacing::Length(CssLengthPercentage::Percent(pct)) => font_size * f64::from(pct) / 100.0,
+                    LetterSpacing::Length(CssLengthPercentage::Calc { px, percent }) => {
+                        f64::from(px) + font_size * f64::from(percent) / 100.0
+                    }
                 };
 
                 let font_info = FontInfo {
@@ -3144,6 +3147,7 @@ fn apply_translations(layout_tree: &mut LayoutTree) {
         let px = |value: CssLengthPercentage, len: f64| match value {
             CssLengthPercentage::Px(n) => f64::from(n),
             CssLengthPercentage::Percent(pct) => len * f64::from(pct) / 100.0,
+            CssLengthPercentage::Calc { px, percent } => f64::from(px) + len * f64::from(percent) / 100.0,
         };
         let (dx, dy) = (px(tx, bb.width), px(ty, bb.height));
         if dx == 0.0 && dy == 0.0 {

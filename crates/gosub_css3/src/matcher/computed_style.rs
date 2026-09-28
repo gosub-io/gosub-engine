@@ -123,9 +123,42 @@ fn length_percentage(value: &CssValue, _font_size: f32) -> Option<LengthPercenta
     if let Some(pct) = as_percentage(value) {
         return Some(LengthPercentage::Percent(pct));
     }
+    if let Some(("calc", terms)) = as_function(value) {
+        return linear_calc(terms);
+    }
     // A bare number in a length slot is read as pixels, which is what `top: 0` and `margin: 0`
     // rely on.
     as_number(value).map(LengthPercentage::Px)
+}
+
+/// A `calc()` the computed stage has simplified to a sum of a percentage and px - the shape every
+/// linear expression over lengths and a percentage comes down to (`calc(100% - 2rem)` arrives as
+/// `calc(100% - 32px)`).
+///
+/// Anything else is `None`: a `min()`, `max()` or `clamp()` over a percentage cannot be a sum,
+/// and needs the basis before it has a value at all. The property is left unset, as it always
+/// was, rather than guessed.
+fn linear_calc(terms: &[CssValue]) -> Option<LengthPercentage> {
+    let (mut px, mut percent) = (0.0_f32, 0.0_f32);
+    let mut sign = 1.0_f32;
+    for term in terms {
+        match term {
+            CssValue::String(op) if op == "+" => sign = 1.0,
+            CssValue::String(op) if op == "-" => sign = -1.0,
+            CssValue::Percentage(value) => percent += sign * *value as f32,
+            CssValue::Unit(_, unit) if unit == "px" => px += sign * term.unit_to_px(),
+            CssValue::Zero => {}
+            other => {
+                log::debug!("calc() that is not a sum of a length and a percentage, left unset: {other:?}");
+                return None;
+            }
+        }
+    }
+    Some(match (px, percent) {
+        (px, 0.0) => LengthPercentage::Px(px),
+        (0.0, percent) => LengthPercentage::Percent(percent),
+        (px, percent) => LengthPercentage::Calc { px, percent },
+    })
 }
 
 /// The same, plus `auto`. Any keyword that is not a length is `auto` here: none of the
@@ -134,6 +167,7 @@ fn length_percentage_auto(value: &CssValue, font_size: f32) -> LengthPercentageA
     match length_percentage(value, font_size) {
         Some(LengthPercentage::Px(px)) => LengthPercentageAuto::Px(px),
         Some(LengthPercentage::Percent(pct)) => LengthPercentageAuto::Percent(pct),
+        Some(LengthPercentage::Calc { px, percent }) => LengthPercentageAuto::Calc { px, percent },
         None => LengthPercentageAuto::Auto,
     }
 }
@@ -143,7 +177,7 @@ fn length_percentage_auto(value: &CssValue, font_size: f32) -> LengthPercentageA
 fn length_px(value: &CssValue, font_size: f32) -> Option<f32> {
     match length_percentage(value, font_size)? {
         LengthPercentage::Px(px) => Some(px),
-        LengthPercentage::Percent(_) => None,
+        LengthPercentage::Percent(_) | LengthPercentage::Calc { .. } => None,
     }
 }
 
@@ -1574,6 +1608,42 @@ mod tests {
             style_of("text-align: justify-all").inherited.text_align,
             TextAlign::Justify
         );
+    }
+
+    /// A linear `calc()` is carried as a length plus a percentage; anything else is left unset.
+    #[test]
+    fn a_linear_calc_is_a_length_and_a_percentage() {
+        let calc = |px, percent| LengthPercentageAuto::Calc { px, percent };
+        assert_eq!(style_of("width: calc(100% - 20px)").size.width, calc(-20.0, 100.0));
+        assert_eq!(style_of("width: calc(50% - 1rem)").size.width, calc(-16.0, 50.0));
+        assert_eq!(style_of("width: calc(-5vw + 50%)").size.width, calc(-64.0, 50.0));
+        assert_eq!(
+            style_of("padding-left: calc(10% + 4px)").padding.left,
+            LengthPercentage::Calc { px: 4.0, percent: 10.0 }
+        );
+        // A vendor-prefixed spelling is the same function.
+        assert_eq!(style_of("width: -moz-calc(50% + 10px)").size.width, calc(10.0, 50.0));
+        assert_eq!(
+            style_of("width: -webkit-calc(10px + 2px)").size.width,
+            LengthPercentageAuto::Px(12.0)
+        );
+        // A calc that reduces to one term is that term.
+        assert_eq!(
+            style_of("width: calc(10px + 2rem)").size.width,
+            LengthPercentageAuto::Px(42.0)
+        );
+        assert_eq!(
+            style_of("width: calc(50%)").size.width,
+            LengthPercentageAuto::Percent(50.0)
+        );
+        // Not a sum: it needs the basis before it is a length at all, and reads as `auto`, the
+        // value every non-length in a size slot has always had.
+        assert_eq!(
+            style_of("width: min(100%, 600px)").size.width,
+            LengthPercentageAuto::Auto
+        );
+        // Resolved against a basis, as layout resolves a percentage.
+        assert_eq!(calc(-20.0, 100.0).resolve(300.0), Some(280.0));
     }
 
     #[test]

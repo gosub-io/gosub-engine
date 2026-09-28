@@ -301,6 +301,10 @@ impl<'a> CssTaffyConverter<'a> {
             CssLengthPercentageAuto::Px(px) => LengthPercentageAuto::length(px),
             CssLengthPercentageAuto::Percent(pct) => LengthPercentageAuto::percent(pct / 100.0),
             CssLengthPercentageAuto::Auto => LengthPercentageAuto::auto(),
+            // A `calc()` mixing a length and a percentage has no taffy form while the engine
+            // uses taffy's own tree, whose calc resolver answers 0; it waits for layout to own its
+            // tree (see `SendTaffyTree`). Until then it lays out as though it were not declared.
+            CssLengthPercentageAuto::Calc { .. } => default,
         }
     }
 
@@ -308,13 +312,16 @@ impl<'a> CssTaffyConverter<'a> {
         if !self.style.has(prop) {
             return default;
         }
-        Self::to_taffy_lp(value)
+        Self::to_taffy_lp(value).unwrap_or(default)
     }
 
-    fn to_taffy_lp(value: CssLengthPercentage) -> LengthPercentage {
+    /// Taffy's form of a length, or `None` for a `calc()` mixing a length and a percentage, which
+    /// has none; see [`Self::lpa`].
+    fn to_taffy_lp(value: CssLengthPercentage) -> Option<LengthPercentage> {
         match value {
-            CssLengthPercentage::Px(px) => LengthPercentage::length(px),
-            CssLengthPercentage::Percent(pct) => LengthPercentage::percent(pct / 100.0),
+            CssLengthPercentage::Px(px) => Some(LengthPercentage::length(px)),
+            CssLengthPercentage::Percent(pct) => Some(LengthPercentage::percent(pct / 100.0)),
+            CssLengthPercentage::Calc { .. } => None,
         }
     }
 
@@ -332,6 +339,8 @@ impl<'a> CssTaffyConverter<'a> {
             CssLengthPercentageAuto::Px(px) => Dimension::from_length(px),
             CssLengthPercentageAuto::Percent(pct) => Dimension::percent(pct / 100.0),
             CssLengthPercentageAuto::Auto => Dimension::auto(),
+            // See `lpa`: no taffy form yet.
+            CssLengthPercentageAuto::Calc { .. } => default,
         }
     }
 
@@ -341,10 +350,7 @@ impl<'a> CssTaffyConverter<'a> {
             if !self.style.has(prop) {
                 return default;
             }
-            match value {
-                CssLengthPercentage::Px(px) => LengthPercentage::length(px),
-                CssLengthPercentage::Percent(pct) => LengthPercentage::percent(pct / 100.0),
-            }
+            Self::to_taffy_lp(value).unwrap_or(default)
         };
         Size {
             width: gap(Prop::ColumnGap, self.style.flex.column_gap, default.width),

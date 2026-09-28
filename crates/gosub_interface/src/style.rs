@@ -49,6 +49,13 @@ impl Color {
 pub enum LengthPercentage {
     Px(f32),
     Percent(f32),
+    /// A `calc()` that mixes the two, as `px + percent% of the basis` - what every linear
+    /// expression over lengths and a percentage comes down to once the computed stage has turned
+    /// its other units into px (`calc(100% - 2rem)`).
+    Calc {
+        px: f32,
+        percent: f32,
+    },
 }
 
 impl LengthPercentage {
@@ -60,6 +67,7 @@ impl LengthPercentage {
         match self {
             LengthPercentage::Px(px) => px,
             LengthPercentage::Percent(pct) => basis * pct / 100.0,
+            LengthPercentage::Calc { px, percent } => px + basis * percent / 100.0,
         }
     }
 
@@ -68,7 +76,7 @@ impl LengthPercentage {
     pub fn to_px(self) -> Option<f32> {
         match self {
             LengthPercentage::Px(px) => Some(px),
-            LengthPercentage::Percent(_) => None,
+            LengthPercentage::Percent(_) | LengthPercentage::Calc { .. } => None,
         }
     }
 
@@ -81,7 +89,7 @@ impl LengthPercentage {
     #[must_use]
     pub fn raw(self) -> f32 {
         match self {
-            LengthPercentage::Px(v) | LengthPercentage::Percent(v) => v,
+            LengthPercentage::Px(v) | LengthPercentage::Percent(v) | LengthPercentage::Calc { px: v, .. } => v,
         }
     }
 }
@@ -92,6 +100,11 @@ pub enum LengthPercentageAuto {
     Auto,
     Px(f32),
     Percent(f32),
+    /// A `calc()` mixing a length and a percentage; see [`LengthPercentage::Calc`].
+    Calc {
+        px: f32,
+        percent: f32,
+    },
 }
 
 impl LengthPercentageAuto {
@@ -109,6 +122,7 @@ impl LengthPercentageAuto {
             LengthPercentageAuto::Auto => None,
             LengthPercentageAuto::Px(px) => Some(px),
             LengthPercentageAuto::Percent(pct) => Some(basis * pct / 100.0),
+            LengthPercentageAuto::Calc { px, percent } => Some(px + basis * percent / 100.0),
         }
     }
 
@@ -117,7 +131,7 @@ impl LengthPercentageAuto {
     pub fn to_px(self) -> Option<f32> {
         match self {
             LengthPercentageAuto::Px(px) => Some(px),
-            LengthPercentageAuto::Auto | LengthPercentageAuto::Percent(_) => None,
+            LengthPercentageAuto::Auto | LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. } => None,
         }
     }
 }

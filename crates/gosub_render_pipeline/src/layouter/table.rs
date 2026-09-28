@@ -402,14 +402,18 @@ impl TableTree for PipelineTableTree<'_> {
         }
         let style = self.doc.computed_style(id);
         let (size, border, padding) = (&style.size, &style.border, &style.padding);
+        // A `calc()` mixing a length and a percentage is laid out as though it were not declared,
+        // as it is by taffy (see `CssTaffyConverter::lpa`): the lengths read here are paddings,
+        // unset at 0, and sizes, unset at `auto`.
         let length = |value: LengthPercentage| match value {
             LengthPercentage::Px(px) => CssLength::Px(f64::from(px)),
             LengthPercentage::Percent(pct) => CssLength::Percent(f64::from(pct)),
+            LengthPercentage::Calc { .. } => CssLength::Px(0.0),
         };
         let length_auto = |value: LengthPercentageAuto| match value {
             LengthPercentageAuto::Px(px) => CssLength::Px(f64::from(px)),
             LengthPercentageAuto::Percent(pct) => CssLength::Percent(f64::from(pct)),
-            LengthPercentageAuto::Auto => CssLength::Auto,
+            LengthPercentageAuto::Auto | LengthPercentageAuto::Calc { .. } => CssLength::Auto,
         };
         match prop {
             CssProp::Width => length_auto(size.width),
