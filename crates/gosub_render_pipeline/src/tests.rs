@@ -1545,6 +1545,72 @@ mod rendertree_from_engine {
         }
     }
 
+    /// Percentage padding on the table resolves against the containing block's width: 5% of
+    /// 400px is 20px a side. The caption spans the table's border box, padding included, and the
+    /// cell sits inside that padding. The numbers are Chromium's. The vertical padding is in
+    /// pixels here because vertical percentage padding comes out as zero on any box for now, a
+    /// separate bug this test should not depend on.
+    #[test]
+    fn a_tables_percentage_padding_places_its_caption_and_grid() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; font: 16px/20px monospace; }
+                #cb { width: 400px; }
+                table { border: 2px solid; padding: 10px 5%; border-spacing: 0; }
+                td { padding: 0; width: 100px; }
+                caption { height: 30px; }
+            </style></head>
+            <body><div id="cb"><table id="t1"><caption id="c1">cap</caption><tr><td id="d1">x</td></tr></table><div id="a1" style="height: 10px"></div><table id="t2"><caption id="c2" style="caption-side: bottom">cap</caption><tr><td id="d2">x</td></tr></table><div id="a2" style="height: 10px"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["t1", "c1", "d1", "a1", "t2", "c2", "d2", "a2"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [t1, c1, d1, a1, t2, c2, d2, a2] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+        });
+        let (left, top) = (t1.margin_box.x, t1.margin_box.y);
+        let near = |got: f64, want: f64, what: &str| assert!((got - want).abs() < 1.0, "{what}: {got}, want {want}");
+
+        near(
+            t1.border_box.width,
+            144.0,
+            "t1: 100px cell, 20px padding and 2px border a side",
+        );
+        near(c1.border_box.width, 144.0, "c1 spans t1's border box");
+        near(c1.border_box.x - left, 0.0, "c1 left");
+        near(c1.border_box.y - top, 0.0, "c1 top");
+        near(t1.border_box.y - top, 30.0, "t1's border starts below its caption");
+        near(t1.border_box.height, 44.0, "t1's border box");
+        near(d1.border_box.x - left, 22.0, "d1 inside border and padding");
+        near(d1.border_box.y - top, 42.0, "d1 below caption, border and padding");
+        near(a1.border_box.y - top, 74.0, "a1 follows caption and table");
+
+        near(t2.border_box.y - top, 84.0, "t2 top");
+        near(t2.border_box.height, 44.0, "t2's border box");
+        near(d2.border_box.y - top, 96.0, "d2 inside border and padding");
+        near(c2.border_box.y - top, 128.0, "c2 below t2's border");
+        near(c2.border_box.width, 144.0, "c2 spans t2's border box");
+        near(a2.border_box.y - top, 158.0, "a2 follows table and caption");
+    }
+
     /// A caption sits outside the table's border, above it or below it, and is as wide as the
     /// table's border box; the table's border box holds the grid alone. The numbers are
     /// Chromium's for the same page, where the table's own rect is the wrapper around both.

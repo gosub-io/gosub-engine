@@ -107,6 +107,30 @@ impl<'a> PipelineTableTree<'a> {
     /// Sum of the border-box heights of the nested tables directly contained in a cell (not
     /// counting tables nested deeper inside those). Zero if the cell holds no table. This lets
     /// a table cell grow to contain a nested table whose height lattice computes in a later pass.
+    /// One side of a table's padding as its layout box has it, for the padding properties of a
+    /// table node; `None` for anything else.
+    fn resolved_table_padding(&self, id: DomNodeId, prop: CssProp) -> Option<f64> {
+        if !matches!(
+            prop,
+            CssProp::PaddingTop | CssProp::PaddingRight | CssProp::PaddingBottom | CssProp::PaddingLeft
+        ) || !is_table_box(self.doc, id)
+        {
+            return None;
+        }
+        let padding = self
+            .dom_to_layout
+            .get(&id)
+            .and_then(|layout_id| self.layout_tree.arena.get(layout_id))?
+            .box_model
+            .padding;
+        Some(match prop {
+            CssProp::PaddingTop => padding.top,
+            CssProp::PaddingRight => padding.right,
+            CssProp::PaddingBottom => padding.bottom,
+            _ => padding.left,
+        })
+    }
+
     fn nested_table_height(&self, cell_layout_id: LayoutElementId) -> f32 {
         let Some(el) = self.layout_tree.arena.get(&cell_layout_id) else {
             return 0.0;
@@ -352,6 +376,13 @@ impl TableTree for PipelineTableTree<'_> {
     }
 
     fn css_length(&self, id: DomNodeId, prop: CssProp) -> CssLength {
+        // The table's own padding is what the grid gets wrapped in afterwards, and that comes
+        // from the table's box as taffy resolved it. Lattice places the grid and the caption
+        // inside and outside of it, so it is handed the same resolved pixels rather than a
+        // percentage to resolve on its own and maybe differently.
+        if let Some(side) = self.resolved_table_padding(id, prop) {
+            return CssLength::Px(side);
+        }
         let style = self.doc.computed_style(id);
         let (size, border, padding) = (&style.size, &style.border, &style.padding);
         let length = |value: LengthPercentage| match value {

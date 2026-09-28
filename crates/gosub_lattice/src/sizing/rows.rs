@@ -163,6 +163,18 @@ pub(crate) fn read_border<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     }
 }
 
+/// [`read_padding`] for a box whose padding may be a percentage, as a table's may: CSS resolves
+/// those against the containing block's width on every side, which is `basis`.
+pub(crate) fn read_padding_against<T: TableTree>(tree: &T, node: T::NodeId, basis: f64) -> BoxEdges {
+    let side = |prop| tree.css_length(node, prop).resolve(basis).unwrap_or(0.0);
+    BoxEdges {
+        top: side(CssProp::PaddingTop),
+        right: side(CssProp::PaddingRight),
+        bottom: side(CssProp::PaddingBottom),
+        left: side(CssProp::PaddingLeft),
+    }
+}
+
 pub(crate) fn read_padding<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {
         top: tree.css_length(node, CssProp::PaddingTop).px_or(0.0),

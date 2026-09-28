@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
 use crate::sizing::columns::{column_specs, compute_column_widths};
-use crate::sizing::rows::{compute_row_heights, effective_border, read_border, read_padding};
+use crate::sizing::rows::{compute_row_heights, effective_border, read_border, read_padding, read_padding_against};
 use crate::types::{BorderCollapse, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
@@ -61,8 +61,10 @@ pub fn compute_table_layout<T: TableTree>(
     // first: the border and padding under the separated model, and the perimeter border halves
     // under collapse (below), where the table has no padding and its border joined the grid's.
     let border_box = matches!(tree.css_length(table_node, CssProp::BoxSizing), CssLength::Px(v) if v == 1.0);
+    // The table's own padding, a percentage of which is of the containing block's width.
+    let table_padding = read_padding_against(tree, table_node, available_width);
     let (own_edges_x, own_edges_y) = if border_box && !collapse {
-        let (border, padding) = (read_border(tree, table_node), read_padding(tree, table_node));
+        let (border, padding) = (read_border(tree, table_node), table_padding);
         (
             border.horizontal() + padding.horizontal(),
             border.vertical() + padding.vertical(),
@@ -187,7 +189,7 @@ pub fn compute_table_layout<T: TableTree>(
     let fit_edges_x = if collapse {
         perimeter.left + perimeter.right
     } else {
-        read_border(tree, table_node).horizontal() + read_padding(tree, table_node).horizontal()
+        read_border(tree, table_node).horizontal() + table_padding.horizontal()
     };
     let fit_width = (available_width - fit_edges_x).max(0.0);
 
@@ -199,7 +201,7 @@ pub fn compute_table_layout<T: TableTree>(
     let caption_edges = if collapse {
         BOX_EDGES_ZERO
     } else {
-        let (border, padding) = (read_border(tree, table_node), read_padding(tree, table_node));
+        let (border, padding) = (read_border(tree, table_node), table_padding);
         crate::types::BoxEdges {
             top: border.top + padding.top,
             right: border.right + padding.right,
