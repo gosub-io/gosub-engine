@@ -741,6 +741,60 @@ mod rendertree_from_engine {
         }
     }
 
+    /// The corners of `lh` the first cut got wrong, with Chromium's numbers: a `font-size` in
+    /// `lh` measured against the parent's line-height before `em` is worked out from it, a bare
+    /// `0` line-height, and an explicit `inherit` or `unset` of a percentage, which inherits the
+    /// length the parent computed rather than the percentage.
+    #[test]
+    fn lh_in_font_size_zero_and_explicit_inheritance() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html      { font-size: 20px; line-height: 30px; }
+                    #fs       { font-size: 2lh; width: 1em; }
+                    #fs-own   { font-size: 2lh; line-height: 1; width: 1lh; }
+                    #zero     { font-size: 10px; line-height: 0; width: 1lh; }
+                    #parent   { font-size: 20px; line-height: 150%; }
+                    #explicit { font-size: 10px; line-height: inherit; width: 1lh; }
+                    #unset    { font-size: 10px; line-height: unset; width: 1lh; }
+                </style>
+            </head>
+            <body>
+                <div id="fs"></div>
+                <div id="fs-own"></div>
+                <div id="zero"></div>
+                <div id="parent"><div id="explicit"></div><div id="unset"></div></div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.computed_style(node).size.width
+        };
+
+        for (id_attr, expected) in [
+            ("fs", 60.0),
+            ("fs-own", 60.0),
+            ("zero", 0.0),
+            ("explicit", 30.0),
+            ("unset", 30.0),
+        ] {
+            assert_eq!(
+                width_of(id_attr),
+                LengthPercentageAuto::Px(expected),
+                "expected width {expected}px on #{id_attr}"
+            );
+        }
+    }
+
     #[test]
     fn calc_reaches_layout_as_a_length() {
         // `calc()` bodies were carried to layout as text and never evaluated, so every one of
