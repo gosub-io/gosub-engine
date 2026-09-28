@@ -25,7 +25,7 @@ use gosub_interface::style::{
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
-use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
+use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
 use crate::stylesheet::CssValue;
 
@@ -362,19 +362,34 @@ const MEDIUM_BORDER_WIDTH: f32 = 3.0;
 /// where nothing in the ancestor chain ever said how big the text should be.
 const MONOSPACE_DEFAULT_FONT_SIZE: f32 = 13.0;
 
-/// Read one property and, when it says something, write it to a field and record that the
+/// Read one longhand and, when it says something, write it to a field and record that the
 /// element's own cascade had a value for it.
+///
+/// Which property that records comes from [`ENGINE_LONGHANDS`], and whether the value may be
+/// the inherited one from the longhand's own definition: an inherited property reads what the
+/// element settled or what it inherits, any other only what the element settled. Neither is
+/// written at the call site, so neither can be written wrong there.
 ///
 /// `$group` names the group's accessor rather than its field, because writing is what clones a
 /// shared group: a group whose properties this element never declared is never reached for
 /// writing and stays the one its parent or the initial style already holds.
-macro_rules! apply {
-    ($map:expr, $style:expr, $id:expr, $prop:ident, $group:ident, $field:ident, $read:expr) => {
-        if let Some(read_value) = value($map, $id).and_then($read) {
+macro_rules! read {
+    ($map:expr, $style:expr, $id:ident, $group:ident, $field:ident, $read:expr) => {{
+        let id = longhand(LonghandId::$id);
+        let found = if id.inherited() {
+            value_or_inherited($map, id)
+        } else {
+            value($map, id)
+        };
+        if let Some(read_value) = found.and_then($read) {
             $style.$group().$field = read_value;
-            $style.declared.set(Prop::$prop);
+            let prop = prop_of(LonghandId::$id);
+            debug_assert!(prop.is_some(), "{} is read but not in ENGINE_LONGHANDS", id.name());
+            if let Some(prop) = prop {
+                $style.declared.set(prop);
+            }
         }
-    };
+    }};
 }
 
 // ── Which field group each property belongs to ───────────────────────────────
@@ -391,162 +406,135 @@ const G_INSET: u16 = 1 << 8;
 const G_FLEX: u16 = 1 << 9;
 const G_GRID: u16 = 1 << 10;
 
-/// Every property each group is built from, which is what decides whether an element's cascade
-/// can have changed that group at all.
-static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
+/// Every longhand the typed style reads: the [`Prop`] it answers for, and the field group it
+/// lives in.
+///
+/// This is the one place the three are paired. The group table and [`prop_of`] are built from
+/// it, and [`read!`] takes only the longhand. A longhand in the wrong group is never read - the
+/// group's resolver does not run for an element that touched only other groups - so a test
+/// declares each one at its initial value and checks its property is recorded.
+///
+/// A property can have more than one longhand (`inset-block-start` and `top`, the two halves of
+/// `text-wrap`), and one longhand can feed two properties (`border-spacing`).
+static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
+    // inherited
+    (LonghandId::FontFamily, Prop::FontFamily, G_INHERITED),
+    (LonghandId::FontSize, Prop::FontSize, G_INHERITED),
+    (LonghandId::Color, Prop::Color, G_INHERITED),
+    (LonghandId::FontStyle, Prop::FontStyle, G_INHERITED),
+    (LonghandId::FontWeight, Prop::FontWeight, G_INHERITED),
+    (LonghandId::LineHeight, Prop::LineHeight, G_INHERITED),
+    (LonghandId::TextAlign, Prop::TextAlign, G_INHERITED),
+    (LonghandId::TextTransform, Prop::TextTransform, G_INHERITED),
+    (LonghandId::WhiteSpace, Prop::WhiteSpace, G_INHERITED),
+    (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
+    (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
+    (LonghandId::BorderCollapse, Prop::BorderCollapse, G_INHERITED),
+    (LonghandId::TextDecorationLine, Prop::TextDecorationLine, G_INHERITED),
+    (LonghandId::BorderSpacing, Prop::BorderSpacingX, G_INHERITED),
+    (LonghandId::BorderSpacing, Prop::BorderSpacingY, G_INHERITED),
+    // box
+    (LonghandId::Display, Prop::Display, G_BOX),
+    (LonghandId::Position, Prop::Position, G_BOX),
+    (LonghandId::Float, Prop::Float, G_BOX),
+    (LonghandId::Clear, Prop::Clear, G_BOX),
+    (LonghandId::BoxSizing, Prop::BoxSizing, G_BOX),
+    (LonghandId::OverflowX, Prop::OverflowX, G_BOX),
+    (LonghandId::OverflowY, Prop::OverflowY, G_BOX),
+    (LonghandId::ZIndex, Prop::ZIndex, G_BOX),
+    (LonghandId::Opacity, Prop::Opacity, G_BOX),
+    (LonghandId::MixBlendMode, Prop::MixBlendMode, G_BOX),
+    (LonghandId::Resize, Prop::Resize, G_BOX),
+    (LonghandId::ScrollbarWidth, Prop::ScrollbarWidth, G_BOX),
+    (LonghandId::AspectRatio, Prop::AspectRatio, G_BOX),
+    (LonghandId::TextWrapMode, Prop::TextWrap, G_BOX),
+    (LonghandId::TextWrapStyle, Prop::TextWrap, G_BOX),
+    (LonghandId::TableLayout, Prop::TableLayout, G_BOX),
+    (LonghandId::VerticalAlign, Prop::VerticalAlign, G_BOX),
+    // size
+    (LonghandId::Width, Prop::Width, G_SIZE),
+    (LonghandId::Height, Prop::Height, G_SIZE),
+    (LonghandId::MinWidth, Prop::MinWidth, G_SIZE),
+    (LonghandId::MinHeight, Prop::MinHeight, G_SIZE),
+    (LonghandId::MaxWidth, Prop::MaxWidth, G_SIZE),
+    (LonghandId::MaxHeight, Prop::MaxHeight, G_SIZE),
+    // margin
+    (LonghandId::MarginTop, Prop::MarginTop, G_MARGIN),
+    (LonghandId::MarginRight, Prop::MarginRight, G_MARGIN),
+    (LonghandId::MarginBottom, Prop::MarginBottom, G_MARGIN),
+    (LonghandId::MarginLeft, Prop::MarginLeft, G_MARGIN),
+    // padding
+    (LonghandId::PaddingTop, Prop::PaddingTop, G_PADDING),
+    (LonghandId::PaddingRight, Prop::PaddingRight, G_PADDING),
+    (LonghandId::PaddingBottom, Prop::PaddingBottom, G_PADDING),
+    (LonghandId::PaddingLeft, Prop::PaddingLeft, G_PADDING),
+    // border
+    (LonghandId::BorderTopStyle, Prop::BorderTopStyle, G_BORDER),
+    (LonghandId::BorderRightStyle, Prop::BorderRightStyle, G_BORDER),
+    (LonghandId::BorderBottomStyle, Prop::BorderBottomStyle, G_BORDER),
+    (LonghandId::BorderLeftStyle, Prop::BorderLeftStyle, G_BORDER),
+    (LonghandId::BorderTopWidth, Prop::BorderTopWidth, G_BORDER),
+    (LonghandId::BorderRightWidth, Prop::BorderRightWidth, G_BORDER),
+    (LonghandId::BorderBottomWidth, Prop::BorderBottomWidth, G_BORDER),
+    (LonghandId::BorderLeftWidth, Prop::BorderLeftWidth, G_BORDER),
+    (LonghandId::BorderTopColor, Prop::BorderTopColor, G_BORDER),
+    (LonghandId::BorderRightColor, Prop::BorderRightColor, G_BORDER),
+    (LonghandId::BorderBottomColor, Prop::BorderBottomColor, G_BORDER),
+    (LonghandId::BorderLeftColor, Prop::BorderLeftColor, G_BORDER),
+    (LonghandId::BorderTopLeftRadius, Prop::BorderTopLeftRadius, G_BORDER),
+    (LonghandId::BorderTopRightRadius, Prop::BorderTopRightRadius, G_BORDER),
     (
-        G_INHERITED,
-        &[
-            PropertyId::Longhand(LonghandId::FontFamily),
-            PropertyId::Longhand(LonghandId::FontSize),
-            PropertyId::Longhand(LonghandId::Color),
-            PropertyId::Longhand(LonghandId::FontStyle),
-            PropertyId::Longhand(LonghandId::FontWeight),
-            PropertyId::Longhand(LonghandId::LineHeight),
-            PropertyId::Longhand(LonghandId::TextAlign),
-            PropertyId::Longhand(LonghandId::TextTransform),
-            PropertyId::Longhand(LonghandId::WhiteSpace),
-            PropertyId::Longhand(LonghandId::LetterSpacing),
-            PropertyId::Longhand(LonghandId::CaptionSide),
-            PropertyId::Longhand(LonghandId::BorderCollapse),
-            PropertyId::Longhand(LonghandId::TextDecorationLine),
-            PropertyId::Longhand(LonghandId::BorderSpacing),
-        ],
-    ),
-    (
-        G_BOX,
-        &[
-            PropertyId::Longhand(LonghandId::Display),
-            PropertyId::Longhand(LonghandId::Position),
-            PropertyId::Longhand(LonghandId::Float),
-            PropertyId::Longhand(LonghandId::Clear),
-            PropertyId::Longhand(LonghandId::BoxSizing),
-            PropertyId::Longhand(LonghandId::OverflowX),
-            PropertyId::Longhand(LonghandId::OverflowY),
-            PropertyId::Longhand(LonghandId::ZIndex),
-            PropertyId::Longhand(LonghandId::Opacity),
-            PropertyId::Longhand(LonghandId::MixBlendMode),
-            PropertyId::Longhand(LonghandId::Resize),
-            PropertyId::Longhand(LonghandId::ScrollbarWidth),
-            PropertyId::Longhand(LonghandId::AspectRatio),
-            PropertyId::Longhand(LonghandId::TextWrapMode),
-            PropertyId::Longhand(LonghandId::TextWrapStyle),
-            PropertyId::Longhand(LonghandId::TableLayout),
-            PropertyId::Longhand(LonghandId::VerticalAlign),
-        ],
-    ),
-    (
-        G_SIZE,
-        &[
-            PropertyId::Longhand(LonghandId::Width),
-            PropertyId::Longhand(LonghandId::Height),
-            PropertyId::Longhand(LonghandId::MinWidth),
-            PropertyId::Longhand(LonghandId::MinHeight),
-            PropertyId::Longhand(LonghandId::MaxWidth),
-            PropertyId::Longhand(LonghandId::MaxHeight),
-        ],
-    ),
-    (
-        G_MARGIN,
-        &[
-            PropertyId::Longhand(LonghandId::MarginTop),
-            PropertyId::Longhand(LonghandId::MarginRight),
-            PropertyId::Longhand(LonghandId::MarginBottom),
-            PropertyId::Longhand(LonghandId::MarginLeft),
-        ],
-    ),
-    (
-        G_PADDING,
-        &[
-            PropertyId::Longhand(LonghandId::PaddingTop),
-            PropertyId::Longhand(LonghandId::PaddingRight),
-            PropertyId::Longhand(LonghandId::PaddingBottom),
-            PropertyId::Longhand(LonghandId::PaddingLeft),
-        ],
-    ),
-    (
+        LonghandId::BorderBottomLeftRadius,
+        Prop::BorderBottomLeftRadius,
         G_BORDER,
-        &[
-            PropertyId::Longhand(LonghandId::BorderTopStyle),
-            PropertyId::Longhand(LonghandId::BorderRightStyle),
-            PropertyId::Longhand(LonghandId::BorderBottomStyle),
-            PropertyId::Longhand(LonghandId::BorderLeftStyle),
-            PropertyId::Longhand(LonghandId::BorderTopWidth),
-            PropertyId::Longhand(LonghandId::BorderRightWidth),
-            PropertyId::Longhand(LonghandId::BorderBottomWidth),
-            PropertyId::Longhand(LonghandId::BorderLeftWidth),
-            PropertyId::Longhand(LonghandId::BorderTopColor),
-            PropertyId::Longhand(LonghandId::BorderRightColor),
-            PropertyId::Longhand(LonghandId::BorderBottomColor),
-            PropertyId::Longhand(LonghandId::BorderLeftColor),
-            PropertyId::Longhand(LonghandId::BorderTopLeftRadius),
-            PropertyId::Longhand(LonghandId::BorderTopRightRadius),
-            PropertyId::Longhand(LonghandId::BorderBottomLeftRadius),
-            PropertyId::Longhand(LonghandId::BorderBottomRightRadius),
-        ],
     ),
     (
-        G_OUTLINE,
-        &[
-            PropertyId::Longhand(LonghandId::OutlineStyle),
-            PropertyId::Longhand(LonghandId::OutlineWidth),
-            PropertyId::Longhand(LonghandId::OutlineColor),
-            PropertyId::Longhand(LonghandId::OutlineOffset),
-        ],
+        LonghandId::BorderBottomRightRadius,
+        Prop::BorderBottomRightRadius,
+        G_BORDER,
     ),
-    (
-        G_BACKGROUND,
-        &[
-            PropertyId::Longhand(LonghandId::BackgroundColor),
-            PropertyId::Longhand(LonghandId::BackgroundImage),
-        ],
-    ),
-    (
-        G_INSET,
-        &[
-            PropertyId::Longhand(LonghandId::InsetBlockStart),
-            PropertyId::Longhand(LonghandId::Top),
-            PropertyId::Longhand(LonghandId::InsetBlockEnd),
-            PropertyId::Longhand(LonghandId::Bottom),
-            PropertyId::Longhand(LonghandId::InsetInlineStart),
-            PropertyId::Longhand(LonghandId::Left),
-            PropertyId::Longhand(LonghandId::InsetInlineEnd),
-            PropertyId::Longhand(LonghandId::Right),
-        ],
-    ),
-    (
-        G_FLEX,
-        &[
-            PropertyId::Longhand(LonghandId::FlexBasis),
-            PropertyId::Longhand(LonghandId::FlexDirection),
-            PropertyId::Longhand(LonghandId::FlexGrow),
-            PropertyId::Longhand(LonghandId::FlexShrink),
-            PropertyId::Longhand(LonghandId::FlexWrap),
-            PropertyId::Longhand(LonghandId::RowGap),
-            PropertyId::Longhand(LonghandId::ColumnGap),
-            PropertyId::Longhand(LonghandId::AlignItems),
-            PropertyId::Longhand(LonghandId::AlignSelf),
-            PropertyId::Longhand(LonghandId::AlignContent),
-            PropertyId::Longhand(LonghandId::JustifyItems),
-            PropertyId::Longhand(LonghandId::JustifySelf),
-            PropertyId::Longhand(LonghandId::JustifyContent),
-        ],
-    ),
-    (
-        G_GRID,
-        &[
-            PropertyId::Longhand(LonghandId::GridTemplateRows),
-            PropertyId::Longhand(LonghandId::GridTemplateColumns),
-            PropertyId::Longhand(LonghandId::GridAutoRows),
-            PropertyId::Longhand(LonghandId::GridAutoColumns),
-            PropertyId::Longhand(LonghandId::GridRowStart),
-            PropertyId::Longhand(LonghandId::GridRowEnd),
-            PropertyId::Longhand(LonghandId::GridColumnStart),
-            PropertyId::Longhand(LonghandId::GridColumnEnd),
-            PropertyId::Longhand(LonghandId::GridTemplateAreas),
-            PropertyId::Longhand(LonghandId::GridAutoFlow),
-        ],
-    ),
+    // outline
+    (LonghandId::OutlineStyle, Prop::OutlineStyle, G_OUTLINE),
+    (LonghandId::OutlineWidth, Prop::OutlineWidth, G_OUTLINE),
+    (LonghandId::OutlineColor, Prop::OutlineColor, G_OUTLINE),
+    (LonghandId::OutlineOffset, Prop::OutlineOffset, G_OUTLINE),
+    // background
+    (LonghandId::BackgroundColor, Prop::BackgroundColor, G_BACKGROUND),
+    (LonghandId::BackgroundImage, Prop::BackgroundImage, G_BACKGROUND),
+    // inset
+    (LonghandId::InsetBlockStart, Prop::InsetBlockStart, G_INSET),
+    (LonghandId::Top, Prop::InsetBlockStart, G_INSET),
+    (LonghandId::InsetBlockEnd, Prop::InsetBlockEnd, G_INSET),
+    (LonghandId::Bottom, Prop::InsetBlockEnd, G_INSET),
+    (LonghandId::InsetInlineStart, Prop::InsetInlineStart, G_INSET),
+    (LonghandId::Left, Prop::InsetInlineStart, G_INSET),
+    (LonghandId::InsetInlineEnd, Prop::InsetInlineEnd, G_INSET),
+    (LonghandId::Right, Prop::InsetInlineEnd, G_INSET),
+    // flex
+    (LonghandId::FlexBasis, Prop::FlexBasis, G_FLEX),
+    (LonghandId::FlexDirection, Prop::FlexDirection, G_FLEX),
+    (LonghandId::FlexGrow, Prop::FlexGrow, G_FLEX),
+    (LonghandId::FlexShrink, Prop::FlexShrink, G_FLEX),
+    (LonghandId::FlexWrap, Prop::FlexWrap, G_FLEX),
+    (LonghandId::RowGap, Prop::RowGap, G_FLEX),
+    (LonghandId::ColumnGap, Prop::ColumnGap, G_FLEX),
+    (LonghandId::AlignItems, Prop::AlignItems, G_FLEX),
+    (LonghandId::AlignSelf, Prop::AlignSelf, G_FLEX),
+    (LonghandId::AlignContent, Prop::AlignContent, G_FLEX),
+    (LonghandId::JustifyItems, Prop::JustifyItems, G_FLEX),
+    (LonghandId::JustifySelf, Prop::JustifySelf, G_FLEX),
+    (LonghandId::JustifyContent, Prop::JustifyContent, G_FLEX),
+    // grid
+    (LonghandId::GridTemplateRows, Prop::GridTemplateRows, G_GRID),
+    (LonghandId::GridTemplateColumns, Prop::GridTemplateColumns, G_GRID),
+    (LonghandId::GridAutoRows, Prop::GridAutoRows, G_GRID),
+    (LonghandId::GridAutoColumns, Prop::GridAutoColumns, G_GRID),
+    (LonghandId::GridRowStart, Prop::GridRowStart, G_GRID),
+    (LonghandId::GridRowEnd, Prop::GridRowEnd, G_GRID),
+    (LonghandId::GridColumnStart, Prop::GridColumnStart, G_GRID),
+    (LonghandId::GridColumnEnd, Prop::GridColumnEnd, G_GRID),
+    (LonghandId::GridTemplateAreas, Prop::GridTemplateAreas, G_GRID),
+    (LonghandId::GridAutoFlow, Prop::GridAutoFlow, G_GRID),
 ];
 
 /// One group bitmask per [`PropertyId::index`], so asking which group a declaration can reach
@@ -554,16 +542,29 @@ static GROUP_PROPERTIES: &[(u16, &[PropertyId])] = &[
 fn group_table() -> &'static [u16; PROPERTY_COUNT] {
     static TABLE: LazyLock<[u16; PROPERTY_COUNT]> = LazyLock::new(|| {
         let mut table = [0u16; PROPERTY_COUNT];
-        for (group, ids) in GROUP_PROPERTIES {
-            for id in *ids {
-                if let Some(slot) = table.get_mut(id.index()) {
-                    *slot |= *group;
-                }
+        for (id, _, group) in ENGINE_LONGHANDS {
+            if let Some(slot) = table.get_mut(PropertyId::Longhand(*id).index()) {
+                *slot |= *group;
             }
         }
         table
     });
     &TABLE
+}
+
+/// The property a longhand answers for: the first row [`ENGINE_LONGHANDS`] gives it, or `None`
+/// for a longhand the table does not list.
+fn prop_of(id: LonghandId) -> Option<Prop> {
+    static TABLE: LazyLock<[Option<Prop>; LONGHAND_COUNT]> = LazyLock::new(|| {
+        let mut table = [None; LONGHAND_COUNT];
+        for (longhand, prop, _) in ENGINE_LONGHANDS {
+            if let Some(slot) = table.get_mut(PropertyId::Longhand(*longhand).index()) {
+                slot.get_or_insert(*prop);
+            }
+        }
+        table
+    });
+    TABLE.get(PropertyId::Longhand(id).index()).copied().flatten()
 }
 
 /// The groups this element's own cascade can have changed.
@@ -585,16 +586,6 @@ fn touched_groups(map: &CssProperties) -> u16 {
         touched |= table.get(id.index()).copied().unwrap_or(0);
     }
     touched
-}
-
-/// The same, for a property that inherits: what the element settled, or what it inherits.
-macro_rules! apply_inherited {
-    ($map:expr, $style:expr, $id:expr, $prop:ident, $group:ident, $field:ident, $read:expr) => {
-        if let Some(read_value) = value_or_inherited($map, $id).and_then($read) {
-            $style.$group().$field = read_value;
-            $style.declared.set(Prop::$prop);
-        }
-    };
 }
 
 /// This element's [`ComputedStyle`], given its cascaded map and its parent's struct.
@@ -661,15 +652,7 @@ pub fn computed_style(map: &CssProperties, parent: Option<&ComputedStyle>) -> Co
 
 /// `font-family` and `font-size`, which everything else is measured against.
 fn resolve_font(map: &CssProperties, style: &mut ComputedStyle, parent: Option<&ComputedStyle>) {
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::FontFamily),
-        FontFamily,
-        inherited_mut,
-        font_family,
-        font_family
-    );
+    read!(map, style, FontFamily, inherited_mut, font_family, font_family);
 
     let parent_font_size = parent.map_or(16.0, |parent| parent.inherited.font_size);
 
@@ -742,175 +725,113 @@ fn family_is_monospace(family: &str) -> bool {
 }
 
 fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::Color),
-        Color,
-        inherited_mut,
-        color,
-        color
-    );
+    read!(map, style, Color, inherited_mut, color, color);
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::FontStyle),
-        FontStyle,
-        inherited_mut,
-        font_style,
-        |value| as_string(value).map(|keyword| match keyword {
-            "italic" => FontStyle::Italic,
-            "oblique" => FontStyle::Oblique,
-            _ => FontStyle::Normal,
-        })
-    );
+    read!(map, style, FontStyle, inherited_mut, font_style, |value| as_string(
+        value
+    )
+    .map(|keyword| match keyword {
+        "italic" => FontStyle::Italic,
+        "oblique" => FontStyle::Oblique,
+        _ => FontStyle::Normal,
+    }));
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::FontWeight),
-        FontWeight,
-        inherited_mut,
-        font_weight,
-        |value| {
-            if let Some(number) = as_number(value) {
-                return Some(FontWeight::Number(number));
-            }
-            as_string(value).map(|keyword| match keyword {
-                "bold" => FontWeight::Bold,
-                "bolder" => FontWeight::Bolder,
-                "lighter" => FontWeight::Lighter,
-                _ => FontWeight::Normal,
-            })
+    read!(map, style, FontWeight, inherited_mut, font_weight, |value| {
+        if let Some(number) = as_number(value) {
+            return Some(FontWeight::Number(number));
         }
-    );
+        as_string(value).map(|keyword| match keyword {
+            "bold" => FontWeight::Bold,
+            "bolder" => FontWeight::Bolder,
+            "lighter" => FontWeight::Lighter,
+            _ => FontWeight::Normal,
+        })
+    });
 
     // A percentage `line-height` is a fraction of the element's own font-size, which is exactly
     // what an `em` means here, so both land as pixels. A unitless number stays a number: it
     // inherits as a multiplier rather than as the length it happens to be worth here.
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::LineHeight),
-        LineHeight,
-        inherited_mut,
-        line_height,
-        |value| {
-            if as_unit(value).is_some() {
-                return Some(LineHeight::Px(value.unit_to_px()));
-            }
-            if let Some(pct) = as_percentage(value) {
-                return Some(LineHeight::Px(font_size * pct / 100.0));
-            }
-            if let Some(number) = as_number(value) {
-                return Some(LineHeight::Number(number));
-            }
-            // `normal`, and anything else that is not a length: the font metrics decide.
-            as_string(value).map(|_| LineHeight::Normal)
+    read!(map, style, LineHeight, inherited_mut, line_height, |value| {
+        if as_unit(value).is_some() {
+            return Some(LineHeight::Px(value.unit_to_px()));
         }
-    );
+        if let Some(pct) = as_percentage(value) {
+            return Some(LineHeight::Px(font_size * pct / 100.0));
+        }
+        if let Some(number) = as_number(value) {
+            return Some(LineHeight::Number(number));
+        }
+        // `normal`, and anything else that is not a length: the font metrics decide.
+        as_string(value).map(|_| LineHeight::Normal)
+    });
 
     // The two keywords that are defined by the parent's value read it here, while the style still
     // holds what it inherited. `match-parent` computes to the parent's value (CSS Text 3 §6.1),
     // and `-internal-center` is the HTML rendering section's `<th>` rule: centre, but only where
     // the parent left `text-align` at its initial value.
     let parent_align = style.inherited.text_align;
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::TextAlign),
-        TextAlign,
-        inherited_mut,
-        text_align,
-        |value| as_string(value).map(|keyword| match keyword {
-            "right" => TextAlign::Right,
-            "center" => TextAlign::Center,
-            "justify" => TextAlign::Justify,
-            "start" => TextAlign::Start,
-            "end" => TextAlign::End,
-            "match-parent" | "-webkit-match-parent" => parent_align,
-            "-internal-center" if parent_align == TextAlign::Start => TextAlign::Center,
-            "-internal-center" => parent_align,
-            "-webkit-left" => TextAlign::WebkitLeft,
-            "-webkit-right" => TextAlign::WebkitRight,
-            "-webkit-center" => TextAlign::WebkitCenter,
-            _ => TextAlign::Left,
-        })
-    );
+    read!(map, style, TextAlign, inherited_mut, text_align, |value| as_string(
+        value
+    )
+    .map(|keyword| match keyword {
+        "right" => TextAlign::Right,
+        "center" => TextAlign::Center,
+        "justify" => TextAlign::Justify,
+        "start" => TextAlign::Start,
+        "end" => TextAlign::End,
+        "match-parent" | "-webkit-match-parent" => parent_align,
+        "-internal-center" if parent_align == TextAlign::Start => TextAlign::Center,
+        "-internal-center" => parent_align,
+        "-webkit-left" => TextAlign::WebkitLeft,
+        "-webkit-right" => TextAlign::WebkitRight,
+        "-webkit-center" => TextAlign::WebkitCenter,
+        _ => TextAlign::Left,
+    }));
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::TextTransform),
-        TextTransform,
-        inherited_mut,
-        text_transform,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, TextTransform, inherited_mut, text_transform, |value| {
+        as_string(value).map(|keyword| match keyword {
             "uppercase" => TextTransform::Uppercase,
             "lowercase" => TextTransform::Lowercase,
             "capitalize" => TextTransform::Capitalize,
             _ => TextTransform::None,
         })
-    );
+    });
 
     resolve_text_decoration(map, style);
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::WhiteSpace),
-        WhiteSpace,
-        inherited_mut,
-        white_space,
-        |value| as_string(value).map(|keyword| match keyword {
-            "pre" => WhiteSpace::Pre,
-            "nowrap" => WhiteSpace::NoWrap,
-            "pre-wrap" => WhiteSpace::PreWrap,
-            "pre-line" => WhiteSpace::PreLine,
-            "break-spaces" => WhiteSpace::BreakSpaces,
-            _ => WhiteSpace::Normal,
-        })
-    );
+    read!(map, style, WhiteSpace, inherited_mut, white_space, |value| as_string(
+        value
+    )
+    .map(|keyword| match keyword {
+        "pre" => WhiteSpace::Pre,
+        "nowrap" => WhiteSpace::NoWrap,
+        "pre-wrap" => WhiteSpace::PreWrap,
+        "pre-line" => WhiteSpace::PreLine,
+        "break-spaces" => WhiteSpace::BreakSpaces,
+        _ => WhiteSpace::Normal,
+    }));
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::LetterSpacing),
-        LetterSpacing,
-        inherited_mut,
-        letter_spacing,
-        |value| Some(match length_percentage(value, font_size) {
+    read!(map, style, LetterSpacing, inherited_mut, letter_spacing, |value| Some(
+        match length_percentage(value, font_size) {
             Some(length) => LetterSpacing::Length(length),
             None => LetterSpacing::Normal,
-        })
-    );
+        }
+    ));
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::CaptionSide),
-        CaptionSide,
-        inherited_mut,
-        caption_side,
-        |value| as_string(value).map(|keyword| match keyword {
-            "bottom" | "block-end" => CaptionSide::Bottom,
-            _ => CaptionSide::Top,
-        })
-    );
+    read!(map, style, CaptionSide, inherited_mut, caption_side, |value| as_string(
+        value
+    )
+    .map(|keyword| match keyword {
+        "bottom" | "block-end" => CaptionSide::Bottom,
+        _ => CaptionSide::Top,
+    }));
 
-    apply_inherited!(
-        map,
-        style,
-        longhand(LonghandId::BorderCollapse),
-        BorderCollapse,
-        inherited_mut,
-        border_collapse,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, BorderCollapse, inherited_mut, border_collapse, |value| {
+        as_string(value).map(|keyword| match keyword {
             "collapse" => BorderCollapse::Collapse,
             _ => BorderCollapse::Separate,
         })
-    );
+    });
 
     resolve_border_spacing(map, style, font_size);
 }
@@ -967,161 +888,72 @@ fn resolve_border_spacing(map: &CssProperties, style: &mut ComputedStyle, font_s
 }
 
 fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Display),
-        Display,
-        box_mut,
-        display,
-        |value| as_string(value).map(display_of)
-    );
+    read!(map, style, Display, box_mut, display, |value| as_string(value)
+        .map(display_of));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Position),
-        Position,
-        box_mut,
-        position,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, Position, box_mut, position, |value| as_string(value).map(
+        |keyword| match keyword {
             "relative" => Position::Relative,
             "absolute" => Position::Absolute,
             "fixed" => Position::Fixed,
             "sticky" => Position::Sticky,
             _ => Position::Static,
+        }
+    ));
+
+    read!(map, style, Float, box_mut, float, |value| {
+        as_string(value).map(|keyword| match keyword {
+            "left" => Float::Left,
+            "right" => Float::Right,
+            _ => Float::None,
         })
-    );
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Float),
-        Float,
-        box_mut,
-        float,
-        |value| {
-            as_string(value).map(|keyword| match keyword {
-                "left" => Float::Left,
-                "right" => Float::Right,
-                _ => Float::None,
-            })
-        }
-    );
+    read!(map, style, Clear, box_mut, clear, |value| {
+        as_string(value).map(|keyword| match keyword {
+            "left" => Clear::Left,
+            "right" => Clear::Right,
+            "both" => Clear::Both,
+            _ => Clear::None,
+        })
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Clear),
-        Clear,
-        box_mut,
-        clear,
-        |value| {
-            as_string(value).map(|keyword| match keyword {
-                "left" => Clear::Left,
-                "right" => Clear::Right,
-                "both" => Clear::Both,
-                _ => Clear::None,
-            })
-        }
-    );
-
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BoxSizing),
-        BoxSizing,
-        box_mut,
-        box_sizing,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, BoxSizing, box_mut, box_sizing, |value| as_string(value)
+        .map(|keyword| match keyword {
             "border-box" => BoxSizing::BorderBox,
             _ => BoxSizing::ContentBox,
-        })
-    );
+        }));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::OverflowX),
-        OverflowX,
-        box_mut,
-        overflow_x,
-        |value| as_string(value).map(overflow_of)
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::OverflowY),
-        OverflowY,
-        box_mut,
-        overflow_y,
-        |value| as_string(value).map(overflow_of)
-    );
+    read!(map, style, OverflowX, box_mut, overflow_x, |value| as_string(value)
+        .map(overflow_of));
+    read!(map, style, OverflowY, box_mut, overflow_y, |value| as_string(value)
+        .map(overflow_of));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::ZIndex),
-        ZIndex,
-        box_mut,
-        z_index,
-        |value| {
-            if let Some(number) = as_number(value) {
-                return Some(ZIndex::Index(number));
-            }
-            as_string(value).map(|_| ZIndex::Auto)
+    read!(map, style, ZIndex, box_mut, z_index, |value| {
+        if let Some(number) = as_number(value) {
+            return Some(ZIndex::Index(number));
         }
-    );
+        as_string(value).map(|_| ZIndex::Auto)
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Opacity),
-        Opacity,
-        box_mut,
-        opacity,
-        as_number
-    );
+    read!(map, style, Opacity, box_mut, opacity, as_number);
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MixBlendMode),
-        MixBlendMode,
-        box_mut,
-        mix_blend_mode,
-        |value| as_string(value).map(Arc::from)
-    );
+    read!(map, style, MixBlendMode, box_mut, mix_blend_mode, |value| as_string(
+        value
+    )
+    .map(Arc::from));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::Resize),
-        Resize,
-        box_mut,
-        resize,
-        |value| { as_string(value).map(Arc::from) }
-    );
+    read!(map, style, Resize, box_mut, resize, |value| {
+        as_string(value).map(Arc::from)
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::ScrollbarWidth),
-        ScrollbarWidth,
-        box_mut,
-        scrollbar_width,
-        |value| as_number(value).map(Some)
-    );
+    read!(map, style, ScrollbarWidth, box_mut, scrollbar_width, |value| as_number(
+        value
+    )
+    .map(Some));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::AspectRatio),
-        AspectRatio,
-        box_mut,
-        aspect_ratio,
-        |value| as_number(value).map(Some)
-    );
+    read!(map, style, AspectRatio, box_mut, aspect_ratio, |value| as_number(value)
+        .map(Some));
 
     // `text-wrap` is a shorthand for these two (css-text-4 §5.1); one field holds both, since a
     // line that does not wrap has no style of wrapping.
@@ -1138,40 +970,28 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
         style.declared.set(Prop::TextWrap);
     }
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::TableLayout),
-        TableLayout,
-        box_mut,
-        table_layout,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, TableLayout, box_mut, table_layout, |value| as_string(value)
+        .map(|keyword| match keyword {
             "fixed" => TableLayout::Fixed,
             _ => TableLayout::Auto,
-        })
-    );
+        }));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::VerticalAlign),
-        VerticalAlign,
-        box_mut,
-        vertical_align,
-        |value| as_string(value).map(|keyword| match keyword {
-            "baseline" => VerticalAlign::Baseline,
-            "sub" => VerticalAlign::Sub,
-            "super" => VerticalAlign::Super,
-            "text-top" => VerticalAlign::TextTop,
-            "text-bottom" => VerticalAlign::TextBottom,
-            "middle" => VerticalAlign::Middle,
-            "top" => VerticalAlign::Top,
-            "bottom" => VerticalAlign::Bottom,
-            // A length, and the `inherit` the user-agent sheet puts on cells: nothing this
-            // engine acts on, and the cell-alignment walk keeps climbing past it.
-            _ => VerticalAlign::Other,
-        })
-    );
+    read!(map, style, VerticalAlign, box_mut, vertical_align, |value| as_string(
+        value
+    )
+    .map(|keyword| match keyword {
+        "baseline" => VerticalAlign::Baseline,
+        "sub" => VerticalAlign::Sub,
+        "super" => VerticalAlign::Super,
+        "text-top" => VerticalAlign::TextTop,
+        "text-bottom" => VerticalAlign::TextBottom,
+        "middle" => VerticalAlign::Middle,
+        "top" => VerticalAlign::Top,
+        "bottom" => VerticalAlign::Bottom,
+        // A length, and the `inherit` the user-agent sheet puts on cells: nothing this
+        // engine acts on, and the cell-alignment walk keeps climbing past it.
+        _ => VerticalAlign::Other,
+    }));
 }
 
 fn overflow_of(keyword: &str) -> Overflow {
@@ -1187,166 +1007,38 @@ fn overflow_of(keyword: &str) -> Overflow {
 fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lpa = |value: &CssValue| Some(length_percentage_auto(value, font_size));
 
-    apply!(map, style, longhand(LonghandId::Width), Width, size_mut, width, lpa);
-    apply!(map, style, longhand(LonghandId::Height), Height, size_mut, height, lpa);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MinWidth),
-        MinWidth,
-        size_mut,
-        min_width,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MinHeight),
-        MinHeight,
-        size_mut,
-        min_height,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MaxWidth),
-        MaxWidth,
-        size_mut,
-        max_width,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MaxHeight),
-        MaxHeight,
-        size_mut,
-        max_height,
-        lpa
-    );
+    read!(map, style, Width, size_mut, width, lpa);
+    read!(map, style, Height, size_mut, height, lpa);
+    read!(map, style, MinWidth, size_mut, min_width, lpa);
+    read!(map, style, MinHeight, size_mut, min_height, lpa);
+    read!(map, style, MaxWidth, size_mut, max_width, lpa);
+    read!(map, style, MaxHeight, size_mut, max_height, lpa);
 }
 
 fn resolve_margin(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lpa = |value: &CssValue| Some(length_percentage_auto(value, font_size));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MarginTop),
-        MarginTop,
-        margin_mut,
-        top,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MarginRight),
-        MarginRight,
-        margin_mut,
-        right,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MarginBottom),
-        MarginBottom,
-        margin_mut,
-        bottom,
-        lpa
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::MarginLeft),
-        MarginLeft,
-        margin_mut,
-        left,
-        lpa
-    );
+    read!(map, style, MarginTop, margin_mut, top, lpa);
+    read!(map, style, MarginRight, margin_mut, right, lpa);
+    read!(map, style, MarginBottom, margin_mut, bottom, lpa);
+    read!(map, style, MarginLeft, margin_mut, left, lpa);
 }
 
 fn resolve_padding(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lp = |value: &CssValue| length_percentage(value, font_size);
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::PaddingTop),
-        PaddingTop,
-        padding_mut,
-        top,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::PaddingRight),
-        PaddingRight,
-        padding_mut,
-        right,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::PaddingBottom),
-        PaddingBottom,
-        padding_mut,
-        bottom,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::PaddingLeft),
-        PaddingLeft,
-        padding_mut,
-        left,
-        lp
-    );
+    read!(map, style, PaddingTop, padding_mut, top, lp);
+    read!(map, style, PaddingRight, padding_mut, right, lp);
+    read!(map, style, PaddingBottom, padding_mut, bottom, lp);
+    read!(map, style, PaddingLeft, padding_mut, left, lp);
 }
 
 fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let bstyle = |value: &CssValue| as_string(value).map(border_style_of);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderTopStyle),
-        BorderTopStyle,
-        border_mut,
-        top_style,
-        bstyle
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderRightStyle),
-        BorderRightStyle,
-        border_mut,
-        right_style,
-        bstyle
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderBottomStyle),
-        BorderBottomStyle,
-        border_mut,
-        bottom_style,
-        bstyle
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderLeftStyle),
-        BorderLeftStyle,
-        border_mut,
-        left_style,
-        bstyle
-    );
+    read!(map, style, BorderTopStyle, border_mut, top_style, bstyle);
+    read!(map, style, BorderRightStyle, border_mut, right_style, bstyle);
+    read!(map, style, BorderBottomStyle, border_mut, bottom_style, bstyle);
+    read!(map, style, BorderLeftStyle, border_mut, left_style, bstyle);
 
     // The declared width, before the style has its say. `medium` is the initial value, and it
     // is what an element with a style but no width of its own gets.
@@ -1383,99 +1075,28 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     style.border_mut().bottom_color = current;
     style.border_mut().left_color = current;
     let border_color = move |value: &CssValue| color_or_current(value, current);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderTopColor),
-        BorderTopColor,
-        border_mut,
-        top_color,
-        border_color
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderRightColor),
-        BorderRightColor,
-        border_mut,
-        right_color,
-        border_color
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderBottomColor),
-        BorderBottomColor,
-        border_mut,
-        bottom_color,
-        border_color
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderLeftColor),
-        BorderLeftColor,
-        border_mut,
-        left_color,
-        border_color
-    );
+    read!(map, style, BorderTopColor, border_mut, top_color, border_color);
+    read!(map, style, BorderRightColor, border_mut, right_color, border_color);
+    read!(map, style, BorderBottomColor, border_mut, bottom_color, border_color);
+    read!(map, style, BorderLeftColor, border_mut, left_color, border_color);
 
     let lp = |value: &CssValue| length_percentage(value, font_size);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderTopLeftRadius),
-        BorderTopLeftRadius,
-        border_mut,
-        top_left_radius,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderTopRightRadius),
-        BorderTopRightRadius,
-        border_mut,
-        top_right_radius,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderBottomLeftRadius),
-        BorderBottomLeftRadius,
-        border_mut,
-        bottom_left_radius,
-        lp
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::BorderBottomRightRadius),
-        BorderBottomRightRadius,
-        border_mut,
-        bottom_right_radius,
-        lp
-    );
+    read!(map, style, BorderTopLeftRadius, border_mut, top_left_radius, lp);
+    read!(map, style, BorderTopRightRadius, border_mut, top_right_radius, lp);
+    read!(map, style, BorderBottomLeftRadius, border_mut, bottom_left_radius, lp);
+    read!(map, style, BorderBottomRightRadius, border_mut, bottom_right_radius, lp);
 }
 
 fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::OutlineStyle),
-        OutlineStyle,
-        outline_mut,
-        style,
-        |value| as_string(value).map(|keyword| {
+    read!(map, style, OutlineStyle, outline_mut, style, |value| as_string(value)
+        .map(|keyword| {
             // `auto`, the user-agent focus ring, paints as a solid line.
             if keyword.eq_ignore_ascii_case("auto") {
                 BorderStyle::Solid
             } else {
                 border_style_of(keyword)
             }
-        })
-    );
+        }));
 
     let declared_width = value(map, longhand(LonghandId::OutlineWidth));
     if declared_width.is_some() {
@@ -1490,38 +1111,23 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     // here. Only the keywords follow the text colour: `currentColor`, and the `auto` that is
     // the property's real initial value.
     let current = style.inherited.color;
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::OutlineColor),
-        OutlineColor,
-        outline_mut,
-        color,
-        move |value: &CssValue| {
-            if as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
-                return Some(current);
-            }
-            color_or_current(value, current)
+    read!(map, style, OutlineColor, outline_mut, color, move |value: &CssValue| {
+        if as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
+            return Some(current);
         }
-    );
+        color_or_current(value, current)
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::OutlineOffset),
-        OutlineOffset,
-        outline_mut,
-        offset,
-        |value| length_px(value, font_size)
-    );
+    read!(map, style, OutlineOffset, outline_mut, offset, |value| length_px(
+        value, font_size
+    ));
 }
 
 fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
     let current = style.inherited.color;
-    apply!(
+    read!(
         map,
         style,
-        longhand(LonghandId::BackgroundColor),
         BackgroundColor,
         background_mut,
         color,
@@ -1570,180 +1176,53 @@ fn resolve_insets(map: &CssProperties, style: &mut ComputedStyle, font_size: f32
 }
 
 fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::FlexBasis),
-        FlexBasis,
-        flex_mut,
-        basis,
-        |value| Some(length_percentage_auto(value, font_size))
-    );
+    read!(map, style, FlexBasis, flex_mut, basis, |value| Some(
+        length_percentage_auto(value, font_size)
+    ));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::FlexDirection),
-        FlexDirection,
-        flex_mut,
-        direction,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, FlexDirection, flex_mut, direction, |value| as_string(value)
+        .map(|keyword| match keyword {
             "row-reverse" => FlexDirection::RowReverse,
             "column" => FlexDirection::Column,
             "column-reverse" => FlexDirection::ColumnReverse,
             _ => FlexDirection::Row,
-        })
-    );
+        }));
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::FlexGrow),
-        FlexGrow,
-        flex_mut,
-        grow,
-        as_number
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::FlexShrink),
-        FlexShrink,
-        flex_mut,
-        shrink,
-        as_number
-    );
+    read!(map, style, FlexGrow, flex_mut, grow, as_number);
+    read!(map, style, FlexShrink, flex_mut, shrink, as_number);
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::FlexWrap),
-        FlexWrap,
-        flex_mut,
-        wrap,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, FlexWrap, flex_mut, wrap, |value| as_string(value).map(
+        |keyword| match keyword {
             "wrap" => FlexWrap::Wrap,
             "wrap-reverse" => FlexWrap::WrapReverse,
             _ => FlexWrap::NoWrap,
-        })
-    );
+        }
+    ));
 
     // `normal` is 0 in flex and grid layout, which is all that reads these, so it is left to the
     // initial value rather than mapped.
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::RowGap),
-        RowGap,
-        flex_mut,
-        row_gap,
-        |value| { length_percentage(value, font_size) }
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::ColumnGap),
-        ColumnGap,
-        flex_mut,
-        column_gap,
-        |value| length_percentage(value, font_size)
-    );
+    read!(map, style, RowGap, flex_mut, row_gap, |value| {
+        length_percentage(value, font_size)
+    });
+    read!(map, style, ColumnGap, flex_mut, column_gap, |value| length_percentage(
+        value, font_size
+    ));
 
     let align = |value: &CssValue| as_string(value).map(align_of);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::AlignItems),
-        AlignItems,
-        flex_mut,
-        align_items,
-        align
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::AlignSelf),
-        AlignSelf,
-        flex_mut,
-        align_self,
-        align
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::AlignContent),
-        AlignContent,
-        flex_mut,
-        align_content,
-        align
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::JustifyItems),
-        JustifyItems,
-        flex_mut,
-        justify_items,
-        align
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::JustifySelf),
-        JustifySelf,
-        flex_mut,
-        justify_self,
-        align
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::JustifyContent),
-        JustifyContent,
-        flex_mut,
-        justify_content,
-        align
-    );
+    read!(map, style, AlignItems, flex_mut, align_items, align);
+    read!(map, style, AlignSelf, flex_mut, align_self, align);
+    read!(map, style, AlignContent, flex_mut, align_content, align);
+    read!(map, style, JustifyItems, flex_mut, justify_items, align);
+    read!(map, style, JustifySelf, flex_mut, justify_self, align);
+    read!(map, style, JustifyContent, flex_mut, justify_content, align);
 }
 
 fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
     let track_list = |value: &CssValue| grid_track_list(value).map(Arc::from);
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridTemplateRows),
-        GridTemplateRows,
-        grid_mut,
-        template_rows,
-        track_list
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridTemplateColumns),
-        GridTemplateColumns,
-        grid_mut,
-        template_columns,
-        track_list
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridAutoRows),
-        GridAutoRows,
-        grid_mut,
-        auto_rows,
-        track_list
-    );
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridAutoColumns),
-        GridAutoColumns,
-        grid_mut,
-        auto_columns,
-        track_list
-    );
+    read!(map, style, GridTemplateRows, grid_mut, template_rows, track_list);
+    read!(map, style, GridTemplateColumns, grid_mut, template_columns, track_list);
+    read!(map, style, GridAutoRows, grid_mut, auto_rows, track_list);
+    read!(map, style, GridAutoColumns, grid_mut, auto_columns, track_list);
 
     for (id, prop) in [
         (LonghandId::GridRowStart, Prop::GridRowStart),
@@ -1765,30 +1244,17 @@ fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
         style.declared.set(prop);
     }
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridTemplateAreas),
-        GridTemplateAreas,
-        grid_mut,
-        template_areas,
-        |value| grid_areas(value).map(Arc::from)
-    );
+    read!(map, style, GridTemplateAreas, grid_mut, template_areas, |value| {
+        grid_areas(value).map(Arc::from)
+    });
 
-    apply!(
-        map,
-        style,
-        longhand(LonghandId::GridAutoFlow),
-        GridAutoFlow,
-        grid_mut,
-        auto_flow,
-        |value| as_string(value).map(|keyword| match keyword {
+    read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| as_string(value)
+        .map(|keyword| match keyword {
             "column" => GridAutoFlow::Column,
             "row dense" => GridAutoFlow::RowDense,
             "column dense" => GridAutoFlow::ColumnDense,
             _ => GridAutoFlow::Row,
-        })
-    );
+        }));
 }
 
 #[cfg(test)]
@@ -1988,6 +1454,63 @@ mod tests {
         let child = computed_style(&map_of("text-transform: initial; font-family: initial"), Some(&parent));
         assert_eq!(child.inherited.text_transform, TextTransform::None);
         assert_eq!(&*child.inherited.font_family, "serif");
+    }
+
+    /// Every property the typed style records has a row in [`ENGINE_LONGHANDS`], and no
+    /// longhand is in two groups.
+    #[test]
+    fn the_property_table_covers_every_prop_once() {
+        for prop in Prop::ALL {
+            assert!(
+                ENGINE_LONGHANDS.iter().any(|(_, row, _)| row == prop),
+                "{prop:?} has no row in ENGINE_LONGHANDS"
+            );
+        }
+        for (id, _, group) in ENGINE_LONGHANDS {
+            assert!(
+                ENGINE_LONGHANDS
+                    .iter()
+                    .all(|(other, _, other_group)| other != id || other_group == group),
+                "{} is in two groups",
+                id.name()
+            );
+        }
+    }
+
+    /// Declaring each longhand in the table records its property. A longhand listed in the
+    /// wrong group fails here: the group's resolver never runs for an element that touched only
+    /// that longhand, so the value is silently not read.
+    #[test]
+    fn every_listed_longhand_is_read() {
+        // Where the initial value is one the reader deliberately leaves to the default (`normal`
+        // gaps, no image), a value it does record.
+        let samples = [
+            ("row-gap", "1px"),
+            ("column-gap", "1px"),
+            ("background-image", "url(a.png)"),
+            ("aspect-ratio", "2"),
+        ];
+        // Read, but never recorded, whatever is declared. Each is a bug in its reader.
+        let known_unread = [
+            // The reader takes a number, which `auto | thin | none` never is: the field is always
+            // unset.
+            "scrollbar-width",
+        ];
+        let mut unread = Vec::new();
+        for (id, prop, _) in ENGINE_LONGHANDS {
+            if known_unread.contains(&id.name()) {
+                continue;
+            }
+            let value = samples
+                .iter()
+                .find(|(name, _)| *name == id.name())
+                .map_or("initial", |(_, value)| value);
+            let style = style_of(&format!("{}: {value}", id.name()));
+            if !style.has(*prop) {
+                unread.push(format!("{} -> {prop:?}", id.name()));
+            }
+        }
+        assert!(unread.is_empty(), "declared but not recorded:\n{}", unread.join("\n"));
     }
 
     #[test]
