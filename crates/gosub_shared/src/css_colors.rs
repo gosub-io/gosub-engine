@@ -21,9 +21,7 @@ pub fn named_color_hex(name: &str) -> Option<&'static str> {
 // `GrayText` and `red`.
 #[must_use]
 pub fn is_system_color(name: &str) -> bool {
-    CSS_SYSTEM_COLOR_NAMES
-        .iter()
-        .any(|entry| entry.eq_ignore_ascii_case(name))
+    system_color_rgba(name).is_some()
 }
 
 #[must_use]
@@ -31,50 +29,79 @@ pub fn is_named_color(name: &str) -> bool {
     CSS_COLORNAMES.iter().any(|entry| entry.name.eq_ignore_ascii_case(name))
 }
 
-pub const CSS_SYSTEM_COLOR_NAMES: [&str; 42] = [
-    "AccentColor",
-    "AccentColorText",
-    "ActiveText",
-    "ButtonBorder",
-    "ButtonFace",
-    "ButtonText",
-    "Canvas",
-    "CanvasText",
-    "Field",
-    "FieldText",
-    "GrayText",
-    "Highlight",
-    "HighlightText",
-    "LinkText",
-    "Mark",
-    "MarkText",
-    "SelectedItem",
-    "SelectedItemText",
-    "VisitedText",
-    "ActiveBorder",
-    "ActiveCaption",
-    "AppWorkspace",
-    "Background",
-    "ButtonHighlight",
-    "ButtonShadow",
-    "CaptionText",
-    "InactiveBorder",
-    "InactiveCaption",
-    "InactiveCaptionText",
-    "InfoBackground",
-    "InfoText",
-    "Menu",
-    "MenuText",
-    "Scrollbar",
-    "ThreeDDarkShadow",
-    "ThreeDFace",
-    "ThreeDHighlight",
-    "ThreeDLightShadow",
-    "ThreeDShadow",
-    "Window",
-    "WindowFrame",
-    "WindowText",
+/// A colour as `(r, g, b, a)` bytes.
+pub type Rgba8 = (u8, u8, u8, u8);
+
+/// The system colours of css-color-4 §6.2, with the value each takes in a light colour scheme.
+///
+/// This is the one place a system colour gets its value. Only the light palette is here: the
+/// dark one applies where an element's used `color-scheme` is dark, and the engine does not
+/// implement `color-scheme` yet (browsers do not switch system colours on
+/// `prefers-color-scheme` alone either). The spec leaves the values to the UA; these are the
+/// ones the engine has always drawn, with `GrayText` a grey rather than black.
+pub const CSS_SYSTEM_COLORS: [(&str, Rgba8); 19] = [
+    ("AccentColor", (0, 120, 215, 255)),
+    ("AccentColorText", (255, 255, 255, 255)),
+    ("ActiveText", (0, 0, 238, 255)),
+    ("ButtonBorder", (160, 160, 160, 255)),
+    ("ButtonFace", (240, 240, 240, 255)),
+    ("ButtonText", (0, 0, 0, 255)),
+    ("Canvas", (255, 255, 255, 255)),
+    ("CanvasText", (0, 0, 0, 255)),
+    ("Field", (255, 255, 255, 255)),
+    ("FieldText", (0, 0, 0, 255)),
+    ("GrayText", (128, 128, 128, 255)),
+    ("Highlight", (0, 120, 215, 255)),
+    ("HighlightText", (255, 255, 255, 255)),
+    ("LinkText", (0, 0, 238, 255)),
+    ("Mark", (255, 255, 0, 255)),
+    ("MarkText", (0, 0, 0, 255)),
+    ("SelectedItem", (0, 120, 215, 255)),
+    ("SelectedItemText", (255, 255, 255, 255)),
+    ("VisitedText", (85, 26, 139, 255)),
 ];
+
+/// The deprecated system colours of css-color-4 §6.3, and the current one each maps to. UAs
+/// must still accept them, and the spec says which colour each should be.
+pub const CSS_DEPRECATED_SYSTEM_COLORS: [(&str, &str); 23] = [
+    ("ActiveBorder", "ButtonBorder"),
+    ("ActiveCaption", "Canvas"),
+    ("AppWorkspace", "Canvas"),
+    ("Background", "Canvas"),
+    ("ButtonHighlight", "ButtonFace"),
+    ("ButtonShadow", "ButtonFace"),
+    ("CaptionText", "CanvasText"),
+    ("InactiveBorder", "ButtonBorder"),
+    ("InactiveCaption", "Canvas"),
+    ("InactiveCaptionText", "GrayText"),
+    ("InfoBackground", "Canvas"),
+    ("InfoText", "CanvasText"),
+    ("Menu", "Canvas"),
+    ("MenuText", "CanvasText"),
+    ("Scrollbar", "Canvas"),
+    ("ThreeDDarkShadow", "ButtonBorder"),
+    ("ThreeDFace", "ButtonFace"),
+    ("ThreeDHighlight", "ButtonBorder"),
+    ("ThreeDLightShadow", "ButtonBorder"),
+    ("ThreeDShadow", "ButtonBorder"),
+    ("Window", "Canvas"),
+    ("WindowFrame", "ButtonBorder"),
+    ("WindowText", "CanvasText"),
+];
+
+/// The value of a system colour, deprecated or not, as `(r, g, b, a)`; `None` when `name` is
+/// not one. Matched case-insensitively, as CSS keywords are.
+#[must_use]
+pub fn system_color_rgba(name: &str) -> Option<Rgba8> {
+    let name = CSS_DEPRECATED_SYSTEM_COLORS
+        .iter()
+        .find(|(deprecated, _)| deprecated.eq_ignore_ascii_case(name))
+        .map_or(name, |(_, current)| current);
+    CSS_SYSTEM_COLORS
+        .iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(name))
+        .map(|(_, rgba)| *rgba)
+}
 
 // Values for this table are taken from https://www.w3.org/TR/css-color-4/#named-colors
 pub static CSS_COLORNAMES: &[CssColorEntry] = &[
@@ -671,3 +698,27 @@ pub static CSS_COLORNAMES: &[CssColorEntry] = &[
         value: "#663399",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every deprecated name maps to a colour that exists, so each of the 42 names css-color-4
+    /// lists has a value.
+    #[test]
+    fn every_system_colour_has_a_value() {
+        for (deprecated, current) in CSS_DEPRECATED_SYSTEM_COLORS {
+            assert!(system_color_rgba(current).is_some(), "{deprecated} maps to {current}");
+            assert_eq!(system_color_rgba(deprecated), system_color_rgba(current));
+        }
+        assert_eq!(CSS_SYSTEM_COLORS.len() + CSS_DEPRECATED_SYSTEM_COLORS.len(), 42);
+    }
+
+    #[test]
+    fn system_colours_are_case_insensitive() {
+        assert_eq!(system_color_rgba("buttonface"), Some((240, 240, 240, 255)));
+        assert_eq!(system_color_rgba("THREEDDARKSHADOW"), system_color_rgba("ButtonBorder"));
+        assert!(is_system_color("canvastext"));
+        assert!(system_color_rgba("banana").is_none());
+    }
+}
