@@ -352,8 +352,25 @@ fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
 impl TableTree for PipelineTableTree<'_> {
     type NodeId = DomNodeId;
 
+    /// The DOM children, less what generates no box among the table's parts.
+    ///
+    /// Every child of a table, row group or row that is not itself a table part is laid out as
+    /// an anonymous cell, so the indentation between rows, a comment or a hidden `<input>` would
+    /// each make a row of their own. CSS 2 §17.2.1 treats them as `display: none`. A cell's
+    /// children are its content and are left alone.
     fn children(&self, id: DomNodeId) -> Vec<DomNodeId> {
-        self.doc.children(id)
+        let children = self.doc.children(id);
+        match self.table_role(id) {
+            TableRole::Table
+            | TableRole::RowGroup
+            | TableRole::HeaderGroup
+            | TableRole::FooterGroup
+            | TableRole::Row => children
+                .into_iter()
+                .filter(|&child| !self.doc.generates_no_table_box(child))
+                .collect(),
+            _ => children,
+        }
     }
 
     fn table_role(&self, id: DomNodeId) -> TableRole {

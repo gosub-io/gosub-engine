@@ -183,3 +183,127 @@ pub(crate) fn read_padding<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges 
         left: tree.css_length(node, CssProp::PaddingLeft).px_or(0.0),
     }
 }
+
+/// One row group's grid and row heights, as [`distribute_table_height`] sees them.
+pub struct SectionRows<'a, N> {
+    pub grid: &'a SectionGrid<N>,
+    pub heights: &'a mut Vec<f64>,
+    /// A `tbody` (or the anonymous group bare rows go in), as opposed to a `thead`/`tfoot`.
+    pub body: bool,
+}
+
+/// Grow the rows so the grid reaches the table's specified height.
+///
+/// CSS 2 §17.5.3 makes a table's `height` a minimum for its rows but leaves open where the extra
+/// goes. This follows what Chromium does:
+///
+/// 1. A row with a percentage height grows to that share of the table height.
+/// 2. What is left is shared over the `tbody` sections (all sections when there is none), in
+///    proportion to their heights, or equally when those are all zero.
+/// 3. Inside a section it goes to the auto-height rows that hold cells, else to the auto-height
+///    rows without, else to every row - in proportion to their heights, or equally.
+///
+/// A row with its own `height`, or holding a single-row cell with one, is not auto-height. A
+/// section with no rows cannot take its share, so that comes back as empty space for the caller
+/// to add below the grid, as it does for a table with nothing but a caption.
+///
+/// `target` is the height the grid itself is to reach, gutters included and without the table's
+/// own border and padding (or perimeter border halves). Returns the unplaced extra.
+pub fn distribute_table_height<T: TableTree>(
+    tree: &T,
+    sections: &mut [SectionRows<'_, T::NodeId>],
+    target: f64,
+    spacing_y: f64,
+) -> f64 {
+    // The same stack `compute_table_layout` builds: one gutter above every group and one
+    // below the last, and one between adjacent rows inside a group.
+    let extent = spacing_y
+        + sections
+            .iter()
+            .map(|s| s.heights.iter().sum::<f64>() + s.heights.len().saturating_sub(1) as f64 * spacing_y + spacing_y)
+            .sum::<f64>();
+    let mut excess = target - extent;
+    if excess <= 0.0 {
+        return 0.0;
+    }
+
+    for section in sections.iter_mut() {
+        for (row, height) in section.heights.iter_mut().enumerate() {
+            let pct = section.grid.row_nodes[row].map(|node| tree.css_length(node, CssProp::Height));
+            if let Some(CssLength::Percent(p)) = pct {
+                let grow = (p / 100.0 * target - *height).clamp(0.0, excess);
+                *height += grow;
+                excess -= grow;
+            }
+        }
+    }
+    if excess <= 0.0 {
+        return 0.0;
+    }
+
+    let mut takers: Vec<usize> = (0..sections.len()).filter(|&i| sections[i].body).collect();
+    if takers.is_empty() {
+        takers = (0..sections.len()).collect();
+    }
+    if takers.is_empty() {
+        return excess;
+    }
+    let weights: Vec<f64> = takers.iter().map(|&i| sections[i].heights.iter().sum()).collect();
+
+    let mut unplaced = 0.0;
+    for (&i, share) in takers.iter().zip(shares(&weights, excess)) {
+        let section = &mut sections[i];
+        if section.heights.is_empty() {
+            unplaced += share;
+        } else {
+            grow_section_rows(tree, section, share);
+        }
+    }
+    unplaced
+}
+
+/// Give `extra` to one section's rows, auto-height rows with cells first (see
+/// [`distribute_table_height`]).
+fn grow_section_rows<T: TableTree>(tree: &T, section: &mut SectionRows<'_, T::NodeId>, extra: f64) {
+    let n = section.heights.len();
+    let mut has_cells = vec![false; n];
+    let mut constrained: Vec<bool> = section
+        .grid
+        .row_nodes
+        .iter()
+        .map(|&node| node.is_some_and(|node| !matches!(tree.css_length(node, CssProp::Height), CssLength::Auto)))
+        .collect();
+    for cell in section.grid.cells() {
+        for flag in &mut has_cells[cell.row..(cell.row + cell.rowspan).min(n)] {
+            *flag = true;
+        }
+        if cell.rowspan == 1 && matches!(tree.css_length(cell.node, CssProp::Height), CssLength::Px(_)) {
+            constrained[cell.row] = true;
+        }
+    }
+
+    let auto_with_cells: Vec<usize> = (0..n).filter(|&r| !constrained[r] && has_cells[r]).collect();
+    let auto_without: Vec<usize> = (0..n).filter(|&r| !constrained[r] && !has_cells[r]).collect();
+    let rows = if !auto_with_cells.is_empty() {
+        auto_with_cells
+    } else if !auto_without.is_empty() {
+        auto_without
+    } else {
+        (0..n).collect()
+    };
+
+    let weights: Vec<f64> = rows.iter().map(|&r| section.heights[r]).collect();
+    for (&r, share) in rows.iter().zip(shares(&weights, extra)) {
+        section.heights[r] += share;
+    }
+}
+
+/// Split `total` in proportion to `weights`, or equally when they are all zero.
+fn shares(weights: &[f64], total: f64) -> Vec<f64> {
+    let sum: f64 = weights.iter().sum();
+    if sum > 0.0 {
+        weights.iter().map(|w| total * w / sum).collect()
+    } else {
+        vec![total / weights.len().max(1) as f64; weights.len()]
+    }
+}

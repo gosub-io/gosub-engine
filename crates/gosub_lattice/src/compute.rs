@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
 use crate::sizing::columns::{column_specs, compute_column_widths};
-use crate::sizing::rows::{compute_row_heights, effective_border, read_border, read_padding, read_padding_against};
+use crate::sizing::rows::{
+    compute_row_heights, distribute_table_height, effective_border, read_border, read_padding, read_padding_against,
+    SectionRows,
+};
 use crate::types::{BorderCollapse, CellLayout, CollapsedBorders, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
@@ -293,6 +296,50 @@ pub fn compute_table_layout<T: TableTree>(
         ));
     }
 
+    // The table's specified height is a minimum for the grid, the rows taking the difference.
+    // It is the table box's alone: a caption sits outside it. Like the width, a border-box height
+    // loses the table's own edges first, which under collapse are the perimeter border halves.
+    let own_edges_y = if border_box && collapse {
+        perimeter.top + perimeter.bottom
+    } else {
+        own_edges_y
+    };
+    let unplaced_height = match tree.css_length(table_node, CssProp::Height) {
+        CssLength::Px(h) => {
+            let mut sections: Vec<SectionRows<'_, T::NodeId>> = header_grids
+                .iter()
+                .zip(header_heights.iter_mut())
+                .map(|(grid, heights)| SectionRows {
+                    grid,
+                    heights,
+                    body: false,
+                })
+                .chain(
+                    body_grids
+                        .iter()
+                        .zip(body_heights.iter_mut())
+                        .map(|(grid, heights)| SectionRows {
+                            grid,
+                            heights,
+                            body: true,
+                        }),
+                )
+                .chain(
+                    footer_grids
+                        .iter()
+                        .zip(footer_heights.iter_mut())
+                        .map(|(grid, heights)| SectionRows {
+                            grid,
+                            heights,
+                            body: false,
+                        }),
+                )
+                .collect();
+            distribute_table_height(&*tree, &mut sections, (h - own_edges_y).max(0.0), spacing_y)
+        }
+        _ => 0.0,
+    };
+
     // Caption: measured like a cell spanning the full table width; placed
     // above (default) or below the grid per `caption-side`.
     let caption_bottom = model
@@ -383,7 +430,7 @@ pub fn compute_table_layout<T: TableTree>(
 
     // A top caption's height is already part of group_y; a bottom caption
     // extends the table below the grid.
-    let mut total_height = group_y + perimeter.bottom;
+    let mut total_height = group_y + unplaced_height + perimeter.bottom;
     if let Some(cap) = model.caption {
         let y = if caption_bottom {
             total_height + caption_edges.bottom
@@ -406,14 +453,6 @@ pub fn compute_table_layout<T: TableTree>(
         );
         if caption_bottom {
             total_height += caption_height;
-        }
-    }
-
-    // With no columns there are no cells for extra height to go to, so the specified height
-    // simply applies, as it did when such a table skipped the grid altogether.
-    if n_cols == 0 {
-        if let CssLength::Px(h) = tree.css_length(table_node, CssProp::Height) {
-            total_height = total_height.max(h - own_edges_y);
         }
     }
 
