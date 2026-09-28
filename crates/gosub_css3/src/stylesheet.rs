@@ -37,12 +37,6 @@ pub fn set_layout_viewport(width: f32, height: f32) {
     }
 }
 
-/// The current viewport (CSS px) for resolving viewport-relative units on this thread.
-fn layout_viewport() -> (f32, f32) {
-    let env = media_environment();
-    (env.width, env.height)
-}
-
 static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
@@ -1124,18 +1118,15 @@ impl gosub_shared::memory::HeapSize for CssValue {
     }
 }
 
-/// The viewport-relative length units, which resolve against the layout viewport when a
-/// declaration is computed rather than when it is used. Kept in step with the `unit_to_px`
-/// match below.
-const VIEWPORT_UNITS: &[&str] = &["vw", "svw", "lvw", "dvw", "vh", "svh", "lvh", "dvh", "vmin", "vmax"];
-
 impl CssValue {
     /// Whether this value (or anything nested inside it) is expressed in a viewport-relative
     /// unit, and so has to be recomputed when the viewport resizes.
     #[must_use]
     pub fn uses_viewport_units(&self) -> bool {
         match self {
-            CssValue::Unit(_, unit) => VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u)),
+            // Viewport-relative units resolve against the layout viewport when a declaration is
+            // computed, not when it is used; the conversion table decides which units those are.
+            CssValue::Unit(_, unit) => crate::functions::calc::is_viewport_unit(unit),
             // A `calc()` body arrives parsed, so its units are `Unit` values and the recursion
             // below sees them. The text arm covers a `calc()` built by hand with a raw body,
             // which only tests do, and is scanned rather than ignored so such a value still
@@ -1165,7 +1156,7 @@ fn text_uses_viewport_units(text: &str) -> bool {
         .any(|word| {
             let unit = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
             // A bare identifier is not a unit: it has to follow a number.
-            unit.len() != word.len() && VIEWPORT_UNITS.iter().any(|u| unit.eq_ignore_ascii_case(u))
+            unit.len() != word.len() && crate::functions::calc::is_viewport_unit(unit)
         })
 }
 
@@ -1271,38 +1262,22 @@ impl CssValue {
 
     pub(crate) fn unit_to_px_f64(&self) -> f64 {
         match self {
-            CssValue::Unit(val, unit) => match unit.as_str() {
-                "px" => *val,
-                "em" => *val * 16.0,
-                "rem" => *val * 16.0,
-                // Absolute physical units - 1in = 96px
-                "pt" => *val * (96.0 / 72.0),
-                "pc" => *val * (96.0 / 6.0),
-                "in" => *val * 96.0,
-                "cm" => *val * (96.0 / 2.54),
-                "mm" => *val * (96.0 / 25.4),
-                "q" => *val * (96.0 / 101.6),
-                // Viewport units - resolved against the current layout viewport (CSS px),
-                // falling back to 1280×800 until the render flow sets the real size.
-                //
-                // The small (`sv*`), large (`lv*`) and dynamic (`dv*`) viewports all resolve to
-                // that same size on purpose. They differ only where the UA has interfaces that
-                // dynamically expand and retract - a phone browser's address bar - and css-values-4
-                // says that a UA without them has all three equal to the initial containing block.
-                // The engine has no such chrome, so they are equal here by the spec rather than by
-                // omission. Give them their own sizes if an embedder ever grows retractable UI.
-                "vw" | "svw" | "lvw" | "dvw" => *val * f64::from(layout_viewport().0) / 100.0,
-                "vh" | "svh" | "lvh" | "dvh" => *val * f64::from(layout_viewport().1) / 100.0,
-                "vmin" => {
-                    let (w, h) = layout_viewport();
-                    *val * f64::from(w.min(h)) / 100.0
+            // Every conversion is in the one unit table the computed stage uses. What reaches here
+            // unresolved is read as it would be with no element to hand: 16px to an `em` and a
+            // `rem`, the current layout viewport for the viewport units.
+            CssValue::Unit(val, unit) => {
+                let units = crate::functions::calc::Units {
+                    em_px: Some(16.0),
+                    rem_px: Some(16.0),
+                    viewport: true,
+                    ..Default::default()
+                };
+                match crate::functions::calc::to_canonical(*val, &unit.cow_to_ascii_lowercase(), &units) {
+                    Some((canonical, px)) if canonical == "px" => px,
+                    // An angle or a time has no length; the number is all there is to give.
+                    _ => *val,
                 }
-                "vmax" => {
-                    let (w, h) = layout_viewport();
-                    *val * f64::from(w.max(h)) / 100.0
-                }
-                _ => *val,
-            },
+            }
             CssValue::String(value) => {
                 if value.ends_with("px") {
                     value.trim_end_matches("px").parse::<f64>().unwrap_or(0.0)
@@ -2069,6 +2044,28 @@ mod test {
         };
         assert!(!calc("var(--overview) + 1px"));
         assert!(!calc("vh"));
+    }
+
+    /// Every unit the conversion table resolves against the viewport has to report it, or a
+    /// value in that unit is not recomputed when the viewport resizes. `cqw` and the logical and
+    /// `s`/`l`/`d` extremes were converted but not reported.
+    #[test]
+    fn every_unit_resolved_against_the_viewport_is_reported() {
+        for unit in [
+            "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svi", "svb", "svmin", "svmax", "lvw", "lvh", "lvi",
+            "lvb", "lvmin", "lvmax", "dvw", "dvh", "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh", "cqi", "cqb", "cqmin",
+            "cqmax",
+        ] {
+            assert!(CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+            assert!(
+                CssValue::Function("calc".to_string(), vec![CssValue::String(format!("50{unit} - 1px"))])
+                    .uses_viewport_units(),
+                "calc body with {unit}"
+            );
+        }
+        for unit in ["px", "em", "rem", "lh", "ch", "cm"] {
+            assert!(!CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+        }
     }
 
     /// Functions whose arguments are parsed properly still work through the recursion.

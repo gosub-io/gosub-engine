@@ -771,10 +771,32 @@ pub struct CssProperty {
     /// The root's own `font-size` is the exception - it is what defines a `rem`, so `rem` inside
     /// it refers to the initial font-size instead of to the value being declared.
     pub root_font_size_basis: f32,
+    /// The px value an `lh` in this property resolves against: the element's own computed
+    /// `line-height`, or the parent's in `line-height` and `font-size` themselves, which is what
+    /// stops `line-height: 2lh` referring to itself. `None` until the cascade knows it, when an
+    /// `lh` falls back to a `normal` line box.
+    pub line_height_basis: Option<f32>,
+    /// The px value an `rlh` resolves against: the root element's computed `line-height`, with
+    /// the same exception for the root's own `line-height` and `font-size` as a `rem` has.
+    pub root_line_height_basis: Option<f32>,
 }
 
 /// The initial `font-size`, and so the `rem` basis until the root element declares otherwise.
 pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+/// How a `line-height` passes to a child that does not declare its own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InheritedLineHeight {
+    /// A length, which the child inherits as it is.
+    Px(f32),
+    /// A unitless number or `normal`, which the child applies to its own font-size.
+    FontSizeMultiple(f32),
+}
+
+/// The initial `line-height`, `normal`, at the initial font-size: the `lh` and `rlh` basis until
+/// the root element declares otherwise.
+#[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+pub const DEFAULT_LINE_HEIGHT_PX: f32 = DEFAULT_FONT_SIZE_PX * calc::NORMAL_LINE_HEIGHT as f32;
 
 /// Turn a specified value into a computed one: resolve the relative lengths, do the arithmetic.
 ///
@@ -784,8 +806,8 @@ pub const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 ///
 /// What survives is what genuinely cannot be decided yet: a percentage, which needs a containing
 /// block, and the units nothing has a value for (`ch`, `lh`, the container-query units).
-fn resolve_computed(value: CssValue, em_basis: f32, rem_basis: f32) -> CssValue {
-    let recurse = |v: CssValue| resolve_computed(v, em_basis, rem_basis);
+fn resolve_computed(value: CssValue, units: &calc::Units) -> CssValue {
+    let recurse = |v: CssValue| resolve_computed(v, units);
     match value {
         // Every unit with a known conversion becomes the canonical one - px for a length, deg
         // for an angle, s for a time. That is what a computed value is: `margin: 12cm` computes
@@ -793,8 +815,7 @@ fn resolve_computed(value: CssValue, em_basis: f32, rem_basis: f32) -> CssValue 
         // route. Only `em` and `rem` needed an element to resolve against, and only they used to
         // be done here, so a bare `12cm` and a `round(10cm, 6cm)` that equals it disagreed.
         CssValue::Unit(val, unit) => {
-            let units = calc::Units::computed(em_basis, rem_basis);
-            match calc::to_canonical(val, &unit, &units) {
+            match calc::to_canonical(val, &unit, units) {
                 Some((canonical, converted)) => CssValue::Unit(converted, canonical),
                 // `ch`, `lh` and the container-query units have no value here, and a percentage
                 // needs a containing block. They travel on as written.
@@ -806,8 +827,7 @@ fn resolve_computed(value: CssValue, em_basis: f32, rem_basis: f32) -> CssValue 
         // rather than recursed into. A body that comes down to a single value *is* that value:
         // `getComputedStyle` reports `50px`, not `calc(50px)`, once nothing is left to decide.
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => {
-            let units = calc::Units::computed(em_basis, rem_basis);
-            match calc::evaluate(&args, &units, true) {
+            match calc::evaluate(&args, units, true) {
                 Some(reduced) => reduced,
                 None => CssValue::Function(name, args),
             }
@@ -817,8 +837,7 @@ fn resolve_computed(value: CssValue, em_basis: f32, rem_basis: f32) -> CssValue 
             // A math function is evaluated here rather than when the declaration was collected,
             // because only now is an `em` among its arguments worth anything. Parsing tries the
             // same thing with less to go on, and what it could not reduce lands here.
-            let units = calc::Units::computed(em_basis, rem_basis);
-            if let Some(reduced) = calc::evaluate_call(&name, &args, &units, true) {
+            if let Some(reduced) = calc::evaluate_call(&name, &args, units, true) {
                 return reduced;
             }
             // What the evaluator cannot reduce here has a unit nothing can resolve yet - `ch`,
@@ -864,6 +883,8 @@ impl CssProperty {
             inherited: CssValue::None,
             font_size_basis: DEFAULT_FONT_SIZE_PX,
             root_font_size_basis: DEFAULT_FONT_SIZE_PX,
+            line_height_basis: None,
+            root_line_height_basis: None,
         }
     }
 
@@ -1026,7 +1047,10 @@ impl CssProperty {
         // Font-relative lengths become px here, which is what the computed stage is for. What
         // survives is what genuinely cannot be decided yet: a percentage, which needs a
         // containing block, and the units nothing has a value for.
-        let computed = resolve_computed(specified, self.font_size_basis, self.root_font_size_basis);
+        let mut units = calc::Units::computed(self.font_size_basis, self.root_font_size_basis);
+        units.lh_px = self.line_height_basis;
+        units.rlh_px = self.root_line_height_basis;
+        let computed = resolve_computed(specified, &units);
 
         self.clamp_to_range(computed)
     }
@@ -1402,6 +1426,18 @@ pub struct CssProperties {
     /// document. Carried down the tree rather than looked up, since the cascade walks top-down
     /// and only ever holds the parent's map.
     pub root_font_size_px: f32,
+    /// This element's computed `line-height` in px, what an `lh` is worth on it, resolved while
+    /// the map was built. A `normal` line-height is the engine's stand-in multiple of the
+    /// font-size. Kept for the children, whose `line-height: 2lh` is twice this.
+    pub line_height_px: f32,
+    /// What a child that does not declare `line-height` inherits from this element: a length as
+    /// the length, and a unitless number (or `normal`) as a multiple of the child's own
+    /// font-size. Kept here because looking the value up through the inherited chain walks every
+    /// ancestor up to the one that declared it, which is quadratic in a deep tree.
+    pub line_height_inherits: InheritedLineHeight,
+    /// The root element's computed `line-height` in px - what an `rlh` is worth anywhere in the
+    /// document.
+    pub root_line_height_px: f32,
     /// Custom properties (`--*`) in scope for this node, own declarations layered over the
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
@@ -1439,6 +1475,8 @@ impl Debug for CssProperties {
             .field("dirty", &self.dirty)
             .field("font_size_px", &self.font_size_px)
             .field("root_font_size_px", &self.root_font_size_px)
+            .field("line_height_px", &self.line_height_px)
+            .field("root_line_height_px", &self.root_line_height_px)
             .field("custom", &self.custom)
             .finish()
     }
@@ -1454,6 +1492,14 @@ impl CssProperties {
             custom: Arc::new(HashMap::new()),
             font_size_px: DEFAULT_FONT_SIZE_PX,
             root_font_size_px: DEFAULT_FONT_SIZE_PX,
+            line_height_px: DEFAULT_LINE_HEIGHT_PX,
+            line_height_inherits: InheritedLineHeight::FontSizeMultiple(
+                #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+                {
+                    calc::NORMAL_LINE_HEIGHT as f32
+                },
+            ),
+            root_line_height_px: DEFAULT_LINE_HEIGHT_PX,
             inherited_from: None,
             handed_down: OnceLock::new(),
             node: None,

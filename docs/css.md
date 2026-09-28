@@ -172,8 +172,11 @@ remain once the winning origin or layer is removed.
     parent; `thin`/`medium`/`thick` become lengths; every unit with a known conversion becomes
     canonical (`px`, `deg`, `s`) with `em` and `rem` measured against the element's and the
     root's font-size; math functions are simplified; and the property's range clamps the result
-    (css-values-4 §10.12). Percentages, `ch`, `lh` and the container-query units survive as
-    written, because nothing here has a value for them.
+    (css-values-4 §10.12). Every length unit converts, through the one table in
+    `functions/calc.rs`: the font-metric units (`ex`, `ch`, `cap`, `ic`, `lh` and their root
+    forms) take stand-in factors of the font-size until real metrics exist, and the container
+    units are the small viewport units, since no element is a query container. Percentages
+    survive as written, because only layout has what they are a percentage of.
 
 Only the computed value is kept. The cascaded and specified values are steps on the way to it,
 read by nothing but that walk, so they are threaded through as locals rather than stored on every

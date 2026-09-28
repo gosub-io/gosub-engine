@@ -8,8 +8,8 @@ use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId};
 use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{
-    cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty, ScopeContext, ScopeMatch,
-    DEFAULT_FONT_SIZE_PX,
+    cascade_rank, css_wide_keyword, match_selector, CssProperties, CssProperty, CssWide, DeclarationProperty,
+    InheritedLineHeight, ScopeContext, ScopeMatch, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT_PX,
 };
 use crate::stylesheet::{reduce_function, CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
@@ -643,11 +643,18 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
     // a `rem` is measured against. Its own `font-size` is therefore the one declaration a `rem`
     // cannot refer to without circularity, so there it means the initial size.
     let parent_root_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.root_font_size_px);
+    // An `lh` in `font-size` is the parent's line-height too (css-values-4 §6.1.1), and it has
+    // to be in place before the size is worked out, or `font-size: 2lh` computes against the
+    // estimate and every `em` on this element with it.
+    let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
+    let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
 
     let own_px = match map.get_id_mut(FONT_SIZE) {
         Some(font_size) => {
             font_size.font_size_basis = parent_px;
             font_size.root_font_size_basis = parent_root_px;
+            font_size.line_height_basis = Some(parent_lh);
+            font_size.root_line_height_basis = Some(parent_root_lh);
             font_size.mark_dirty();
             match font_size.compute_value() {
                 CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
@@ -676,6 +683,73 @@ fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProper
             property.root_font_size_basis = root_px;
             // The basis changed after the property was built, so any value computed before now
             // used the default and has to be recomputed.
+            property.mark_dirty();
+        }
+    }
+
+    resolve_line_height_basis(map, inherited, own_px);
+}
+
+/// Work out what an `lh` and an `rlh` mean on this element, and tell every property.
+///
+/// Runs once the font-size is known, because a `line-height` of `2`, `150%` or `1.5em` is worth
+/// that much of this element's own font-size. Inside `line-height` and `font-size` an `lh` is
+/// the parent's (css-values-4 §6.1.1), which is what lets `line-height: 2lh` have a value at
+/// all; every other property sees this element's. `font-size` was given its basis before it was
+/// computed, in [`resolve_font_size_basis`].
+fn resolve_line_height_basis(map: &mut CssProperties, inherited: Option<&CssProperties>, font_px: f32) {
+    let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
+    let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
+
+    if let Some(line_height) = map.get_id_mut(LINE_HEIGHT) {
+        line_height.line_height_basis = Some(parent_lh);
+        line_height.root_line_height_basis = Some(parent_root_lh);
+        line_height.mark_dirty();
+    }
+
+    // Inherited, `line-height` takes the parent's computed value: a length as the length, and a
+    // unitless number as the number, which then multiplies this element's own font-size.
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let normal = InheritedLineHeight::FontSizeMultiple(crate::functions::calc::NORMAL_LINE_HEIGHT as f32);
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let inherits = match map.get_id_mut(LINE_HEIGHT) {
+        // Explicitly inherited: the value handed down is the parent's *declared* one, and a
+        // percentage in it was worth the parent's font-size, not this element's. `unset` is the
+        // same thing here, because `line-height` inherits.
+        Some(line_height)
+            if line_height
+                .cascaded_value()
+                .is_none_or(|value| matches!(css_wide_keyword(&value), Some(CssWide::Inherit | CssWide::Unset))) =>
+        {
+            inherited.map_or(normal, |parent| parent.line_height_inherits)
+        }
+        Some(line_height) => match line_height.compute_value() {
+            CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => InheritedLineHeight::Px(*px as f32),
+            // A bare `0` is parsed as its own value rather than as a number or a length; as a
+            // line-height either reading is zero.
+            CssValue::Zero => InheritedLineHeight::Px(0.0),
+            CssValue::Number(factor, _) => InheritedLineHeight::FontSizeMultiple(*factor as f32),
+            // A percentage computes to the length it is worth here, and inherits as that.
+            CssValue::Percentage(pct) => InheritedLineHeight::Px(font_px * *pct as f32 / 100.0),
+            // `normal`, or anything this does not resolve.
+            _ => normal,
+        },
+        None => inherited.map_or(normal, |parent| parent.line_height_inherits),
+    };
+    map.line_height_inherits = inherits;
+    let own_lh = match inherits {
+        InheritedLineHeight::Px(px) => px,
+        InheritedLineHeight::FontSizeMultiple(factor) => font_px * factor,
+    };
+    map.line_height_px = own_lh;
+
+    let root_lh = if inherited.is_some() { parent_root_lh } else { own_lh };
+    map.root_line_height_px = root_lh;
+
+    for (id, property) in map.iter_ids_mut() {
+        if id != FONT_SIZE && id != LINE_HEIGHT {
+            property.line_height_basis = Some(own_lh);
+            property.root_line_height_basis = Some(root_lh);
             property.mark_dirty();
         }
     }
@@ -738,6 +812,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
 
 /// `font-size` is the one property every other property's `em` resolves against.
 const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+const LINE_HEIGHT: PropertyId = PropertyId::Longhand(LonghandId::LineHeight);
 
 /// Whether the property `name` denotes inherits by default.
 #[must_use]

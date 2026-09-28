@@ -2622,6 +2622,7 @@ PASS css/css-color/parsing/color-computed-color-function.html :: Property color 
 PASS css/css-color/parsing/color-computed-color-function.html :: Property color value 'color(display-p3 184 1.00001 1103)' [Display P3 color with component > 1 should not clamp]
 PASS css/css-color/parsing/color-computed-color-function.html :: Property color value 'color(srgb 0.1 0.2 0.3 / 1.9)' [Alpha > 1 should clamp]
 PASS css/css-color/parsing/color-computed-color-function.html :: Property color value 'color(srgb 1 1 1 / -0.2)' [Negative alpha should clamp]
+PASS css/css-color/parsing/color-computed-color-function.html :: Property color value 'color(srgb calc(0.5 + (sign(2cqw - 10px) * 0.1)) 0 0 / 0.51)'
 FILE css/css-color/parsing/color-computed-color-mix-function.html
 PASS css/css-color/parsing/color-computed-color-mix-function.html :: Property color value 'color-mix(in hsl, hsl(120deg 10% 20%), hsl(30deg 30% 40%))'
 PASS css/css-color/parsing/color-computed-color-mix-function.html :: Property color value 'color-mix(in hsl, hsl(120deg 10% 20%) 25%, hsl(30deg 30% 40%))'
@@ -7420,6 +7421,10 @@ PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'lch(
 PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'oklch(20% 60% 10/0.5)'
 PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'oklch(calc(NaN) 0 0)'
 PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'oklch(calc(0 / 0) 0 0)'
+PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'lab(calc(50 + (sign(2cqw - 10px) * 10)) 30 50 / 0.51)'
+PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'oklab(calc(0.5 + (sign(2cqw - 10px) * 0.1)) 0.3 0.5 / 0.51)'
+PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'lch(calc(50 + (sign(2cqw - 10px) * 10)) 30 50 / 0.51)'
+PASS css/css-color/parsing/color-computed-lab.html :: Property color value 'oklch(calc(0.5 + (sign(2cqw - 10px) * 0.1)) 0.3 50 / 0.51)'
 FILE css/css-color/parsing/color-computed-named-color.html
 PASS css/css-color/parsing/color-computed-named-color.html :: Property color value '/**/transparent' [Should parse to completely transparent]
 PASS css/css-color/parsing/color-computed-named-color.html :: Property color value 'transparent' [Should parse to completely transparent]
