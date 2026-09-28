@@ -974,7 +974,13 @@ fn resolve_value(
             } else if name.eq_ignore_ascii_case("attr") {
                 Some(attr(args))
             } else if name.eq_ignore_ascii_case("env") {
-                Some(resolve_env(args))
+                // Unlike the others, `env()` can tell an invalid reference from one that falls
+                // back to nothing (`env(nope,)`), which splices no tokens and keeps the rest of
+                // the declaration.
+                return match resolve_env(args) {
+                    Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
+                    None => None,
+                };
             } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
                 // Unresolved, the whole declaration fails validation - the UA sheet uses it on
                 // form controls.
@@ -1145,6 +1151,21 @@ mod tests {
             resolve("height: env(titlebar-area-height)", &[]),
             CssValue::List(vec![])
         );
+    }
+
+    /// `env()` needs a name before its fallback. Without one the reference is malformed and the
+    /// declaration invalid - it must not fall through to the fallback and override an earlier
+    /// declaration that was fine.
+    #[test]
+    fn an_env_without_a_name_invalidates_the_declaration() {
+        assert_eq!(resolve("padding-top: env(, 10px)", &[]), CssValue::List(vec![]));
+    }
+
+    /// A fallback may be empty (css-env-1 §3: `<declaration-value>?`). `env(nope,)` then
+    /// substitutes to nothing, which is not the same as `env(nope)` with no fallback at all.
+    #[test]
+    fn an_env_with_an_empty_fallback_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px env(titlebar-area-height,)", &[]), unit(1.0, "px"));
     }
 
     #[test]
