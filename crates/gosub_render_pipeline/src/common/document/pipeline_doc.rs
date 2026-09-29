@@ -6,7 +6,7 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
-use gosub_interface::style::{ComputedStyle, Display, LengthPercentage, Prop};
+use gosub_interface::style::{Color as StyleColor, ComputedStyle, Display, LengthPercentage, Prop};
 use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 /// Parses `linear-gradient(...)` args: an optional leading direction (`to <side>[ <side>]` or an
 /// `<angle>`) then two or more stops. Positionless stops are spread evenly between neighbours.
-fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
+/// `current_color` is the element's own `color`, which a `currentcolor` stop stands for.
+fn parse_linear_gradient<S: CssSystem>(args: &[S::Value], current_color: StyleColor) -> Option<Gradient> {
     let mut groups: Vec<Vec<&S::Value>> = Vec::new();
     let mut current: Vec<&S::Value> = Vec::new();
     for a in args {
@@ -41,13 +42,10 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
     let mut colors: Vec<Color> = Vec::new();
     let mut offsets: Vec<Option<f32>> = Vec::new();
     for group in groups.iter().skip(first_stop) {
-        // Named colours and `transparent` tokenise as plain identifiers, so `as_color()` misses
-        // them - fall back to string parsing, which `#e6e6e6 25%, transparent 25%` relies on.
         let color = group
             .iter()
-            .find_map(|v| v.as_color())
-            .map(|(r, g, b, a)| Color::from_rgba(r / 255.0, g / 255.0, b / 255.0, a / 255.0))
-            .or_else(|| group.iter().find_map(|v| v.as_string()).and_then(Color::try_from_css));
+            .find_map(|v| v.used_color(current_color))
+            .map(|c| Color::from_rgba8(c.r, c.g, c.b, c.a));
         let Some(color) = color else {
             continue;
         };
@@ -143,11 +141,11 @@ fn parse_gradient_direction<S: CssSystem>(group: &[&S::Value]) -> Option<f32> {
 
 /// All `linear-gradient(...)` layers of a `background-image` property, in source order (the
 /// first listed layer paints on top). Non-gradient layers (`url()`, `none`) are skipped.
-fn property_gradient_layers<S: CssSystem>(p: &S::Property) -> Vec<LinearGradient> {
+fn property_gradient_layers<S: CssSystem>(p: &S::Property, current: StyleColor) -> Vec<LinearGradient> {
     let mut out = Vec::new();
     let mut push_fn = |name: &str, args: &[S::Value]| {
         if name.eq_ignore_ascii_case("linear-gradient") {
-            if let Some(Gradient::Linear(g)) = parse_linear_gradient::<S>(args) {
+            if let Some(Gradient::Linear(g)) = parse_linear_gradient::<S>(args, current) {
                 out.push(g);
             }
         }
@@ -585,7 +583,7 @@ pub trait PipelineDocument: Send + Sync {
 // Encoding: top bit flags a synthetic id, next two bits are the role, the rest hold the owner
 // element id. Real DOM ids are small, so the high bits are free.
 const PSEUDO_FLAG: u64 = 1 << 62;
-const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
+pub(crate) const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
 const ROLE_BEFORE_TEXT: u64 = 2; // generated text child of ::before
 const ROLE_AFTER_TEXT: u64 = 3; // generated text child of ::after
@@ -599,7 +597,7 @@ const fn is_pseudo_id(id_val: u64) -> bool {
     id_val & PSEUDO_FLAG != 0
 }
 
-fn encode_pseudo(owner: NodeId, role: u64) -> NodeId {
+pub(crate) fn encode_pseudo(owner: NodeId, role: u64) -> NodeId {
     NodeId::from(PSEUDO_FLAG | (u64::from(owner) << 2) | role)
 }
 
@@ -1854,8 +1852,9 @@ where
         let map = arc.as_ref();
 
         // The `background` shorthand arrives expanded; its layers are in `background-image`.
+        let current = self.computed_style(id).inherited.color;
         let mut layers = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background-image")
-            .map(property_gradient_layers::<C::CssSystem>)
+            .map(|p| property_gradient_layers::<C::CssSystem>(p, current))
             .unwrap_or_default();
         if layers.is_empty() {
             return Vec::new();

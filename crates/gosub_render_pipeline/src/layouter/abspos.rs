@@ -47,7 +47,7 @@ fn position_kind(doc: &dyn PipelineDocument, id: DomNodeId) -> PositionKind {
 /// An inset (`top`/`right`/`bottom`/`left`) resolved against the containing block's size, or
 /// `None` for `auto` - which means "leave the box where the flow put it" on that axis.
 fn inset(side: LengthPercentageAuto, basis: f64) -> Option<f64> {
-    side.resolve(basis as f32).map(f64::from)
+    gosub_interface::used::length_auto(side, basis)
 }
 
 /// Taffy insets for one absolutely positioned box, rebased from its CSS containing block onto

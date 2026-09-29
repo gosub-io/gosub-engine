@@ -2862,6 +2862,59 @@ mod rendertree_from_engine {
             "print rules must not apply: expected 100px, got {w}"
         );
     }
+
+    /// A gradient stop can be `currentcolor`, or a colour function built on it. Both stand for
+    /// the element's own `color`, which only the used value knows; the stop used to be dropped,
+    /// and a two-stop gradient with it.
+    #[test]
+    fn gradient_stops_resolve_currentcolor() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .plain { color: rgb(255, 0, 0); background-image: linear-gradient(currentcolor, transparent); }
+                    .mixed { color: rgb(0, 0, 255); background-image: linear-gradient(color-mix(in srgb, currentcolor, white), black); }
+                    .pseudo { color: rgb(0, 0, 255); }
+                    .pseudo::before { content: "x"; color: rgb(0, 128, 0); background-image: linear-gradient(currentcolor, transparent); }
+                </style>
+            </head>
+            <body>
+                <div class="plain">a</div>
+                <div class="mixed">b</div>
+                <div class="pseudo">c</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let first_stop = |class: &str| {
+            let mut id = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the element");
+            if class == "pseudo" {
+                id = crate::common::document::pipeline_doc::encode_pseudo(
+                    id,
+                    crate::common::document::pipeline_doc::ROLE_BEFORE_ELEM,
+                );
+            }
+            let layers = adapter.background_layers(id, (100.0, 100.0));
+            let [crate::painter::commands::gradient::Gradient::Linear(gradient)] = layers.as_slice() else {
+                panic!("one gradient layer on .{class}, got {layers:?}");
+            };
+            assert_eq!(gradient.stops.len(), 2, "both stops on .{class}");
+            let color = &gradient.stops[0].color;
+            (color.r8(), color.g8(), color.b8(), color.a8())
+        };
+        assert_eq!(first_stop("plain"), (255, 0, 0, 255));
+        // The exact mix is 127.5; the typed colour truncates its channels (`to_color` in
+        // gosub_css3), where browsers round to 128. That is `to_color`'s bug, not this test's.
+        assert_eq!(first_stop("mixed"), (127, 127, 255, 255));
+        // A pseudo-element's `currentcolor` is its own colour, not its owner's.
+        assert_eq!(first_stop("pseudo"), (0, 128, 0, 255));
+    }
 }
 
 #[cfg(test)]

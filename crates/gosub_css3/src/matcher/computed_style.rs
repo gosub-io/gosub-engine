@@ -195,17 +195,21 @@ fn to_color(color: CssColor) -> Color {
 
 /// The colour a value names, or `None` when it names none - in which case the property keeps
 /// whatever it would have had. `currentcolor` does not name one here; the properties it may
-/// stand in read their colour through [`color_or_current`].
+/// stand in read their colour through [`used_color`].
 fn color(value: &CssValue) -> Option<Color> {
     resolve_color(value, &ColorContext::default()).color().map(to_color)
 }
 
-/// The colour a value names on a property where `currentcolor` stands for `current`.
+/// The colour a value names, with `currentcolor` standing for `current`, the element's own
+/// `color`: the used value (see `gosub_interface::used`).
 ///
 /// The computed value keeps `currentcolor` wherever it sits, so a colour function built on it -
 /// `contrast-color(currentcolor)`, `color-mix(in srgb, currentcolor, red)` - arrives here still
-/// a function. This is the used value, where the element's colour is known.
-fn color_or_current(value: &CssValue, current: Color) -> Option<Color> {
+/// a function. The typed colour fields are settled with this when the typed style is built,
+/// which is the same answer as settling them at paint time: `color` is the only one of them
+/// that inherits, and it is final by then. An inherited colour field would have to carry the
+/// unresolved value instead.
+pub(crate) fn used_color(value: &CssValue, current: Color) -> Option<Color> {
     let current = CssColor::from(RgbColor::new(
         f32::from(current.r),
         f32::from(current.g),
@@ -1251,7 +1255,7 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     style.border_mut().right_color = current;
     style.border_mut().bottom_color = current;
     style.border_mut().left_color = current;
-    let border_color = move |value: &CssValue| color_or_current(value, current);
+    let border_color = move |value: &CssValue| used_color(value, current);
     read!(map, style, BorderTopColor, border_mut, top_color, border_color);
     read!(map, style, BorderRightColor, border_mut, right_color, border_color);
     read!(map, style, BorderBottomColor, border_mut, bottom_color, border_color);
@@ -1296,7 +1300,7 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
         if as_string(value).is_some_and(|k| k.eq_ignore_ascii_case("auto")) {
             return Some(current);
         }
-        color_or_current(value, current)
+        used_color(value, current)
     });
 
     read!(map, style, OutlineOffset, outline_mut, offset, |value| length_px(
@@ -1312,7 +1316,7 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         BackgroundColor,
         background_mut,
         color,
-        move |value: &CssValue| color_or_current(value, current)
+        move |value: &CssValue| used_color(value, current)
     );
     if let Some(url) = value(map, longhand(LonghandId::BackgroundImage)).and_then(first_url) {
         style.background_mut().image = Some(Arc::from(url));
@@ -1740,7 +1744,10 @@ mod tests {
             LengthPercentageAuto::Auto
         );
         // Resolved against a basis, as layout resolves a percentage.
-        assert_eq!(calc(-20.0, 100.0).resolve(300.0), Some(280.0));
+        assert_eq!(
+            gosub_interface::used::length_auto(calc(-20.0, 100.0), 300.0),
+            Some(280.0)
+        );
     }
 
     #[test]
@@ -2244,7 +2251,7 @@ mod tests {
     fn percentages_travel_on_to_layout() {
         let style = computed_style(&map(&[("width", CssValue::Percentage(50.0))]), None);
         assert_eq!(style.size.width, LengthPercentageAuto::Percent(50.0));
-        assert_eq!(style.size.width.resolve(400.0), Some(200.0));
+        assert_eq!(gosub_interface::used::length_auto(style.size.width, 400.0), Some(200.0));
         assert_eq!(style.size.width.to_px(), None);
     }
 }

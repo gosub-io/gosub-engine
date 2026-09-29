@@ -36,6 +36,7 @@ use crate::tiler::TiledLayoutElement;
 use gosub_interface::document::ControlEditState;
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedText, TextAlign, TextStyle};
+use gosub_interface::used;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -615,25 +616,16 @@ impl Painter {
         );
         let mut r = Rectangle::new(ring).with_border(border);
 
-        // Radii grow with the box. A percentage radius is read as its bare number, which is
-        // what this has always done - see `LengthPercentage::raw`.
+        // The ring follows the border box's corners, each radius grown by the distance the ring
+        // sits outside it (css-ui-4 §4.3); a square corner stays square.
         let border = &doc.computed_style(dom_node_id).border;
-        let radius = |value: gosub_interface::style::LengthPercentage| {
-            let v = f64::from(value.raw());
-            if v > 0.0 {
-                v + grow
-            } else {
-                0.0
-            }
-        };
-        let (tl, tr, br, bl) = (
-            radius(border.top_left_radius),
-            radius(border.top_right_radius),
-            radius(border.bottom_right_radius),
-            radius(border.bottom_left_radius),
-        );
-        if tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0 {
-            r = r.with_radius_tlrb(Radius::new(tl), Radius::new(tr), Radius::new(br), Radius::new(bl));
+        let grown = |length: f64| if length > 0.0 { length + grow } else { 0.0 };
+        let [tl, tr, br, bl] = used::border_radii(border, bb.width, bb.height).map(|(x, y)| Radius {
+            x: grown(x),
+            y: grown(y),
+        });
+        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+            r = r.with_radius_tlrb(tl, tr, br, bl);
         }
         Some(PaintCommand::rectangle(r))
     }
@@ -1322,21 +1314,10 @@ impl Painter {
             r = r.with_border(border);
         }
 
-        // A percentage radius is read as its bare number, which is what this has always done -
-        // see `LengthPercentage::raw`.
-        let radius_bottom_left = css_border.bottom_left_radius.raw();
-        let radius_bottom_right = css_border.bottom_right_radius.raw();
-        let radius_top_left = css_border.top_left_radius.raw();
-        let radius_top_right = css_border.top_right_radius.raw();
-
-        if radius_bottom_left != 0.0 || radius_bottom_right != 0.0 || radius_top_left != 0.0 || radius_top_right != 0.0
-        {
-            r = r.with_radius_tlrb(
-                Radius::new(radius_top_left as f64),
-                Radius::new(radius_top_right as f64),
-                Radius::new(radius_bottom_right as f64),
-                Radius::new(radius_bottom_left as f64),
-            );
+        let rect = r.rect();
+        let [tl, tr, br, bl] = used::border_radii(css_border, rect.width, rect.height).map(|(x, y)| Radius { x, y });
+        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+            r = r.with_radius_tlrb(tl, tr, br, bl);
         }
 
         r

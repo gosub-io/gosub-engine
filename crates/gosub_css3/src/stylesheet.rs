@@ -1830,6 +1830,10 @@ impl gosub_interface::css3::CssValue for CssValue {
         }
     }
 
+    fn used_color(&self, current: gosub_interface::style::Color) -> Option<gosub_interface::style::Color> {
+        crate::matcher::computed_style::used_color(self, current)
+    }
+
     fn as_number(&self) -> Option<f32> {
         match self {
             CssValue::Number(num, _) => Some(*num as f32),
