@@ -41,7 +41,11 @@ Three properties define the model:
 -   `load_default_useragent_stylesheet`;
 -   `hover_fingerprints` — scans stylesheets for the element types/classes/ids targeted by `:hover` rules, so the engine can skip style recalculation for pointer moves that no hover rule could affect. It lives on this trait because only the CSS implementation understands its own selector representation.
 
-`CssProperty`/`CssValue` are deliberately lowest-common-denominator accessor traits (`as_string`, `as_unit`, `as_color`, `as_list`, ...) — consumers like the pipeline's [document adapter](two-worlds.md) probe values through these and convert into their own representation. Implemented by `gosub_css3::Css3`.
+`CssProperty`/`CssValue` are deliberately lowest-common-denominator accessor traits (`as_string`, `as_unit`, `as_color`, `as_list`, ...) — consumers like the pipeline's [document adapter](two-worlds.md) probe values through these and convert into their own representation. Implemented by `gosub_css3::Css3`. The one exception to "probe and convert" is `CssValue::used_color`, which resolves a colour with `currentcolor` standing for the element's own colour: only the CSS implementation can read a colour function.
+
+### Typed style and used values (`style.rs`, `used.rs`)
+
+`ComputedStyle` is what layout and paint read for a node: typed fields in shared groups, built by the CSS implementation (see [css.md](css.md), "The typed style"). A percentage or a `calc()` that mixes one with a length stays in it as `LengthPercentage`, because style has no containing block. `used.rs` holds the functions that finish those values once layout has a basis (`length`, `length_auto`, `letter_spacing`, `border_radii`). They store nothing; see "The value stages" in [css.md](css.md).
 
 ### Layout — not here
 

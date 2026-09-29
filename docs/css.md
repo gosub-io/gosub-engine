@@ -160,7 +160,8 @@ remain once the winning origin or layer is removed.
 
 ## The value stages
 
-`CssProperty::compute_value()` walks the spec's stages once per property:
+`CssProperty::compute_value()` walks the first three of the spec's stages once per property;
+the fourth is worked out by layout and paint when they read the value:
 
 1.  **Cascaded**, as above.
 2.  **Specified**: the cascaded value, or what the property falls back to. `inherit` and `unset`
@@ -176,14 +177,27 @@ remain once the winning origin or layer is removed.
     `functions/calc.rs`: the font-metric units (`ex`, `ch`, `cap`, `ic`, `lh` and their root
     forms) take stand-in factors of the font-size until real metrics exist, and the container
     units are the small viewport units, since no element is a query container. Percentages
-    survive as written, because only layout has what they are a percentage of.
+    survive as written, because only layout has what they are a percentage of, and a `calc()`
+    that mixes one with a length survives as the sum `px + percent`.
+4.  **Used**: what a value comes to once layout knows what it depends on. The functions are in
+    `gosub_interface::used`, not here, because the render pipeline is generic over `CssSystem`
+    and sees only the interface: `length` and `length_auto` settle a percentage or a `calc()`
+    against the basis its property refers to, `letter_spacing` against the font size, and
+    `border_radii` against the border box, with the overlap rule of css-backgrounds-3 §5.5.
+    Layout and paint call them where they read the value, and nothing is stored.
+    `currentcolor` is the one used value settled earlier. The typed colour fields resolve it when
+    the typed style is built, which is the same answer: `color` is the only one of them that
+    inherits, and the element's own `color` is final by then (an inherited colour field would
+    have to carry the unresolved value). A colour read from an untyped value, such as a gradient
+    stop, goes through `CssValue::used_color`, which is `resolve_color` with the element's
+    colour.
+
+There is no actual-value stage; snapping to device pixels is the renderer's.
 
 Only the computed value is kept. The cascaded and specified values are steps on the way to it,
 read by nothing but that walk, so they are threaded through as locals rather than stored on every
 declared property of every element; `cascaded_value()` and `specified_value()` recompute them for
 the style dump, which asks once per property per run.
-
-There is no used or actual stage in this crate. Those belong to layout.
 
 ## The typed style (`matcher/computed_style.rs`, `gosub_interface::style`)
 
@@ -194,12 +208,13 @@ declared nothing in shares the parent's `Arc` (inherited groups) or the process-
 (reset groups); border is the exception, since its colours default to `currentColor`, and shares
 the parent's only when the parent declared no border property either. A `DeclaredSet` bitset
 records which properties the element's own cascade produced, for the readers that ask "did the
-author set this". Percentages travel on as `LengthPercentage` and layout resolves them.
+author set this". Percentages and mixed `calc()` sums travel on as `LengthPercentage` and the
+used stage settles them.
 
-Some of what this conversion does belongs in the computed stage above and is listed under the
-gaps: it is where the system colours, the `font-size` keyword scale, the `ch`/`ex`/`lh`/`ic`
-approximations, `currentColor` on a property other than `color`, `outline-color: auto` and the
-physical-to-logical inset mapping are still decided.
+Two things this conversion does belong in the computed stage above and are listed under the
+gaps: the `font-size` keyword scale (with the 13px default for a bare `monospace`), and the
+physical-to-logical inset mapping. Settling `currentcolor` and `outline-color: auto` on the
+colour fields is the used stage, as described there.
 
 ## Hover fingerprints (`system.rs`)
 
@@ -284,12 +299,21 @@ and the clause that makes the new value right.
 -   At-rule coverage stops at the five above.
 -   An unresolvable `var()` drops its declaration; css-variables-1 §3.1 says the property should
     then compute to `inherit` or `initial`.
--   The six computed-value questions still answered in the typed-style conversion (listed above).
+-   The two computed-value questions still answered in the typed-style conversion (listed above).
     One consequence: a relative `font-size` keyword (`smaller`) travels down as the keyword and
     is re-applied on every descendant.
 -   `calc()` terms carry a unit but no exponent, so an expression whose units only cancel at the
     end (`calc(100px * 1px / 1px)`) is left unevaluated rather than answered wrongly.
--   Percentages, `ch`, `lh` and the container-query units never resolve at computed-value time.
+-   The font-metric units take stand-in factors of the font-size, and the container-query units
+    are the small viewport units, until real metrics and query containers exist.
+-   A `calc()` that mixes a length and a percentage does not reach taffy or the table layouter;
+    both lay the property out as though it were not declared. taffy's own tree resolves every
+    calc to 0, so this waits for layout to have its own tree.
+-   A percentage inset on a sticky element is not resolved, so it sticks to nothing.
+-   `background-size`, `-position` and `-repeat`, and the gradients in `background-image`, are
+    still read by the pipeline from the untyped property map rather than the typed style.
+-   Cairo and Vello draw a corner with its horizontal radius only, so an elliptical corner (a
+    percentage radius on a box that is not square) comes out circular there. Skia draws it.
 -   Presentational hints are unlayered, so they beat author rules inside an `@layer`; whether that
     is what css-cascade-5 means by "as if at the start of the author style sheet" is undecided.
 -   `<svg>` is on the unrenderable list, so no selector reaches an SVG element.

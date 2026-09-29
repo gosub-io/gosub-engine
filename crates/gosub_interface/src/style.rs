@@ -14,7 +14,7 @@
 //!
 //! Percentages are deliberately still here. A percentage needs a containing block, which style
 //! resolution does not have, so [`LengthPercentage`] and [`LengthPercentageAuto`] carry it
-//! through to layout and [`LengthPercentage::resolve`] settles it there.
+//! through to layout, and the functions in [`crate::used`] settle it there.
 
 use std::sync::Arc;
 
@@ -61,35 +61,13 @@ pub enum LengthPercentage {
 impl LengthPercentage {
     pub const ZERO: LengthPercentage = LengthPercentage::Px(0.0);
 
-    /// The length in px against a containing-block extent, which is what a percentage is of.
-    #[must_use]
-    pub fn resolve(self, basis: f32) -> f32 {
-        match self {
-            LengthPercentage::Px(px) => px,
-            LengthPercentage::Percent(pct) => basis * pct / 100.0,
-            LengthPercentage::Calc { px, percent } => px + basis * percent / 100.0,
-        }
-    }
-
-    /// The length in px, or `None` when it is a percentage and no basis was given.
+    /// The length in px when it is one; a percentage or a `calc()` needs its basis, through
+    /// [`crate::used::length`].
     #[must_use]
     pub fn to_px(self) -> Option<f32> {
         match self {
             LengthPercentage::Px(px) => Some(px),
             LengthPercentage::Percent(_) | LengthPercentage::Calc { .. } => None,
-        }
-    }
-
-    /// The bare number, whatever unit it was written in - a percentage comes back as `50`, not
-    /// as a fraction of anything.
-    ///
-    /// This is what the old `get_style_f32` did, and the call sites that use it are the ones
-    /// that silently treated a percentage as pixels. Kept so this step moves no pixel; each
-    /// such site is a bug of its own.
-    #[must_use]
-    pub fn raw(self) -> f32 {
-        match self {
-            LengthPercentage::Px(v) | LengthPercentage::Percent(v) | LengthPercentage::Calc { px: v, .. } => v,
         }
     }
 }
@@ -113,17 +91,6 @@ impl LengthPercentageAuto {
     #[must_use]
     pub fn is_auto(self) -> bool {
         matches!(self, LengthPercentageAuto::Auto)
-    }
-
-    /// The length in px against a containing-block extent; `None` for `auto`.
-    #[must_use]
-    pub fn resolve(self, basis: f32) -> Option<f32> {
-        match self {
-            LengthPercentageAuto::Auto => None,
-            LengthPercentageAuto::Px(px) => Some(px),
-            LengthPercentageAuto::Percent(pct) => Some(basis * pct / 100.0),
-            LengthPercentageAuto::Calc { px, percent } => Some(px + basis * percent / 100.0),
-        }
     }
 
     /// The length in px, or `None` for `auto` *and* for a percentage.

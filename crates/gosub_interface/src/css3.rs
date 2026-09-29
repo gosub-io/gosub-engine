@@ -1,5 +1,5 @@
 use crate::config::HasDocument;
-use crate::style::ComputedStyle;
+use crate::style::{Color, ComputedStyle};
 use gosub_shared::async_executor::{WasmNotSend, WasmNotSendSync};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -216,6 +216,11 @@ pub trait CssValue: Sized {
     fn as_percentage(&self) -> Option<f32>;
     fn as_unit(&self) -> Option<(f32, &str)>;
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
+    /// The colour this value names, with `currentcolor` - on its own or inside a colour function
+    /// such as `color-mix(in srgb, currentcolor, white)` - standing for `current`, the element's
+    /// own `color`. `None` when the value is not a colour. This is the used value; see
+    /// [`crate::used`].
+    fn used_color(&self, current: Color) -> Option<Color>;
     fn as_number(&self) -> Option<f32>;
     fn as_list(&self) -> Option<&[Self]>;
 

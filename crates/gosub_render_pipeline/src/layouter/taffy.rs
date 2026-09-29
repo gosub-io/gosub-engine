@@ -25,9 +25,9 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    ComputedStyle, Display as CssDisplay, LengthPercentage as CssLengthPercentage, LetterSpacing, LineHeight,
-    TextAlign, TextTransform as CssTextTransform, WhiteSpace,
+    ComputedStyle, Display as CssDisplay, LineHeight, TextAlign, TextTransform as CssTextTransform, WhiteSpace,
 };
+use gosub_interface::used;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2260,18 +2260,9 @@ impl TaffyLayouter {
 
                 let decoration = text_style.text_decoration_line;
 
-                // `letter-spacing` arrives already resolved to px; `normal` means no extra
-                // spacing. A percentage stays a percentage through the computed stage
-                // (css-text-4 §8.2: it is a used-value resolution) and refers to the font size,
-                // so it is settled here.
-                let letter_spacing = match text_style.letter_spacing {
-                    LetterSpacing::Normal => 0.0,
-                    LetterSpacing::Length(CssLengthPercentage::Px(px)) => f64::from(px),
-                    LetterSpacing::Length(CssLengthPercentage::Percent(pct)) => font_size * f64::from(pct) / 100.0,
-                    LetterSpacing::Length(CssLengthPercentage::Calc { px, percent }) => {
-                        f64::from(px) + font_size * f64::from(percent) / 100.0
-                    }
-                };
+                // A percentage `letter-spacing` is of the font size, settled here (css-text-4
+                // §8.2: it is a used value).
+                let letter_spacing = used::letter_spacing(text_style.letter_spacing, font_size);
 
                 let font_info = FontInfo {
                     family: font_family,
@@ -3144,12 +3135,7 @@ fn apply_translations(layout_tree: &mut LayoutTree) {
             continue;
         };
         let bb = el.box_model.border_box;
-        let px = |value: CssLengthPercentage, len: f64| match value {
-            CssLengthPercentage::Px(n) => f64::from(n),
-            CssLengthPercentage::Percent(pct) => len * f64::from(pct) / 100.0,
-            CssLengthPercentage::Calc { px, percent } => f64::from(px) + len * f64::from(percent) / 100.0,
-        };
-        let (dx, dy) = (px(tx, bb.width), px(ty, bb.height));
+        let (dx, dy) = (used::length(tx, bb.width), used::length(ty, bb.height));
         if dx == 0.0 && dy == 0.0 {
             continue;
         }
