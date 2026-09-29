@@ -191,6 +191,20 @@ impl<T: HeapSize> HeapSize for Arc<T> {
     }
 }
 
+/// A shared slice: its buffer is counted once however many `Arc`s point at it, like any other
+/// shared allocation, and its elements' own heap with it.
+impl<T: HeapSize> HeapSize for Arc<[T]> {
+    fn heap_size(&self, walk: &mut Walk) {
+        let address = self.as_ptr() as usize;
+        walk.shared_once(address, |walk| {
+            walk.bytes(self.len() * size_of::<T>());
+            for item in self.iter() {
+                item.heap_size(walk);
+            }
+        });
+    }
+}
+
 /// `Arc<str>` is not `Arc<T: Sized>`, so it needs its own implementation - and it is worth
 /// having: the style groups hold their few strings this way precisely so that a thousand
 /// elements naming the same font family hold one allocation between them.

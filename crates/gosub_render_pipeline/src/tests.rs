@@ -1000,9 +1000,20 @@ mod rendertree_from_engine {
         }
 
         let grid = find_node_by_class_dfs(&adapter.doc, root, "grid").expect("find .grid");
-        let areas = adapter.computed_style(grid).grid.template_areas.to_string();
+        let areas: Vec<Vec<String>> = adapter
+            .computed_style(grid)
+            .grid
+            .template_areas
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.as_deref().unwrap_or(".").to_string())
+                    .collect()
+            })
+            .collect();
         assert_eq!(
-            areas, "head head\nside body",
+            areas,
+            [["head", "head"], ["side", "body"]],
             "the later `grid-template-areas` should survive the `grid-template` shorthand"
         );
     }

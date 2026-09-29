@@ -783,20 +783,83 @@ pub struct FlexGroup {
     pub justify_content: AlignValue,
 }
 
-/// Grid track lists and placements are kept as the CSS text they were written in: their value
-/// space is open (`repeat(3, minmax(100px, 1fr))`) and the layouter has the parser for it.
+/// One side of a grid track's size (css-grid-2 §7.2): what `minmax()` takes, and what a single
+/// track size is on both sides at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TrackBreadth {
+    Length(LengthPercentage),
+    /// A share of the free space, `<flex>` (`1fr`). Only ever the maximum of a track.
+    Fr(f32),
+    Auto,
+    MinContent,
+    MaxContent,
+}
+
+/// One grid track's size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TrackSize {
+    /// `200px`, `1fr`, `auto`: the same breadth on both sides.
+    Single(TrackBreadth),
+    /// `minmax(min, max)`.
+    MinMax(TrackBreadth, TrackBreadth),
+    /// `fit-content(limit)`.
+    FitContent(LengthPercentage),
+}
+
+/// How many times a `repeat()` repeats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatCount {
+    Count(u16),
+    /// As many as fit.
+    AutoFill,
+    /// As many as fit, with the empty ones collapsed.
+    AutoFit,
+}
+
+/// One entry of a track list.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TrackListItem {
+    Track(TrackSize),
+    /// `repeat(count, tracks)`; the tracks may name lines of their own.
+    Repeat(RepeatCount, Arc<[TrackListItem]>),
+    /// `[name name]`: the names of the grid line between two tracks.
+    LineNames(Arc<[Arc<str>]>),
+}
+
+/// A track list: `grid-template-rows` and `-columns` (empty for `none`), and the implicit track
+/// sizes of `grid-auto-rows` and `-columns` (empty for the initial `auto`).
+pub type TrackList = Arc<[TrackListItem]>;
+
+/// Where an item starts or ends on one axis: a `<grid-line>` (css-grid-2 §8.3).
+#[derive(Clone, Debug, PartialEq)]
+pub enum GridLine {
+    Auto,
+    /// The nth line, counted from the end when negative. Never zero.
+    Line(i16),
+    /// Spanning this many tracks.
+    Span(u16),
+    /// The nth line of this name.
+    Named(Arc<str>, i16),
+    /// Spanning until the nth line of this name.
+    NamedSpan(Arc<str>, u16),
+}
+
+/// `grid-template-areas`: its rows, each a cell per column, `None` for a null cell (`.`).
+pub type GridAreas = Arc<[Arc<[Option<Arc<str>>]>]>;
+
+/// The grid properties, parsed once by the computed stage into what the layouter reads.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridGroup {
-    pub row_start: Arc<str>,
-    pub row_end: Arc<str>,
-    pub column_start: Arc<str>,
-    pub column_end: Arc<str>,
-    pub template_rows: Arc<str>,
-    pub template_columns: Arc<str>,
-    pub auto_rows: Arc<str>,
-    pub auto_columns: Arc<str>,
-    /// One row per line, joined with `\n` - a character an area name cannot contain.
-    pub template_areas: Arc<str>,
+    pub row_start: GridLine,
+    pub row_end: GridLine,
+    pub column_start: GridLine,
+    pub column_end: GridLine,
+    pub template_rows: TrackList,
+    pub template_columns: TrackList,
+    pub auto_rows: TrackList,
+    pub auto_columns: TrackList,
+    /// Empty for `none`.
+    pub template_areas: GridAreas,
     pub auto_flow: GridAutoFlow,
 }
 
@@ -1068,15 +1131,15 @@ impl ComputedStyle {
                 justify_content: AlignValue::Normal,
             }),
             grid: Arc::new(GridGroup {
-                row_start: Arc::from("auto"),
-                row_end: Arc::from("auto"),
-                column_start: Arc::from("auto"),
-                column_end: Arc::from("auto"),
-                template_rows: Arc::from("none"),
-                template_columns: Arc::from("none"),
-                auto_rows: Arc::from("auto"),
-                auto_columns: Arc::from("auto"),
-                template_areas: Arc::from("none"),
+                row_start: GridLine::Auto,
+                row_end: GridLine::Auto,
+                column_start: GridLine::Auto,
+                column_end: GridLine::Auto,
+                template_rows: Arc::from([]),
+                template_columns: Arc::from([]),
+                auto_rows: Arc::from([]),
+                auto_columns: Arc::from([]),
+                template_areas: Arc::from([]),
                 auto_flow: GridAutoFlow::Row,
             }),
             declared: DeclaredSet::default(),
@@ -1129,6 +1192,24 @@ impl HeapSize for BackgroundGroup {
     fn heap_size(&self, walk: &mut Walk) {
         if let Some(image) = &self.image {
             image.heap_size(walk);
+        }
+    }
+}
+
+impl HeapSize for TrackListItem {
+    fn heap_size(&self, walk: &mut Walk) {
+        match self {
+            TrackListItem::Track(_) => {}
+            TrackListItem::Repeat(_, items) => items.heap_size(walk),
+            TrackListItem::LineNames(names) => names.heap_size(walk),
+        }
+    }
+}
+
+impl HeapSize for GridLine {
+    fn heap_size(&self, walk: &mut Walk) {
+        if let GridLine::Named(name, _) | GridLine::NamedSpan(name, _) = self {
+            name.heap_size(walk);
         }
     }
 }

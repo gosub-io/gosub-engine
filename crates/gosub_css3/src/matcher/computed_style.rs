@@ -16,11 +16,13 @@
 
 use std::sync::{Arc, LazyLock};
 
+use cow_utils::CowUtils;
 use gosub_interface::style::{
     AlignValue, BorderCollapse, BorderStyle, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
-    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAutoFlow, LengthPercentage, LengthPercentageAuto,
-    LetterSpacing, LineHeight, Overflow, Position, Prop, TableLayout, TextAlign, TextDecorationLine, TextTransform,
-    TextWrap, VerticalAlign, WhiteSpace, ZIndex,
+    FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
+    LengthPercentageAuto, LetterSpacing, LineHeight, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign,
+    TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign,
+    WhiteSpace, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
@@ -228,87 +230,199 @@ fn first_url(value: &CssValue) -> Option<&str> {
     as_list(value)?.iter().find_map(first_url)
 }
 
-// ── Grid text ────────────────────────────────────────────────────────────────
+// ── Grid ─────────────────────────────────────────────────────────────────────
 
-/// One grid track-list value back as CSS text (`1fr`, `minmax(100px, 1fr)`, ...), which is the
-/// form the layouter's track parser takes.
-fn grid_text(value: &CssValue) -> String {
-    if let Some(string) = as_string(value) {
-        return string.to_string();
+/// A value as the token sequence the grid grammars are written over.
+fn grid_tokens(value: &CssValue) -> &[CssValue] {
+    match value {
+        CssValue::List(items) => items,
+        other => std::slice::from_ref(other),
     }
-    if let Some((number, unit)) = as_unit(value) {
-        return format!("{number}{unit}");
-    }
-    if let Some(pct) = as_percentage(value) {
-        return format!("{pct}%");
-    }
-    if matches!(value, CssValue::Comma) {
-        return ",".to_string();
-    }
-    if let Some((name, args)) = as_function(value) {
-        return format!("{name}({})", grid_args(args));
-    }
-    if let Some(list) = as_list(value) {
-        return list.iter().map(grid_text).collect::<Vec<_>>().join(" ");
-    }
-    if let Some(number) = as_number(value) {
-        return format!("{number}");
-    }
-    String::new()
 }
 
-/// Grid function arguments (`repeat(3, 1fr)`): commas as `, `, everything else space-separated.
-fn grid_args(args: &[CssValue]) -> String {
-    let mut out = String::new();
-    for arg in args {
-        if matches!(arg, CssValue::Comma) {
-            out.push_str(", ");
-        } else {
-            if !out.is_empty() && !out.ends_with(' ') {
-                out.push(' ');
-            }
-            out.push_str(&grid_text(arg));
+fn is_keyword(value: &CssValue, keyword: &str) -> bool {
+    as_string(value).is_some_and(|word| word.eq_ignore_ascii_case(keyword))
+}
+
+/// One side of a track size. A bare number is only a length when it is `0`, the one length CSS
+/// lets you write without a unit (`minmax(0, 1fr)`, Tailwind's equal-width grid).
+fn track_breadth(value: &CssValue) -> Option<TrackBreadth> {
+    if let Some((fr, unit)) = as_unit(value) {
+        if unit.eq_ignore_ascii_case("fr") {
+            return Some(TrackBreadth::Fr(fr));
         }
     }
-    out.trim().to_string()
+    if let Some(word) = as_string(value) {
+        return match word.cow_to_ascii_lowercase().as_ref() {
+            "auto" => Some(TrackBreadth::Auto),
+            "min-content" => Some(TrackBreadth::MinContent),
+            "max-content" => Some(TrackBreadth::MaxContent),
+            _ => None,
+        };
+    }
+    if let Some(number) = as_number(value) {
+        return (number == 0.0).then_some(TrackBreadth::Length(LengthPercentage::Px(0.0)));
+    }
+    length_percentage(value, 0.0).map(TrackBreadth::Length)
 }
 
-/// A `grid-template-*` track list as one string, covering every shape it arrives in.
-fn grid_track_list(value: &CssValue) -> Option<String> {
-    if let Some(string) = as_string(value) {
-        return Some(string.to_string());
-    }
+fn track_size(value: &CssValue) -> Option<TrackSize> {
     if let Some((name, args)) = as_function(value) {
-        return Some(format!("{name}({})", grid_args(args)));
+        if name.eq_ignore_ascii_case("minmax") {
+            let [min, CssValue::Comma, max] = args else {
+                return None;
+            };
+            return Some(TrackSize::MinMax(track_breadth(min)?, track_breadth(max)?));
+        }
+        if name.eq_ignore_ascii_case("fit-content") {
+            let [limit] = args else {
+                return None;
+            };
+            return length_percentage(limit, 0.0).map(TrackSize::FitContent);
+        }
+        return None;
     }
-    if let Some(list) = as_list(value) {
-        return Some(list.iter().map(grid_text).collect::<Vec<_>>().join(" "));
-    }
-    if let Some((number, unit)) = as_unit(value) {
-        return Some(format!("{number}{unit}"));
-    }
-    as_percentage(value).map(|pct| format!("{pct}%"))
+    track_breadth(value).map(TrackSize::Single)
 }
 
-/// A grid placement (`content`, `1 / 3`) as one string.
-fn grid_placement(value: &CssValue) -> Option<String> {
-    let text = grid_text(value);
-    (!text.is_empty()).then_some(text)
+/// The items of a track list: tracks, `repeat()`s and `[line names]`. `None` when any part is
+/// not something this reads, which leaves the property unset.
+fn track_items(tokens: &[CssValue]) -> Option<Vec<TrackListItem>> {
+    let mut items = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = &tokens[index];
+        if is_keyword(token, "[") {
+            let mut names = Vec::new();
+            index += 1;
+            while index < tokens.len() && !is_keyword(&tokens[index], "]") {
+                names.push(Arc::from(as_string(&tokens[index])?));
+                index += 1;
+            }
+            items.push(TrackListItem::LineNames(Arc::from(names)));
+        } else if let Some(("repeat", args)) = as_function(token) {
+            let comma = args.iter().position(|arg| matches!(arg, CssValue::Comma))?;
+            let count = match &args[..comma] {
+                [CssValue::Number(count, _)]
+                    if count.fract() == 0.0 && *count >= 0.0 && *count <= f64::from(u16::MAX) =>
+                {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "checked just above"
+                    )]
+                    RepeatCount::Count(*count as u16)
+                }
+                [word] if is_keyword(word, "auto-fill") => RepeatCount::AutoFill,
+                [word] if is_keyword(word, "auto-fit") => RepeatCount::AutoFit,
+                _ => return None,
+            };
+            items.push(TrackListItem::Repeat(
+                count,
+                Arc::from(track_items(&args[comma + 1..])?),
+            ));
+        } else {
+            items.push(TrackListItem::Track(track_size(token)?));
+        }
+        index += 1;
+    }
+    Some(items)
 }
 
-/// `grid-template-areas`: one quoted string per row, joined with a character an area name
-/// cannot contain, since the row boundaries carry the meaning.
-fn grid_areas(value: &CssValue) -> Option<String> {
-    let rows: Vec<&str> = match as_list(value) {
-        Some(list) => list.iter().filter_map(as_string).collect(),
-        None => vec![as_string(value)?],
+/// `grid-template-rows` and `-columns`: empty for `none`.
+fn track_list(value: &CssValue) -> Option<TrackList> {
+    if is_keyword(value, "none") {
+        return Some(Arc::from([]));
+    }
+    track_items(grid_tokens(value)).map(Arc::from)
+}
+
+/// `grid-auto-rows` and `-columns`: empty for the initial `auto`, which is what an implicit track
+/// is when nothing sizes it.
+fn auto_track_list(value: &CssValue) -> Option<TrackList> {
+    if is_keyword(value, "auto") {
+        return Some(Arc::from([]));
+    }
+    track_list(value)
+}
+
+/// A `<custom-ident>` as the grid grammars use it: letters, digits, `-` and `_`, not starting with
+/// a digit.
+fn custom_ident(value: &CssValue) -> Option<&str> {
+    as_string(value).filter(|word| {
+        !word.is_empty()
+            && !word.starts_with(|c: char| c.is_ascii_digit())
+            && word.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
+fn grid_integer(value: &CssValue) -> Option<i16> {
+    let number = as_number(value)?;
+    #[expect(clippy::cast_possible_truncation, reason = "checked to be a whole number in range")]
+    (number.fract() == 0.0 && (f32::from(i16::MIN)..=f32::from(i16::MAX)).contains(&number)).then_some(number as i16)
+}
+
+/// `<integer> && <custom-ident>`, in either order: `2 main-end` and `main-end 2` both name the
+/// second line called `main-end`. A zero index is not a line (css-grid-2 forbids it).
+fn index_and_name<'a>(first: &'a CssValue, second: &'a CssValue) -> Option<(i16, &'a str)> {
+    let (index, name) = match (grid_integer(first), grid_integer(second)) {
+        (Some(index), None) => (index, custom_ident(second)?),
+        (None, Some(index)) => (index, custom_ident(first)?),
+        _ => return None,
     };
-    Some(
-        rows.iter()
-            .map(|row| row.trim_matches(['"', '\'']))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
+    (index != 0).then_some((index, name))
+}
+
+/// A `<grid-line>` (css-grid-2 §8.3). Anything this does not recognise is `auto`.
+fn grid_line(value: &CssValue) -> GridLine {
+    let tokens = grid_tokens(value);
+    match tokens {
+        [word] if is_keyword(word, "auto") => GridLine::Auto,
+        [span, count] if is_keyword(span, "span") && grid_integer(count).is_some_and(|n| n >= 0) =>
+        {
+            #[expect(clippy::cast_sign_loss, reason = "checked to be non-negative")]
+            GridLine::Span(grid_integer(count).unwrap_or(1) as u16)
+        }
+        [span, name] if is_keyword(span, "span") && custom_ident(name).is_some() => {
+            GridLine::NamedSpan(Arc::from(custom_ident(name).unwrap_or_default()), 1)
+        }
+        // A span counts forward only, so a negative integer here is not a span at all.
+        [span, first, second] if is_keyword(span, "span") => match index_and_name(first, second) {
+            #[expect(clippy::cast_sign_loss, reason = "checked to be positive")]
+            Some((index, name)) if index > 0 => GridLine::NamedSpan(Arc::from(name), index as u16),
+            _ => GridLine::Auto,
+        },
+        [line] if grid_integer(line).is_some() => GridLine::Line(grid_integer(line).unwrap_or(1)),
+        [first, second] => match index_and_name(first, second) {
+            Some((index, name)) => GridLine::Named(Arc::from(name), index),
+            None => GridLine::Auto,
+        },
+        // A bare identifier is a named line. `grid-area: content` names an *area*, whose implicit
+        // `content-start` / `content-end` lines layout derives from `grid-template-areas`, so the
+        // same placement covers both spellings.
+        [name] if custom_ident(name).is_some() => GridLine::Named(Arc::from(custom_ident(name).unwrap_or_default()), 1),
+        _ => GridLine::Auto,
+    }
+}
+
+/// `grid-template-areas`: one quoted string per row, a cell per whitespace-separated name, a run
+/// of dots for a null cell. Empty for `none`.
+fn grid_areas(value: &CssValue) -> Option<GridAreas> {
+    if is_keyword(value, "none") {
+        return Some(Arc::from([]));
+    }
+    let rows: Vec<Arc<[Option<Arc<str>>]>> = grid_tokens(value)
+        .iter()
+        .filter_map(as_string)
+        .map(|row| {
+            row.trim_matches(['"', '\''])
+                .split_whitespace()
+                .map(|cell| (!cell.chars().all(|c| c == '.')).then(|| Arc::from(cell)))
+                .collect::<Vec<_>>()
+                .into()
+        })
+        .collect();
+    Some(Arc::from(rows))
 }
 
 // ── Keyword tables ───────────────────────────────────────────────────────────
@@ -1285,35 +1399,18 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
 }
 
 fn resolve_grid(map: &CssProperties, style: &mut ComputedStyle) {
-    let track_list = |value: &CssValue| grid_track_list(value).map(Arc::from);
     read!(map, style, GridTemplateRows, grid_mut, template_rows, track_list);
     read!(map, style, GridTemplateColumns, grid_mut, template_columns, track_list);
-    read!(map, style, GridAutoRows, grid_mut, auto_rows, track_list);
-    read!(map, style, GridAutoColumns, grid_mut, auto_columns, track_list);
+    read!(map, style, GridAutoRows, grid_mut, auto_rows, auto_track_list);
+    read!(map, style, GridAutoColumns, grid_mut, auto_columns, auto_track_list);
 
-    for (id, prop) in [
-        (LonghandId::GridRowStart, Prop::GridRowStart),
-        (LonghandId::GridRowEnd, Prop::GridRowEnd),
-        (LonghandId::GridColumnStart, Prop::GridColumnStart),
-        (LonghandId::GridColumnEnd, Prop::GridColumnEnd),
-    ] {
-        let Some(line) = value(map, longhand(id)).and_then(grid_placement) else {
-            continue;
-        };
-        let line: Arc<str> = Arc::from(line);
-        let grid = style.grid_mut();
-        match prop {
-            Prop::GridRowStart => grid.row_start = line,
-            Prop::GridRowEnd => grid.row_end = line,
-            Prop::GridColumnStart => grid.column_start = line,
-            _ => grid.column_end = line,
-        }
-        style.declared.set(prop);
-    }
+    let line = |value: &CssValue| Some(grid_line(value));
+    read!(map, style, GridRowStart, grid_mut, row_start, line);
+    read!(map, style, GridRowEnd, grid_mut, row_end, line);
+    read!(map, style, GridColumnStart, grid_mut, column_start, line);
+    read!(map, style, GridColumnEnd, grid_mut, column_end, line);
 
-    read!(map, style, GridTemplateAreas, grid_mut, template_areas, |value| {
-        grid_areas(value).map(Arc::from)
-    });
+    read!(map, style, GridTemplateAreas, grid_mut, template_areas, grid_areas);
 
     read!(map, style, GridAutoFlow, grid_mut, auto_flow, |value| as_string(value)
         .map(|keyword| match keyword {
@@ -1701,26 +1798,100 @@ mod tests {
             let style = style_of(css);
             let grid = &style.grid;
             [
-                grid.row_start.to_string(),
-                grid.row_end.to_string(),
-                grid.column_start.to_string(),
-                grid.column_end.to_string(),
+                grid.row_start.clone(),
+                grid.row_end.clone(),
+                grid.column_start.clone(),
+                grid.column_end.clone(),
             ]
         };
+        let named = |name: &str, index| GridLine::Named(Arc::from(name), index);
+        let content = named("content", 1);
         assert_eq!(
             lines("grid-area: content"),
-            ["content", "content", "content", "content"]
+            [content.clone(), content.clone(), content.clone(), content.clone()]
         );
-        assert_eq!(lines("grid-area: 2 / 1 / 4 / 3"), ["2", "4", "1", "3"]);
-        assert_eq!(lines("grid-row: span 2"), ["span 2", "auto", "auto", "auto"]);
+        assert_eq!(
+            lines("grid-area: 2 / 1 / 4 / 3"),
+            [
+                GridLine::Line(2),
+                GridLine::Line(4),
+                GridLine::Line(1),
+                GridLine::Line(3)
+            ]
+        );
+        assert_eq!(
+            lines("grid-row: span 2"),
+            [GridLine::Span(2), GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
         assert_eq!(
             lines("grid-area: content; grid-row: 2"),
-            ["2", "auto", "content", "content"]
+            [GridLine::Line(2), GridLine::Auto, content.clone(), content]
+        );
+        assert_eq!(lines("grid-row: 1 / 3; grid-area: auto"), [const { GridLine::Auto }; 4]);
+        assert_eq!(
+            lines("grid-row: 2 main-end / span main; grid-column: -1 / span 2 side"),
+            [
+                named("main-end", 2),
+                GridLine::NamedSpan(Arc::from("main"), 1),
+                GridLine::Line(-1),
+                GridLine::NamedSpan(Arc::from("side"), 2),
+            ]
+        );
+        // The integer and the name come in either order. (`2 3` and `a b` never get here: the
+        // grammar rejects them.)
+        assert_eq!(
+            lines("grid-row-start: main-end 2"),
+            [named("main-end", 2), GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
+        // Line zero does not exist, and a span only counts forward.
+        assert_eq!(
+            lines("grid-row: 0 a / span -2 a"),
+            [GridLine::Auto, GridLine::Auto, GridLine::Auto, GridLine::Auto]
+        );
+    }
+
+    #[test]
+    fn grid_track_lists_are_typed() {
+        use TrackBreadth::{Auto, Fr, Length, MinContent};
+        let px = |value| Length(LengthPercentage::Px(value));
+        let track = |breadth| TrackListItem::Track(TrackSize::Single(breadth));
+        let names = |names: &[&str]| TrackListItem::LineNames(names.iter().map(|name| Arc::from(*name)).collect());
+
+        let style = style_of(
+            "grid-template-columns: [a] 1fr [b c] repeat(2, minmax(0, 1fr)) 10% 32px auto min-content fit-content(100px)",
         );
         assert_eq!(
-            lines("grid-row: 1 / 3; grid-area: auto"),
-            ["auto", "auto", "auto", "auto"]
+            &*style.grid.template_columns,
+            [
+                names(&["a"]),
+                track(Fr(1.0)),
+                names(&["b", "c"]),
+                TrackListItem::Repeat(
+                    RepeatCount::Count(2),
+                    Arc::from([TrackListItem::Track(TrackSize::MinMax(px(0.0), Fr(1.0)))])
+                ),
+                track(Length(LengthPercentage::Percent(10.0))),
+                track(px(32.0)),
+                track(Auto),
+                track(MinContent),
+                TrackListItem::Track(TrackSize::FitContent(LengthPercentage::Px(100.0))),
+            ]
         );
+
+        let style = style_of("grid-template-rows: repeat(auto-fill, minmax(100px, 1fr)); grid-auto-rows: auto");
+        assert_eq!(
+            &*style.grid.template_rows,
+            [TrackListItem::Repeat(
+                RepeatCount::AutoFill,
+                Arc::from([TrackListItem::Track(TrackSize::MinMax(px(100.0), Fr(1.0)))])
+            )]
+        );
+        assert!(style.grid.auto_rows.is_empty());
+        assert!(style.declared.has(Prop::GridAutoRows));
+
+        let style = style_of("grid-template-rows: none");
+        assert!(style.grid.template_rows.is_empty());
+        assert!(style.declared.has(Prop::GridTemplateRows));
     }
 
     fn px(value: f64) -> CssValue {
@@ -2042,26 +2213,18 @@ mod tests {
         assert_eq!(style.inherited.font_size, 16.0);
     }
 
-    /// A grid track list comes back as the CSS text the layouter's own parser takes.
+    /// Each row of `grid-template-areas` keeps its cells, with a run of dots as a null cell.
     #[test]
-    fn grid_track_lists_round_trip_to_text() {
-        let repeat = CssValue::Function(
-            "repeat".to_string(),
-            vec![
-                CssValue::Number(3.0, crate::tokenizer::NumberKind::Integer),
-                CssValue::Comma,
-                CssValue::Unit(1.0, "fr".to_string()),
-            ],
-        );
-        let style = computed_style(&map(&[("grid-template-columns", repeat)]), None);
-        assert_eq!(&*style.grid.template_columns, "repeat(3, 1fr)");
-
+    fn grid_areas_keep_their_rows() {
         let rows = CssValue::List(vec![
             CssValue::String("'a a'".to_string()),
-            CssValue::String("'b c'".to_string()),
+            CssValue::String("'. c'".to_string()),
         ]);
         let style = computed_style(&map(&[("grid-template-areas", rows)]), None);
-        assert_eq!(&*style.grid.template_areas, "a a\nb c");
+        let name = |name: &str| Some(Arc::from(name));
+        assert_eq!(style.grid.template_areas.len(), 2);
+        assert_eq!(&*style.grid.template_areas[0], [name("a"), name("a")]);
+        assert_eq!(&*style.grid.template_areas[1], [None, name("c")]);
     }
 
     /// An `em` is already pixels by the time a value gets here - the computed stage does it -
