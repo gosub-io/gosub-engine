@@ -100,12 +100,15 @@ impl<'a> CssTaffyConverter<'a> {
             ts.flex_shrink
         };
         ts.flex_basis = self.get_flex_basis(ts.flex_basis);
-        ts.grid_template_rows =
-            self.get_grid_template(Prop::GridTemplateRows, &grid.template_rows, ts.grid_template_rows);
-        ts.grid_template_columns = self.get_grid_template(
+        (ts.grid_template_rows, ts.grid_template_row_names) = self.get_grid_template(
+            Prop::GridTemplateRows,
+            &grid.template_rows,
+            (ts.grid_template_rows, ts.grid_template_row_names),
+        );
+        (ts.grid_template_columns, ts.grid_template_column_names) = self.get_grid_template(
             Prop::GridTemplateColumns,
             &grid.template_columns,
-            ts.grid_template_columns,
+            (ts.grid_template_columns, ts.grid_template_column_names),
         );
         ts.grid_auto_rows = self.get_grid_auto(Prop::GridAutoRows, &grid.auto_rows, ts.grid_auto_rows);
         ts.grid_auto_columns = self.get_grid_auto(Prop::GridAutoColumns, &grid.auto_columns, ts.grid_auto_columns);
@@ -460,21 +463,33 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
+    /// A template's tracks, and the names of the lines between them (one set per line, which is
+    /// how taffy takes them).
     fn get_grid_template(
         &self,
         prop: Prop,
         value: &TrackList,
-        default: Vec<GridTemplateComponent<String>>,
-    ) -> Vec<GridTemplateComponent<String>> {
+        default: (Vec<GridTemplateComponent<String>>, Vec<Vec<String>>),
+    ) -> (Vec<GridTemplateComponent<String>>, Vec<Vec<String>>) {
         if !self.style.has(prop) {
             return default;
         }
         // An empty list is `none`.
         if value.is_empty() {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         match expand_tracks(value) {
-            Some(tracks) if !tracks.is_empty() => tracks.into_iter().map(GridTemplateComponent::Single).collect(),
+            Some(tracks) if !tracks.sizes.is_empty() => {
+                let names = if tracks.lines.iter().all(Vec::is_empty) {
+                    Vec::new()
+                } else {
+                    tracks.lines
+                };
+                (
+                    tracks.sizes.into_iter().map(GridTemplateComponent::Single).collect(),
+                    names,
+                )
+            }
             _ => default,
         }
     }
@@ -541,7 +556,8 @@ impl<'a> CssTaffyConverter<'a> {
             return Vec::new();
         }
         expand_tracks(value)
-            .filter(|tracks| !tracks.is_empty())
+            .map(|tracks| tracks.sizes)
+            .filter(|sizes| !sizes.is_empty())
             .unwrap_or(default)
     }
 }
@@ -592,22 +608,51 @@ fn track_size(size: &TrackSize) -> Option<TrackSizingFunction> {
     }
 }
 
-/// A track list as the flat tracks taffy takes. Line names are dropped and a fixed `repeat()` is
-/// expanded; `auto-fill` / `auto-fit` are not supported yet, and `None` - anything this cannot
-/// map - makes the caller keep its default rather than mis-render.
-fn expand_tracks(items: &[TrackListItem]) -> Option<Vec<TrackSizingFunction>> {
-    let mut tracks = Vec::new();
+/// A track list as taffy takes it: flat tracks, and the names of the lines around them.
+struct Tracks {
+    sizes: Vec<TrackSizingFunction>,
+    /// One set per line, so one more than there are tracks: `lines[i]` names the line before
+    /// track `i`.
+    lines: Vec<Vec<String>>,
+}
+
+/// A track list as flat tracks and their line names. A fixed `repeat()` is expanded, with its
+/// names repeated alongside; where two sets of names meet - `[a] 1fr [b] [c]`, or the end of one
+/// repetition and the start of the next - the line carries both (css-grid-2 §7.2.3).
+/// `auto-fill` / `auto-fit` are not supported yet, and `None` - anything this cannot map -
+/// makes the caller keep its default rather than mis-render.
+fn expand_tracks(items: &[TrackListItem]) -> Option<Tracks> {
+    let mut tracks = Tracks {
+        sizes: Vec::new(),
+        lines: vec![Vec::new()],
+    };
+    let name_line = |tracks: &mut Tracks, names: &[String]| {
+        if let Some(line) = tracks.lines.last_mut() {
+            line.extend(names.iter().cloned());
+        }
+    };
     for item in items {
         match item {
-            TrackListItem::LineNames(_) => {}
-            TrackListItem::Track(size) => tracks.push(track_size(size)?),
+            TrackListItem::LineNames(names) => {
+                let names: Vec<String> = names.iter().map(ToString::to_string).collect();
+                name_line(&mut tracks, &names);
+            }
+            TrackListItem::Track(size) => {
+                tracks.sizes.push(track_size(size)?);
+                tracks.lines.push(Vec::new());
+            }
             TrackListItem::Repeat(RepeatCount::Count(count), inner) => {
                 let inner = expand_tracks(inner)?;
-                if inner.is_empty() {
+                if inner.sizes.is_empty() {
                     return None;
                 }
                 for _ in 0..*count {
-                    tracks.extend(inner.iter().cloned());
+                    for (size, names) in inner.sizes.iter().zip(&inner.lines) {
+                        name_line(&mut tracks, names);
+                        tracks.sizes.push(*size);
+                        tracks.lines.push(Vec::new());
+                    }
+                    name_line(&mut tracks, inner.lines.last()?);
                 }
             }
             TrackListItem::Repeat(RepeatCount::AutoFill | RepeatCount::AutoFit, _) => return None,
@@ -754,7 +799,7 @@ mod grid_template_tests {
     }
 
     fn count(items: Vec<TrackListItem>) -> Option<usize> {
-        expand_tracks(&items).map(|tracks| tracks.len())
+        expand_tracks(&items).map(|tracks| tracks.sizes.len())
     }
 
     const ZERO: TrackBreadth = TrackBreadth::Length(LengthPercentage::Px(0.0));
@@ -796,6 +841,55 @@ mod grid_template_tests {
         );
         // An `fr` is not a valid minimum (css-grid-1 `<inflexible-breadth>`).
         assert_eq!(count(vec![minmax(Fr(1.0), Fr(1.0))]), None);
+    }
+
+    fn names(names: &[&str]) -> TrackListItem {
+        TrackListItem::LineNames(names.iter().map(|name| Arc::from(*name)).collect())
+    }
+
+    fn lines(items: Vec<TrackListItem>) -> Vec<Vec<String>> {
+        expand_tracks(&items).map(|tracks| tracks.lines).unwrap_or_default()
+    }
+
+    /// MDN's page layout: `[full-start] 1fr [content-start] minmax(0, 48rem) [content-end] 1fr
+    /// [full-end]`, placed with `grid-column: content`. Without the names, `content` named no
+    /// line and the page's content landed past the last track.
+    #[test]
+    fn line_names_sit_between_the_tracks() {
+        assert_eq!(
+            lines(vec![
+                names(&["full-start"]),
+                track(Fr(1.0)),
+                names(&["content-start"]),
+                minmax(ZERO, Fr(1.0)),
+                names(&["content-end"]),
+                track(Fr(1.0)),
+                names(&["full-end"]),
+            ]),
+            [
+                vec!["full-start"],
+                vec!["content-start"],
+                vec!["content-end"],
+                vec!["full-end"]
+            ]
+        );
+    }
+
+    /// Each repetition repeats its names, and where one repetition's last names meet the next
+    /// one's first, that line carries both.
+    #[test]
+    fn repeated_names_merge_where_repetitions_meet() {
+        assert_eq!(
+            lines(vec![
+                names(&["a"]),
+                repeat(
+                    RepeatCount::Count(2),
+                    vec![names(&["x"]), track(Fr(1.0)), names(&["y"])]
+                ),
+                track(Fr(1.0)),
+            ]),
+            [vec!["a", "x"], vec!["y", "x"], vec!["y"], vec![]]
+        );
     }
 
     /// What is not mapped yet fails the whole list, so the caller keeps its default instead of
