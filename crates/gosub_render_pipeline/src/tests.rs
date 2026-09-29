@@ -2915,6 +2915,49 @@ mod rendertree_from_engine {
         // A pseudo-element's `currentcolor` is its own colour, not its owner's.
         assert_eq!(first_stop("pseudo"), (0, 128, 0, 255));
     }
+
+    /// The csstools `light-dark()` polyfill MDN ships: `initial` on a custom property makes it
+    /// guaranteed-invalid, a custom property that references it without a fallback is then
+    /// invalid too, and a `var()` of that takes its fallback (css-variables-1 §2.2, §3).
+    #[test]
+    fn an_invalid_custom_property_chain_falls_back() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    :root { --light: initial; }
+                    :root {
+                        --toggle: var(--light) rgb(81, 86, 93);
+                        --border: var(--toggle, rgb(195, 199, 203));
+                    }
+                    .box { border: 1px solid var(--border); }
+                    .outer { --c: rgb(1, 2, 3); }
+                    .middle { --c: rgb(9, 9, 9); }
+                    .inner { --c: inherit; color: var(--c, rgb(255, 0, 0)); }
+                </style>
+            </head>
+            <body>
+                <div class="box">a</div>
+                <div class="outer"><div class="middle"><div class="inner">b</div></div></div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = find_node_by_class_dfs(&adapter.doc, root, "box").expect("find the element");
+        let border = adapter.computed_style(id).border.clone();
+        assert_eq!(border.top_width, 1.0);
+        assert_eq!(border.top_style, gosub_interface::style::BorderStyle::Solid);
+        assert_eq!(
+            border.top_color,
+            gosub_interface::style::Color::rgba(195, 199, 203, 255)
+        );
+    }
 }
 
 #[cfg(test)]

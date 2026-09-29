@@ -471,16 +471,41 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     }
     // The `style` attribute needs no pass of its own here: it is one of the rules in `matched`,
     // so the loop above already cascaded its custom properties at inline specificity.
-    let changes_scope = own_custom
+    //
+    // A CSS-wide keyword is not a value of its own (css-variables-1 §2). `initial` is the
+    // guaranteed-invalid value, which is what an undefined custom property holds, so the name
+    // leaves the scope and a `var()` of it takes its fallback; the csstools `light-dark()`
+    // polyfill depends on exactly that. Custom properties inherit, so `inherit`, `unset` and
+    // `revert` all keep the parent's value (no user or user-agent sheet declares one to revert
+    // to). `revert-layer` does the same, which is only right when no earlier layer set it.
+    let own_values: Vec<(&str, Option<&CssValue>)> = own_custom
+        .into_iter()
+        .map(|(name, (_, value))| {
+            let value = match css_wide_keyword(value) {
+                Some(CssWide::Initial) => None,
+                Some(CssWide::Inherit | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => {
+                    inherited_custom.get(name)
+                }
+                None => Some(value),
+            };
+            (name, value)
+        })
+        .collect();
+    let changes_scope = own_values
         .iter()
-        .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
+        .any(|(name, value)| inherited_custom.get(*name) != *value);
     let custom_props = if changes_scope {
         let mut merged = (*inherited_custom).clone();
-        merged.extend(
-            own_custom
-                .into_iter()
-                .map(|(name, (_, value))| (name.to_string(), value.clone())),
-        );
+        for (name, value) in own_values {
+            match value {
+                Some(value) => {
+                    merged.insert(name.to_string(), value.clone());
+                }
+                None => {
+                    merged.remove(name);
+                }
+            }
+        }
         Arc::new(merged)
     } else {
         inherited_custom
