@@ -1,9 +1,10 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
 use gosub_interface::style::{
-    AlignValue, ComputedStyle, Display as CssDisplay, LengthPercentage as CssLengthPercentage,
-    LengthPercentageAuto as CssLengthPercentageAuto, Overflow as CssOverflow, Position as CssPosition, Prop,
-    TextAlign as CssTextAlign,
+    AlignValue, ComputedStyle, Display as CssDisplay, GridAreas, GridLine as CssGridLine,
+    LengthPercentage as CssLengthPercentage, LengthPercentageAuto as CssLengthPercentageAuto, Overflow as CssOverflow,
+    Position as CssPosition, Prop, RepeatCount, TextAlign as CssTextAlign, TrackBreadth, TrackList, TrackListItem,
+    TrackSize,
 };
 use std::sync::Arc;
 use taffy::prelude::{
@@ -462,15 +463,19 @@ impl<'a> CssTaffyConverter<'a> {
     fn get_grid_template(
         &self,
         prop: Prop,
-        value: &str,
+        value: &TrackList,
         default: Vec<GridTemplateComponent<String>>,
     ) -> Vec<GridTemplateComponent<String>> {
         if !self.style.has(prop) {
             return default;
         }
-        match value {
-            "none" | "" => Vec::new(),
-            tracks => parse_grid_template(tracks).unwrap_or(default),
+        // An empty list is `none`.
+        if value.is_empty() {
+            return Vec::new();
+        }
+        match expand_tracks(value) {
+            Some(tracks) if !tracks.is_empty() => tracks.into_iter().map(GridTemplateComponent::Single).collect(),
+            _ => default,
         }
     }
 
@@ -486,11 +491,17 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    fn get_grid_line(&self, prop: Prop, value: &str, default: GridPlacement) -> GridPlacement {
+    fn get_grid_line(&self, prop: Prop, value: &CssGridLine, default: GridPlacement) -> GridPlacement {
         if !self.style.has(prop) {
             return default;
         }
-        parse_single_placement(value)
+        match value {
+            CssGridLine::Auto => GridPlacement::Auto,
+            CssGridLine::Line(index) => GridPlacement::from_line_index(*index),
+            CssGridLine::Span(count) => span(*count),
+            CssGridLine::Named(name, index) => GridPlacement::NamedLine(name.to_string(), *index),
+            CssGridLine::NamedSpan(name, count) => GridPlacement::NamedSpan(name.to_string(), *count),
+        }
     }
 
     /// `grid-template-areas`, as the rectangle each area name covers.
@@ -498,276 +509,129 @@ impl<'a> CssTaffyConverter<'a> {
         if !self.style.has(Prop::GridTemplateAreas) {
             return default;
         }
-        match &*self.style.grid.template_areas {
-            "none" | "" => None,
-            source => {
-                // taffy 0.14 wants the template's shape alongside the areas. The rows are the
-                // lines that hold a cell and the columns the widest of them, counted the same way
-                // the parser walks the string so a ragged template agrees with the bounds it
-                // derived.
-                let rows = source.lines().filter(|l| l.split_whitespace().next().is_some()).count();
-                let columns = source.lines().map(|l| l.split_whitespace().count()).max().unwrap_or(0);
-                if rows == 0 || columns == 0 {
-                    return None;
-                }
-                // The shape is kept even when nothing in it is named. `". ." ". ."` declares a
-                // 2x2 explicit grid and no areas at all, and taffy sizes the explicit grid from
-                // these counts, so dropping it would move every auto-placed item.
-                Some(GridTemplateAreas {
-                    areas: parse_grid_areas(source).into_iter().collect(),
-                    row_count: rows as u16,
-                    column_count: columns as u16,
-                })
-            }
+        let rows = &self.style.grid.template_areas;
+        // taffy 0.14 wants the template's shape alongside the areas: the rows that hold a cell,
+        // and the widest of them. An empty template is `none`.
+        let row_count = rows.iter().filter(|row| !row.is_empty()).count();
+        let column_count = rows.iter().map(|row| row.len()).max().unwrap_or(0);
+        if row_count == 0 || column_count == 0 {
+            return None;
         }
+        // The shape is kept even when nothing in it is named. `". ." ". ."` declares a 2x2
+        // explicit grid and no areas at all, and taffy sizes the explicit grid from these counts,
+        // so dropping it would move every auto-placed item.
+        Some(GridTemplateAreas {
+            areas: grid_areas(rows).into_iter().collect(),
+            row_count: row_count as u16,
+            column_count: column_count as u16,
+        })
     }
 
-    fn get_grid_auto(&self, prop: Prop, value: &str, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
+    fn get_grid_auto(
+        &self,
+        prop: Prop,
+        value: &TrackList,
+        default: Vec<TrackSizingFunction>,
+    ) -> Vec<TrackSizingFunction> {
         if !self.style.has(prop) {
             return default;
         }
-        match value {
-            "auto" | "none" | "" => Vec::new(),
-            tracks => parse_grid_template(tracks)
-                .map(|tracks| {
-                    tracks
-                        .into_iter()
-                        .filter_map(|track| match track {
-                            GridTemplateComponent::Single(sizing) => Some(sizing),
-                            _ => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or(default),
+        // An empty list is the initial `auto`.
+        if value.is_empty() {
+            return Vec::new();
         }
+        expand_tracks(value)
+            .filter(|tracks| !tracks.is_empty())
+            .unwrap_or(default)
     }
 }
 
-/// A track breadth that is a plain length or percentage (`200px`, `50%`, `1.5em`), which is the
-/// part both sides of a track size share. `fr` and the keywords are handled by the callers,
-/// because the two sides accept different ones.
-fn parse_track_length(token: &str) -> Option<taffy::LengthPercentage> {
-    // Zero is the one length CSS lets you write without a unit, and `minmax(0, 1fr)` - the shape
-    // Tailwind emits for an equal-width grid - is where it turns up.
-    if let Ok(v) = token.parse::<f32>() {
-        return (v == 0.0).then(|| taffy::LengthPercentage::length(0.0));
+/// A track length. A `calc()` has no value until taffy can resolve one (see the calc note on
+/// `LengthPercentage::Calc`), so a track list holding one falls back as a whole.
+fn track_length(length: CssLengthPercentage) -> Option<LengthPercentage> {
+    match length {
+        CssLengthPercentage::Px(px) => Some(LengthPercentage::length(px)),
+        CssLengthPercentage::Percent(pct) => Some(LengthPercentage::percent(pct / 100.0)),
+        CssLengthPercentage::Calc { .. } => None,
     }
-    if let Some(rest) = token.strip_suffix("px") {
-        return Some(taffy::LengthPercentage::length(rest.trim().parse().ok()?));
-    }
-    if let Some(rest) = token.strip_suffix("em") {
-        let v: f32 = rest.trim().parse().ok()?;
-        return Some(taffy::LengthPercentage::length(v * 16.0));
-    }
-    if let Some(rest) = token.strip_suffix('%') {
-        let v: f32 = rest.trim().parse().ok()?;
-        return Some(taffy::LengthPercentage::percent(v / 100.0));
-    }
-    None
 }
 
-/// The minimum of a track size. css-grid-1 calls it `<inflexible-breadth>`: a length, a
-/// percentage, `auto`, `min-content` or `max-content` - never an `fr`, which is why the two sides
-/// are parsed apart.
-fn parse_min_track(token: &str) -> Option<MinTrackSizingFunction> {
-    match token {
-        "auto" => Some(MinTrackSizingFunction::AUTO),
-        "min-content" => Some(MinTrackSizingFunction::MIN_CONTENT),
-        "max-content" => Some(MinTrackSizingFunction::MAX_CONTENT),
-        _ => parse_track_length(token).map(MinTrackSizingFunction::from),
+/// The minimum of a track size. css-grid-1 calls it `<inflexible-breadth>`: never an `fr`.
+fn min_track(breadth: TrackBreadth) -> Option<MinTrackSizingFunction> {
+    match breadth {
+        TrackBreadth::Length(length) => track_length(length).map(MinTrackSizingFunction::from),
+        TrackBreadth::Fr(_) => None,
+        TrackBreadth::Auto => Some(MinTrackSizingFunction::AUTO),
+        TrackBreadth::MinContent => Some(MinTrackSizingFunction::MIN_CONTENT),
+        TrackBreadth::MaxContent => Some(MinTrackSizingFunction::MAX_CONTENT),
     }
 }
 
 /// The maximum of a track size: everything a minimum accepts, plus `fr`.
-fn parse_max_track(token: &str) -> Option<MaxTrackSizingFunction> {
-    match token {
-        "auto" => Some(MaxTrackSizingFunction::AUTO),
-        "min-content" => Some(MaxTrackSizingFunction::MIN_CONTENT),
-        "max-content" => Some(MaxTrackSizingFunction::MAX_CONTENT),
-        _ => {
-            if let Some(rest) = token.strip_suffix("fr") {
-                let v: f32 = rest.trim().parse().ok()?;
-                return Some(MaxTrackSizingFunction::from_fr(v));
-            }
-            parse_track_length(token).map(MaxTrackSizingFunction::from)
-        }
+fn max_track(breadth: TrackBreadth) -> Option<MaxTrackSizingFunction> {
+    match breadth {
+        TrackBreadth::Fr(fr) => Some(MaxTrackSizingFunction::from_fr(fr)),
+        TrackBreadth::Length(length) => track_length(length).map(MaxTrackSizingFunction::from),
+        TrackBreadth::Auto => Some(MaxTrackSizingFunction::AUTO),
+        TrackBreadth::MinContent => Some(MaxTrackSizingFunction::MIN_CONTENT),
+        TrackBreadth::MaxContent => Some(MaxTrackSizingFunction::MAX_CONTENT),
     }
 }
 
-/// Parse a single grid track token ("1fr", "200px", "auto", "50%", "minmax(0, 1fr)") into a
-/// TrackSizingFunction.
-///
-/// `minmax()` used to be missing, and a track list holding one parsed to nothing, so the whole
-/// template was dropped and the grid fell back to a single implicit column - which is how
-/// ingewikkeld.dev's "trusted by" grid, `repeat(7, minmax(0, 1fr))`, put every logo on a row of
-/// its own. `split_grid_tokens` already keeps the call whole; only reading it was missing.
-fn parse_grid_track(token: &str) -> Option<TrackSizingFunction> {
-    let token = token.trim();
-
-    if token.get(..7).is_some_and(|f| f.eq_ignore_ascii_case("minmax(")) && token.ends_with(')') {
-        let args = &token[7..token.len() - 1];
-        // Neither side can hold a comma of its own - both are single breadths - so one split is
-        // the whole of it.
-        let (min, max) = args.split_once(',')?;
-        return Some(minmax(parse_min_track(min.trim())?, parse_max_track(max.trim())?));
+/// One track size. A bare `fr` is a maximum with a zero minimum; every other single value is
+/// both sides at once. `fit-content()` is not mapped yet and fails the list.
+fn track_size(size: &TrackSize) -> Option<TrackSizingFunction> {
+    match *size {
+        TrackSize::Single(TrackBreadth::Fr(fr)) => Some(minmax(
+            MinTrackSizingFunction::ZERO,
+            MaxTrackSizingFunction::from_fr(fr),
+        )),
+        TrackSize::Single(breadth) => Some(minmax(min_track(breadth)?, max_track(breadth)?)),
+        TrackSize::MinMax(min, max) => Some(minmax(min_track(min)?, max_track(max)?)),
+        TrackSize::FitContent(_) => None,
     }
-
-    // A bare `fr` is a maximum with a zero minimum; every other single value is both sides at
-    // once.
-    if let Some(rest) = token.strip_suffix("fr") {
-        let v: f32 = rest.trim().parse().ok()?;
-        return Some(minmax(MinTrackSizingFunction::ZERO, MaxTrackSizingFunction::from_fr(v)));
-    }
-    Some(minmax(parse_min_track(token)?, parse_max_track(token)?))
 }
 
-/// Split a track list into top-level tokens, keeping function calls like `repeat(3, 1fr)` or
-/// `minmax(100px, 1fr)` whole (their inner whitespace/commas must not split the token).
-fn split_grid_tokens(s: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    for ch in s.chars() {
-        match ch {
-            '(' => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' => {
-                depth = depth.saturating_sub(1);
-                current.push(ch);
-            }
-            c if c.is_whitespace() && depth == 0 => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
+/// A track list as the flat tracks taffy takes. Line names are dropped and a fixed `repeat()` is
+/// expanded; `auto-fill` / `auto-fit` are not supported yet, and `None` - anything this cannot
+/// map - makes the caller keep its default rather than mis-render.
+fn expand_tracks(items: &[TrackListItem]) -> Option<Vec<TrackSizingFunction>> {
+    let mut tracks = Vec::new();
+    for item in items {
+        match item {
+            TrackListItem::LineNames(_) => {}
+            TrackListItem::Track(size) => tracks.push(track_size(size)?),
+            TrackListItem::Repeat(RepeatCount::Count(count), inner) => {
+                let inner = expand_tracks(inner)?;
+                if inner.is_empty() {
+                    return None;
+                }
+                for _ in 0..*count {
+                    tracks.extend(inner.iter().cloned());
                 }
             }
-            c => current.push(c),
+            TrackListItem::Repeat(RepeatCount::AutoFill | RepeatCount::AutoFit, _) => return None,
         }
     }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
+    Some(tracks)
 }
 
-/// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px",
-/// "repeat(3, 1fr)", ...).
-fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
-    let mut tracks = Vec::new();
-    for token in split_grid_tokens(s) {
-        // Skip named line brackets like [line-name]
-        if token.starts_with('[') {
-            continue;
-        }
-
-        // `repeat(<count>, <track-list>)` - expand a fixed integer count into that many
-        // copies of its track list. `auto-fill`/`auto-fit` counts are not supported yet and
-        // cause the whole value to be ignored (falls back to the default) rather than
-        // mis-rendering.
-        if let Some(inner) = token.strip_prefix("repeat(").and_then(|t| t.strip_suffix(')')) {
-            let (count_str, track_str) = inner.split_once(',')?;
-            let count: u16 = count_str.trim().parse().ok()?;
-            let inner_tracks = parse_grid_template(track_str)?;
-            for _ in 0..count {
-                tracks.extend(inner_tracks.iter().cloned());
-            }
-            continue;
-        }
-
-        let tsf = parse_grid_track(&token)?;
-        tracks.push(GridTemplateComponent::Single(tsf));
-    }
-    if tracks.is_empty() {
-        None
-    } else {
-        Some(tracks)
-    }
-}
-
-fn parse_single_placement(s: &str) -> GridPlacement {
-    let s = s.trim();
-    if s == "auto" {
-        return GridPlacement::Auto;
-    }
-    if let Some(rest) = s.strip_prefix("span ") {
-        let rest = rest.trim();
-        if let Ok(n) = rest.parse::<u16>() {
-            return span(n);
-        }
-        // `span <name>` - span until the next line with that name.
-        if is_custom_ident(rest) {
-            return GridPlacement::NamedSpan(rest.to_string(), 1);
-        }
-        // `span 2 main` - span until the *second* line with that name. A span counts forward
-        // only, so a negative integer is not a span at all and the value is invalid; a negative
-        // *line* index is fine and stays so below.
-        if let Some((n, name)) = split_index_and_name(rest) {
-            if n > 0 {
-                return GridPlacement::NamedSpan(name.to_string(), n as u16);
-            }
-        }
-    }
-    if let Ok(n) = s.parse::<i16>() {
-        return GridPlacement::from_line_index(n);
-    }
-    // `<integer> && <custom-ident>` - the nth line with that name, written in either order.
-    if let Some((n, name)) = split_index_and_name(s) {
-        return GridPlacement::NamedLine(name.to_string(), n);
-    }
-    // A bare identifier is a named line. `grid-area: content` names an *area*, whose implicit
-    // `content-start` / `content-end` lines taffy derives from `grid-template-areas`, so the
-    // same placement covers both spellings.
-    if is_custom_ident(s) {
-        return GridPlacement::NamedLine(s.to_string(), 1);
-    }
-    GridPlacement::Auto
-}
-
-/// `<integer> && <custom-ident>`, in either order: `2 main-end` and `main-end 2` both name the
-/// second line called `main-end`. Without this the whole value fell through to `auto`, so an item
-/// placed on a repeated line was laid out wherever auto-placement happened to put it.
+/// `grid-template-areas` as the rectangle each name covers, in taffy's 1-based grid line
+/// coordinates.
 ///
-/// A zero index is not a line (css-grid-2 forbids it), and `1` is what taffy treats an unqualified
-/// name as, so both are left to the plain `<custom-ident>` path above.
-fn split_index_and_name(s: &str) -> Option<(i16, &str)> {
-    let (first, rest) = s.split_once(char::is_whitespace)?;
-    let second = rest.trim();
-    if second.is_empty() || second.contains(char::is_whitespace) {
-        return None;
-    }
-    let pair = match (first.parse::<i16>(), second.parse::<i16>()) {
-        (Ok(n), Err(_)) => (n, second),
-        (Err(_), Ok(n)) => (n, first),
-        _ => return None,
-    };
-    (pair.0 != 0 && is_custom_ident(pair.1)).then_some(pair)
-}
-
-/// A CSS `<custom-ident>`: letters, digits, `-` and `_`, not starting with a digit. Used to tell
-/// a named grid line from a keyword or a malformed token.
-fn is_custom_ident(s: &str) -> bool {
-    !s.is_empty()
-        && !s.starts_with(|c: char| c.is_ascii_digit())
-        && s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-}
-
-/// Parse `grid-template-areas` - one row per line, cells separated by whitespace - into the
-/// rectangle each name covers, in taffy's 1-based grid line coordinates.
-///
-/// `.` (or any run of dots) is a null cell and names no area. A name that does not form a
-/// rectangle is not rejected the way css-grid-2 requires; it gets its bounding box, which keeps
-/// a typo from dropping the whole shell.
-fn parse_grid_areas(s: &str) -> Vec<GridTemplateArea<String>> {
+/// A null cell names no area. A name that does not form a rectangle is not rejected the way
+/// css-grid-2 requires; it gets its bounding box, which keeps a typo from dropping the whole
+/// shell.
+fn grid_areas(rows: &GridAreas) -> Vec<GridTemplateArea<String>> {
     // Preserve document order so a page's areas keep a stable order in the output.
     let mut order: Vec<&str> = Vec::new();
     let mut bounds: std::collections::HashMap<&str, (u16, u16, u16, u16)> = std::collections::HashMap::new();
 
-    for (row, line) in s.lines().enumerate() {
-        for (column, cell) in line.split_whitespace().enumerate() {
-            if cell.chars().all(|c| c == '.') {
+    for (row, cells) in rows.iter().enumerate() {
+        for (column, cell) in cells.iter().enumerate() {
+            let Some(cell) = cell.as_deref() else {
                 continue;
-            }
+            };
             let (row, column) = (row as u16, column as u16);
             match bounds.get_mut(cell) {
                 Some((row_start, row_end, column_start, column_end)) => {
@@ -803,8 +667,22 @@ fn parse_grid_areas(s: &str) -> Vec<GridTemplateArea<String>> {
 
 #[cfg(test)]
 mod grid_area_tests {
-    use super::parse_grid_areas;
+    use super::grid_areas;
+    use std::sync::Arc;
     use taffy::GridTemplateArea;
+
+    /// Rows as the computed stage builds them: whitespace-separated cells, dots for a null cell.
+    fn parse_grid_areas(source: &str) -> Vec<GridTemplateArea<String>> {
+        let rows: Vec<Arc<[Option<Arc<str>>]>> = source
+            .lines()
+            .map(|row| {
+                row.split_whitespace()
+                    .map(|cell| (!cell.chars().all(|c| c == '.')).then(|| Arc::from(cell)))
+                    .collect()
+            })
+            .collect();
+        grid_areas(&Arc::from(rows))
+    }
 
     fn area(name: &str, rows: (u16, u16), columns: (u16, u16)) -> GridTemplateArea<String> {
         GridTemplateArea {
@@ -857,120 +735,86 @@ mod grid_area_tests {
 
 #[cfg(test)]
 mod grid_template_tests {
-    use super::{parse_grid_template, split_grid_tokens};
+    use super::expand_tracks;
+    use gosub_interface::style::{
+        LengthPercentage, RepeatCount, TrackBreadth, TrackBreadth::Fr, TrackListItem, TrackSize,
+    };
+    use std::sync::Arc;
+
+    fn track(breadth: TrackBreadth) -> TrackListItem {
+        TrackListItem::Track(TrackSize::Single(breadth))
+    }
+
+    fn minmax(min: TrackBreadth, max: TrackBreadth) -> TrackListItem {
+        TrackListItem::Track(TrackSize::MinMax(min, max))
+    }
+
+    fn repeat(count: RepeatCount, items: Vec<TrackListItem>) -> TrackListItem {
+        TrackListItem::Repeat(count, Arc::from(items))
+    }
+
+    fn count(items: Vec<TrackListItem>) -> Option<usize> {
+        expand_tracks(&items).map(|tracks| tracks.len())
+    }
+
+    const ZERO: TrackBreadth = TrackBreadth::Length(LengthPercentage::Px(0.0));
 
     #[test]
-    fn splits_keep_functions_whole() {
-        assert_eq!(split_grid_tokens("1fr 1fr 1fr"), vec!["1fr", "1fr", "1fr"]);
-        assert_eq!(split_grid_tokens("210px 1fr"), vec!["210px", "1fr"]);
-        assert_eq!(split_grid_tokens("repeat(3, 1fr)"), vec!["repeat(3, 1fr)"]);
+    fn expands_repeat_and_drops_line_names() {
         assert_eq!(
-            split_grid_tokens("repeat(2, 1fr) 200px"),
-            vec!["repeat(2, 1fr)", "200px"]
+            count(vec![repeat(RepeatCount::Count(3), vec![track(Fr(1.0))])]),
+            Some(3)
         );
         assert_eq!(
-            split_grid_tokens("minmax(100px, 1fr) auto"),
-            vec!["minmax(100px, 1fr)", "auto"]
+            count(vec![repeat(
+                RepeatCount::Count(2),
+                vec![track(Fr(1.0)), track(Fr(2.0))]
+            )]),
+            Some(4)
+        );
+        assert_eq!(
+            count(vec![
+                TrackListItem::LineNames(Arc::from([Arc::from("a")])),
+                repeat(RepeatCount::Count(2), vec![track(Fr(1.0))]),
+                track(TrackBreadth::Length(LengthPercentage::Px(200.0))),
+            ]),
+            Some(3)
         );
     }
 
+    /// Every Tailwind `grid-cols-N` is `repeat(N, minmax(0, 1fr))`; a template that failed on it
+    /// put each item on a row of its own.
     #[test]
-    fn expands_repeat() {
-        // repeat(3, 1fr) => three tracks
-        assert_eq!(parse_grid_template("repeat(3, 1fr)").unwrap().len(), 3);
-        // repeat over a two-track list => count * 2
-        assert_eq!(parse_grid_template("repeat(2, 1fr 2fr)").unwrap().len(), 4);
-        // repeat mixed with a standalone track
-        assert_eq!(parse_grid_template("repeat(2, 1fr) 200px").unwrap().len(), 3);
-    }
-
-    #[test]
-    fn plain_track_lists() {
-        assert_eq!(parse_grid_template("1fr 1fr 1fr").unwrap().len(), 3);
-        assert_eq!(parse_grid_template("210px 1fr").unwrap().len(), 2);
-        assert_eq!(parse_grid_template("1fr").unwrap().len(), 1);
-    }
-
-    /// `minmax()` had no branch of its own, so a track list holding one parsed to nothing and the
-    /// whole template was dropped - the grid then fell back to a single implicit column. That is
-    /// what put every ingewikkeld.dev "trusted by" logo on a row of its own, and every Tailwind
-    /// `grid-cols-N`, which expands to exactly this, with it.
-    #[test]
-    fn minmax_tracks_parse() {
-        assert_eq!(parse_grid_template("minmax(0, 1fr) minmax(0, 1fr)").unwrap().len(), 2);
-        assert_eq!(parse_grid_template("repeat(7, minmax(0, 1fr))").unwrap().len(), 7);
-        assert_eq!(parse_grid_template("minmax(100px, 1fr) auto").unwrap().len(), 2);
+    fn minmax_tracks_map() {
         assert_eq!(
-            parse_grid_template("minmax(min-content, max-content)").unwrap().len(),
-            1
+            count(vec![repeat(RepeatCount::Count(7), vec![minmax(ZERO, Fr(1.0))])]),
+            Some(7)
         );
-        assert_eq!(parse_grid_template("minmax(10%, 50%)").unwrap().len(), 1);
-        // The unitless zero is the one CSS allows, and `minmax(0, 1fr)` is where it shows up.
-        assert_eq!(parse_grid_template("minmax(0,1fr)").unwrap().len(), 1);
+        assert_eq!(
+            count(vec![minmax(TrackBreadth::MinContent, TrackBreadth::MaxContent)]),
+            Some(1)
+        );
         // An `fr` is not a valid minimum (css-grid-1 `<inflexible-breadth>`).
-        assert!(parse_grid_template("minmax(1fr, 1fr)").is_none());
-        // A unitless number that is not zero is not a length.
-        assert!(parse_grid_template("minmax(10, 1fr)").is_none());
+        assert_eq!(count(vec![minmax(Fr(1.0), Fr(1.0))]), None);
     }
 
+    /// What is not mapped yet fails the whole list, so the caller keeps its default instead of
+    /// laying out part of a template.
     #[test]
-    fn unsupported_falls_back_to_none() {
-        // auto-fill count isn't supported yet -> None (caller uses the default instead of
-        // mis-rendering).
-        assert!(parse_grid_template("repeat(auto-fill, 1fr)").is_none());
-        // Garbage token -> None
-        assert!(parse_grid_template("bogus").is_none());
-    }
-}
-
-#[cfg(test)]
-mod grid_placement_tests {
-    use super::{parse_single_placement, split_index_and_name};
-    use taffy::prelude::TaffyGridLine;
-    use taffy::GridPlacement;
-
-    #[test]
-    fn an_integer_qualified_name_picks_that_line() {
+    fn unsupported_tracks_fail_the_list() {
+        assert_eq!(count(vec![repeat(RepeatCount::AutoFill, vec![track(Fr(1.0))])]), None);
         assert_eq!(
-            parse_single_placement("2 main-end"),
-            GridPlacement::NamedLine("main-end".to_string(), 2)
-        );
-        // css-grid-2 writes the integer and the name in either order.
-        assert_eq!(
-            parse_single_placement("main-end 2"),
-            GridPlacement::NamedLine("main-end".to_string(), 2)
+            count(vec![TrackListItem::Track(TrackSize::FitContent(LengthPercentage::Px(
+                100.0
+            )))]),
+            None
         );
         assert_eq!(
-            parse_single_placement("span 2 main"),
-            GridPlacement::NamedSpan("main".to_string(), 2)
+            count(vec![track(TrackBreadth::Length(LengthPercentage::Calc {
+                px: 10.0,
+                percent: 50.0
+            }))]),
+            None
         );
-    }
-
-    #[test]
-    fn the_plain_forms_are_unchanged() {
-        assert_eq!(parse_single_placement("auto"), GridPlacement::Auto);
-        assert_eq!(parse_single_placement("3"), GridPlacement::from_line_index(3));
-        assert_eq!(
-            parse_single_placement("content"),
-            GridPlacement::NamedLine("content".to_string(), 1)
-        );
-        assert_eq!(parse_single_placement("span 2"), GridPlacement::Span(2));
-    }
-
-    #[test]
-    fn a_value_that_is_neither_is_still_auto() {
-        assert_eq!(parse_single_placement("2 3"), GridPlacement::Auto);
-        assert_eq!(parse_single_placement("a b"), GridPlacement::Auto);
-        // A zero line index does not exist, so the value is not a named line either.
-        assert_eq!(parse_single_placement("0 main"), GridPlacement::Auto);
-        assert_eq!(parse_single_placement("2 main end"), GridPlacement::Auto);
-        // A span counts forward, so a negative one is not a span - but a negative *line* index
-        // counts from the end of the grid and is perfectly good.
-        assert_eq!(parse_single_placement("span -2 main"), GridPlacement::Auto);
-        assert_eq!(
-            parse_single_placement("-2 main"),
-            GridPlacement::NamedLine("main".to_string(), -2)
-        );
-        assert_eq!(split_index_and_name("2"), None);
     }
 }
