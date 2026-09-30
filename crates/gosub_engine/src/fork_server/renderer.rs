@@ -241,7 +241,9 @@ impl RetainedPage {
         let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
         let layer_ids = layer_list.layer_ids.read().clone();
         let hit_regions = collect_hit_regions::<C>(&layer_list, &doc_for_regions, base_url.as_ref());
-        let fragment_targets = crate::html::collect_fragment_targets(&layer_list, &doc_for_regions);
+        let mut fragment_targets = crate::html::collect_fragment_targets(&layer_list, &doc_for_regions);
+        // The broker bounds what it keeps too; this bounds what crosses.
+        fragment_targets.truncate(crate::fork_server::protocol::MAX_FRAGMENT_TARGETS);
         let build_timings = vec![
             ("build.parse".to_string(), parse_us),
             ("build.render_tree".to_string(), render_tree_us),

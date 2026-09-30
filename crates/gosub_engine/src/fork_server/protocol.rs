@@ -163,7 +163,8 @@ pub struct FragmentTarget {
     pub y: f64,
 }
 
-/// The most fragment targets a renderer sends, or the broker keeps.
+/// The most fragment targets a renderer sends, or the broker keeps. Local
+/// lookups are not capped.
 pub const MAX_FRAGMENT_TARGETS: usize = 20_000;
 
 /// Where `name` scrolls to: the first `id` target with that name, else the

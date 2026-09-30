@@ -2943,6 +2943,32 @@ mod tests {
             assert_eq!(ctx.fragment_target_y("nope"), None);
         }
 
+        /// A local page resolves every target: the payload cap is the
+        /// renderer's, not the lookup's.
+        #[test]
+        fn a_local_page_resolves_targets_past_the_remote_cap() {
+            let count = crate::fork_server::protocol::MAX_FRAGMENT_TARGETS + 1;
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let anchors: String = (0..count)
+                .map(|i| format!(r#"<a name="t{i}" style="display:block;height:1px"></a>"#))
+                .collect();
+            let html = format!(r#"<html><body style="margin:0">{anchors}</body></html>"#);
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(&html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let last = format!("t{}", count - 1);
+            let y = ctx.fragment_target_y(&last).expect("the last target resolves");
+            assert!((y - (count - 1) as f64).abs() < 1.0, "expected ~{}, got {y}", count - 1);
+        }
+
         #[test]
         fn resolves_id_name_and_top() {
             let ctx = context_with_targets();

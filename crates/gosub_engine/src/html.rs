@@ -151,20 +151,18 @@ pub fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: N
 /// Every `#fragment` target of a laid-out page - elements with an `id`, and
 /// `<a name>`s - with where each starts, in document order (layout ids are
 /// handed out in tree order), so the first match is the one the spec wants.
-/// A remotely rendered page ships these to the broker, which has no layout.
+/// A remotely rendered page ships these to the broker, which has no layout;
+/// the renderer caps that payload, a local lookup sees every target.
 pub(crate) fn collect_fragment_targets<C: RenderConfiguration>(
     layer_list: &gosub_render_pipeline::layering::layer::LayerList,
     doc: &EngineDocument<C>,
 ) -> Vec<crate::fork_server::protocol::FragmentTarget> {
-    use crate::fork_server::protocol::{FragmentTarget, MAX_FRAGMENT_TARGETS};
+    use crate::fork_server::protocol::FragmentTarget;
 
     let mut nodes: Vec<_> = layer_list.layout_tree.arena.values().collect();
     nodes.sort_by_key(|n| n.id.as_u64());
     let mut targets = Vec::new();
     for node in nodes {
-        if targets.len() >= MAX_FRAGMENT_TARGETS {
-            break;
-        }
         let dom = node.dom_node_id;
         let y = node.box_model.border_box.y;
         if let Some(id) = doc.attribute(dom, "id") {
