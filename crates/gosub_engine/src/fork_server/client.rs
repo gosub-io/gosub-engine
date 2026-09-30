@@ -312,12 +312,29 @@ impl PageTile {
     /// the `Bytes` owner (`Bytes::from_owner`), so the compositor blends
     /// straight out of the renderer's sealed pages.
     pub fn into_cached_tile(self) -> gosub_interface::render::backend::CachedTile {
-        let (header, width, height, format, pixels) = match self {
+        // A reused tile's header is the renderer's `TileUnchanged` placeholder:
+        // what the tile looks like, its opacity and anchor included, is what
+        // this side kept from the fresh one.
+        let (header, width, height, format, pixels, opacity, anchor) = match self {
             PageTile::Fresh { header, mapping } => {
-                let (w, h, f) = (header.width, header.height, header.format);
-                (header, w, h, f, bytes::Bytes::from_owner(mapping))
+                let (w, h, f, o, a) = (
+                    header.width,
+                    header.height,
+                    header.format,
+                    header.opacity,
+                    header.anchor,
+                );
+                (header, w, h, f, bytes::Bytes::from_owner(mapping), o, a)
             }
-            PageTile::Reused { header, kept } => (header, kept.width, kept.height, kept.format, kept.pixels),
+            PageTile::Reused { header, kept } => (
+                header,
+                kept.width,
+                kept.height,
+                kept.format,
+                kept.pixels,
+                kept.opacity,
+                kept.anchor,
+            ),
         };
         // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]).
         let opaque = pixels.as_chunks::<4>().0.iter().all(|px| px[3] == 0xFF);
@@ -328,8 +345,8 @@ impl PageTile {
             height,
             data: pixels,
             format: format.into(),
-            opacity: header.opacity,
-            anchor: header.anchor.into(),
+            opacity,
+            anchor: anchor.into(),
             opaque,
         }
     }
@@ -627,5 +644,50 @@ impl Drop for ForkServer {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fork_server::protocol::{TileHeader, TileWireAnchor, TileWireFormat};
+
+    /// A reused tile keeps the opacity and anchor it was shipped with; the
+    /// `TileUnchanged` header carries only placeholders for them.
+    #[test]
+    fn a_reused_tile_keeps_its_opacity_and_anchor() {
+        let placeholder = TileHeader {
+            page_x: 0.0,
+            page_y: 0.0,
+            layer_id: 7,
+            width: 1,
+            height: 1,
+            format: TileWireFormat::Rgba8,
+            content_hash: 42,
+            opacity: 1.0,
+            anchor: TileWireAnchor::Scroll,
+        };
+        let kept = KeptTile {
+            page_x: 0.0,
+            page_y: 0.0,
+            layer_id: 7,
+            width: 1,
+            height: 1,
+            format: TileWireFormat::Rgba8,
+            opacity: 0.5,
+            anchor: TileWireAnchor::Fixed,
+            pixels: bytes::Bytes::from_static(&[0, 0, 0, 0xFF]),
+        };
+        let cached = PageTile::Reused {
+            header: placeholder,
+            kept,
+        }
+        .into_cached_tile();
+        assert_eq!(cached.opacity, 0.5);
+        assert!(
+            matches!(cached.anchor, gosub_interface::render::backend::TileAnchor::Fixed),
+            "{:?}",
+            cached.anchor
+        );
     }
 }
