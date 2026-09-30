@@ -79,10 +79,20 @@ async fn handle(mut stream: TcpStream) {
 /// first event after the request. A client that reads too slowly is told
 /// what it missed rather than silently skipped past.
 ///
-/// A client that hangs up while nothing is happening is noticed through the
-/// socket (a read returns EOF), not only on the next write: otherwise an idle
-/// stream would keep its subscription, and with it emission, alive forever.
-async fn stream_events(mut stream: TcpStream) {
+/// A client that hangs up while nothing is happening must still be noticed,
+/// or an idle stream keeps its subscription, and with it emission, alive
+/// forever. A read EOF does not say so (the client may only have closed its
+/// sending side and still be reading), so an idle stream writes an empty line
+/// every [`HEARTBEAT`] - NDJSON readers skip it - and a write that fails is
+/// the hang-up.
+async fn stream_events(stream: TcpStream) {
+    stream_events_with(stream, HEARTBEAT).await
+}
+
+/// How often an idle `/events` stream checks, by writing, that its client is there.
+const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(15);
+
+async fn stream_events_with(mut stream: TcpStream, heartbeat: std::time::Duration) {
     use tokio::sync::broadcast::error::RecvError;
 
     let mut events = crate::telemetry::subscribe();
@@ -93,6 +103,10 @@ async fn stream_events(mut stream: TcpStream) {
     }
     let (mut reader, mut writer) = stream.split();
     let mut discard = [0u8; 256];
+    let mut reading = true;
+    let mut beat = tokio::time::interval(heartbeat);
+    beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    beat.tick().await; // the first tick is immediate
     loop {
         let line = tokio::select! {
             received = events.recv() => match received {
@@ -102,12 +116,18 @@ async fn stream_events(mut stream: TcpStream) {
                 }
                 Err(RecvError::Closed) => return,
             },
-            read = reader.read(&mut discard) => match read {
-                // EOF or a broken socket: the client is gone.
-                Ok(0) | Err(_) => return,
+            read = reader.read(&mut discard), if reading => match read {
+                // The client closed its sending side; it may still be reading.
+                Ok(0) => {
+                    reading = false;
+                    continue;
+                }
+                // A broken socket: the client is gone.
+                Err(_) => return,
                 // Nothing a client sends after its request means anything here.
                 Ok(_) => continue,
             },
+            _ = beat.tick() => String::new(),
         };
         if writer.write_all(line.as_bytes()).await.is_err() || writer.write_all(b"\n").await.is_err() {
             return;
@@ -145,21 +165,27 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    /// An `/events` client that leaves while no events flow ends its stream,
-    /// and with it the subscription that keeps telemetry emission on.
-    #[tokio::test]
-    async fn an_idle_events_client_that_hangs_up_ends_its_stream() {
+    /// One `/events` stream with a short heartbeat, and a client already past
+    /// the response head.
+    async fn one_stream() -> (TcpStream, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            stream_events(stream).await;
+            stream_events_with(stream, Duration::from_millis(100)).await;
         });
-
         let mut client = TcpStream::connect(addr).await.unwrap();
         let mut head = [0u8; 256];
         let _ = client.read(&mut head).await.unwrap();
         assert!(crate::telemetry::enabled(), "the stream subscribes while it runs");
+        (client, server)
+    }
+
+    /// An `/events` client that leaves while no events flow ends its stream,
+    /// and with it the subscription that keeps telemetry emission on.
+    #[tokio::test]
+    async fn an_idle_events_client_that_hangs_up_ends_its_stream() {
+        let (client, server) = one_stream().await;
         drop(client);
 
         tokio::time::timeout(Duration::from_secs(2), server)
@@ -167,5 +193,39 @@ mod tests {
             .expect("an idle stream whose client left must end")
             .unwrap();
         assert!(!crate::telemetry::enabled(), "its subscription went with it");
+    }
+
+    /// A client that closes only its sending side is still reading: its
+    /// stream goes on, and the next event reaches it.
+    #[tokio::test]
+    async fn a_client_that_only_stops_sending_still_gets_events() {
+        let (mut client, server) = one_stream().await;
+        client.shutdown().await.unwrap();
+        // Long enough for the server to read the EOF, and for heartbeats.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        crate::telemetry::emit("test.half_closed", serde_json::json!({}));
+
+        let mut seen = Vec::new();
+        let got = tokio::time::timeout(Duration::from_secs(2), async {
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = client.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    return false;
+                }
+                seen.extend_from_slice(&buf[..n]);
+                if String::from_utf8_lossy(&seen).contains("test.half_closed") {
+                    return true;
+                }
+            }
+        })
+        .await;
+        assert_eq!(
+            got,
+            Ok(true),
+            "the event never arrived: {:?}",
+            String::from_utf8_lossy(&seen)
+        );
+        server.abort();
     }
 }
