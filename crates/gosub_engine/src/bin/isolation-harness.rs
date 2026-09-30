@@ -838,6 +838,9 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                             return 1;
                         }
                         Ok(Ok(_)) => continue,
+                        // A slow reader missed some events; the channel is fine,
+                        // and the deadline still bounds the wait.
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
                         _ => {
                             eprintln!("event channel closed or timed out");
                             return 1;
@@ -887,6 +890,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                             break;
                         }
                         Ok(Ok(_)) => continue,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
                         _ => break,
                     }
                 }
