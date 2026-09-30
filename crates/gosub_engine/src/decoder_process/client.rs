@@ -109,22 +109,35 @@ struct Transfer {
 
 /// Send the image and read back what the decoder makes of it.
 fn exchange(channel: gosub_ipc::channel::Channel, request: ToDecoder) -> Result<Answer, DecodeError> {
+    exchange_within(channel, request, DECODE_TIMEOUT)
+}
+
+/// [`exchange`] with the whole exchange bounded by `timeout`.
+fn exchange_within(
+    channel: gosub_ipc::channel::Channel,
+    request: ToDecoder,
+    timeout: Duration,
+) -> Result<Answer, DecodeError> {
     let mut link = gosub_ipc::Endpoint::from_channel(channel).map_err(|e| DecodeError::Failed(e.to_string()))?;
 
-    let deadline = Instant::now() + DECODE_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     // The socket timeouts are what make the deadline real: without them a
     // decoder that simply stops talking would block this thread forever.
-    let _ = link.tx.set_write_timeout(Some(DECODE_TIMEOUT));
-    let _ = link.rx.set_read_timeout(Some(DECODE_TIMEOUT));
+    let _ = link.tx.set_write_timeout(Some(timeout));
 
     link.send(&request)
         .map_err(|e| DecodeError::Failed(format!("could not hand the image to the decoder: {e}")))?;
 
     let mut pending: Option<Transfer> = None;
     loop {
-        if Instant::now() >= deadline {
+        // Each read gets only what is left of the deadline: a decoder that
+        // drips a message just before it would otherwise buy a whole new
+        // timeout for the next read.
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
             return Err(DecodeError::TimedOut);
         }
+        let _ = link.rx.set_read_timeout(Some(left));
         let msg = link.recv::<FromDecoder>().map_err(|e| {
             if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut {
                 DecodeError::TimedOut
@@ -228,5 +241,47 @@ fn exchange(channel: gosub_ipc::channel::Channel, request: ToDecoder) -> Result<
                 }));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A decoder that answers late with a valid header and then goes quiet
+    /// must not get a fresh timeout for the next read: the exchange as a
+    /// whole stays within its bound.
+    #[test]
+    fn a_late_header_does_not_extend_the_deadline() {
+        let (ours, theirs) = gosub_ipc::channel::Channel::pair().expect("channel pair");
+        let decoder = std::thread::spawn(move || {
+            let mut link = gosub_ipc::Endpoint::from_channel(theirs).expect("endpoint");
+            let _ = link.recv::<ToDecoder>();
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = link.send(&FromDecoder::RasterHeader {
+                width: 1,
+                height: 1,
+                intrinsic_width: 1,
+                intrinsic_height: 1,
+                len: 4,
+            });
+            // Silent, but still connected: a closed link would end the read early.
+            std::thread::sleep(Duration::from_millis(1000));
+        });
+
+        let started = Instant::now();
+        let request = ToDecoder::Decode {
+            mime: None,
+            bytes: vec![0],
+        };
+        let result = exchange_within(ours, request, Duration::from_millis(400));
+        let took = started.elapsed();
+
+        assert!(matches!(result, Err(DecodeError::TimedOut)), "expected a timeout");
+        assert!(
+            took < Duration::from_millis(600),
+            "the exchange ran {took:?} past a 400ms bound"
+        );
+        decoder.join().unwrap();
     }
 }
