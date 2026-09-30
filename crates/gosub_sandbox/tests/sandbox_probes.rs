@@ -295,6 +295,9 @@ mod probe_inventory {
         "broker-landlock",
         "broker-seccomp",
         "broker-seccomp-mount",
+        "broker-seccomp-io-uring",
+        "service-fs-unscoped",
+        "service-device-unscoped",
         "cgroup-memory-limit",
         "crash-report",
     ];
@@ -670,6 +673,28 @@ mod sandbox_enforcement {
         let st = probe("broker-seccomp-mount");
         assert_eq!(st.signal(), Some(SIGSYS), "expected SIGSYS (fsopen denied), got {st:?}");
         assert!(st.code().is_none(), "should be killed, not exit");
+    }
+
+    /// io_uring runs queued operations past the per-syscall filter, so the
+    /// broker cannot set one up: `io_uring_setup` dies by `SIGSYS`.
+    #[test]
+    fn broker_denies_io_uring() {
+        let st = probe("broker-seccomp-io-uring");
+        assert_eq!(
+            st.signal(),
+            Some(SIGSYS),
+            "expected SIGSYS (io_uring denied), got {st:?}"
+        );
+    }
+
+    /// A service granted `openat` (filesystem or device) with no path to scope
+    /// it to refuses to start instead of running with an unbounded grant.
+    #[test]
+    fn unscoped_services_refuse_to_start() {
+        for name in ["service-fs-unscoped", "service-device-unscoped"] {
+            let st = probe(name);
+            assert_eq!(st.code(), Some(1), "{name}: expected a refusal (exit 1), got {st:?}");
+        }
     }
 
     /// Crash reporting without a core dump or `ptrace`: a crashing content

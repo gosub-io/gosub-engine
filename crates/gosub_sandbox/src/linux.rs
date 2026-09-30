@@ -1292,6 +1292,9 @@ const BROKER_DENY: &[libc::c_long] = &[
     libc::SYS_ptrace,
     libc::SYS_process_vm_readv,
     libc::SYS_process_vm_writev,
+    // Copy a descriptor out of another process, or act on its memory.
+    libc::SYS_pidfd_getfd,
+    libc::SYS_process_madvise,
     // Load kernel code - the shortest path from a broker compromise to ring 0.
     libc::SYS_kexec_load,
     libc::SYS_kexec_file_load,
@@ -1302,6 +1305,11 @@ const BROKER_DENY: &[libc::c_long] = &[
     // Classic LPE / exploit-primitive surfaces.
     libc::SYS_perf_event_open,
     libc::SYS_userfaultfd,
+    // io_uring: a second syscall surface that bypasses per-syscall filtering
+    // of the operations it queues, and a steady source of kernel bugs.
+    libc::SYS_io_uring_setup,
+    libc::SYS_io_uring_enter,
+    libc::SYS_io_uring_register,
     libc::SYS_add_key,
     libc::SYS_request_key,
     libc::SYS_keyctl,
@@ -1443,26 +1451,28 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
 
     // Landlock first (see the module doc): it runs before the seccomp filter so
     // its own syscalls and the O_PATH opens are unfiltered, and it confines
-    // *which* paths the coming `openat` may reach. Best-effort - a kernel
-    // without Landlock leaves seccomp + application-level path scoping as the
-    // guard rather than refusing to start.
-    if filesystem && fs_allow.is_empty() {
+    // *which* paths the coming `openat` may reach. Required where the role can
+    // write; a read-only filesystem role without it is made read-only at the
+    // syscall layer instead (below).
+    if (filesystem || device) && fs_allow.is_empty() {
         // `openat` (and renames) with no path to scope them to is a filesystem
         // grant with no bound at all.
         eprintln!("[{name}] filesystem access requested with no paths to scope it to; refusing to run");
         exit_now(1);
     }
     // A role that may *write* somewhere must not run unscoped: without
-    // Landlock it could write anywhere `openat` reaches.
+    // Landlock it could write anywhere `openat` reaches. A device role opens
+    // its device read-write, so it can have no read-only fallback either.
     let writes = fs_allow.iter().any(|(_, writable)| *writable);
+    let needs_landlock = writes || device;
     if !fs_allow.is_empty() {
         match landlock::restrict(fs_allow) {
             Ok(true) => eprintln!("[{name}] landlock active (filesystem scoped to its own paths)"),
-            Ok(false) if writes => {
+            Ok(false) if needs_landlock => {
                 eprintln!("[{name}] landlock unavailable on this kernel; refusing to run with write access unscoped");
                 exit_now(1);
             }
-            Err(e) if writes => {
+            Err(e) if needs_landlock => {
                 eprintln!("[{name}] landlock could not be applied ({e}); refusing to run with write access unscoped");
                 exit_now(1);
             }
@@ -1475,7 +1485,7 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
 
     // A read-only filesystem service is read-only at the syscall layer too, so
     // a kernel without Landlock leaves it no write path (a device service opens
-    // its device read-write and keeps `openat` as it is).
+    // its device read-write and keeps `openat` as it is, under Landlock).
     if filesystem && !writes && !device {
         enforce_read_only_opens(name);
     }

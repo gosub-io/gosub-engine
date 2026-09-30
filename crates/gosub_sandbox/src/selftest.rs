@@ -144,6 +144,12 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "broker-seccomp-mount",
     #[cfg(target_os = "linux")]
+    "broker-seccomp-io-uring",
+    #[cfg(target_os = "linux")]
+    "service-fs-unscoped",
+    #[cfg(target_os = "linux")]
+    "service-device-unscoped",
+    #[cfg(target_os = "linux")]
     "cgroup-memory-limit",
     #[cfg(target_os = "linux")]
     "crash-report",
@@ -1082,6 +1088,18 @@ fn run_platform_probe(probe: &str) {
         std::process::exit(1);
     }
 
+    // io_uring queues operations the per-syscall filter never sees, so the
+    // deny-list closes its setup call: a raw `io_uring_setup` is a fatal
+    // `SIGSYS`, and reaching the line past it means the ring could be built.
+    if probe == "broker-seccomp-io-uring" {
+        crate::lock_down_broker();
+        // SAFETY: a raw `io_uring_setup` with a null params pointer; the point
+        // is that the syscall traps before it returns.
+        unsafe { libc::syscall(libc::SYS_io_uring_setup, 1u32, std::ptr::null_mut::<libc::c_void>()) };
+        eprintln!("[selftest] broker-seccomp-io-uring: io_uring_setup was NOT denied");
+        std::process::exit(1);
+    }
+
     // cgroup v2 per-child memory bound: place this process in a child cgroup with
     // a known `memory.max` and read it back, proving the limit actually binds.
     // Best-effort like the Landlock probes - where cgroup v2 memory delegation is
@@ -1175,20 +1193,40 @@ fn run_platform_probe(probe: &str) {
             // The device filter must permit `ioctl` (how a real audio/GPU
             // service drives its device). An unsupported request returns ENOTTY
             // rather than being killed; clean exit = the syscall was allowed.
+            // A device role needs Landlock (its device opens read-write), so
+            // like the Landlock probes this skips where the kernel lacks it.
             "device-ioctl" => {
+                if !crate::landlock_available() {
+                    eprintln!("[selftest] landlock unavailable on this kernel — skipping");
+                    std::process::exit(0);
+                }
                 crate::lock_down_service(
                     "probe",
                     ServiceCaps {
                         filesystem: false,
                         device: true,
                     },
-                    &[],
+                    &[(std::path::Path::new("/dev/null"), true)],
                 );
                 let mut winsz: libc::winsize = unsafe { std::mem::zeroed() };
                 // SAFETY: TIOCGWINSZ with a valid out-struct; fd 2 may not be a
                 // tty, in which case it errors - which is fine, we only need the
                 // syscall to be permitted rather than killed.
                 let _ = unsafe { libc::ioctl(2, libc::TIOCGWINSZ, &mut winsz) };
+                std::process::exit(0);
+            }
+            // `openat` with no path to scope it to must refuse to start (exit 1)
+            // for a filesystem and for a device service alike; reaching the exit
+            // below means the lockdown ran with an unbounded grant.
+            "fs-unscoped" | "device-unscoped" => {
+                crate::lock_down_service(
+                    "probe",
+                    ServiceCaps {
+                        filesystem: op == "fs-unscoped",
+                        device: op == "device-unscoped",
+                    },
+                    &[],
+                );
                 std::process::exit(0);
             }
             // Landlock: the path-level confinement seccomp cannot do. Scoped to
