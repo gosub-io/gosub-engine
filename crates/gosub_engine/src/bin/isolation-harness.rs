@@ -2127,6 +2127,36 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
             eprintln!("the replacement should hold the one tab, snapshot says {tabs_on_replacement:?}");
             return 1;
         }
+
+        // The fork server itself can die too: the next spawn gets a new one
+        // rather than every later site failing with the old link.
+        let Some(old_server) = pool.fork_server().lock().pid() else {
+            eprintln!("the fork server has no pid");
+            return 1;
+        };
+        let killed = std::process::Command::new("kill")
+            .args(["-KILL", &old_server.to_string()])
+            .status()
+            .is_ok_and(|s| s.success());
+        if !killed {
+            eprintln!("could not kill the fork server {old_server}");
+            return 1;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        match pool.renderer_for(zone, "https://after.test", TabId::new()) {
+            Ok(_) => {
+                let new_server = pool.fork_server().lock().pid();
+                if new_server == Some(old_server) {
+                    eprintln!("the dead fork server was not replaced");
+                    return 1;
+                }
+                println!("fork server {old_server} died; {new_server:?} spawned the next renderer");
+            }
+            Err(e) => {
+                eprintln!("a renderer after the fork server died: {e}");
+                return 1;
+            }
+        }
         pool.shutdown_all();
         pool.fork_server().lock().shutdown();
         0

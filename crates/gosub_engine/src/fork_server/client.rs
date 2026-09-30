@@ -769,9 +769,7 @@ impl ForkServer {
     ) -> anyhow::Result<RenderedPage> {
         // One that failed an exchange was stopped (see below); a new one takes
         // its place rather than every later render failing with it.
-        if self.child.is_none() {
-            *self = ForkServer::spawn()?;
-        }
+        self.ensure_running()?;
         let rendered = self.exchange_render(html, url, tab, viewport, loader, known_tiles, hovered_node);
         if rendered.is_err() {
             // A failed exchange leaves the link at no known message: the fork
@@ -816,6 +814,20 @@ impl ForkServer {
     /// Fork a resident renderer and take over its link: from here on the
     /// broker talks to it directly. `label` only names it in `ps`.
     pub fn spawn_renderer(&mut self, label: &str) -> anyhow::Result<ResidentRenderer> {
+        // The same recovery as `render_page`: a stopped fork server is
+        // replaced, and one whose exchange failed is stopped, since a late
+        // `RendererSpawned` or fd left on the link would answer the next
+        // request. Resident renderers it forked earlier talk to the broker
+        // directly; the pool replaces any that die with it.
+        self.ensure_running()?;
+        let spawned = self.exchange_spawn(label);
+        if spawned.is_err() {
+            self.stop();
+        }
+        spawned
+    }
+
+    fn exchange_spawn(&mut self, label: &str) -> anyhow::Result<ResidentRenderer> {
         self.link.send(&ToForkServer::SpawnRenderer {
             label: label.to_string(),
         })?;
@@ -838,8 +850,14 @@ impl ForkServer {
 
     /// Have the fork server collect resident renderers that have exited.
     pub fn reap_exited(&mut self) {
-        if self.link.send(&ToForkServer::ReapExited).is_ok() {
-            let _ = self.link.recv::<FromForkServer>();
+        if self.child.is_none() {
+            return;
+        }
+        let answered = self.link.send(&ToForkServer::ReapExited).is_ok()
+            && matches!(self.link.recv::<FromForkServer>(), Ok(FromForkServer::Pong));
+        if !answered {
+            // Anything but its `Pong` leaves the link out of step.
+            self.stop();
         }
     }
 
@@ -866,6 +884,22 @@ impl ForkServer {
         let _ = child.kill();
         let _ = child.wait();
         remove_scratch_dir(FORK_SERVER_ROLE, pid);
+    }
+
+    /// A fork server to talk to: this one, unless it was stopped or has
+    /// exited (then its link is dead), in which case a fresh one.
+    fn ensure_running(&mut self) -> anyhow::Result<()> {
+        if self
+            .child
+            .as_mut()
+            .is_some_and(|c| matches!(c.try_wait(), Ok(true) | Err(_)))
+        {
+            self.stop();
+        }
+        if self.child.is_none() {
+            *self = ForkServer::spawn()?;
+        }
+        Ok(())
     }
 
     /// Kill and reap the fork server; the handle is inert until the next render
