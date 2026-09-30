@@ -262,24 +262,25 @@ pub trait FontSystem: Send + Sync + 'static {
     fn families(&mut self) -> Vec<String>;
 
     /// The confinement tier this font system supports; static, no instance needed.
+    ///
+    /// `Unsupported` unless the implementation opts in: a tier is a promise
+    /// about the font stack's file access that only the implementation can make.
     fn confinement() -> Confinement
     where
         Self: Sized,
     {
-        Confinement::Full
+        Confinement::Unsupported("this font system does not declare a confinement tier".into())
     }
 
     /// Front-load all filesystem work, then report the sandbox tier the renderer
     /// may apply. Overstating the tier means content-dependent `SIGSYS` deaths
     /// when a page later uses an unloaded typeface.
+    ///
+    /// `Unsupported` unless the implementation opts in, like [`confinement`](Self::confinement):
+    /// a generic warm-up cannot establish that later font operations stay off the
+    /// filesystem. An implementation that answers a tier does its own warm-up.
     fn prepare_for_confinement(&mut self) -> Confinement {
-        for family in self.families() {
-            // Measuring forces lazy work resolve leaves until first use.
-            // Failures are skipped: one bad family shouldn't block the rest.
-            let _ = self.resolve(&FontQuery::new(&[family.as_str()]));
-            let _ = self.measure("Ag", &TextStyle::new(family, 16.0));
-        }
-        Confinement::Full
+        Confinement::Unsupported("this font system does not assess its confinement".into())
     }
 
     /// Shape `text` laid out in `style` into positioned glyph runs.
@@ -320,4 +321,38 @@ pub trait FontSystem: Send + Sync + 'static {
 /// ```
 pub trait HasFontSystem {
     fn font_system(&self) -> Arc<Mutex<dyn FontSystem>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A font system that implements only what it must.
+    struct Undeclared;
+
+    impl FontSystem for Undeclared {
+        fn register_font(&mut self, _data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
+            Ok(())
+        }
+        fn resolve(&mut self, _query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+            Err(FontError::FontNotFound("no fonts".into()))
+        }
+        fn families(&mut self) -> Vec<String> {
+            Vec::new()
+        }
+        fn shape(&mut self, _text: &str, _style: &TextStyle) -> ShapedText {
+            ShapedText::empty()
+        }
+    }
+
+    /// A tier is a promise only the implementation can make: without an
+    /// override, both answers are `Unsupported`, never `Full`.
+    #[test]
+    fn a_font_system_that_declares_nothing_is_not_confined() {
+        assert!(matches!(Undeclared::confinement(), Confinement::Unsupported(_)));
+        assert!(matches!(
+            Undeclared.prepare_for_confinement(),
+            Confinement::Unsupported(_)
+        ));
+    }
 }

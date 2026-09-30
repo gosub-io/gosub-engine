@@ -166,6 +166,12 @@ impl FontSystem for CosmicFontSystem {
         })
     }
 
+    /// Every face is in cosmic-text's cache once prepared (see below), so no file access is
+    /// needed after.
+    fn confinement() -> Confinement {
+        Confinement::Full
+    }
+
     /// Force every face in the database into cosmic-text's font cache.
     fn prepare_for_confinement(&mut self) -> Confinement {
         let faces: Vec<(fontdb::ID, Weight)> = self.inner.db().faces().map(|f| (f.id, f.weight)).collect();

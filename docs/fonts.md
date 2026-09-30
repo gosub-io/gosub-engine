@@ -25,11 +25,11 @@ pub trait FontSystem: Send + Sync + 'static {
     /// Provided: shapes and reads the bounding box; implementations may override.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) { … }
     /// The confinement tier, knowable without an instance (see below).
-    /// Provided: answers `Confinement::Full`.
+    /// Provided: answers `Confinement::Unsupported`; a tier is opt-in.
     fn confinement() -> Confinement where Self: Sized { … }
     /// Load everything that needs the filesystem now, then answer how confined
     /// a renderer process using this font system may be (see below).
-    /// Provided: warms every family and answers `Confinement::Full`.
+    /// Provided: answers `Confinement::Unsupported`; a tier is opt-in.
     fn prepare_for_confinement(&mut self) -> Confinement { … }
 }
 ```
@@ -57,12 +57,12 @@ A future renderer process runs behind a default-deny seccomp sandbox that wants 
 |---|---|---|
 | `Confinement::Full` | `lock_down_renderer()`: **no file access at all** | Parley, cosmic-text |
 | `Confinement::FontPathsReadable` | `lock_down_renderer_with_font_access()`: read-only font paths + one private writable scratch, nothing else | Pango, Skia |
-| `Confinement::Unsupported(reason)` | none — the engine must fall back to single-process rendering | no bundled system |
+| `Confinement::Unsupported(reason)` | none — the engine must fall back to single-process rendering | no bundled system; the trait default, for a font system that declares no tier |
 
 Per implementation:
 
 - **Parley (fontique)** — defers file reads lazily **per face**: a family-level warm-up loads only the face the default attributes select (regular), and the first *bold* heading laid out under the sandbox died opening `…-Bold.ttf`. Its override loads every face of every family — into **both** of the system's source caches, which are separate (`resolve` reads its own; parley's shaping reads the one inside `FontContext`) — at ~110 ms and near-zero RSS, since fontique memory-maps the files. Fully confinable.
-- **cosmic-text** — defers lazily **per face** (through its `get_font` cache), and shaping consults fallback faces that a family-by-family warm-up never touches, so the trait default is *not* enough (measured as a `SIGSYS` on `openat` mid-shape). Its override loads every face in the fontdb instead: ~20 ms / +46 MiB, and fully confinable. Note that even a web font delivered as bytes only shapes safely because preparation ran — shaping it still consults fallback faces.
+- **cosmic-text** — defers lazily **per face** (through its `get_font` cache), and shaping consults fallback faces that a family-by-family warm-up never touches, so such a warm-up is *not* enough (measured as a `SIGSYS` on `openat` mid-shape). Its override loads every face in the fontdb instead: ~20 ms / +46 MiB, and fully confinable. Note that even a web font delivered as bytes only shapes safely because preparation ran — shaping it still consults fallback faces.
 - **Pango** — cannot be fully confined, and no warm-up changes that: fontconfig re-validates its caches against the filesystem (`access(2)`, then re-opening files) *while matching*, in steady state. It answers `FontPathsReadable` and does no preparation work at all — under that tier it shapes cold, with nothing pre-loaded. Two Pango-specific limitations to know about: web fonts must be **staged as temp files** (fontconfig's app-font API takes a path; there is no from-memory variant), which is why the tier includes a writable scratch directory with `TMPDIR` pointed at it; and the fontconfig config is **process-global**, so registered web fonts are visible engine-wide rather than per-instance.
 - **Skia** — same fontconfig story on Linux (its default `FontMgr` is fontconfig-backed), so the same `FontPathsReadable` answer. Its font machinery additionally wants `getcwd`, `fstatfs`/`statfs`, and `fadvise64`, all included in the tier's allowlist. Its `FontCollection` is **thread-local**, which under full confinement would be an independent problem (a worker thread rebuilds its collection from scratch, re-reading files); under the font-readable tier it is harmless, since the paths stay reachable.
 

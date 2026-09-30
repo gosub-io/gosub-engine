@@ -139,6 +139,11 @@ impl FontSystem for ParleyFontSystem {
         out
     }
 
+    /// Every face is in memory once prepared (see below), so no file access is needed after.
+    fn confinement() -> Confinement {
+        Confinement::Full
+    }
+
     /// Load every face of every family into the shared source store and pin it.
     fn prepare_for_confinement(&mut self) -> Confinement {
         let names: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
