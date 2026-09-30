@@ -78,6 +78,10 @@ async fn handle(mut stream: TcpStream) {
 /// Subscribing is what switches emission on, so the stream starts with the
 /// first event after the request. A client that reads too slowly is told
 /// what it missed rather than silently skipped past.
+///
+/// A client that hangs up while nothing is happening is noticed through the
+/// socket (a read returns EOF), not only on the next write: otherwise an idle
+/// stream would keep its subscription, and with it emission, alive forever.
 async fn stream_events(mut stream: TcpStream) {
     use tokio::sync::broadcast::error::RecvError;
 
@@ -87,15 +91,25 @@ async fn stream_events(mut stream: TcpStream) {
     if stream.write_all(head.as_bytes()).await.is_err() {
         return;
     }
+    let (mut reader, mut writer) = stream.split();
+    let mut discard = [0u8; 256];
     loop {
-        let line = match events.recv().await {
-            Ok(event) => serde_json::to_string(&*event).unwrap_or_default(),
-            Err(RecvError::Lagged(dropped)) => {
-                format!(r#"{{"source":"broker","kind":"telemetry.lagged","data":{{"dropped":{dropped}}}}}"#)
-            }
-            Err(RecvError::Closed) => return,
+        let line = tokio::select! {
+            received = events.recv() => match received {
+                Ok(event) => serde_json::to_string(&*event).unwrap_or_default(),
+                Err(RecvError::Lagged(dropped)) => {
+                    format!(r#"{{"source":"broker","kind":"telemetry.lagged","data":{{"dropped":{dropped}}}}}"#)
+                }
+                Err(RecvError::Closed) => return,
+            },
+            read = reader.read(&mut discard) => match read {
+                // EOF or a broken socket: the client is gone.
+                Ok(0) | Err(_) => return,
+                // Nothing a client sends after its request means anything here.
+                Ok(_) => continue,
+            },
         };
-        if stream.write_all(line.as_bytes()).await.is_err() || stream.write_all(b"\n").await.is_err() {
+        if writer.write_all(line.as_bytes()).await.is_err() || writer.write_all(b"\n").await.is_err() {
             return;
         }
     }
@@ -124,4 +138,34 @@ fn build_metrics_json() -> String {
     }
 
     serde_json::to_string_pretty(&json!({ "namespaces": Value::Object(map) })).unwrap_or_else(|_| "{}".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// An `/events` client that leaves while no events flow ends its stream,
+    /// and with it the subscription that keeps telemetry emission on.
+    #[tokio::test]
+    async fn an_idle_events_client_that_hangs_up_ends_its_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            stream_events(stream).await;
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let mut head = [0u8; 256];
+        let _ = client.read(&mut head).await.unwrap();
+        assert!(crate::telemetry::enabled(), "the stream subscribes while it runs");
+        drop(client);
+
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("an idle stream whose client left must end")
+            .unwrap();
+        assert!(!crate::telemetry::enabled(), "its subscription went with it");
+    }
 }
