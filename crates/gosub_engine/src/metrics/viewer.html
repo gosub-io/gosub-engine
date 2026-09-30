@@ -1,9 +1,10 @@
 <!doctype html>
 <!--
-  Gosub telemetry viewer. A single static page: open it in any browser while
-  an engine built with the `metrics` feature is running, and it streams
-  GET /events (NDJSON) and polls GET /renderers from http://127.0.0.1:9090.
-  No build step, no dependencies - it only reads JSON.
+  Gosub telemetry viewer. A single static page, served by the metrics server
+  itself: with an engine built with the `metrics` feature running, open
+  http://127.0.0.1:9090/ in any browser. It streams GET /events (NDJSON) and
+  polls GET /renderers from the same origin; opened as a file, the browser
+  would block those requests. No build step, no dependencies.
 -->
 <html lang="en">
 <head>
@@ -128,7 +129,8 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const DEFAULT_BASE = 'http://127.0.0.1:9090';
+  // The server this page came from; the usual port when opened some other way.
+  const DEFAULT_BASE = location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:9090';
   function baseUrl() {
     let base = $('base').value.trim().replace(/\/$/, '');
     if (!base) { base = DEFAULT_BASE; $('base').value = base; }

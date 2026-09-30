@@ -6,14 +6,22 @@
 //!
 //! | Method | Path              | Description                                          |
 //! |--------|-------------------|------------------------------------------------------|
+//! | GET    | `/`               | The telemetry viewer (open it in a browser)          |
 //! | GET    | `/metrics`        | JSON snapshot of all timing namespaces               |
-//! | GET    | `/metrics/reset`  | Clear all timing counters                            |
+//! | POST   | `/metrics/reset`  | Clear all timing counters                            |
 //! | GET    | `/events`         | The telemetry firehose, streamed as NDJSON           |
 //! | GET    | `/renderers`      | Renderer processes (none yet; reserved for the viewer)  |
 //! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)                   |
+//!
+//! The viewer is served from here so its requests to `/events` and
+//! `/renderers` are same-origin: opened as a file, the browser would block
+//! them, and a CORS header would let any page in the browser read telemetry.
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+/// The telemetry viewer page, served at `/`. A single static page, no build step.
+const VIEWER: &str = include_str!("metrics/viewer.html");
 
 /// Spawn the metrics HTTP server on `127.0.0.1:{port}` in a background Tokio task.
 ///
@@ -29,7 +37,7 @@ pub fn start(port: u16) {
 
 async fn serve(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(format!("127.0.0.1:{port}")).await?;
-    log::info!("[metrics] listening on http://127.0.0.1:{port}");
+    log::info!("[metrics] listening on http://127.0.0.1:{port} (telemetry viewer at /)");
     loop {
         let (stream, _addr) = listener.accept().await?;
         tokio::spawn(handle(stream));
@@ -47,18 +55,21 @@ async fn handle(mut stream: TcpStream) {
         return;
     }
 
+    const JSON: &str = "application/json";
     // A mutation on a GET is a `<img>` tag away; POST only.
-    let (code, phrase, body) = if first_line.starts_with("POST /metrics/reset") {
+    let (code, phrase, content_type, body) = if first_line.starts_with("POST /metrics/reset") {
         gosub_shared::timing::reset_stats();
-        (200u16, "OK", r#"{"status":"reset"}"#.to_string())
+        (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
+    } else if first_line.starts_with("GET / ") || first_line.starts_with("HEAD / ") {
+        (200, "OK", "text/html; charset=utf-8", VIEWER.to_string())
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
-        (200, "OK", build_metrics_json())
+        (200, "OK", JSON, build_metrics_json())
     } else if first_line.starts_with("GET /renderers") {
-        (200, "OK", r#"{"renderers":[]}"#.to_string())
+        (200, "OK", JSON, r#"{"renderers":[]}"#.to_string())
     } else if first_line.starts_with("GET /health") {
-        (200, "OK", r#"{"status":"ok"}"#.to_string())
+        (200, "OK", JSON, r#"{"status":"ok"}"#.to_string())
     } else {
-        (404, "Not Found", r#"{"error":"not found"}"#.to_string())
+        (404, "Not Found", JSON, r#"{"error":"not found"}"#.to_string())
     };
 
     // HEAD gets the same headers (including Content-Length) but no body.
@@ -68,7 +79,7 @@ async fn handle(mut stream: TcpStream) {
         body.as_str()
     };
     let response = format!(
-        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        "HTTP/1.1 {code} {phrase}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
@@ -179,6 +190,26 @@ mod tests {
         let _ = client.read(&mut head).await.unwrap();
         assert!(crate::telemetry::enabled(), "the stream subscribes while it runs");
         (client, server)
+    }
+
+    /// The viewer comes from the metrics server itself, so its requests to
+    /// `/events` and `/renderers` are same-origin.
+    #[tokio::test]
+    async fn the_viewer_is_served_at_the_root() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle(stream).await;
+        });
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        let response = String::from_utf8_lossy(&response);
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response:.80}");
+        assert!(response.contains("Content-Type: text/html"), "not served as HTML");
+        assert!(response.contains("<title>Gosub telemetry</title>"), "not the viewer");
     }
 
     /// An `/events` client that leaves while no events flow ends its stream,
