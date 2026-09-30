@@ -107,18 +107,27 @@ fn a_malformed_image_is_refused_rather_than_decoded() {
 #[test]
 fn a_warmed_font_system_can_shape_under_the_renderer_lockdown() {
     let out = run("fonts-under-lockdown");
+    expect_full_lockdown(&out, "a warmed font system should still shape once confined");
+}
 
-    // Exit 2 means the host has no fonts to test with, which is a skip rather
-    // than a failure: the property is about the sandbox, not the machine.
+/// Judge a full-lockdown font scenario. Exit 2 means the host has no fonts to
+/// test with, which is a skip rather than a failure: the property is about the
+/// sandbox, not the machine. Exit 3 means the font system no longer answers
+/// `Confinement::Full`; these scenarios only run the backends that promise it
+/// (Pango and Skia are covered by the font-readable ones), so that is a
+/// failure on purpose, never a skip.
+fn expect_full_lockdown(out: &std::process::Output, what: &str) {
+    let stderr = String::from_utf8_lossy(&out.stderr);
     if out.status.code() == Some(2) {
-        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        eprintln!("skipping: {}", stderr.trim());
         return;
     }
-    assert!(
-        out.status.success(),
-        "a warmed font system should still shape once confined:\n{}",
-        String::from_utf8_lossy(&out.stderr)
+    assert_ne!(
+        out.status.code(),
+        Some(3),
+        "this backend no longer answers Confinement::Full:\n{stderr}"
     );
+    assert!(out.status.success(), "{what}:\n{stderr}");
 }
 
 /// A font that arrives *after* the sandbox is applied still works, as long as it
@@ -126,16 +135,7 @@ fn a_warmed_font_system_can_shape_under_the_renderer_lockdown() {
 #[test]
 fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
     let out = run("webfont-under-lockdown");
-
-    if out.status.code() == Some(2) {
-        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
-        return;
-    }
-    assert!(
-        out.status.success(),
-        "registering a web font once confined should work:\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    expect_full_lockdown(&out, "registering a web font once confined should work");
 }
 
 /// The same confinement property, for the *other* always-compiled font system -
@@ -143,21 +143,15 @@ fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
 /// implementation, not per engine.
 ///
 /// cosmic-text loads face data lazily per (face, weight), and shaping consults
-/// fallback faces a family-by-family warm-up never touches; the trait's default
-/// `prepare_for_confinement` measurably left it dying on `openat` under the
-/// sandbox. This pins its override, which loads every face in the database.
+/// fallback faces a family-by-family warm-up never touches; such a warm-up
+/// measurably left it dying on `openat` under the sandbox. This pins its
+/// override, which loads every face in the database.
 #[test]
 fn cosmic_text_can_shape_under_the_renderer_lockdown() {
     let out = run_with_backend("fonts-under-lockdown", "cosmic");
-
-    if out.status.code() == Some(2) {
-        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
-        return;
-    }
-    assert!(
-        out.status.success(),
-        "a prepared cosmic-text font system should still shape once confined:\n{}",
-        String::from_utf8_lossy(&out.stderr)
+    expect_full_lockdown(
+        &out,
+        "a prepared cosmic-text font system should still shape once confined",
     );
 }
 
@@ -168,15 +162,9 @@ fn cosmic_text_can_shape_under_the_renderer_lockdown() {
 #[test]
 fn a_web_font_can_be_registered_with_cosmic_text_under_the_renderer_lockdown() {
     let out = run_with_backend("webfont-under-lockdown", "cosmic");
-
-    if out.status.code() == Some(2) {
-        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
-        return;
-    }
-    assert!(
-        out.status.success(),
-        "registering a web font once confined should work with cosmic-text:\n{}",
-        String::from_utf8_lossy(&out.stderr)
+    expect_full_lockdown(
+        &out,
+        "registering a web font once confined should work with cosmic-text",
     );
 }
 
