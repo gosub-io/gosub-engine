@@ -304,9 +304,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // Install this tab's remote-render mode per the configured font
         // system's (static) confinement tier: `Full` renders through the
         // engine's warmed fork server, `FontPathsReadable` spawns a throwaway
-        // exec'd renderer per render, `Unsupported` stays in-process.
+        // exec'd renderer per render, `Unsupported` stays in-process. A remote
+        // render hands back CPU tiles for the host to composite, so a backend
+        // that presents a GPU texture instead (Vello) stays in-process too.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        {
+        if zone_context.render_backend.renders_to_gpu_texture() {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                log::info!(
+                    "renderer process off: the {} backend presents a GPU texture, and remote renders \
+                     produce CPU tiles",
+                    zone_context.render_backend.name()
+                )
+            });
+        } else {
             use crate::engine::context::RemoteRenderer;
             use gosub_interface::font_system::{Confinement, FontSystem as _};
             match C::FontSystem::confinement() {
