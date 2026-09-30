@@ -2958,8 +2958,9 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
                     .max()
                     .map(|kb| (kb / 1024).to_string())
                     .unwrap_or_else(|| "-".into());
-                let short = if url.len() > 43 {
-                    format!("{}…", &url[..42])
+                // By characters: a byte index can split a non-ASCII URL from argv.
+                let short = if url.chars().count() > 43 {
+                    format!("{}…", url.chars().take(42).collect::<String>())
                 } else {
                     url.clone()
                 };
