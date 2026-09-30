@@ -135,13 +135,35 @@ struct MediaEntries {
 
 impl MediaEntries {
     fn insert(&mut self, key: String, fetched: Result<LoadedResource, String>) {
+        // A body the budget can never hold would be evicted as it lands, and
+        // the renderer, asking again, would refetch it forever: it is a failed
+        // load instead, which the renderer shows as a placeholder.
+        let fetched = match fetched {
+            Ok(r) if r.body.len() > MEDIA_CACHE_BUDGET => Err(format!(
+                "image of {} bytes exceeds the per-tab media budget",
+                r.body.len()
+            )),
+            other => other,
+        };
+        // A key fetched twice (a lookup racing the in-flight check) replaces
+        // its entry rather than counting its bytes and its place twice.
+        if let Some(old) = self.by_url.remove(&key) {
+            self.bytes = self.bytes.saturating_sub(old.map_or(0, |r| r.body.len()));
+            self.order.retain(|k| k != &key);
+        }
         self.bytes += fetched.as_ref().map_or(0, |r| r.body.len());
         self.order.push_back(key.clone());
-        self.by_url.insert(key, fetched);
+        self.by_url.insert(key.clone(), fetched);
+        // Oldest first, but never the entry just stored: the renderer has not
+        // had it yet.
         while self.bytes > MEDIA_CACHE_BUDGET {
-            let Some(oldest) = self.order.pop_front() else {
+            let Some(oldest) = self.order.front().cloned() else {
                 break;
             };
+            if oldest == key {
+                break;
+            }
+            self.order.pop_front();
             if let Some(Ok(gone)) = self.by_url.remove(&oldest) {
                 self.bytes = self.bytes.saturating_sub(gone.body.len());
             }
@@ -1135,6 +1157,46 @@ mod tests {
         assert!(regions.last().unwrap().link.is_none(), "the last is past the budget");
         let kept: usize = regions.iter().filter_map(|r| r.link.as_ref()).map(String::len).sum();
         assert!(kept <= MAX_HIT_TEXT_TOTAL);
+    }
+
+    fn loaded(len: usize) -> Result<LoadedResource, String> {
+        Ok(LoadedResource {
+            status: 200,
+            content_type: None,
+            body: bytes::Bytes::from(vec![0u8; len]),
+        })
+    }
+
+    /// An image bigger than the whole budget is a failed load, kept as one,
+    /// not evicted as it lands and fetched again on every render.
+    #[test]
+    fn an_image_past_the_budget_is_kept_as_a_failure() {
+        let mut entries = MediaEntries::default();
+        entries.insert("big".into(), loaded(MEDIA_CACHE_BUDGET + 1));
+        assert!(matches!(entries.by_url.get("big"), Some(Err(_))));
+        assert_eq!(entries.bytes, 0);
+    }
+
+    /// Past the budget, older entries make room for the one just stored.
+    #[test]
+    fn older_entries_make_room_for_a_new_one() {
+        let mut entries = MediaEntries::default();
+        let half = MEDIA_CACHE_BUDGET / 2 + 1;
+        entries.insert("old".into(), loaded(half));
+        entries.insert("new".into(), loaded(half));
+        assert!(entries.by_url.contains_key("new"));
+        assert!(!entries.by_url.contains_key("old"));
+        assert_eq!(entries.bytes, half);
+    }
+
+    /// Storing a key again replaces it: one place in the order, its bytes once.
+    #[test]
+    fn a_key_stored_twice_is_counted_once() {
+        let mut entries = MediaEntries::default();
+        entries.insert("a".into(), loaded(10));
+        entries.insert("a".into(), loaded(10));
+        assert_eq!(entries.bytes, 10);
+        assert_eq!(entries.order.len(), 1);
     }
 
     /// A reused tile keeps the opacity and anchor it was shipped with; the
