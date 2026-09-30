@@ -247,6 +247,15 @@ impl RendererPool {
             .get(key)
             .map(|t| t.iter().copied().collect())
             .unwrap_or_default();
+        // Forget where these tabs were placed, or their next request finds the
+        // placement unchanged and never registers them with the replacement
+        // (tab set, `OpenTab`): it would count no tabs, and the first of them
+        // to close would shut it down under the others.
+        for tab in &tabs {
+            if state.placement.get(tab) == Some(key) {
+                state.placement.remove(tab);
+            }
+        }
         self.discard(state, key);
         if let Some(events) = &self.events {
             let _ = events.send(crate::engine::events::EngineEvent::RendererCrashed {

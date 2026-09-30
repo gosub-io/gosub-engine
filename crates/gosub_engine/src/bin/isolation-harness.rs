@@ -2114,6 +2114,19 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
             }
         }
         drop(renderer);
+        // The tab is registered with the replacement, not only placed on it:
+        // otherwise the replacement counts no tabs, and closing one of them
+        // would shut it down under the rest.
+        let tabs_on_replacement: Vec<usize> = pool
+            .snapshot()
+            .iter()
+            .filter(|r| r.key.site == "https://crash.test")
+            .map(|r| r.tabs)
+            .collect();
+        if tabs_on_replacement != [1] {
+            eprintln!("the replacement should hold the one tab, snapshot says {tabs_on_replacement:?}");
+            return 1;
+        }
         pool.shutdown_all();
         pool.fork_server().lock().shutdown();
         0
