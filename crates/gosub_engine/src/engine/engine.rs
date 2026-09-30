@@ -193,11 +193,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// explicit choice that cannot apply gets a warning.
     #[cfg(feature = "process-isolation")]
     fn setting_at_default(&self, key: &str) -> bool {
-        let store = &self.context.config_store;
-        match (store.get_info(key), store.get(key)) {
-            (Some(info), Ok(Some(value))) => info.default == value,
-            _ => false,
-        }
+        // Not "equals the default": an embedder that sets the default value
+        // explicitly (turning the network process on where it is off by
+        // default) has still made a choice.
+        !self.context.config_store.is_overridden(key)
     }
 
     #[cfg(feature = "process-isolation")]
@@ -864,6 +863,21 @@ mod tests {
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
+    }
+
+    /// An embedder that sets a process setting to its default value has still
+    /// chosen it: on a platform where the default is turned off, that choice is
+    /// what keeps it on.
+    #[cfg(feature = "process-isolation")]
+    #[test]
+    fn an_explicit_process_setting_equal_to_its_default_is_not_at_default() {
+        let engine = engine_with_max_zones(1);
+        let key = "security.network_process";
+        assert!(engine.setting_at_default(key), "untouched: at its default");
+
+        let default = engine.settings().get_info(key).expect("known setting").default;
+        engine.settings().set(key, default).expect("set to its own default");
+        assert!(!engine.setting_at_default(key), "set explicitly, even to the default");
     }
 
     /// Crash containment: a panicking tab worker produces a TabCrashed event (instead of

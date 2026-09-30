@@ -166,6 +166,13 @@ impl Config {
         self.0.read().has(key)
     }
 
+    /// Returns true when the given key was explicitly set (or loaded from
+    /// storage), even to a value equal to its default.
+    #[must_use]
+    pub fn is_overridden(&self, key: &str) -> bool {
+        self.0.read().is_overridden(key)
+    }
+
     /// Returns the keys matching the given wildcard search (`*`/`?`).
     #[must_use]
     pub fn find(&self, search: &str) -> Vec<String> {
@@ -315,6 +322,14 @@ impl ConfigStore {
     /// Returns true when the storage knows about the given key
     pub fn has(&self, key: &str) -> bool {
         self.settings.lock().contains_key(key)
+    }
+
+    /// Returns true when the given key holds a value that was set (or loaded
+    /// from storage), not just its schema default. `get` and `has` cannot tell
+    /// the two apart: every default is seeded into the live settings, and an
+    /// explicit value can equal the default.
+    pub fn is_overridden(&self, key: &str) -> bool {
+        matches!(self.storage.get(key), Ok(Some(_)))
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -551,6 +566,27 @@ mod test {
 
         cfg.set("dns.local.enabled", Setting::Bool(false)).unwrap();
         assert_eq!(cfg.get("dns.local.enabled").unwrap().unwrap(), Setting::Bool(false));
+    }
+
+    #[test]
+    fn an_explicit_value_equal_to_the_default_is_an_override() {
+        let cfg = test_config();
+        assert!(
+            !cfg.is_overridden("dns.local.enabled"),
+            "a schema default is not an override"
+        );
+
+        cfg.set("dns.local.enabled", Setting::Bool(true)).unwrap();
+        assert!(
+            cfg.is_overridden("dns.local.enabled"),
+            "set to its default, still chosen"
+        );
+
+        cfg.remove("dns.local.enabled").unwrap();
+        assert!(
+            !cfg.is_overridden("dns.local.enabled"),
+            "removed reverts to the default"
+        );
     }
 
     #[test]
