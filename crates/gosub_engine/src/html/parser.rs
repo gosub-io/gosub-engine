@@ -237,7 +237,8 @@ fn decode_source(bytes: &[u8], encoding: &Encoding) -> String {
             .strip_prefix(&[0xFF, 0xFE])
             .or_else(|| bytes.strip_prefix(&[0xFE, 0xFF]))
             .unwrap_or(bytes);
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| unit([pair[0], pair[1]])).collect();
+        // A trailing odd byte is dropped, as `from_utf16_lossy` could not use it anyway.
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| unit(*pair)).collect();
         String::from_utf16_lossy(&units)
     };
     match encoding {
