@@ -1983,10 +1983,7 @@ impl TaffyLayouter {
                                     let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
-                                        geo::Dimension::new(
-                                            media_image.image.width() as f64,
-                                            media_image.image.height() as f64,
-                                        )
+                                        img_natural_size(&media_image.image)
                                     };
                                     // `.all()` short-circuits on the first opaque pixel, so this is
                                     // cheap for the common (visible) image and only scans fully when
@@ -2873,6 +2870,13 @@ fn transferred_max_width(
     }
 }
 
+/// The size an `<img>` lays out at: its intrinsic size, not the pixel buffer's.
+/// A decoder may downscale a large image to bound memory, and records the real
+/// size alongside; the background path reads it the same way.
+fn img_natural_size(image: &crate::common::media::Image) -> geo::Dimension {
+    geo::Dimension::new(image.intrinsic_width() as f64, image.intrinsic_height() as f64)
+}
+
 /// Measure a replaced element (image / SVG) honouring any dimension CSS has already
 /// constrained. When only one of width/height is known, the other is derived from the
 /// intrinsic aspect ratio so the element keeps its shape; when neither is known the
@@ -3280,8 +3284,19 @@ impl TaffyLayouter {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_text_transform, to_absolute_url};
+    use super::{apply_text_transform, img_natural_size, to_absolute_url};
     use gosub_interface::style::TextTransform;
+
+    /// A 4000x3000 image the decoder kept as a small buffer still lays out at
+    /// 4000x3000, not at the buffer's size.
+    #[test]
+    fn a_downscaled_img_lays_out_at_its_intrinsic_size() {
+        let image = crate::common::media::DecodedImage::from(image::RgbaImage::new(40, 30)).with_intrinsic(4000, 3000);
+        assert_eq!(
+            img_natural_size(&image),
+            crate::common::geo::Dimension::new(4000.0, 3000.0)
+        );
+    }
 
     /// A maximum on the height is a maximum on the width too, through the intrinsic ratio.
     ///
