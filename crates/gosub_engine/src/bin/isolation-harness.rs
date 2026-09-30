@@ -42,7 +42,7 @@ fn main() {
         "engine" => engine(),
         "guard" => guard(),
         other => {
-            eprintln!("unknown scenario {other:?}; expected 'direct', 'resolve', 'engine' or 'guard'");
+            eprintln!("unknown scenario {other:?}; expected 'direct', 'oversized', 'resolve', 'engine' or 'guard'");
             2
         }
     };
