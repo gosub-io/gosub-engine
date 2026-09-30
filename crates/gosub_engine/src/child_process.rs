@@ -56,9 +56,18 @@ pub fn dispatch() {
         return;
     };
 
-    let role = args.get(flag_at + 1).map(String::as_str).unwrap_or("");
-    let code = run_role(role, &args[flag_at + 2..]);
+    let (role, rest) = split_role(&args, flag_at);
+    let code = run_role(role, rest);
     std::process::exit(code);
+}
+
+/// The role after [`ROLE_FLAG`] at `flag_at` and the arguments after it. A flag
+/// with nothing after it is an empty role, which [`run_role`] refuses with
+/// status 2 like any unknown one.
+fn split_role(args: &[String], flag_at: usize) -> (&str, &[String]) {
+    let role = args.get(flag_at + 1).map(String::as_str).unwrap_or("");
+    let rest = args.get(flag_at + 2..).unwrap_or(&[]);
+    (role, rest)
 }
 
 /// Run a child role - including those that need the embedder's render
@@ -70,8 +79,8 @@ pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
         return;
     };
 
-    let role = args.get(flag_at + 1).map(String::as_str).unwrap_or("");
-    let code = run_role_with::<C>(role, &args[flag_at + 2..]);
+    let (role, rest) = split_role(&args, flag_at);
+    let code = run_role_with::<C>(role, rest);
     std::process::exit(code);
 }
 
@@ -95,4 +104,27 @@ fn run_role(role: &str, _args: &[String]) -> i32 {
     gosub_sandbox::deny_debugger_attach();
     eprintln!("[gosub] unknown child role '{role}'");
     2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_flag_with_no_role_is_an_empty_role_not_a_panic() {
+        let args = args(&["app", ROLE_FLAG]);
+        assert_eq!(split_role(&args, 1), ("", &[][..]));
+    }
+
+    #[test]
+    fn the_role_and_its_arguments_are_split_off() {
+        let args = args(&["app", ROLE_FLAG, "net", "a", "b"]);
+        let (role, rest) = split_role(&args, 1);
+        assert_eq!(role, "net");
+        assert_eq!(rest, &args[3..]);
+    }
 }
