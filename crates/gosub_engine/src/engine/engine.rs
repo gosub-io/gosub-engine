@@ -1060,7 +1060,12 @@ mod tests {
                     let mut buf = vec![0u8; 4096];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    // A connection that closes without a request line is a fetch the
+                    // engine abandoned (the next navigation cancels the last one's icon),
+                    // not a page load: it must not count as one.
+                    let Some(path) = req.split_whitespace().nth(1).map(str::to_string) else {
+                        return;
+                    };
                     if path != "/icon.png" {
                         served.lock().push(path.clone());
                     }
