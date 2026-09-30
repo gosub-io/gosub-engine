@@ -254,6 +254,15 @@ impl IoRouter {
         for j in tasks {
             let _ = j.await;
         }
+
+        // Stop the network process now, not when the last in-flight task
+        // drops its `Arc` (up to the reply timeout later), and not from `Drop`
+        // on a runtime worker: `shutdown` waits for the child with blocking
+        // sleeps. It takes the child, so the later `Drop` has nothing to do.
+        #[cfg(feature = "process-isolation")]
+        if let Some(net) = self.net_process.clone() {
+            let _ = tokio::task::spawn_blocking(move || net.shutdown()).await;
+        }
     }
 }
 
