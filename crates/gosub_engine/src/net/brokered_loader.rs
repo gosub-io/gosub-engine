@@ -79,7 +79,10 @@ impl ResourceLoader for BrokeredLoader {
 
 impl BrokeredLoader {
     fn load_inner(&self, url: &Url) -> Result<FetchResult, LoadError> {
-        if !matches!(url.scheme(), "http" | "https") {
+        // `data:` carries its own bytes, and the I/O runtime answers it without
+        // the network. `file:` stays refused: a renderer asks through here, and
+        // local files are the broker's to open, behind its own policy.
+        if !matches!(url.scheme(), "http" | "https" | "data") {
             return Err(LoadError::UnsupportedUrl(url.to_string()));
         }
         warn_if_current_thread_runtime();
@@ -171,4 +174,36 @@ fn warn_if_current_thread_runtime() {
          cannot run while it waits, so this load will time out. Drive the engine on a \
          multi-threaded runtime for external stylesheets, web fonts and images to load."
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A renderer's stylesheet or web font can be a `data:` URL; the loader
+    /// hands it to the I/O runtime like any fetch. `file:` is still refused.
+    #[test]
+    fn a_data_url_loads_and_a_file_url_does_not() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let _in_rt = rt.enter();
+        let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+        let ctx = Arc::new(crate::engine::EngineContext {
+            event_tx,
+            ..Default::default()
+        });
+        let io = crate::net::io_runtime::spawn_io_thread(crate::net::fetcher::FetcherConfig::default(), ctx);
+        let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
+
+        let loaded = loader
+            .load(&Url::parse("data:text/plain,hello").unwrap())
+            .expect("a data: URL loads");
+        assert_eq!(&loaded.body[..], b"hello");
+
+        let refused = loader.load(&Url::parse("file:///etc/hostname").unwrap());
+        assert!(matches!(refused, Err(LoadError::UnsupportedUrl(_))), "{refused:?}");
+    }
 }
