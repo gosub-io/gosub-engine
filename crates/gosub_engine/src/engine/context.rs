@@ -1050,6 +1050,26 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.raster_dirty = false;
     }
 
+    /// A remote pass rendered the window around `rendered_at`, where the
+    /// viewport was when it was asked for. Record that window, not the one
+    /// around the viewport now: it may have moved on while the pass ran, and
+    /// then what it moved into still needs rendering. Call after
+    /// `note_full_raster`, which the check depends on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn note_pass_window(&mut self, rendered_at: f64) {
+        if let Some(cache) = self.pipeline_cache.as_ref() {
+            self.tile_budget
+                .note_rastered_window(rendered_at, self.viewport.height as f64, cache.page_height);
+        }
+        let page_height = self.active_page_height().unwrap_or(0.0);
+        if self
+            .tile_budget
+            .needs_rerender(self.scroll_y, self.viewport.height as f64, page_height)
+        {
+            self.raster_dirty = true;
+        }
+    }
+
     /// Record the window now rastered, so scrolling can tell when it reaches unbaked content.
     fn note_rastered_window(&self) {
         let Some(cache) = self.pipeline_cache.as_ref() else {
@@ -1396,7 +1416,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     );
                     self.adopt_remote_page(page);
                     self.tile_budget.note_full_raster();
-                    self.note_rastered_window();
+                    self.note_pass_window(inflight.scroll_y);
                     self.scroll_dirty = true;
                 } else {
                     report_remote_pass(
@@ -1409,22 +1429,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     );
                     self.merge_remote_pass(page);
                     if matches!(inflight.what, RemotePass::Scroll) {
-                        if let Some(cache) = self.pipeline_cache.as_ref() {
-                            self.tile_budget.note_rastered_window(
-                                inflight.scroll_y,
-                                self.viewport.height as f64,
-                                cache.page_height,
-                            );
-                        }
+                        // Before the check: a fresh raster makes evicted regions live again.
                         self.tile_budget.note_full_raster();
-                        // The viewport may have moved on while this pass ran.
-                        let page_height = self.active_page_height().unwrap_or(0.0);
-                        if self
-                            .tile_budget
-                            .needs_rerender(self.scroll_y, self.viewport.height as f64, page_height)
-                        {
-                            self.raster_dirty = true;
-                        }
+                        self.note_pass_window(inflight.scroll_y);
                     }
                     // A frame with the merged tiles, even if the view is still.
                     self.scroll_dirty = true;
@@ -3331,6 +3338,26 @@ mod tests {
                 hit_regions: Vec::new(),
                 evicted: Vec::new(),
             }
+        }
+
+        /// A media pass rendered the window where the viewport was when it
+        /// started; if the viewport moved on meanwhile, the new spot still
+        /// needs rendering rather than being taken as rendered.
+        #[test]
+        fn a_media_pass_records_the_window_it_rendered() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Media, 0.0, page);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.scroll_y = 3000.0;
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(ctx.raster_dirty, "the viewport moved past what the pass rendered");
         }
 
         /// A renderer that no longer retains the page answers a hover with
