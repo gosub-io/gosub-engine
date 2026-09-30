@@ -20,7 +20,14 @@ pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
 const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long any later request may take. A fork plus one shape is milliseconds.
+/// Not a render: see [`RENDER_GAP`].
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The longest a render exchange may go quiet between two messages, for a
+/// forked and an exec'd renderer alike. It bounds *gaps*, not the whole
+/// render (a page streams a message per tile), and a heavy layout is one
+/// long gap, so it is well above the control-message [`REPLY_TIMEOUT`].
+pub(crate) const RENDER_GAP: Duration = Duration::from_secs(30);
 
 /// Bounds on one render exchange, so a renderer cannot hold the tab thread
 /// or fill the broker's memory by talking forever. Generous: a heavy page
@@ -561,7 +568,12 @@ impl ForkServer {
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;
-        drive_render_exchange::<FromForkServer>(&mut self.link, loader, known_tiles)
+        // The render bound for the render, the short one again after: a failed
+        // exchange stops this fork server anyway, so only success restores it.
+        let _ = self.link.rx.set_read_timeout(Some(RENDER_GAP));
+        let rendered = drive_render_exchange::<FromForkServer>(&mut self.link, loader, known_tiles);
+        let _ = self.link.rx.set_read_timeout(Some(REPLY_TIMEOUT));
+        rendered
     }
 
     /// Ask for a clean exit, then make sure of it. `&mut self` rather than

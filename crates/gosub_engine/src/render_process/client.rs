@@ -1,17 +1,11 @@
 //! The broker's side of an exec'd renderer: spawn, render one page, reap.
 
-use crate::fork_server::client::{drive_render_exchange, RenderedPage, TileMemory};
+use crate::fork_server::client::{drive_render_exchange, RenderedPage, TileMemory, RENDER_GAP};
 use crate::fork_server::protocol::ToForkServer;
 use gosub_ipc::Endpoint;
-use std::time::Duration;
 
 /// The argv role name the broker re-execs itself with.
 pub const RENDERER_ROLE: &str = "renderer";
-
-/// How long any message in the exchange may take. Spawn plus font-system
-/// setup is a few hundred ms at worst; page rendering produces a message per
-/// tile, so this bounds *gaps*, not the whole render.
-const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Render `html` in a fresh, throwaway, font-readable-confined renderer
 /// process: spawn, send the one `RenderPage` it serves, drive the exchange
@@ -63,8 +57,10 @@ pub fn render_page(
 
     let result = (|| {
         let mut link = Endpoint::from_channel(ours)?;
-        let _ = link.tx.set_write_timeout(Some(REPLY_TIMEOUT));
-        let _ = link.rx.set_read_timeout(Some(REPLY_TIMEOUT));
+        // Spawn plus font-system setup is a few hundred ms at worst; the rest
+        // is the render, bounded per gap like a forked one.
+        let _ = link.tx.set_write_timeout(Some(RENDER_GAP));
+        let _ = link.rx.set_read_timeout(Some(RENDER_GAP));
         link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
