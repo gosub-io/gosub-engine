@@ -147,6 +147,30 @@ pub struct PageSummary {
     /// has no way to report anywhere itself; the broker relays these to the
     /// telemetry firehose on its behalf.
     pub timings_us: Vec<(String, u64)>,
+    /// Where the page's `#fragment` targets are: the broker keeps no layout
+    /// of a remotely rendered page, so navigating to `#section` looks here.
+    pub fragment_targets: Vec<FragmentTarget>,
+}
+
+/// An element a `#fragment` can scroll to, in layout order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FragmentTarget {
+    /// The `id`, or the `name` of an `<a name>`.
+    pub name: String,
+    /// Whether `name` is an `id`: an `id` match wins over any `<a name>`.
+    pub by_id: bool,
+    /// The top of the element's border box, in page space.
+    pub y: f64,
+}
+
+/// The most fragment targets a renderer sends, or the broker keeps.
+pub const MAX_FRAGMENT_TARGETS: usize = 20_000;
+
+/// Where `name` scrolls to: the first `id` target with that name, else the
+/// first `<a name>` one - the HTML spec's order of lookup.
+pub fn find_fragment_target(targets: &[FragmentTarget], name: &str) -> Option<f64> {
+    let first = |by_id: bool| targets.iter().find(|t| t.by_id == by_id && t.name == name);
+    first(true).or_else(|| first(false)).map(|t| t.y)
 }
 
 /// One hit-testable box of the page, in page space, in hit-test order:
@@ -343,4 +367,32 @@ pub enum ResourceReply {
         body: Vec<u8>,
     },
     Failed(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(name: &str, by_id: bool, y: f64) -> FragmentTarget {
+        FragmentTarget {
+            name: name.into(),
+            by_id,
+            y,
+        }
+    }
+
+    /// An `id` match wins over an `<a name>` one even when the anchor comes
+    /// first; among equals, the first in the list (document order) wins.
+    #[test]
+    fn an_id_beats_an_anchor_name_and_the_first_match_wins() {
+        let targets = [
+            target("x", false, 10.0),
+            target("x", true, 20.0),
+            target("x", true, 30.0),
+            target("y", false, 40.0),
+        ];
+        assert_eq!(find_fragment_target(&targets, "x"), Some(20.0));
+        assert_eq!(find_fragment_target(&targets, "y"), Some(40.0));
+        assert_eq!(find_fragment_target(&targets, "z"), None);
+    }
 }

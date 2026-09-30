@@ -127,6 +127,9 @@ struct PipelineCache {
     /// Hit-test geometry for a remotely rendered page, in hit-test order.
     /// Empty for local renders, which hit-test through `layer_list`.
     hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
+    /// Where a remotely rendered page's `#fragment` targets are. Empty for
+    /// local renders, which find them through `layer_list`.
+    fragment_targets: Vec<crate::fork_server::protocol::FragmentTarget>,
     /// The tile grid stages 4-6 ran against. Its geometry depends only on the layer list and
     /// the tile size, so the raster-window extension resets the per-tile state and reuses it
     /// rather than tiling the page again; every other path replaces it. `None` for a page
@@ -909,6 +912,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             tiles,
             cached_tiles,
             hit_regions,
+            fragment_targets,
         } = old_cache;
 
         // A remotely rendered page has no local layer list to re-tile from, and
@@ -920,6 +924,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 cached_tiles,
                 layer_list,
                 hit_regions,
+                fragment_targets,
                 tile_list: None,
                 tile_pixel_cache,
             });
@@ -1042,6 +1047,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             cached_tiles,
             layer_list: None,
             hit_regions: page.hit_regions,
+            fragment_targets: page.summary.fragment_targets,
             tile_list: None,
             tile_pixel_cache: Default::default(),
         });
@@ -1247,18 +1253,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if decoded.is_empty() || decoded == "top" {
             return Some(0.0);
         }
+        use crate::fork_server::protocol::find_fragment_target;
+        let Some(layer_list) = self.active_layer_list() else {
+            // A remotely rendered page: no local layout, the renderer's list.
+            let targets = &self.pipeline_cache.as_ref()?.fragment_targets;
+            return find_fragment_target(targets, &decoded);
+        };
         let doc = self.document.as_ref()?;
-        let layer_list = self.active_layer_list()?;
-        let arena = &layer_list.layout_tree.arena;
-        let matches = |dom_id: NodeId, attr: &str| doc.attribute(dom_id, attr) == Some(decoded.as_ref());
-
-        let by_id = arena.values().find(|n| matches(n.dom_node_id, "id"));
-        let node = by_id.or_else(|| {
-            arena
-                .values()
-                .find(|n| doc.tag_name(n.dom_node_id) == Some("a") && matches(n.dom_node_id, "name"))
-        })?;
-        Some(node.box_model.border_box.y)
+        find_fragment_target(&crate::html::collect_fragment_targets(layer_list, doc), &decoded)
     }
 
     /// Tile-cache statistics for diagnostics (`gosub://stats`): `(tile count, CPU pixel
@@ -2370,6 +2372,7 @@ fn pipeline_build_cache(
         cached_tiles,
         layer_list: Some(saved_layer_list),
         hit_regions: Vec::new(),
+        fragment_targets: Vec::new(),
         tile_list: Some(tile_list),
         tile_pixel_cache: new_tile_cache,
     }
@@ -2484,6 +2487,7 @@ fn pipeline_extend_raster(
         cached_tiles,
         layer_list: Some(layer_list),
         hit_regions: Vec::new(),
+        fragment_targets: Vec::new(),
         tile_list: Some(tile_list),
         tile_pixel_cache: merged_tile_cache,
     }
@@ -2688,6 +2692,7 @@ fn pipeline_repaint_damaged(
             cached_tiles,
             layer_list: Some(layer_list),
             hit_regions: Vec::new(),
+            fragment_targets: Vec::new(),
             tile_list: Some(tile_list),
             tile_pixel_cache: prev_tile_cache,
         };
@@ -2735,6 +2740,7 @@ fn pipeline_repaint_damaged(
         cached_tiles,
         layer_list: Some(layer_list),
         hit_regions: Vec::new(),
+        fragment_targets: Vec::new(),
         tile_list: Some(tile_list),
         tile_pixel_cache: new_tile_cache,
     }
@@ -2907,6 +2913,34 @@ mod tests {
             ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             ctx
+        }
+
+        /// A remotely rendered page has no local layout; the renderer's target
+        /// list (the same collector over the same page) resolves the same way.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        #[test]
+        fn a_remote_page_resolves_fragments_from_the_renderers_targets() {
+            let mut ctx = context_with_targets();
+            let targets = {
+                let layer_list = ctx.active_layer_list().expect("laid out");
+                let doc = ctx.document.as_ref().expect("document");
+                crate::html::collect_fragment_targets(layer_list, doc)
+            };
+            ctx.adopt_remote_page(crate::fork_server::client::RenderedPage {
+                summary: crate::fork_server::protocol::PageSummary {
+                    fragment_targets: targets,
+                    ..Default::default()
+                },
+                tiles: Vec::new(),
+                hit_regions: Vec::new(),
+            });
+            assert!(ctx.active_layer_list().is_none(), "a remote page keeps no layout");
+
+            let y = ctx.fragment_target_y("section-2").expect("id target");
+            assert!((y - 1000.0).abs() < 1.0, "expected ~1000, got {y}");
+            let y = ctx.fragment_target_y("legacy%20anchor").expect("name target");
+            assert!((y - 1520.0).abs() < 1.0, "expected ~1520, got {y}");
+            assert_eq!(ctx.fragment_target_y("nope"), None);
         }
 
         #[test]

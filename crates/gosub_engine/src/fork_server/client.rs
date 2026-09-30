@@ -232,6 +232,14 @@ fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
     }
     summary.layer_order.truncate(MAX_LAYER_ORDER);
     summary.timings_us.truncate(MAX_TIMINGS);
+    // A scroll target is a y the tab will scroll to: finite, or not kept.
+    summary.fragment_targets.retain(|t| t.y.is_finite());
+    summary
+        .fragment_targets
+        .truncate(crate::fork_server::protocol::MAX_FRAGMENT_TARGETS);
+    for target in summary.fragment_targets.iter_mut() {
+        bound_text(&mut target.name, MAX_HIT_TEXT);
+    }
     for (name, _) in summary.timings_us.iter_mut() {
         bound_text(name, MAX_TIMINGS);
     }

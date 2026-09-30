@@ -148,6 +148,45 @@ pub fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: N
     }
 }
 
+/// Every `#fragment` target of a laid-out page - elements with an `id`, and
+/// `<a name>`s - with where each starts, in document order (layout ids are
+/// handed out in tree order), so the first match is the one the spec wants.
+/// A remotely rendered page ships these to the broker, which has no layout.
+pub(crate) fn collect_fragment_targets<C: RenderConfiguration>(
+    layer_list: &gosub_render_pipeline::layering::layer::LayerList,
+    doc: &EngineDocument<C>,
+) -> Vec<crate::fork_server::protocol::FragmentTarget> {
+    use crate::fork_server::protocol::{FragmentTarget, MAX_FRAGMENT_TARGETS};
+
+    let mut nodes: Vec<_> = layer_list.layout_tree.arena.values().collect();
+    nodes.sort_by_key(|n| n.id.as_u64());
+    let mut targets = Vec::new();
+    for node in nodes {
+        if targets.len() >= MAX_FRAGMENT_TARGETS {
+            break;
+        }
+        let dom = node.dom_node_id;
+        let y = node.box_model.border_box.y;
+        if let Some(id) = doc.attribute(dom, "id") {
+            targets.push(FragmentTarget {
+                name: id.to_string(),
+                by_id: true,
+                y,
+            });
+        }
+        if doc.tag_name(dom) == Some("a") {
+            if let Some(name) = doc.attribute(dom, "name") {
+                targets.push(FragmentTarget {
+                    name: name.to_string(),
+                    by_id: false,
+                    y,
+                });
+            }
+        }
+    }
+    targets
+}
+
 /// The document's icon: the first `<link rel="icon">` (or `shortcut icon`,
 /// `apple-touch-icon*`) resolved against `base_url`, else `/favicon.ico` for
 /// http(s) documents.

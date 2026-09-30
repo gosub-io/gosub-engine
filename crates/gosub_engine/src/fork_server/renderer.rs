@@ -121,6 +121,8 @@ pub struct RetainedPage {
     page_height: f64,
     /// The page's hit-test geometry, fixed at layout time.
     pub hit_regions: Vec<HitRegion>,
+    /// Where the page's `#fragment` targets are, fixed at layout time.
+    fragment_targets: Vec<crate::fork_server::protocol::FragmentTarget>,
     /// What the broker holds of this page, by tile position: the tiles a
     /// pass need not produce, and the pool eviction draws from.
     shipped: HashMap<TilePosKey, Shipped>,
@@ -239,6 +241,7 @@ impl RetainedPage {
         let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
         let layer_ids = layer_list.layer_ids.read().clone();
         let hit_regions = collect_hit_regions::<C>(&layer_list, &doc_for_regions, base_url.as_ref());
+        let fragment_targets = crate::html::collect_fragment_targets(&layer_list, &doc_for_regions);
         let build_timings = vec![
             ("build.parse".to_string(), parse_us),
             ("build.render_tree".to_string(), render_tree_us),
@@ -258,6 +261,7 @@ impl RetainedPage {
             page_width,
             page_height,
             hit_regions,
+            fragment_targets,
             shipped: HashMap::new(),
             scroll_y: 0.0,
             hovered,
@@ -359,6 +363,7 @@ impl RetainedPage {
             paint_commands,
             layer_order: self.layer_ids.iter().map(|id| id.as_u64()).collect(),
             timings_us,
+            fragment_targets: self.fragment_targets.clone(),
         }
     }
 
