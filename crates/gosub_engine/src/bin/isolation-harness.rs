@@ -2449,6 +2449,8 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
             let mut navigates = 0usize;
             let mut reasons: Vec<String> = Vec::new();
             let mut rerendered_for_media = false;
+            // The invalidation alone is not the render: a navigate must follow it.
+            let mut painted_after_media = false;
             while tokio::time::Instant::now() < again {
                 let remaining = again.saturating_duration_since(tokio::time::Instant::now());
                 match tokio::time::timeout(remaining, firehose.recv()).await {
@@ -2463,6 +2465,7 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                         if event.kind == "remote.navigate" {
                             navigates += 1;
                             if rerendered_for_media {
+                                painted_after_media = true;
                                 break;
                             }
                         }
@@ -2471,7 +2474,7 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                 }
             }
             println!("renders: {navigates} navigate(s); invalidations: {reasons:?}");
-            if !rerendered_for_media {
+            if !painted_after_media {
                 eprintln!("the tab never re-rendered for the late image (invalidations: {reasons:?})");
                 return 1;
             }
