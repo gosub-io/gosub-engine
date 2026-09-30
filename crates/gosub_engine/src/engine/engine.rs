@@ -830,6 +830,12 @@ mod tests {
             "panic message: {}",
             crashed.1
         );
+        // The worker's own cleanup never ran, so the watchdog drops the tab's
+        // identity: a fetch the dead tab left behind gets no cookies.
+        assert!(
+            engine.context.tab_identities.get(tab_id).is_none(),
+            "a crashed tab must not resolve to its cookie jar"
+        );
 
         // The dead tab's handle fails cleanly rather than hanging.
         assert!(tab.send(TabCommand::Reload { ignore_cache: false }).await.is_err());

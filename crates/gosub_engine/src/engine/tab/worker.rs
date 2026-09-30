@@ -353,6 +353,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let tab_id = self.tab_id;
         let zone_id = self.zone_id;
         let event_tx = self.zone_context.event_tx.clone();
+        let tab_identities = self.zone_context.tab_identities.clone();
         let worker = spawn_named(&name, self.run_worker());
 
         // Crash containment (in-process): a panic anywhere in the worker kills only its
@@ -374,6 +375,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 "worker task was cancelled".into()
             };
             log::error!("Tab[{tab_id:?}] worker crashed: {error}");
+            // The run loop's own cleanup never ran: drop the jar reference here,
+            // so a fetch the dead tab left behind goes out without cookies.
+            tab_identities.remove(tab_id);
             let _ = event_tx.send(EngineEvent::TabCrashed { tab_id, zone_id, error });
         });
 
