@@ -2395,11 +2395,13 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
     timing_stop!(ts7);
 }
 
-/// The image decoder this engine should use, if any.
+/// The image decoder this engine should use, if any. A context can be built
+/// before the engine starts and resolves the process settings, so the
+/// dispatch precondition is checked here too: without it a decoder child is
+/// the embedder re-exec'd, per image. Decoding then stays in-process.
 #[cfg(feature = "process-isolation")]
 fn image_decoder_from(config: &Config) -> Option<std::sync::Arc<dyn gosub_interface::media_decoder::ImageDecoder>> {
-    config
-        .get_bool("security.image_decoder_process")
+    (crate::child_process::was_dispatched() && config.get_bool("security.image_decoder_process"))
         .then(|| std::sync::Arc::new(crate::decoder_process::client::ProcessImageDecoder) as _)
 }
 
@@ -2415,6 +2417,18 @@ fn image_decoder_from(_config: &Config) -> Option<std::sync::Arc<dyn gosub_inter
 #[allow(clippy::unreachable)]
 mod tests {
     use super::parse_clear_color;
+
+    /// A process that never dispatched child roles (this test binary) decodes
+    /// in-process even with the decoder setting on: a decoder child would be
+    /// this binary re-exec'd.
+    #[cfg(feature = "process-isolation")]
+    #[test]
+    fn an_undispatched_process_gets_no_decoder_child() {
+        let config = crate::engine::settings_store::default_config();
+        assert!(config.get_bool("security.image_decoder_process"), "on by default");
+        assert!(!crate::child_process::was_dispatched());
+        assert!(super::image_decoder_from(&config).is_none());
+    }
 
     mod point_queries {
         use super::super::*;
