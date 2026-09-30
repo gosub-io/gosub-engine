@@ -1,7 +1,7 @@
 //! The broker's side of the network process: spawn it, talk to it, notice when
 //! it dies.
 
-use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
+use crate::net::process::protocol::{rebuild_headers, FetchOutcome, FromNet, HeaderList, NetFetch, RequestTag, ToNet};
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 pub struct Outbound {
     pub url: String,
     pub method: String,
-    pub headers: Vec<(String, String)>,
+    pub headers: HeaderList,
     pub body: Option<Vec<u8>>,
 }
 
@@ -334,15 +334,7 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
 
     let final_url = url::Url::parse(&final_url).map_err(|e| net_error(format!("bad final url: {e}")))?;
 
-    let mut header_map = http::HeaderMap::new();
-    for (name, value) in &headers {
-        let parsed = http::header::HeaderName::from_bytes(name.as_bytes())
-            .ok()
-            .zip(value.parse().ok());
-        if let Some((name, value)) = parsed {
-            header_map.append(name, value);
-        }
-    }
+    let header_map = rebuild_headers(&headers);
 
     let content_type = header_map
         .get(http::header::CONTENT_TYPE)

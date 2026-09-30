@@ -306,11 +306,7 @@ fn dispatch_to_net_process(
     let method = req.method.as_str().to_string();
     // No in-process fetcher emits the terminal event that would drop this.
     let req_id = req.req_id;
-    let mut headers: Vec<(String, String)> = req
-        .headers
-        .iter()
-        .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
-        .collect();
+    let mut headers = crate::net::process::protocol::flatten_headers(&req.headers);
 
     // The body crosses the link as plain bytes. Its Content-Type is folded into
     // the headers here, mirroring what gosub-sonar would inject at send time.
@@ -320,7 +316,7 @@ fn dispatch_to_net_process(
             Some(bytes) => {
                 if !req.headers.contains_key(http::header::CONTENT_TYPE) {
                     if let Some(ct) = &body.content_type {
-                        headers.push((http::header::CONTENT_TYPE.as_str().to_string(), ct.clone()));
+                        headers.push((http::header::CONTENT_TYPE.as_str().to_string(), ct.as_bytes().to_vec()));
                     }
                 }
                 Some(bytes.to_vec())

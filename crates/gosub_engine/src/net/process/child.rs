@@ -2,7 +2,9 @@
 //!
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
-use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
+use crate::net::process::protocol::{
+    flatten_headers, rebuild_headers, FetchOutcome, FromNet, NetFetch, RequestTag, ToNet,
+};
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
 use gosub_ipc::Endpoint;
 use http::Method;
@@ -167,13 +169,6 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
 }
 
-fn flat_headers(headers: &http::HeaderMap) -> Vec<(String, String)> {
-    headers
-        .iter()
-        .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
-        .collect()
-}
-
 /// Perform one request and flatten the result to something that can travel.
 async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> FetchOutcome {
     let done = |o: FetchOutcome| o;
@@ -186,18 +181,8 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
         Err(e) => return done(FetchOutcome::Error(format!("bad method {}: {e}", fetch.method))),
     };
 
-    let mut headers = http::HeaderMap::new();
-    for (name, value) in &fetch.headers {
-        let parsed = http::header::HeaderName::from_str(name).ok().zip(value.parse().ok());
-        if let Some((name, value)) = parsed {
-            // `append`, not `insert`: a header sent more than once arrives as one
-            // pair per value, and the in-process fetcher sends every one of them.
-            headers.append(name, value);
-        }
-    }
-
     let mut builder = FetchRequest::builder(method, url)
-        .with_headers(headers)
+        .with_headers(rebuild_headers(&fetch.headers))
         .with_streaming(false)
         .with_auto_decode(true);
     if let Some(body) = fetch.body {
@@ -218,7 +203,7 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
-            headers: flat_headers(&meta.headers),
+            headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
         }),
         // Never streamed: the request asked for a buffered body.
