@@ -235,7 +235,7 @@
       $('t-renderers').textContent = rows.length;
       $('t-renderers-sub').textContent = rows.reduce((n, r) => n + (r.tabs || 0), 0) + ' tab(s) hosted';
       $('renderers').querySelector('tbody').innerHTML = rows.map(r =>
-        `<tr><td class="l">${esc(r.site)}</td><td>${r.pid}</td><td>${r.tabs}</td><td>${r.rss_kb == null ? '–' : (r.rss_kb / 1024).toFixed(0)}</td><td>${r.data_kb == null ? '–' : (r.data_kb / 1024).toFixed(0)}</td><td class="l">${esc(String(r.zone)).slice(0, 8)}</td></tr>`).join('');
+        `<tr><td class="l">${esc(r.site)}</td><td>${esc(r.pid)}</td><td>${esc(r.tabs)}</td><td>${r.rss_kb == null ? '–' : (r.rss_kb / 1024).toFixed(0)}</td><td>${r.data_kb == null ? '–' : (r.data_kb / 1024).toFixed(0)}</td><td class="l">${esc(String(r.zone).slice(0, 8))}</td></tr>`).join('');
     } catch (e) {
       $('t-renderers').textContent = '–';
       $('t-renderers-sub').textContent = 'unreachable';
@@ -327,7 +327,7 @@
     const tbody = $('pass-table').querySelector('tbody');
     tbody.innerHTML = passes.slice().reverse().slice(0, 40).map(p => {
       const r = STAGES.filter(([k]) => k !== 'transport').reduce((a, [k]) => a + (p.stages[k] || 0), 0);
-      return `<tr><td class="l">${new Date(p.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(p.kind.replace('remote.', ''))}</td><td>${Math.round(p.scroll_y || 0)}</td><td>${(p.exchange_us / 1000).toFixed(1)}</td><td>${p.fresh}</td><td>${p.reused}</td><td>${p.evicted}</td><td>${(p.bytes / 1024 | 0)}</td><td>${(r / 1000).toFixed(1)}</td></tr>`;
+      return `<tr><td class="l">${new Date(p.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(p.kind.replace('remote.', ''))}</td><td>${Math.round(p.scroll_y || 0)}</td><td>${(p.exchange_us / 1000).toFixed(1)}</td><td>${esc(p.fresh)}</td><td>${esc(p.reused)}</td><td>${esc(p.evicted)}</td><td>${(p.bytes / 1024 | 0)}</td><td>${(r / 1000).toFixed(1)}</td></tr>`;
     }).join('');
   }
 
@@ -357,7 +357,7 @@
     const tbody = $('loads').querySelector('tbody');
     tbody.innerHTML = loads.slice().reverse().slice(0, 60).map(l => {
       const url = l.url.length > 70 ? l.url.slice(0, 67) + '…' : l.url;
-      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(l.kind)}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${esc(l.mode)}</td><td class="l">${esc(l.outcome)}</td><td>${l.status}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
+      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${esc(l.kind)}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${esc(l.mode)}</td><td class="l">${esc(l.outcome)}</td><td>${esc(l.status)}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
     }).join('');
   }
 
