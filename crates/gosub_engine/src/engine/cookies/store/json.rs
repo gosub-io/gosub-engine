@@ -16,7 +16,7 @@
 //! // New zones will receive a PersistentCookieJar minted by this store.
 //! let zone_id = engine.zone().cookie_store(store).create()?;
 //! ```
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -40,6 +40,11 @@ pub struct JsonCookieStore {
     path: PathBuf,
 
     jars: RwLock<HashMap<ZoneId, CookieJarHandle>>,
+
+    /// Held across every read-modify-write of the file: each one rewrites all
+    /// zones, so two at once would drop the other's zone (and share the temp
+    /// file). Taken after `jars`, never before.
+    file: Mutex<()>,
 
     /// Self handle, so `PersistentCookieJar` can call back into this store.
     /// Initialized in [`new`](Self::new) and read-only thereafter.
@@ -66,6 +71,7 @@ impl JsonCookieStore {
         let store = Arc::new(Self {
             path,
             jars: RwLock::new(HashMap::new()),
+            file: Mutex::new(()),
             store_self: RwLock::new(None),
         });
 
@@ -126,6 +132,7 @@ impl CookieStore for JsonCookieStore {
 
     /// Reads the current file, replaces the zone entry, and writes the file back.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
+        let _file = self.file.lock();
         let mut store_file = self.load_file();
         store_file.zones.insert(zone_id, snapshot.clone());
         self.save_file(&store_file);
@@ -142,6 +149,7 @@ impl CookieStore for JsonCookieStore {
     fn remove_zone(&self, zone_id: ZoneId) {
         self.jars.write().remove(&zone_id);
 
+        let _file = self.file.lock();
         let mut file = self.load_file();
         file.zones.remove(&zone_id);
         self.save_file(&file);
@@ -152,6 +160,7 @@ impl CookieStore for JsonCookieStore {
     fn persist_all(&self) {
         let jars = self.jars.read();
 
+        let _file = self.file.lock();
         let mut file = self.load_file();
         crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| {
             file.zones.insert(zone_id, snapshot.clone());
@@ -178,6 +187,29 @@ mod tests {
             h.append(http::header::SET_COOKIE, (*sc).parse().unwrap());
         }
         h
+    }
+
+    /// Two zones persisting at once both end up in the file: each write is a
+    /// read-modify-write of every zone, and they must not interleave.
+    #[test]
+    fn concurrent_zone_snapshots_both_reach_the_file() {
+        let dir = tempdir().unwrap();
+        let store = JsonCookieStore::new(dir.path().join("cookies.json")).unwrap();
+        for _ in 0..50 {
+            let (a, b) = (ZoneId::new(), ZoneId::new());
+            let snapshot = DefaultCookieJar::new();
+            std::thread::scope(|s| {
+                for zone in [a, b] {
+                    let (store, snapshot) = (&store, &snapshot);
+                    s.spawn(move || store.persist_zone_from_snapshot(zone, snapshot));
+                }
+            });
+            let zones = store.load_file().zones;
+            assert!(
+                zones.contains_key(&a) && zones.contains_key(&b),
+                "a concurrent snapshot was overwritten"
+            );
+        }
     }
 
     #[test]
