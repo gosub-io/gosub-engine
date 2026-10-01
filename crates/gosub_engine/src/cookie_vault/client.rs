@@ -316,10 +316,13 @@ impl CookieVault {
             log::error!("the cookie vault reader could not start ({e}); requests go without cookies");
             return;
         }
-        *self.tx.lock() = launched.tx;
+        // The new link stays private until the zones are back on it: a
+        // request that reached the vault first would find no jar, and get or
+        // store nothing. The link is ordered, so whatever is sent after the
+        // `OpenZone`s finds them done.
+        let mut tx = launched.tx;
         *self.child.lock() = Some(launched.child);
-        *self.alive.lock() = alive;
-        if self.tx.lock().send(&ToVault::Ping).is_err() || ready_rx.recv_timeout(READY_TIMEOUT).is_err() {
+        if tx.send(&ToVault::Ping).is_err() || ready_rx.recv_timeout(READY_TIMEOUT).is_err() {
             log::error!("the respawned cookie vault did not answer; requests go without cookies");
             self.kill();
             return;
@@ -336,8 +339,10 @@ impl CookieVault {
             if store.is_none() {
                 log::warn!("zone {key}: its session cookies did not survive the vault");
             }
-            let _ = self.tx.lock().send(&ToVault::OpenZone { zone: key, snapshot });
+            let _ = tx.send(&ToVault::OpenZone { zone: key, snapshot });
         }
+        *self.tx.lock() = tx;
+        *self.alive.lock() = alive;
         // Grants of the old vault are gone with it; requests in flight will
         // find no cookies, the next ones ask again.
         self.activity.lock().clear();
