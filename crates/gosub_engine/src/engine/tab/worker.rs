@@ -634,7 +634,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 .headers
                 .get(http::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
-                .is_some_and(|ct| ct.trim_start().starts_with("image/"));
+                .is_some_and(|ct| {
+                    // Media types are case-insensitive: `Image/PNG` is an image.
+                    ct.trim_start()
+                        .get(..6)
+                        .is_some_and(|t| t.eq_ignore_ascii_case("image/"))
+                });
             if !is_image {
                 log::debug!("favicon {icon_url}: not an image content type, ignored");
                 return;

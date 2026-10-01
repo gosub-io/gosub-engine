@@ -1528,10 +1528,9 @@ mod tests {
         .unwrap_or(false)
     }
 
-    /// A page's icon served without an image Content-Type never reaches the
-    /// embedder: it would hand the bytes to an image decoder.
-    #[tokio::test]
-    async fn a_favicon_without_an_image_type_is_dropped() {
+    /// Whether a page's icon served with `content_type` (none: no header at
+    /// all) reaches the embedder as `FavIconChanged`.
+    async fn favicon_delivered(content_type: Option<&'static str>) -> bool {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1549,8 +1548,10 @@ mod tests {
                         return;
                     };
                     let head = if path == "/icon" {
-                        // No Content-Type at all.
-                        "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nPNGBYTES".to_string()
+                        let ctype = content_type
+                            .map(|t| format!("Content-Type: {t}\r\n"))
+                            .unwrap_or_default();
+                        format!("HTTP/1.1 200 OK\r\n{ctype}Content-Length: 8\r\nConnection: close\r\n\r\nPNGBYTES")
                     } else {
                         let body = "<html><head><link rel=\"icon\" href=\"/icon\"></head><body>p</body></html>";
                         format!(
@@ -1578,17 +1579,37 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(10), icon_served.notified())
             .await
             .expect("the page's icon was never requested");
-        let delivered = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 if let Ok(EngineEvent::FavIconChanged { .. }) = event_rx.recv().await {
                     return;
                 }
             }
         })
-        .await;
+        .await
+        .is_ok()
+    }
+
+    /// A page's icon served without an image Content-Type never reaches the
+    /// embedder: it would hand the bytes to an image decoder.
+    #[tokio::test]
+    async fn a_favicon_without_an_image_type_is_dropped() {
         assert!(
-            delivered.is_err(),
-            "an icon without an image Content-Type reached the embedder"
+            !favicon_delivered(None).await,
+            "an icon without a Content-Type reached the embedder"
+        );
+        assert!(
+            !favicon_delivered(Some("text/html")).await,
+            "an icon typed text/html reached the embedder"
+        );
+    }
+
+    /// The image type is matched without regard to case, as media types are.
+    #[tokio::test]
+    async fn a_favicon_type_is_matched_without_case() {
+        assert!(
+            favicon_delivered(Some("Image/PNG")).await,
+            "an icon typed Image/PNG was dropped"
         );
     }
 
