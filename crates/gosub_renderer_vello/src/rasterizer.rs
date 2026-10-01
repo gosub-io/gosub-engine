@@ -1,6 +1,6 @@
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
-use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::geo::{Dimension, Rect as GeoRect};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
@@ -34,6 +34,9 @@ mod rectangle;
 mod svg;
 mod text;
 
+/// How far outside the surface (CSS px) a command's box may lie and still be painted.
+const CULL_MARGIN: f64 = 64.0;
+
 /// Shared by the per-tile rasterizer (once per tile, translated to the tile) and the GPU-scene path
 /// (once for the whole viewport, translated by `−scroll`). `size` bounds text layout; commands carry
 /// pre-shaped glyph runs, so no font system is needed.
@@ -46,6 +49,15 @@ pub(crate) fn paint_commands_to_scene(
     media_store: &MediaStore,
 ) {
     let (sx, sy) = scroll;
+    // Only what lands on the surface is encoded. On the GPU-scene path this is called with the
+    // whole page's commands for every scroll frame, and Vello's cost follows what the scene holds,
+    // not what it shows: a long article (11.5k commands) took ~430ms a frame unculled. The margin
+    // covers what paints outside its box - glyph overhang, borders - with room to spare.
+    let visible = Rect::new(0.0, 0.0, size.width, size.height).inflate(CULL_MARGIN, CULL_MARGIN);
+    let on_surface = |r: GeoRect, cur: Affine| {
+        let bbox = cur.transform_rect_bbox(Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
+        bbox.overlaps(visible)
+    };
     // Starts at the caller's affine and is swapped to a layer's anchor transform between
     // PushLayer/PopLayer. The tile path never emits those, so it paints under the initial affine.
     let mut cur = affine;
@@ -73,6 +85,9 @@ pub(crate) fn paint_commands_to_scene(
                     cur = prev;
                 }
             }
+            PaintCommand::Svg(command) if !on_surface(command.rect.rect(), cur) => {}
+            PaintCommand::Rectangle(command) if !on_surface(command.rect(), cur) => {}
+            PaintCommand::Text(command) if !on_surface(command.rect, cur) => {}
             PaintCommand::Svg(command) => {
                 svg::do_paint_svg(scene, command.media_id, &command.rect, cur, media_store);
             }

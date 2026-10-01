@@ -370,7 +370,13 @@ fn main() {
                 // Notify engine asynchronously for state tracking and the next full render.
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x,
+                            delta_y,
+                            precise: false,
+                        })
+                        .await;
                 });
                 glib::Propagation::Stop
             }

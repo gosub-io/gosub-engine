@@ -339,6 +339,7 @@ impl eframe::App for BrowserApp {
                     .send(TabCommand::MouseScroll {
                         delta_x: dx,
                         delta_y: dy,
+                        precise: false,
                     })
                     .await;
             });

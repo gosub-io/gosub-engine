@@ -897,16 +897,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let page = (self.desired_viewport.height as f32 - LINE).max(LINE);
                 let shift = modifiers.contains(Modifiers::SHIFT);
                 match key {
-                    "ArrowDown" => self.scroll_page_by(0.0, LINE),
-                    "ArrowUp" => self.scroll_page_by(0.0, -LINE),
-                    "ArrowRight" => self.scroll_page_by(LINE, 0.0),
-                    "ArrowLeft" => self.scroll_page_by(-LINE, 0.0),
-                    "PageDown" => self.scroll_page_by(0.0, page),
-                    "PageUp" => self.scroll_page_by(0.0, -page),
-                    " " if shift => self.scroll_page_by(0.0, -page),
-                    " " => self.scroll_page_by(0.0, page),
-                    "Home" => self.scroll_page_by(0.0, -FAR),
-                    "End" => self.scroll_page_by(0.0, FAR),
+                    "ArrowDown" => self.scroll_page_by(0.0, LINE, false),
+                    "ArrowUp" => self.scroll_page_by(0.0, -LINE, false),
+                    "ArrowRight" => self.scroll_page_by(LINE, 0.0, false),
+                    "ArrowLeft" => self.scroll_page_by(-LINE, 0.0, false),
+                    "PageDown" => self.scroll_page_by(0.0, page, false),
+                    "PageUp" => self.scroll_page_by(0.0, -page, false),
+                    " " if shift => self.scroll_page_by(0.0, -page, false),
+                    " " => self.scroll_page_by(0.0, page, false),
+                    "Home" => self.scroll_page_by(0.0, -FAR, false),
+                    "End" => self.scroll_page_by(0.0, FAR, false),
                     _ => ControlFlow::Continue,
                 }
             }
@@ -1031,7 +1031,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Scroll the page by a CSS-px delta - shared by wheel scrolling and keyboard
     /// scrolling. Uses the zero-copy TileCache fast path when only the offset changed.
-    fn scroll_page_by(&mut self, delta_x: f32, delta_y: f32) -> ControlFlow {
+    fn scroll_page_by(&mut self, delta_x: f32, delta_y: f32, precise: bool) -> ControlFlow {
         // When page height is known, clamp to the real maximum so worker and context
         // stay in sync. When the page hasn't rendered yet, allow free scrolling (the
         // context will clamp to the actual page height on its own).
@@ -1044,10 +1044,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         };
 
-        match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
+        match self
+            .scroll
+            .scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y, precise)
+        {
             // Instant behavior: apply the new offset now and keep the immediate-submit fast
             // path (avoids up to 1/fps of latency per scroll event).
             Some((x, y)) => {
+                // A precise delta may have cut a wheel animation short; the next one must not
+                // start from that animation's stale timestamp.
+                self.scroll_anim_last = None;
                 let moved = x != self.scroll_x || y != self.scroll_y;
                 self.scroll_x = x;
                 self.scroll_y = y;
@@ -1157,7 +1163,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseScroll { delta_x, delta_y } => {
+            TabCommand::MouseScroll {
+                delta_x,
+                delta_y,
+                precise,
+            } => {
                 // An open dropdown, or a scrolling textarea, under the pointer takes the wheel.
                 if let Some((px, py)) = self.context.pointer() {
                     if self.context.popup_scroll(px, py, delta_y as f64)
@@ -1168,7 +1178,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         return ControlFlow::Continue;
                     }
                 }
-                self.scroll_page_by(delta_x, delta_y)
+                self.scroll_page_by(delta_x, delta_y, precise)
             }
             TabCommand::MouseMove { x, y } => {
                 // Process the hit-test immediately so hover doesn't wait for the next tick.

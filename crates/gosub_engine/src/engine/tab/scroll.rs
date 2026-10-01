@@ -8,14 +8,19 @@
 //!
 //! [`tick`]: ScrollState::tick
 
-use gosub_shared::animation::{Easing, ScrollAnimator, ScrollBehavior};
+use gosub_shared::animation::{ScrollAnimator, ScrollBehavior};
 
 /// The engine's default wheel-scroll feel. This is the single place that defines how normal
 /// (non-CSS) scrolling animates; change it here to retune the global default.
+///
+/// A critically damped spring (`damping = 2·√stiffness`), settling in roughly 200ms. It carries
+/// its velocity across retargets, which is what a burst of wheel notches needs: a tween restarts
+/// its ease on every notch, and a smoothstep one starts each restart from a standstill, so a fast
+/// wheel stalled at every notch and then lurched.
 pub(crate) fn default_text_scroll() -> ScrollBehavior {
-    ScrollBehavior::Tween {
-        duration: std::time::Duration::from_millis(220),
-        easing: Easing::Smoothstep,
+    ScrollBehavior::Spring {
+        stiffness: 900.0,
+        damping: 60.0,
     }
 }
 
@@ -51,13 +56,18 @@ impl ScrollState {
 
     /// Accumulate a scroll delta (CSS px), clamping the target to `[0, max]` per axis.
     ///
-    /// Returns `Some(pos)` - the integer offset to apply *now* - for `Instant` behavior, or `None`
-    /// when the move will be animated over subsequent [`tick`](Self::tick) calls.
-    pub(crate) fn scroll_by(&mut self, dx: f64, dy: f64, max_x: f64, max_y: f64) -> Option<(i32, i32)> {
+    /// Returns `Some(pos)` - the integer offset to apply *now* - for `Instant` behavior or a
+    /// `precise` delta, or `None` when the move will be animated over subsequent
+    /// [`tick`](Self::tick) calls.
+    ///
+    /// A precise delta (trackpad) is never eased. The device sends one per frame, and each would
+    /// restart the tween from a standstill, so the page would crawl behind the fingers and then
+    /// lurch to the target when they lift. It also lands any wheel animation still in flight.
+    pub(crate) fn scroll_by(&mut self, dx: f64, dy: f64, max_x: f64, max_y: f64, precise: bool) -> Option<(i32, i32)> {
         self.target.0 = (self.target.0 + dx).clamp(0.0, max_x);
         self.target.1 = (self.target.1 + dy).clamp(0.0, max_y);
 
-        if self.behavior.is_instant() {
+        if precise || self.behavior.is_instant() {
             self.pos = self.target;
             self.anim = None;
             return Some(round(self.pos));
@@ -127,29 +137,29 @@ mod tests {
     #[test]
     fn instant_applies_and_accumulates() {
         let mut s = ScrollState::new(ScrollBehavior::Instant);
-        assert_eq!(s.scroll_by(0.0, 50.0, f64::MAX, 1000.0), Some((0, 50)));
+        assert_eq!(s.scroll_by(0.0, 50.0, f64::MAX, 1000.0, false), Some((0, 50)));
         assert!(!s.animating());
-        assert_eq!(s.scroll_by(0.0, 30.0, f64::MAX, 1000.0), Some((0, 80)));
+        assert_eq!(s.scroll_by(0.0, 30.0, f64::MAX, 1000.0, false), Some((0, 80)));
     }
 
     #[test]
     fn instant_clamps_to_bounds() {
         let mut s = ScrollState::new(ScrollBehavior::Instant);
-        assert_eq!(s.scroll_by(0.0, 5000.0, f64::MAX, 1000.0), Some((0, 1000)));
-        assert_eq!(s.scroll_by(0.0, -9999.0, f64::MAX, 1000.0), Some((0, 0)));
+        assert_eq!(s.scroll_by(0.0, 5000.0, f64::MAX, 1000.0, false), Some((0, 1000)));
+        assert_eq!(s.scroll_by(0.0, -9999.0, f64::MAX, 1000.0, false), Some((0, 0)));
     }
 
     #[test]
     fn animated_does_not_apply_immediately() {
         let mut s = ScrollState::new(tween(200));
-        assert_eq!(s.scroll_by(0.0, 100.0, f64::MAX, 1000.0), None);
+        assert_eq!(s.scroll_by(0.0, 100.0, f64::MAX, 1000.0, false), None);
         assert!(s.animating());
     }
 
     #[test]
     fn animated_eases_to_target_and_settles() {
         let mut s = ScrollState::new(tween(200));
-        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0);
+        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0, false);
         // Linear over 200ms: 100ms → 50%, 200ms → exactly the target.
         assert_eq!(s.tick(0.1), Some((0, 50)));
         assert_eq!(s.tick(0.1), Some((0, 100)));
@@ -159,9 +169,9 @@ mod tests {
     #[test]
     fn animated_retarget_extends_target() {
         let mut s = ScrollState::new(tween(200));
-        s.scroll_by(0.0, 100.0, f64::MAX, 10_000.0);
+        s.scroll_by(0.0, 100.0, f64::MAX, 10_000.0, false);
         s.tick(0.1); // ~50, heading to 100
-        assert_eq!(s.scroll_by(0.0, 100.0, f64::MAX, 10_000.0), None); // target now 200
+        assert_eq!(s.scroll_by(0.0, 100.0, f64::MAX, 10_000.0, false), None); // target now 200
         let mut last = (0, 0);
         for _ in 0..200 {
             if let Some(p) = s.tick(0.016) {
@@ -184,7 +194,7 @@ mod tests {
     #[test]
     fn reset_cancels_animation() {
         let mut s = ScrollState::new(tween(200));
-        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0);
+        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0, false);
         assert!(s.animating());
         s.reset(0.0, 0.0);
         assert!(!s.animating());
@@ -194,11 +204,31 @@ mod tests {
     #[test]
     fn set_behavior_switches_to_instant() {
         let mut s = ScrollState::new(tween(200));
-        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0);
+        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0, false);
         assert!(s.animating());
         s.set_behavior(ScrollBehavior::Instant);
         // The next scroll applies immediately from the current (animated-so-far) position.
-        assert!(s.scroll_by(0.0, 10.0, f64::MAX, 1000.0).is_some());
+        assert!(s.scroll_by(0.0, 10.0, f64::MAX, 1000.0, false).is_some());
         assert!(!s.animating());
+    }
+
+    #[test]
+    fn precise_applies_immediately_despite_animation() {
+        let mut s = ScrollState::new(tween(200));
+        assert_eq!(s.scroll_by(0.0, 10.0, f64::MAX, 1000.0, true), Some((0, 10)));
+        assert!(!s.animating());
+        assert_eq!(s.scroll_by(0.0, 10.5, f64::MAX, 1000.0, true), Some((0, 21)));
+    }
+
+    #[test]
+    fn precise_lands_an_in_flight_wheel_animation() {
+        let mut s = ScrollState::new(tween(200));
+        s.scroll_by(0.0, 100.0, f64::MAX, 1000.0, false);
+        s.tick(0.05);
+        assert!(s.animating());
+        // The wheel's remaining travel is not lost: the page lands on its target plus the new delta.
+        assert_eq!(s.scroll_by(0.0, 5.0, f64::MAX, 1000.0, true), Some((0, 105)));
+        assert!(!s.animating());
+        assert_eq!(s.tick(0.016), None);
     }
 }

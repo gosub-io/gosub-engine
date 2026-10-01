@@ -353,6 +353,7 @@ fn main() {
                         .send(TabCommand::MouseScroll {
                             delta_x: dx,
                             delta_y: dy,
+                            precise: false,
                         })
                         .await;
                 });
