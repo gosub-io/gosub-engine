@@ -341,10 +341,9 @@ impl CookieVault {
             }
             let _ = tx.send(&ToVault::OpenZone { zone: key, snapshot });
         }
-        *self.tx.lock() = tx;
-        *self.alive.lock() = alive;
         // Grants of the old vault are gone with it; requests in flight will
-        // find no cookies, the next ones ask again.
+        // find no cookies, the next ones ask again. Cleared before the link
+        // is published, or it would wipe what the first new requests record.
         self.activity.lock().clear();
 
         match (launched.net_link, self.relink.lock().as_ref()) {
@@ -352,6 +351,8 @@ impl CookieVault {
             (Some(_), None) => log::warn!("no way to hand the network process the new vault line; it keeps none"),
             (None, _) => {}
         }
+        *self.tx.lock() = tx;
+        *self.alive.lock() = alive;
         log::info!("the cookie vault is back");
     }
 
