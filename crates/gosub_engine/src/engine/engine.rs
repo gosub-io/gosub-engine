@@ -495,10 +495,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.context.renderer_process.get()
     }
 
-    /// The pool of resident renderers, when `security.renderer_process` is on
-    /// and the fork server started: one process per (zone, site), listable
-    /// for diagnostics.
-    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     /// The escape audit in the network process; `None` when networking is
     /// in-process (tools and tests).
     #[cfg(feature = "process-isolation")]
@@ -512,6 +508,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.context.cookie_vault.get()
     }
 
+    /// The pool of resident renderers, when `security.renderer_process` is on
+    /// and the fork server started: one process per (zone, site), listable
+    /// for diagnostics.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_pool(&self) -> Option<&Arc<crate::fork_server::pool::RendererPool>> {
         self.context.renderer_pool.get()
