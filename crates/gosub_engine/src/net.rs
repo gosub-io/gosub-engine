@@ -4,10 +4,12 @@
 //! inflight-request coalescing (via the external `gosub-sonar` fetcher), body
 //! streaming, and response routing into render-friendly outcomes.
 //!
-//! All network work runs on a dedicated Tokio I/O thread ([`spawn_io_thread`],
-//! [`submit_to_io`]); keep it for sockets, TLS, and disk I/O - never block it
-//! with CPU-heavy work. Fetch results are classified by [`route_response_for`]
-//! and turned into a [`HandlingDecision`] / [`RenderTarget`] by [`decide_handling`].
+//! Fetching and body streaming run on a dedicated Tokio I/O thread
+//! ([`spawn_io_thread`], [`submit_to_io`]); keep it for sockets, TLS, and disk
+//! I/O - never block it with CPU-heavy work. What a response becomes is decided
+//! after the I/O thread has replied, in the requesting tab's `tab-fetcher` task:
+//! [`route_response_for`] classifies it, through [`decide_handling`], into a
+//! [`HandlingDecision`] / [`RenderTarget`].
 mod data_url;
 mod decision;
 mod decision_hub;
