@@ -370,6 +370,10 @@ impl CookieVault {
 
     pub fn close_zone(&self, zone: ZoneId) {
         let key = zone.to_string();
+        // A round trip on the broker link first: snapshots the vault sent
+        // before the reply are persisted by the reader before it routes the
+        // reply, and would find no store once the zone is gone.
+        let _ = self.get_all(&key);
         self.stores.lock().remove(&key);
         self.open_zones.lock().remove(&key);
         let _ = self.tx.lock().send(&ToVault::CloseZone { zone: key });

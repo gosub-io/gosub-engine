@@ -695,7 +695,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
 
-        // The vault drops the zone's jar; its last snapshot is already with the store.
+        // The vault drops the zone's jar once its last snapshot is with the store.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         if let Some(vault) = self.context.cookie_vault.get() {
             vault.close_zone(zone_id);

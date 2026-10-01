@@ -3571,6 +3571,10 @@ fn vault() -> i32 {
         // Reading back through the vault orders after the store (same link),
         // and the snapshot precedes the reply on the broker link.
         let _ = jar.get_request_cookies(&url, None, SameSiteContext::SameSite);
+        // A store right before the zone closes: its snapshot is still on the
+        // way when `close_zone` runs, and must reach the store all the same.
+        jar.store_response_cookies(&url, &set_cookie(&["late=1; Path=/"]), None);
+        vault.close_zone(persisted);
         store.persist_all();
         drop(store);
         let reopened = match SqliteCookieStore::new(path) {
@@ -3587,7 +3591,7 @@ fn vault() -> i32 {
         vault.shutdown();
         drop(reopened);
         let _ = std::fs::remove_dir_all(&dir);
-        if !back.contains("durable=1") {
+        if !(back.contains("durable=1") && back.contains("late=1")) {
             eprintln!("the cookie did not reach the store through the broker, got {back:?}");
             return 1;
         }
