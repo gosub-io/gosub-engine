@@ -17,29 +17,56 @@ pub const MAX_VALUE_BYTES: usize = 5 * 1024 * 1024;
 /// Per-origin quota, in the range browsers use.
 pub const MAX_AREA_BYTES: usize = 10 * 1024 * 1024;
 
+/// Loaded areas by file path.
+type AreaMap = Mutex<HashMap<PathBuf, Arc<FileArea>>>;
+type Areas = Arc<AreaMap>;
+
 #[derive(Debug, Clone)]
 pub struct FileLocalStore {
     dir: PathBuf,
-    /// Loaded areas, so handles to the same area share state.
-    areas: Arc<Mutex<HashMap<PathBuf, Arc<FileArea>>>>,
+    /// Loaded areas, so handles to the same area share state - shared with
+    /// every other store on this directory in the process (see [`areas_of`]).
+    areas: Areas,
+}
+
+/// One set of loaded areas per directory, process-wide. Each area keeps its
+/// items in memory and rewrites its file whole, so two stores that loaded the
+/// same file separately would each write over the other's changes.
+fn areas_of(dir: &Path) -> Areas {
+    static BY_DIR: std::sync::LazyLock<Mutex<HashMap<PathBuf, std::sync::Weak<AreaMap>>>> =
+        std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+    let mut by_dir = BY_DIR.lock();
+    by_dir.retain(|_, areas| areas.strong_count() > 0);
+    if let Some(areas) = by_dir.get(dir).and_then(std::sync::Weak::upgrade) {
+        return areas;
+    }
+    let areas = Areas::default();
+    by_dir.insert(dir.to_path_buf(), Arc::downgrade(&areas));
+    areas
 }
 
 impl FileLocalStore {
-    /// Creates `dir`. Only the broker can: the service has no `mkdir`.
+    /// Creates `dir`. Only the broker can: the service has no `mkdir`. The
+    /// directory is keyed by its canonical path, so two spellings of it share
+    /// one set of areas.
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self> {
         let dir = dir.into();
         std::fs::create_dir_all(&dir)?;
+        let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
         Ok(Self {
+            areas: areas_of(&dir),
             dir,
-            areas: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
-    /// Uses an existing `dir` without touching it.
+    /// Uses an existing `dir` without touching it - not even to canonicalize
+    /// it, which the service's filter may not allow; pass the canonical path
+    /// to share areas with an [`Self::open`] store on the same directory.
     pub fn attach(dir: impl Into<PathBuf>) -> Self {
+        let dir = dir.into();
         Self {
-            dir: dir.into(),
-            areas: Arc::new(Mutex::new(HashMap::new())),
+            areas: areas_of(&dir),
+            dir,
         }
     }
 
@@ -351,6 +378,29 @@ mod tests {
             "a failed load is not cached as an empty area"
         );
         assert_eq!(std::fs::read(&path).expect("read"), b"{not json");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two stores on one directory, however it is spelled, write through the
+    /// same areas instead of over each other.
+    #[test]
+    fn stores_on_one_directory_share_their_areas() {
+        let dir = scratch("shared");
+        let first = FileLocalStore::open(&dir).expect("open");
+        let second = FileLocalStore::open(dir.join(".")).expect("open");
+        let a = first.area_for("zone", "none", "https://s.test").expect("area");
+        let b = second.area_for("zone", "none", "https://s.test").expect("area");
+        a.set_item("a", "1").expect("set");
+        b.set_item("b", "2").expect("set");
+        drop((first, second, a, b));
+        let reopened = FileLocalStore::open(&dir).expect("reopen");
+        let area = reopened.area_for("zone", "none", "https://s.test").expect("area");
+        assert_eq!(
+            area.get_item("a").as_deref(),
+            Some("1"),
+            "the second store wrote over the first"
+        );
+        assert_eq!(area.get_item("b").as_deref(), Some("2"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
