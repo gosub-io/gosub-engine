@@ -2128,6 +2128,29 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
             return 1;
         }
 
+        // A tab that closed before its pass thread asked for a renderer (the
+        // close outran the thread) must not be registered by that late ask.
+        let late = TabId::new();
+        let closed = std::sync::atomic::AtomicBool::new(true);
+        pool.release(late);
+        if pool
+            .renderer_for_live(zone, "https://crash.test", late, &closed)
+            .is_ok()
+        {
+            eprintln!("a closed tab got a renderer, and registered again");
+            return 1;
+        }
+        let tabs_now: Vec<usize> = pool
+            .snapshot()
+            .iter()
+            .filter(|r| r.key.site == "https://crash.test")
+            .map(|r| r.tabs)
+            .collect();
+        if tabs_now != [1] {
+            eprintln!("a closed tab was counted: {tabs_now:?}");
+            return 1;
+        }
+
         // The fork server itself can die too: the next spawn gets a new one
         // rather than every later site failing with the old link.
         let Some(old_server) = pool.fork_server().lock().pid() else {

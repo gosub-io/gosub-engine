@@ -323,6 +323,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// [`Self::poll_remote_passes`].
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_inflight: Option<InflightPass>,
+    /// Set when this tab lets go of its resident renderer; pass threads
+    /// still running read it before registering the tab with the pool.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_closed: Arc<std::sync::atomic::AtomicBool>,
     /// Bumped per remote page render; a pass finishing for an older page is
     /// dropped rather than merged into the new one.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -461,6 +465,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_inflight: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_closed: Default::default(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_generation: 0,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_hover_pending: false,
@@ -485,6 +491,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn release_remote_renderer(&mut self) {
         if let Some(RemoteRenderer::Resident { pool, tab, .. }) = self.remote_renderer.take() {
+            // Before the release: a pass thread still on its way to the pool
+            // must find the tab closed (see `RendererPool::renderer_for_live`).
+            self.remote_closed.store(true, std::sync::atomic::Ordering::Release);
             pool.release(tab);
         }
     }
@@ -1290,6 +1299,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
 
         let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
+        let closed = Arc::clone(&self.remote_closed);
         let remote_tab = self.remote_tab.clone();
         let resources = crate::fork_server::client::TabResources {
             loader: Arc::clone(&self.loader),
@@ -1309,7 +1319,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     let site = url::Url::parse(&url)
                         .map(|u| crate::fork_server::site::site_of(&u))
                         .unwrap_or_else(|_| "about:".to_string());
-                    let renderer = pool.renderer_for(zone, &site, tab)?;
+                    let renderer = pool.renderer_for_live(zone, &site, tab, &closed)?;
                     let mut renderer = renderer.lock();
                     // Incremental passes never answer `TileUnchanged`, so
                     // there is nothing for the exchange to look up.
