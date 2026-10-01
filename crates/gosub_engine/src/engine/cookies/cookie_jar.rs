@@ -474,7 +474,11 @@ impl CookieJar for DefaultCookieJar {
                 *existing = cookie;
                 existing.created_at = original_created_at;
             } else {
-                // Per-origin cap: the oldest cookie makes room, as browsers do.
+                // Per-origin cap: expired cookies go first (they are never sent
+                // again), then the oldest live one makes room, as browsers do.
+                if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
+                    bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
+                }
                 if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
                     if let Some(oldest) = bucket
                         .iter()
@@ -1177,6 +1181,42 @@ mod tests {
             Some("t=1"),
             "Max-Age must override a past Expires date"
         );
+    }
+
+    /// A full origin makes room from its expired cookies before it evicts a
+    /// live one.
+    #[test]
+    fn a_full_origin_drops_expired_cookies_before_live_ones() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        for i in 0..MAX_COOKIES_PER_ORIGIN - 1 {
+            jar.store_response_cookies(&req, &headers(&[&format!("live{i}=1; Path=/")]), None);
+        }
+        // The newest cookie, and already expired.
+        jar.entries
+            .entry(req.origin().ascii_serialization())
+            .or_default()
+            .push(crate::engine::cookies::Cookie {
+                name: "stale".into(),
+                value: "old".into(),
+                path: Some("/".into()),
+                domain: None,
+                secure: false,
+                expires: Some(1),
+                same_site: None,
+                http_only: false,
+                created_at: i64::MAX,
+            });
+        jar.store_response_cookies(&req, &headers(&["fresh=1; Path=/"]), None);
+
+        let cookies = jar
+            .get_request_cookies(&req, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        assert!(
+            cookies.contains("live0=1"),
+            "a live cookie was evicted while an expired one stayed"
+        );
+        assert!(cookies.contains("fresh=1"));
     }
 
     #[test]
