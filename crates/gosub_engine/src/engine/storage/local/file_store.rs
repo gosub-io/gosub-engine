@@ -58,12 +58,14 @@ impl FileLocalStore {
     }
 }
 
-/// Wire/file form of a `PartitionKey`.
+/// Wire/file form of a `PartitionKey`. Every variant has its own prefix, so
+/// no custom string can name another variant's area (`Custom("")` is not
+/// `None`, `Custom("top:...")` is not a `TopLevel`).
 pub fn partition_name(part: &PartitionKey) -> String {
     match part {
-        PartitionKey::None => String::new(),
+        PartitionKey::None => "none".to_string(),
         PartitionKey::TopLevel(origin) => format!("top:{}", origin.ascii_serialization()),
-        PartitionKey::Custom(s) => s.clone(),
+        PartitionKey::Custom(s) => format!("custom:{s}"),
     }
 }
 
@@ -313,6 +315,24 @@ mod tests {
         assert!(a.get_item("b2").is_none());
         assert_eq!(a.get_item("small").as_deref(), Some("x"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// No custom partition string reaches another variant's area.
+    #[test]
+    fn partition_variants_never_share_an_area() {
+        let top = origin("https://top.test");
+        let names = [
+            partition_name(&PartitionKey::None),
+            partition_name(&PartitionKey::Custom(String::new())),
+            partition_name(&PartitionKey::TopLevel(top.clone())),
+            partition_name(&PartitionKey::Custom(format!("top:{}", top.ascii_serialization()))),
+            partition_name(&PartitionKey::Custom("none".into())),
+        ];
+        for (i, a) in names.iter().enumerate() {
+            for b in &names[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
     }
 
     #[test]
