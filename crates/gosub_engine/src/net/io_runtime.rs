@@ -558,12 +558,19 @@ fn store_response_cookies_then_forward(
         let Ok(result) = inner_rx.await else {
             return;
         };
-        if let Some(meta) = result.meta() {
-            identity.cookie_jar.write().store_response_cookies(
-                &meta.final_url,
-                &meta.headers,
-                identity.top_level.as_ref(),
-            );
+        // A vault jar stores over IPC (and may respawn the vault first), so
+        // like the lookup in `attach_request_cookies` it runs off the runtime.
+        if let Some((url, headers)) = result.meta().map(|m| (m.final_url.clone(), m.headers.clone())) {
+            let stored = tokio::task::spawn_blocking(move || {
+                identity
+                    .cookie_jar
+                    .write()
+                    .store_response_cookies(&url, &headers, identity.top_level.as_ref());
+            })
+            .await;
+            if let Err(e) = stored {
+                log::warn!("storing a response's cookies failed: {e}");
+            }
         }
         let _ = reply_tx.send(result);
     });
