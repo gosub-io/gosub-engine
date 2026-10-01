@@ -1,6 +1,6 @@
 # Resource pipelines
 
-Where fetched bytes become typed assets. `crates/gosub_engine/src/engine/resource_pipeline/` defines one pipeline per asset kind — HTML, CSS, JS, images, fonts — bundled into a `ResourcePipelines<C>` struct that each [tab worker](zones-and-tabs.md) owns and hands to the network response router.
+Where fetched bytes become typed assets. `crates/gosub_engine/src/engine/resource_pipeline/` defines one pipeline per asset kind — HTML, CSS, JS, fonts; images take another path, below — bundled into a `ResourcePipelines<C>` struct that each [tab worker](zones-and-tabs.md) owns and hands to the network response router.
 
 ``` text
   fetch result ──► route_response_for (net/router.rs)      destination + UaPolicy decide:
