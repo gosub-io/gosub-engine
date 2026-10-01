@@ -1061,6 +1061,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.tile_budget
                 .note_rastered_window(rendered_at, self.viewport.height as f64, cache.page_height);
         }
+        self.recheck_viewport();
+    }
+
+    /// After a remote pass lands: if the viewport now shows what was never
+    /// rastered (or was evicted), ask for the window to be extended.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn recheck_viewport(&mut self) {
         let page_height = self.active_page_height().unwrap_or(0.0);
         if self
             .tile_budget
@@ -1426,6 +1433,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         // Before the check: a fresh raster makes evicted regions live again.
                         self.tile_budget.note_full_raster();
                         self.note_pass_window(inflight.scroll_y);
+                    } else {
+                        // A hover renders no new window, but a scroll that
+                        // came while it ran was not issued (one pass at a
+                        // time): whether that left the viewport short is
+                        // only known now.
+                        self.recheck_viewport();
                     }
                     // A frame with the merged tiles, even if the view is still.
                     self.scroll_dirty = true;
@@ -3339,6 +3352,35 @@ mod tests {
             let mut page = empty_page();
             page.summary.no_page = true;
             page
+        }
+
+        /// A scroll that came while a hover pass ran was not issued; when the
+        /// hover lands, the viewport that moved past the rastered window
+        /// still asks for it.
+        #[test]
+        fn a_hover_pass_rechecks_a_viewport_that_moved_meanwhile() {
+            let tall = || {
+                let mut page = empty_page();
+                page.summary.page_height = 5000.0;
+                page
+            };
+            let mut ctx = answered(RemotePass::Hover, 0.0, tall());
+            // Viewport first: setting it drops the pipeline cache.
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.adopt_remote_page(tall());
+            ctx.tile_budget.note_rastered_window(0.0, 600.0, 5000.0);
+            ctx.scroll_y = 3000.0;
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(
+                ctx.raster_dirty,
+                "the viewport moved past the rastered window during the hover"
+            );
         }
 
         /// A blank page lays out 0px tall and a hover over it repaints
