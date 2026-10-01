@@ -904,6 +904,12 @@ fn main() {
             .set(key, Setting::Bool(true))
             .unwrap_or_else(|e| panic!("enable {key}: {e}"));
     }
+    // The telemetry server on :9090 (firehose, metrics, renderer pool and the
+    // viewer) is off by default; this example prints where to find it.
+    engine
+        .settings()
+        .set("telemetry.metrics_enabled", Setting::Bool(true))
+        .unwrap_or_else(|e| panic!("enable telemetry.metrics_enabled: {e}"));
 
     let mut event_rx = engine.subscribe_events();
     TOKIO_RT.spawn(engine.start().expect("engine start"));
@@ -993,7 +999,7 @@ fn main() {
         "Ctrl+T new tab · Ctrl+W close tab (middle-click too) · Ctrl+L address bar (Enter to go) · F5/Ctrl+R reload"
     );
     println!("firehose: curl -N localhost:9090/events   (NDJSON)   stats: localhost:9090/metrics   pool: localhost:9090/renderers");
-    println!("viewer:   open tools/telemetry-viewer/index.html in a browser");
+    println!("viewer:   http://127.0.0.1:9090/ in a browser");
     println!();
 
     event_loop.run_app(&mut app).expect("event loop run");
