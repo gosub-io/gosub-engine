@@ -3568,7 +3568,16 @@ fn vault() -> i32 {
             return 1;
         }
         net_vault.revoke(&revoked);
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // `Revoke` has no answer; a round trip behind it on the same link
+        // means the vault has acted on it before the line asks.
+        let _ = net_vault.get(
+            CookieScope {
+                ticket: 0,
+                ..claimed.clone()
+            },
+            &url,
+            false,
+        );
         if ask(&mut net_link, revoked).is_some() {
             eprintln!("the network line answered a revoked ticket");
             return 1;
