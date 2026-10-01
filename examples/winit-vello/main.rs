@@ -1,6 +1,6 @@
 //! Minimal browser window: Vello (GPU) rasterizer + winit toolkit.
 //!
-//! Usage: cargo run --example winit-vello -- https://example.com
+//! Usage: cargo run -p example-winit-vello -- https://example.com
 //!
 //! The current URL is shown in the window title; pass a different URL as the first argument.
 //! No GTK/Cairo dependency - pure winit + wgpu.
