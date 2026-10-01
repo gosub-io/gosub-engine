@@ -694,11 +694,7 @@ fn draw_chrome(
                 label.push_str("* ");
             }
             label.push_str(&tab.label);
-            let max_chars = ((tab_w as usize).saturating_sub(16)) / 7;
-            if label.len() > max_chars && max_chars > 1 {
-                label.truncate(max_chars - 1);
-                label.push('…');
-            }
+            let label = fit_label(&label, ((tab_w as usize).saturating_sub(16)) / 7);
             cr.show_text(&label).unwrap_or_default();
         }
 
@@ -1003,4 +999,30 @@ fn main() {
     println!();
 
     event_loop.run_app(&mut app).expect("event loop run");
+}
+
+/// `label` in at most `max_chars` characters, the last an ellipsis when it had
+/// to be cut. Characters, not bytes: page titles and IDN hosts are multi-byte,
+/// and a cut inside one would panic.
+fn fit_label(label: &str, max_chars: usize) -> String {
+    if max_chars > 1 && label.chars().count() > max_chars {
+        let mut cut: String = label.chars().take(max_chars - 1).collect();
+        cut.push('…');
+        cut
+    } else {
+        label.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_label;
+
+    #[test]
+    fn a_multibyte_label_is_cut_on_a_character() {
+        assert_eq!(fit_label("Привет мир", 5), "Прив…");
+        assert_eq!(fit_label("日本語のページ", 4), "日本語…");
+        assert_eq!(fit_label("short", 10), "short");
+        assert_eq!(fit_label("abc", 1), "abc");
+    }
 }
