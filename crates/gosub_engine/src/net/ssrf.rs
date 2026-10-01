@@ -213,7 +213,10 @@ async fn lookup(host: &str) -> std::io::Result<Vec<IpAddr>> {
 pub enum AddressSpace {
     Public,
     /// Loopback, private, link-local, ... - anything in [`blocked_ip_reason`]'s
-    /// ranges. A name with one private answer is private.
+    /// ranges. A name is private only if every answer is: a document's
+    /// private status lifts the private-network protection off what it
+    /// loads, so a mixed answer (public and private, which a hostile DNS
+    /// server can give) must not earn it.
     Private,
 }
 
@@ -230,7 +233,7 @@ impl AddressSpaceCache {
     }
 
     /// The address space of `url`'s host. IP literals are classified directly;
-    /// names are resolved once (any private answer makes the name private) and
+    /// names are resolved once (all answers private makes the name private) and
     /// remembered. A name that does not resolve counts as public: the policy
     /// then applies to what it loads, which is the safe direction.
     pub async fn classify(&self, url: &Url) -> AddressSpace {
@@ -260,8 +263,15 @@ impl AddressSpaceCache {
     }
 }
 
-fn space_of(mut addrs: impl Iterator<Item = IpAddr>) -> AddressSpace {
-    if addrs.any(|ip| blocked_ip_reason(ip).is_some()) {
+fn space_of(addrs: impl Iterator<Item = IpAddr>) -> AddressSpace {
+    let mut any = false;
+    for ip in addrs {
+        any = true;
+        if blocked_ip_reason(ip).is_none() {
+            return AddressSpace::Public;
+        }
+    }
+    if any {
         AddressSpace::Private
     } else {
         AddressSpace::Public
@@ -371,6 +381,25 @@ mod tests {
             parse_ip_literal("[fe80::1%25eth0]").map(|ip| blocked_ip_reason(ip).is_some()),
             Some(true)
         );
+    }
+
+    /// A mixed answer does not make a document private: that would lift the
+    /// protection off its subresources on the strength of one private record.
+    #[test]
+    fn only_an_all_private_answer_is_private() {
+        assert_eq!(
+            space_of([ip("127.0.0.1"), ip("10.0.0.1")].into_iter()),
+            AddressSpace::Private
+        );
+        assert_eq!(
+            space_of([ip("10.0.0.1"), ip("93.184.216.34")].into_iter()),
+            AddressSpace::Public
+        );
+        assert_eq!(
+            space_of([ip("93.184.216.34"), ip("192.168.1.1")].into_iter()),
+            AddressSpace::Public
+        );
+        assert_eq!(space_of(std::iter::empty()), AddressSpace::Public);
     }
 
     /// A name that does not resolve is public for this request, and not
