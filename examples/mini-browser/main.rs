@@ -356,8 +356,7 @@ impl BrowserApp {
 
     fn content_y_to_css(&self, physical_y: f64, tab: &TabState) -> f32 {
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        let logical_y = physical_y / dpr - CHROME_HEIGHT as f64;
-        (logical_y + tab.scroll.1 as f64) as f32
+        content_y_at(physical_y, dpr, tab.scroll.1 as f64)
     }
 
     // ── drawing ──
@@ -1001,6 +1000,12 @@ fn main() {
     event_loop.run_app(&mut app).expect("event loop run");
 }
 
+/// A window y (physical pixels) as a page y (CSS pixels). The chrome is drawn
+/// in physical pixels, so it comes off before the device-pixel ratio does.
+fn content_y_at(physical_y: f64, dpr: f64, scroll_y: f64) -> f32 {
+    ((physical_y - CHROME_HEIGHT as f64) / dpr + scroll_y) as f32
+}
+
 /// `label` in at most `max_chars` characters, the last an ellipsis when it had
 /// to be cut. Characters, not bytes: page titles and IDN hosts are multi-byte,
 /// and a cut inside one would panic.
@@ -1016,7 +1021,16 @@ fn fit_label(label: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::fit_label;
+    use super::{content_y_at, fit_label, CHROME_HEIGHT};
+
+    #[test]
+    fn the_chrome_comes_off_in_physical_pixels() {
+        let chrome = CHROME_HEIGHT as f64;
+        // The first content row is page y 0 (plus the scroll) at any ratio.
+        assert_eq!(content_y_at(chrome, 1.0, 0.0), 0.0);
+        assert_eq!(content_y_at(chrome, 2.0, 0.0), 0.0);
+        assert_eq!(content_y_at(chrome + 100.0, 2.0, 30.0), 80.0);
+    }
 
     #[test]
     fn a_multibyte_label_is_cut_on_a_character() {
