@@ -2505,7 +2505,11 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                             }
                             reasons.push(reason);
                         }
-                        if event.kind == "remote.navigate" {
+                        // The render the image triggers: a media pass where a
+                        // resident renderer retains the page, a full navigate
+                        // where it falls back to one.
+                        let render = event.kind == "remote.navigate" || event.kind == "remote.media";
+                        if render {
                             navigates += 1;
                             if rerendered_for_media {
                                 painted_after_media = true;
@@ -2513,10 +2517,12 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                             }
                         }
                     }
+                    // Missed events while slow to read: the deadline still bounds the wait.
+                    Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
                     _ => break,
                 }
             }
-            println!("renders: {navigates} navigate(s); invalidations: {reasons:?}");
+            println!("renders: {navigates}; invalidations: {reasons:?}");
             if !painted_after_media {
                 eprintln!("the tab never re-rendered for the late image (invalidations: {reasons:?})");
                 return 1;
