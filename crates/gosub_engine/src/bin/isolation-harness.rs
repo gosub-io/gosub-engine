@@ -3974,6 +3974,7 @@ fn engine_storage_service() -> i32 {
                 return 1;
             }
         };
+        let other_dir = dir.clone();
         let code = runtime.block_on(async move {
             let mut engine: GosubEngine = GosubEngine::new(
                 None,
@@ -4043,13 +4044,56 @@ fn engine_storage_service() -> i32 {
                 eprintln!("the value did not survive the storage service dying");
                 return 1;
             }
-            match storage.local_store().service_pid() {
-                Some(new_pid) if new_pid != pid => println!("storage service respawned: pid {pid} -> {new_pid}"),
+            let pid = match storage.local_store().service_pid() {
+                Some(new_pid) if new_pid != pid => {
+                    println!("storage service respawned: pid {pid} -> {new_pid}");
+                    new_pid
+                }
                 other => {
                     eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
                     return 1;
                 }
+            };
+
+            // A second zone on the same directory that stays in-process (its
+            // storage handed out an area before the zone existed) holds no
+            // reference to the service, and closing it must not end the
+            // first zone's.
+            let Ok(other_store) = FileLocalStore::open(&other_dir) else {
+                eprintln!("could not open the second file store");
+                return 1;
+            };
+            let other_storage = Arc::new(StorageService::new(
+                Arc::new(other_store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let _ = other_storage.local_for(gosub_engine::zone::ZoneId::new(), &PartitionKey::None, &origin);
+            let other = match engine.create_zone(
+                None,
+                ZoneServices {
+                    storage: other_storage,
+                    cookie_store: None,
+                    cookie_jar: None,
+                    partition_policy: PartitionPolicy::None,
+                    places: None,
+                },
+                None,
+            ) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create the second zone: {e}");
+                    return 1;
+                }
+            };
+            engine.close_zone(other).await;
+            if area.get_item("k").as_deref() != Some("v") || storage.local_store().service_pid() != Some(pid) {
+                eprintln!(
+                    "closing an in-process zone ended another zone's storage service (pid {pid} -> {:?})",
+                    storage.local_store().service_pid()
+                );
+                return 1;
             }
+            println!("an in-process zone on the same directory leaves the service alone");
             let _ = engine.shutdown().await;
             0
         });

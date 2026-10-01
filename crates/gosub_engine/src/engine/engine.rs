@@ -39,6 +39,11 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
     /// Cookie stores of zones that requested persistence, flushed on shutdown.
     cookie_stores: HashMap<ZoneId, CookieStoreHandle>,
+    /// The storage service each zone's localStorage was routed through: the
+    /// one reference `close_zone` gives back. A zone that stayed in-process
+    /// has none, whatever directory its store names.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    local_storage_routes: HashMap<ZoneId, std::path::PathBuf>,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -189,6 +194,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             font_system: Arc::new(Mutex::new(C::FontSystem::default())),
             zones: HashMap::new(),
             cookie_stores: HashMap::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            local_storage_routes: HashMap::new(),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
@@ -672,20 +679,30 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 // service a reference nothing will give back.
                 if created.is_err() {
                     vault.close_zone(id);
-                    self.release_local_storage(routed);
                 }
+                self.settle_local_storage(&created, routed);
                 return created;
             }
             _ => services,
         };
         let created = self.create_zone_with_services(config, services, zone_id, cookie_store);
-        // A zone that never came to exist is never closed, so the storage service
-        // reference counted for it is given back here.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if created.is_err() {
-            self.release_local_storage(routed);
-        }
+        self.settle_local_storage(&created, routed);
         created
+    }
+
+    /// Record which storage service a new zone holds a reference to, for
+    /// `close_zone`. A zone that never came to exist is never closed, so its
+    /// reference is given back here instead.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn settle_local_storage(&mut self, created: &Result<Zone<C>, EngineError>, routed: Option<std::path::PathBuf>) {
+        match (created, routed) {
+            (Ok(zone), Some(dir)) => {
+                self.local_storage_routes.insert(zone.id, dir);
+            }
+            (Err(_), routed) => self.release_local_storage(routed),
+            (Ok(_), None) => {}
+        }
     }
 
     /// Route a zone's local storage through the storage service process when
@@ -808,8 +825,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
     pub async fn close_zone(&mut self, zone: Zone<C>) {
         let zone_id = zone.id;
-        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        let storage_dir = zone.context.services.storage.local_store().service_directory();
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
@@ -837,7 +852,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // The storage service outlives its last zone by nothing.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        self.release_local_storage(storage_dir.map(storage_service_key));
+        {
+            let routed = self.local_storage_routes.remove(&zone_id);
+            self.release_local_storage(routed);
+        }
 
         self.zones.remove(&zone_id);
 
