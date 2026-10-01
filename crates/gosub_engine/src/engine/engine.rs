@@ -1528,6 +1528,70 @@ mod tests {
         .unwrap_or(false)
     }
 
+    /// A page's icon served without an image Content-Type never reaches the
+    /// embedder: it would hand the bytes to an image decoder.
+    #[tokio::test]
+    async fn a_favicon_without_an_image_type_is_dropped() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let icon_served = Arc::new(tokio::sync::Notify::new());
+        let icon_served_srv = icon_served.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let icon_served = icon_served_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(path) = req.split_whitespace().nth(1) else {
+                        return;
+                    };
+                    let head = if path == "/icon" {
+                        // No Content-Type at all.
+                        "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nPNGBYTES".to_string()
+                    } else {
+                        let body = "<html><head><link rel=\"icon\" href=\"/icon\"></head><body>p</body></html>";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    if path == "/icon" {
+                        icon_served.notify_one();
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+
+        tokio::time::timeout(Duration::from_secs(10), icon_served.notified())
+            .await
+            .expect("the page's icon was never requested");
+        let delivered = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(EngineEvent::FavIconChanged { .. }) = event_rx.recv().await {
+                    return;
+                }
+            }
+        })
+        .await;
+        assert!(
+            delivered.is_err(),
+            "an icon without an image Content-Type reached the embedder"
+        );
+    }
+
     #[tokio::test]
     async fn session_history_back_and_forward() {
         use crate::events::NavigationEvent;

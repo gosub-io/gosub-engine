@@ -629,11 +629,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             // The embedder will hand these bytes to an image decoder in its
             // own process: at least require the response to say it is an image.
+            // A missing or unreadable type says nothing of the kind.
             let is_image = meta
                 .headers
                 .get(http::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
-                .is_none_or(|ct| ct.trim_start().starts_with("image/"));
+                .is_some_and(|ct| ct.trim_start().starts_with("image/"));
             if !is_image {
                 log::debug!("favicon {icon_url}: not an image content type, ignored");
                 return;
