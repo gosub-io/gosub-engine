@@ -24,25 +24,27 @@ type Areas = Arc<AreaMap>;
 #[derive(Debug, Clone)]
 pub struct FileLocalStore {
     dir: PathBuf,
-    /// Loaded areas, so handles to the same area share state - shared with
-    /// every other store on this directory in the process (see [`areas_of`]).
+    /// Loaded areas, so handles to the same area share state (and, through
+    /// [`live_area`], with every other store in the process).
     areas: Areas,
 }
 
-/// One set of loaded areas per directory, process-wide. Each area keeps its
-/// items in memory and rewrites its file whole, so two stores that loaded the
-/// same file separately would each write over the other's changes.
-fn areas_of(dir: &Path) -> Areas {
-    static BY_DIR: std::sync::LazyLock<Mutex<HashMap<PathBuf, std::sync::Weak<AreaMap>>>> =
+/// The one live [`FileArea`] of a file, process-wide, or a fresh load. Each
+/// area keeps its items in memory and rewrites its file whole, so two copies
+/// of one file - two stores on a directory, or a handle that outlived its
+/// store and a store reopened since - would write over each other. Weak, so
+/// an area goes once no store caches it and no handle holds it.
+fn live_area(path: &Path) -> Result<Arc<FileArea>> {
+    static LIVE: std::sync::LazyLock<Mutex<HashMap<PathBuf, std::sync::Weak<FileArea>>>> =
         std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-    let mut by_dir = BY_DIR.lock();
-    by_dir.retain(|_, areas| areas.strong_count() > 0);
-    if let Some(areas) = by_dir.get(dir).and_then(std::sync::Weak::upgrade) {
-        return areas;
+    let mut live = LIVE.lock();
+    if let Some(area) = live.get(path).and_then(std::sync::Weak::upgrade) {
+        return Ok(area);
     }
-    let areas = Areas::default();
-    by_dir.insert(dir.to_path_buf(), Arc::downgrade(&areas));
-    areas
+    live.retain(|_, area| area.strong_count() > 0);
+    let area = Arc::new(FileArea::load(path.to_path_buf())?);
+    live.insert(path.to_path_buf(), Arc::downgrade(&area));
+    Ok(area)
 }
 
 impl FileLocalStore {
@@ -54,8 +56,8 @@ impl FileLocalStore {
         std::fs::create_dir_all(&dir)?;
         let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
         Ok(Self {
-            areas: areas_of(&dir),
             dir,
+            areas: Areas::default(),
         })
     }
 
@@ -63,10 +65,9 @@ impl FileLocalStore {
     /// it, which the service's filter may not allow; pass the canonical path
     /// to share areas with an [`Self::open`] store on the same directory.
     pub fn attach(dir: impl Into<PathBuf>) -> Self {
-        let dir = dir.into();
         Self {
-            areas: areas_of(&dir),
-            dir,
+            dir: dir.into(),
+            areas: Areas::default(),
         }
     }
 
@@ -82,7 +83,7 @@ impl FileLocalStore {
         if let Some(area) = areas.get(&path) {
             return Ok(Arc::clone(area));
         }
-        let area = Arc::new(FileArea::load(path.clone())?);
+        let area = live_area(&path)?;
         areas.insert(path, Arc::clone(&area));
         Ok(area)
     }
@@ -399,6 +400,32 @@ mod tests {
             area.get_item("a").as_deref(),
             Some("1"),
             "the second store wrote over the first"
+        );
+        assert_eq!(area.get_item("b").as_deref(), Some("2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A handle that outlives its store is the same area a reopened store
+    /// hands out, not a second copy that writes over it.
+    #[test]
+    fn a_handle_that_outlives_its_store_meets_the_reopened_one() {
+        let dir = scratch("outlived");
+        let store = FileLocalStore::open(&dir).expect("open");
+        let kept = store.area_for("zone", "none", "https://o.test").expect("area");
+        drop(store);
+        let reopened = FileLocalStore::open(&dir).expect("reopen");
+        let fresh = reopened.area_for("zone", "none", "https://o.test").expect("area");
+        kept.set_item("a", "1").expect("set");
+        fresh.set_item("b", "2").expect("set");
+        drop((kept, fresh, reopened));
+        let area = FileLocalStore::open(&dir)
+            .expect("open")
+            .area_for("zone", "none", "https://o.test")
+            .expect("area");
+        assert_eq!(
+            area.get_item("a").as_deref(),
+            Some("1"),
+            "the reopened store wrote over the kept handle"
         );
         assert_eq!(area.get_item("b").as_deref(), Some("2"));
         let _ = std::fs::remove_dir_all(&dir);
