@@ -376,13 +376,16 @@ impl CookieVault {
 
     pub fn close_zone(&self, zone: ZoneId) {
         let key = zone.to_string();
-        // A round trip on the broker link first: snapshots the vault sent
-        // before the reply are persisted by the reader before it routes the
-        // reply, and would find no store once the zone is gone.
+        // Not reopened by a respawn from here on.
+        self.open_zones.lock().remove(&key);
+        // The vault drops the jar first, so a store still arriving from the
+        // network process finds none and changes nothing. Every change made
+        // before that has its snapshot ahead of `CloseZone` on the broker
+        // link, and the reader persists those before it routes the answer to
+        // this round trip; only then can the store go.
+        let _ = self.tx.lock().send(&ToVault::CloseZone { zone: key.clone() });
         let _ = self.get_all(&key);
         self.stores.lock().remove(&key);
-        self.open_zones.lock().remove(&key);
-        let _ = self.tx.lock().send(&ToVault::CloseZone { zone: key });
     }
 
     fn ask(&self, build: impl FnOnce(Tag) -> ToVault) -> Option<Reply> {

@@ -273,14 +273,9 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
                     headers.append(http::header::SET_COOKIE, value);
                 }
             }
-            let snapshot = {
-                let mut jars = jars.lock();
-                let jar = jars.get_mut(&zone)?;
-                jar.store_response_cookies(&url, &headers, top.as_ref());
-                jar.clone()
-            };
-            let _ = snapshots.lock().send(&FromVault::Snapshot { zone, jar: snapshot });
-            None
+            mutate(jars, snapshots, &zone, |jar| {
+                jar.store_response_cookies(&url, &headers, top.as_ref())
+            })
         }
         ToVault::GetAll { tag, zone } => {
             let cookies = jars
@@ -311,22 +306,21 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
     }
 }
 
-/// Apply `change` to a zone's jar and publish the result.
+/// Apply `change` to a zone's jar and publish the result. The snapshot goes
+/// out under the jars lock: a `CloseZone` handled after the change is then
+/// also after its snapshot on the broker link, which `close_zone` relies on.
 fn mutate(
     jars: &Jars,
     snapshots: &Arc<Mutex<EndpointTx>>,
     zone: &str,
     change: impl FnOnce(&mut DefaultCookieJar),
 ) -> Option<FromVault> {
-    let snapshot = {
-        let mut jars = jars.lock();
-        let jar = jars.get_mut(zone)?;
-        change(jar);
-        jar.clone()
-    };
+    let mut jars = jars.lock();
+    let jar = jars.get_mut(zone)?;
+    change(jar);
     let _ = snapshots.lock().send(&FromVault::Snapshot {
         zone: zone.to_string(),
-        jar: snapshot,
+        jar: jar.clone(),
     });
     None
 }
