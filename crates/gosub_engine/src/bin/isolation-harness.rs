@@ -3682,6 +3682,9 @@ fn engine_cookie_vault() -> i32 {
     // `respawn`: kill the vault after the first flow; the cookie must still
     // reach the next request, from the store the respawned vault reopens.
     let respawn = modes.iter().any(|m| m == "respawn");
+    // `no-vault`: the broker's own jar, its cookies attached by the broker
+    // and carried by the network process as sent.
+    let no_vault = modes.iter().any(|m| m == "no-vault");
     let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
     let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
         eprintln!("could not start the test server");
@@ -3706,7 +3709,7 @@ fn engine_cookie_vault() -> i32 {
             Arc::new(DefaultCompositor::default()),
         );
         for (key, on) in [
-            ("security.cookie_vault", true),
+            ("security.cookie_vault", !no_vault),
             ("security.network_process", !in_process),
             ("security.image_decoder_process", false),
             ("security.renderer_process", false),
@@ -3723,8 +3726,8 @@ fn engine_cookie_vault() -> i32 {
             return 1;
         };
         tokio::spawn(run);
-        if !engine.settings().get_bool("security.cookie_vault") {
-            eprintln!("the vault did not start");
+        if engine.settings().get_bool("security.cookie_vault") == no_vault {
+            eprintln!("the vault did not start, or started when it should not have");
             return 1;
         }
 
@@ -3877,7 +3880,8 @@ fn engine_cookie_vault() -> i32 {
         }
     }
     println!(
-        "cookie set by the page reached the next request through the vault{}{}",
+        "cookie set by the page reached the next request through {}{}{}",
+        if no_vault { "the broker's jar" } else { "the vault" },
         if in_process {
             " (in-process fetch)"
         } else {

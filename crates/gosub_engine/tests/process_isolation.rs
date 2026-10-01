@@ -109,6 +109,20 @@ fn a_cookie_flows_from_the_vault_through_the_network_process() {
     );
 }
 
+/// Without the vault the broker attaches the cookies; the network process
+/// must send them as they came.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_broker_attached_cookie_crosses_the_network_process() {
+    let out = run_with_backend("engine-cookie-vault", "no-vault");
+    assert!(
+        out.status.success(),
+        "engine cookie (no vault) scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The same with in-process fetching: the broker's forwarding jar asks the vault.
 #[cfg(target_os = "linux")]
 #[test]

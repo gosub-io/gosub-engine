@@ -256,11 +256,14 @@ async fn perform(
     };
 
     let mut headers = rebuild_headers(&fetch.headers);
-    // The broker's `Cookie` never counts: the vault's answer for this
-    // request does, or none at all.
-    headers.remove(http::header::COOKIE);
-    if let Some(value) = cookie_header.as_deref().and_then(|v| v.parse().ok()) {
-        headers.insert(http::header::COOKIE, value);
+    // Under a vault scope the broker's `Cookie` never counts: the vault's
+    // answer for this request does, or none at all. Without one, the broker
+    // attached the cookies itself and they go as sent.
+    if scope.is_some() {
+        headers.remove(http::header::COOKIE);
+        if let Some(value) = cookie_header.as_deref().and_then(|v| v.parse().ok()) {
+            headers.insert(http::header::COOKIE, value);
+        }
     }
 
     let mut builder = FetchRequest::builder(method, url)
