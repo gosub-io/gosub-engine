@@ -277,6 +277,10 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// the renders that follow do not fetch it again. Cleared when a navigation
     /// commits a new document.
     remote_favicon: Option<Url>,
+    /// The history entry the shown document was committed to. A traversal
+    /// moves the cursor before its load commits, and a title the renderer
+    /// reports meanwhile is still this document's, not the cursor's.
+    document_entry: Option<HistoryEntryId>,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -383,6 +387,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
             remote_favicon: None,
+            document_entry: None,
         }
     }
 
@@ -708,6 +713,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.history.entry(entry).map(|e| e.scroll)
                     }
                 };
+                self.document_entry = self.history.current();
                 // Where to land once layout exists: a saved offset wins (returning to an entry
                 // the user scrolled), otherwise the URL's fragment, otherwise the top.
                 self.pending_scroll = match restore_scroll {
@@ -1920,10 +1926,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The history entry was committed before anything was parsed, so it
             // learns its title here - also when the tab's title does not change
             // (the last page may have had the same one) - and the embedder gets
-            // the snapshot that has it.
-            let entry_title = self.history.current_entry().and_then(|e| e.title.as_deref());
-            if entry_title != Some(title.as_str()) {
-                self.history.set_current_title(Some(title.clone()));
+            // the snapshot that has it. The document's entry, not the cursor's:
+            // a traversal moves the cursor before its own load commits.
+            let untitled = self.document_entry.filter(|id| {
+                self.history
+                    .entry(*id)
+                    .is_some_and(|e| e.title.as_deref() != Some(title.as_str()))
+            });
+            if let Some(id) = untitled {
+                self.history.set_entry_title(id, Some(title.clone()));
                 // The visit was counted at the commit; only its title is new.
                 if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
                     if matches!(url.scheme(), "http" | "https") {

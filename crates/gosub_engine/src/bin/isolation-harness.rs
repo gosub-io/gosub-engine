@@ -2635,9 +2635,13 @@ fn engine_remote_title<F: FontSystem + Default>() -> i32 {
             return 2;
         }
         let page = "<html><head><title>Same</title></head><body><p>text</p></body></html>";
+        let titled = |t: &str| format!("<html><head><title>{t}</title></head><body><p>text</p></body></html>");
+        const SLOW: std::time::Duration = std::time::Duration::from_secs(3);
         let Ok(port) = serve_routes(vec![
             ("/a", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
             ("/b", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/c", "text/html", titled("C").into_bytes(), SLOW),
+            ("/d", "text/html", titled("D").into_bytes(), std::time::Duration::ZERO),
         ]) else {
             eprintln!("could not start the test server");
             return 1;
@@ -2696,7 +2700,7 @@ fn engine_remote_title<F: FontSystem + Default>() -> i32 {
                 .await;
             let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
 
-            for path in ["/a", "/b"] {
+            for (path, title) in [("/a", "Same"), ("/b", "Same"), ("/c", "C"), ("/d", "D")] {
                 if tab.navigate(format!("http://127.0.0.1:{port}{path}")).await.is_err() {
                     eprintln!("navigate to {path} failed");
                     return 1;
@@ -2714,7 +2718,7 @@ fn engine_remote_title<F: FontSystem + Default>() -> i32 {
                             let current = history.current.and_then(|id| history.entries.get(id.0)).cloned();
                             let done = current
                                 .as_ref()
-                                .is_some_and(|e| e.url.path() == path && e.title.as_deref() == Some("Same"));
+                                .is_some_and(|e| e.url.path() == path && e.title.as_deref() == Some(title));
                             last = current;
                             if done {
                                 break;
@@ -2745,11 +2749,45 @@ fn engine_remote_title<F: FontSystem + Default>() -> i32 {
                     .iter()
                     .any(|v| v.url.ends_with(path) && v.visit_count == 1 && v.title == "Same")
             };
-            if visits.len() != 2 || !once("/a") || !once("/b") {
+            if !once("/a") || !once("/b") {
                 eprintln!("expected /a and /b visited once each, titled: {visits:?}");
                 return 1;
             }
             println!("each page counted as one visit, with its title");
+
+            // Back to /c, whose load takes a while: the cursor is on /c's entry
+            // at once, and /d is still the document shown. A full render of /d
+            // meanwhile (a new viewport) reports "D" again, which belongs to
+            // /d's entry and must not land on /c's.
+            let _ = tab.send(TabCommand::GoBack).await;
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1024,
+                    height: 600,
+                })
+                .await;
+            let watch = tokio::time::Instant::now() + SLOW - std::time::Duration::from_millis(500);
+            loop {
+                let remaining = watch.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::HistoryChanged { history },
+                        ..
+                    })) => {
+                        if let Some(c) = history.entries.iter().find(|e| e.url.path() == "/c") {
+                            if c.title.as_deref() == Some("D") {
+                                eprintln!("the shown page's title landed on the entry being traversed to: {c:?}");
+                                return 1;
+                            }
+                        }
+                    }
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    _ => break,
+                }
+            }
+            println!("a title reported during a traversal stays with its own entry");
             engine.close_zone(zone).await;
             let _ = engine.shutdown().await;
             0
