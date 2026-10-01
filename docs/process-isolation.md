@@ -142,13 +142,14 @@ the tiers and why they exist.
    invocations into the child role instead of the embedder's startup. Plain
    `dispatch()` works for the net and decoder roles but cannot run the fork
    server, which needs the concrete `RenderConfiguration` type. The call also
-   registers itself: an engine whose process never dispatched turns the three
+   registers itself: an engine whose process never dispatched turns all five
    `security.*` process settings off at `start()` with one warning naming the
    omission, so a child can never re-exec into the embedder's startup (a child
    that was somehow started that way refuses to spawn further processes too).
 2. **Flip the settings before `start()`** (they are read once at startup):
    `security.network_process`, `security.image_decoder_process`,
-   `security.renderer_process`.
+   `security.renderer_process`, `security.cookie_vault`,
+   `security.storage_service`.
 3. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
    the child; `RenderConfiguration::forked_tile_rasterizer` must return one.
    `DefaultRenderConfig` does so when the engine's `cairo-tiles` (or
