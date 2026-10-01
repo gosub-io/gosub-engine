@@ -122,6 +122,12 @@ const MEDIA_CACHE_BUDGET: usize = 64 * 1024 * 1024;
 /// Fetch threads per tab. The rest queue; the renderer re-asks after every
 /// completion anyway.
 const MAX_MEDIA_FETCHERS: usize = 6;
+/// Entries this cache keeps per tab, failed and empty loads included: they
+/// cost no budget bytes, so the byte budget alone never lets them go.
+const MAX_MEDIA_ENTRIES: usize = 4096;
+/// Fetches waiting for a fetcher thread. Past it an image fails outright (a
+/// placeholder) rather than lengthening the queue.
+const MAX_MEDIA_QUEUE: usize = 4096;
 
 type MediaLoader = std::sync::Arc<dyn crate::net::resource_loader::ResourceLoader>;
 
@@ -156,7 +162,7 @@ impl MediaEntries {
         self.by_url.insert(key.clone(), fetched);
         // Oldest first, but never the entry just stored: the renderer has not
         // had it yet.
-        while self.bytes > MEDIA_CACHE_BUDGET {
+        while self.bytes > MEDIA_CACHE_BUDGET || self.by_url.len() > MAX_MEDIA_ENTRIES {
             let Some(oldest) = self.order.front().cloned() else {
                 break;
             };
@@ -164,8 +170,8 @@ impl MediaEntries {
                 break;
             }
             self.order.pop_front();
-            if let Some(Ok(gone)) = self.by_url.remove(&oldest) {
-                self.bytes = self.bytes.saturating_sub(gone.body.len());
+            if let Some(gone) = self.by_url.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(gone.map_or(0, |r| r.body.len()));
             }
         }
     }
@@ -206,6 +212,11 @@ impl RemoteMediaCache {
         // fetcher finishing right now cannot miss what was just queued.
         let mut queue = self.queue.lock();
         if queue.fetchers >= MAX_MEDIA_FETCHERS {
+            if queue.waiting.len() >= MAX_MEDIA_QUEUE {
+                drop(queue);
+                self.in_flight.lock().remove(&key);
+                return Err(LoadError::Failed("too many images waiting to load".into()));
+            }
             queue.waiting.push_back((url.clone(), loader));
             return Err(LoadError::Pending);
         }
@@ -1197,6 +1208,45 @@ mod tests {
         entries.insert("a".into(), loaded(10));
         assert_eq!(entries.bytes, 10);
         assert_eq!(entries.order.len(), 1);
+    }
+
+    /// Failed and empty loads count as entries: the byte budget never lets
+    /// them go, the entry cap does.
+    #[test]
+    fn entries_are_capped_failures_included() {
+        let mut entries = MediaEntries::default();
+        for i in 0..MAX_MEDIA_ENTRIES + 10 {
+            entries.insert(format!("u{i}"), Err("404".into()));
+        }
+        assert_eq!(entries.by_url.len(), MAX_MEDIA_ENTRIES);
+        assert_eq!(entries.order.len(), MAX_MEDIA_ENTRIES);
+        assert!(
+            entries.by_url.contains_key(&format!("u{}", MAX_MEDIA_ENTRIES + 9)),
+            "the newest stays"
+        );
+        assert!(!entries.by_url.contains_key("u0"), "the oldest goes");
+    }
+
+    /// A full fetch queue answers a further image as failed, without queueing
+    /// it or leaving it marked in flight.
+    #[test]
+    fn a_full_queue_fails_the_next_image() {
+        let cache = std::sync::Arc::new(RemoteMediaCache::default());
+        {
+            let mut queue = cache.queue.lock();
+            queue.fetchers = MAX_MEDIA_FETCHERS;
+            let url = url::Url::parse("https://img.test/waiting").unwrap();
+            let loader: MediaLoader = std::sync::Arc::new(crate::net::resource_loader::NoResourceLoader);
+            for _ in 0..MAX_MEDIA_QUEUE {
+                queue.waiting.push_back((url.clone(), std::sync::Arc::clone(&loader)));
+            }
+        }
+        let url = url::Url::parse("https://img.test/one-more").unwrap();
+        let loader: MediaLoader = std::sync::Arc::new(crate::net::resource_loader::NoResourceLoader);
+        let answer = cache.lookup_or_fetch(&url, loader);
+        assert!(matches!(answer, Err(LoadError::Failed(_))), "{answer:?}");
+        assert_eq!(cache.queue.lock().waiting.len(), MAX_MEDIA_QUEUE);
+        assert!(!cache.in_flight.lock().contains(url.as_str()));
     }
 
     /// A reused tile keeps the opacity and anchor it was shipped with; the
