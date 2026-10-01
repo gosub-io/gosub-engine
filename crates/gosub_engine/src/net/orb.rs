@@ -179,13 +179,42 @@ fn sniffs_as_xml(body: &[u8]) -> bool {
 
 fn sniffs_as_json(body: &[u8]) -> bool {
     let text = leading_text(body);
-    // The anti-hijacking prefix some APIs emit, or an object/array opener.
-    text.starts_with(b")]}'") || text.starts_with(b"{") || text.starts_with(b"[")
+    // The anti-hijacking prefix some APIs emit.
+    if text.starts_with(b")]}'") {
+        return true;
+    }
+    if !text.starts_with(b"{") && !text.starts_with(b"[") {
+        return false;
+    }
+    // An opener alone is not JSON: untyped script can start with `[` or a
+    // `{` block too. It is JSON if it parses, or if the parse only ran out of
+    // input - the sniff sees at most SNIFF_LEN bytes of a longer body.
+    match serde_json::from_slice::<serde_json::Value>(text) {
+        Ok(_) => true,
+        Err(error) => error.is_eof(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// JSON is blocked whether it fits the sniff or is cut off by it; script
+    /// that merely starts with `[` or `{` is not mistaken for it.
+    #[test]
+    fn json_is_told_from_script_that_starts_like_it() {
+        let block = |body: &[u8]| verdict(false, None, false, 200, body) != OrbVerdict::Allow;
+        assert!(block(br#"{"user": "x", "token": "secret"}"#));
+        assert!(block(b"[1, 2, 3]"));
+        assert!(block(b")]}'\n{\"a\":1}"));
+        // A JSON array longer than the sniff: truncated mid-value, still JSON.
+        let long = format!("[{}]", vec!["\"padding-entry\""; 200].join(","));
+        assert!(long.len() > SNIFF_LEN);
+        assert!(block(long.as_bytes()));
+        // Untyped script that happens to open with an array or a block.
+        assert!(!block(b"[1, 2].forEach(function (n) { console.log(n); });"));
+        assert!(!block(b"{ init(); }"));
+    }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
 
