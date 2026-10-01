@@ -223,6 +223,11 @@ pub struct PageSummary {
     /// Where the page's `#fragment` targets are: the broker keeps no layout
     /// of a remotely rendered page, so navigating to `#section` looks here.
     pub fragment_targets: Vec<FragmentTarget>,
+    /// The renderer has no page retained for this tab (replaced after a
+    /// crash, or past its retained-page limit), so this pass rendered
+    /// nothing. Said outright: an empty answer from a retained page - a blank
+    /// page lays out 0px tall - looks the same otherwise.
+    pub no_page: bool,
 }
 
 /// An element a `#fragment` can scroll to, in layout order.

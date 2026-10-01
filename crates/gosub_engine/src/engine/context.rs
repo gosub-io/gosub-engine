@@ -1391,16 +1391,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         match result {
             Ok(page) if !stale => {
-                // A scroll or hover answered with nothing at all means the
-                // renderer no longer has this page (replaced after a crash, or
-                // past its retained-page limit): only a full render gets the
-                // tiles back. A pass on a retained page always carries its
-                // page height, even when nothing needed repainting.
-                if matches!(inflight.what, RemotePass::Scroll | RemotePass::Hover)
-                    && page.summary.page_height <= 0.0
-                    && page.tiles.is_empty()
-                    && page.evicted.is_empty()
-                {
+                // The renderer no longer has this page (replaced after a
+                // crash, or past its retained-page limit): only a full render
+                // gets the tiles back.
+                if matches!(inflight.what, RemotePass::Scroll | RemotePass::Hover) && page.summary.no_page {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
                     self.damage.rebuild();
                 } else if matches!(inflight.what, RemotePass::Media) {
@@ -3340,6 +3334,27 @@ mod tests {
             }
         }
 
+        /// What a renderer that retains no page for the tab answers.
+        fn no_page() -> crate::fork_server::client::RenderedPage {
+            let mut page = empty_page();
+            page.summary.no_page = true;
+            page
+        }
+
+        /// A blank page lays out 0px tall and a hover over it repaints
+        /// nothing: an empty answer from a page the renderer does retain,
+        /// which must not cost a full render per pointer move.
+        #[test]
+        fn an_empty_hover_pass_on_a_blank_page_does_not_render_again() {
+            let mut ctx = answered(RemotePass::Hover, 0.0, empty_page());
+            ctx.poll_remote_passes();
+            assert!(
+                !matches!(ctx.damage.level(), crate::engine::damage::DamageLevel::Rebuild),
+                "{:?}",
+                ctx.damage.level()
+            );
+        }
+
         /// A media pass rendered the window where the viewport was when it
         /// started; if the viewport moved on meanwhile, the new spot still
         /// needs rendering rather than being taken as rendered.
@@ -3360,11 +3375,11 @@ mod tests {
             assert!(ctx.raster_dirty, "the viewport moved past what the pass rendered");
         }
 
-        /// A renderer that no longer retains the page answers a hover with
-        /// nothing, as it does a scroll: the tab renders the page again.
+        /// A renderer that no longer retains the page says so for a hover as
+        /// for a scroll: the tab renders the page again.
         #[test]
         fn an_empty_hover_pass_renders_the_page_again() {
-            let mut ctx = answered(RemotePass::Hover, 0.0, empty_page());
+            let mut ctx = answered(RemotePass::Hover, 0.0, no_page());
             ctx.poll_remote_passes();
             assert!(
                 matches!(ctx.damage.level(), crate::engine::damage::DamageLevel::Rebuild),

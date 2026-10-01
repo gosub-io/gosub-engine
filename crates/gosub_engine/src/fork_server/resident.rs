@@ -168,7 +168,10 @@ fn incremental_pass(
             run(page)
         }
         None => renderer::RenderPass {
-            summary: PageSummary::default(),
+            summary: PageSummary {
+                no_page: true,
+                ..PageSummary::default()
+            },
             tiles: Vec::new(),
             evicted: Vec::new(),
         },

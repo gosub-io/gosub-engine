@@ -391,6 +391,7 @@ impl RetainedPage {
             layer_order: self.layer_ids.iter().map(|id| id.as_u64()).collect(),
             timings_us,
             fragment_targets: self.fragment_targets.clone(),
+            no_page: false,
         }
     }
 
