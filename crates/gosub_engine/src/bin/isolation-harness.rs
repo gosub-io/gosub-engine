@@ -3928,6 +3928,9 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
             let deadline = started + std::time::Duration::from_secs(seconds);
 
             let mut lost_all_tabs = false;
+            // Engine events this run never saw (the receiver fell behind): a
+            // crash among them would go uncounted, so the run cannot pass.
+            let mut events_lost = false;
             while tokio::time::Instant::now() < deadline {
                 // Closing a tab reopens one; if that failed on the last tab there is
                 // nothing left to drive, and the run is a failure, not a pass.
@@ -4011,6 +4014,10 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
                                 println!("{} !!! RENDERER CRASHED for {site} (tabs {slots:?}): {error}", stamp());
                             }
                             Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                events_lost = true;
+                                println!("{} !!! {n} engine events lost: crashes among them would go uncounted", stamp());
+                            }
                             Err(_) => {}
                         },
                         event = firehose.recv() => if let Ok(event) = event {
@@ -4094,7 +4101,7 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
             );
             engine.close_zone(zone).await;
             let _ = engine.shutdown().await;
-            i32::from(crashes > 0 || lost_all_tabs)
+            i32::from(crashes > 0 || lost_all_tabs || events_lost)
         })
     }
     #[cfg(not(target_os = "linux"))]
