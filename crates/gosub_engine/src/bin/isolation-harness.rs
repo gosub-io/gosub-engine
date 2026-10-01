@@ -3455,6 +3455,7 @@ fn vault() -> i32 {
         }
         let scope = CookieScope {
             ticket: 0,
+            url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
             samesite: SameSite::SameSite,
@@ -3503,11 +3504,11 @@ fn vault() -> i32 {
         let mut net_jar = VaultCookieJar::new(Arc::clone(&net_vault), zone);
         net_jar.store_response_cookies(&url, &set_cookie(&["sid=abc; Path=/"]), None);
         use gosub_engine::cookie_vault::protocol::{FromVault, ToVault};
-        let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| -> Option<String> {
+        let ask_at = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, at: &str| -> Option<String> {
             link.send(&ToVault::Get {
                 tag: 7,
                 scope,
-                url: url.to_string(),
+                url: at.to_string(),
                 visible_only: false,
             })
             .ok()?;
@@ -3516,8 +3517,19 @@ fn vault() -> i32 {
                 _ => None,
             }
         };
+        let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| ask_at(link, scope, url.as_str());
+        let store_on_line = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, cookie: &str| -> bool {
+            let sent = link.send(&ToVault::Store {
+                tag: 8,
+                scope,
+                url: url.to_string(),
+                set_cookie: vec![cookie.to_string()],
+            });
+            sent.is_ok() && matches!(link.recv::<FromVault>(), Ok(FromVault::Stored { .. }))
+        };
         let claimed = CookieScope {
             ticket: 424242,
+            url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
             samesite: SameSite::SameSite,
@@ -3540,13 +3552,60 @@ fn vault() -> i32 {
             eprintln!("a granted ticket should answer from the grant's zone, got {got:?}");
             return 1;
         }
+        if ask(&mut net_link, claimed.clone()).is_some() {
+            eprintln!("a ticket read cookies twice");
+            return 1;
+        }
         net_vault.revoke(&claimed);
+
+        // An unspent ticket is dead once revoked.
+        let revoked = CookieScope {
+            ticket: 515151,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&revoked) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        net_vault.revoke(&revoked);
         std::thread::sleep(std::time::Duration::from_millis(100));
-        if ask(&mut net_link, claimed).is_some() {
+        if ask(&mut net_link, revoked).is_some() {
             eprintln!("the network line answered a revoked ticket");
             return 1;
         }
-        println!("network line honours grants only");
+
+        // A ticket reads at the URL it was granted for, and stores once.
+        let bound = CookieScope {
+            ticket: 616161,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&bound) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        if ask_at(&mut net_link, bound.clone(), "https://example.test/elsewhere").is_some() {
+            eprintln!("a ticket read cookies for a URL it was not granted for");
+            return 1;
+        }
+        if !ask(&mut net_link, bound.clone()).is_some_and(|got| got.contains("sid=abc")) {
+            eprintln!("a ticket should still read at its own URL after a refused one");
+            return 1;
+        }
+        if !(store_on_line(&mut net_link, bound.clone(), "first=1; Path=/")
+            && store_on_line(&mut net_link, bound.clone(), "second=1; Path=/"))
+        {
+            eprintln!("a store on the network line went unacknowledged");
+            return 1;
+        }
+        net_vault.revoke(&bound);
+        let held = net_vault
+            .get(CookieScope { ticket: 0, ..bound }, &url, false)
+            .unwrap_or_default();
+        if !held.contains("first=1") || held.contains("second=1") {
+            eprintln!("a ticket should store once, the jar holds {held:?}");
+            return 1;
+        }
+        println!("network line honours grants only, one request's worth each");
 
         // A zone with a SQLite store: the vault's snapshots reach the file
         // through the broker, and a fresh store on the same file has them.

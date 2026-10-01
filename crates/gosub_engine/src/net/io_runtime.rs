@@ -438,6 +438,7 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?;
     Some(CookieScope {
         ticket: uuid::Uuid::new_v4().as_u128(),
+        url: req.url.to_string(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
         samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),

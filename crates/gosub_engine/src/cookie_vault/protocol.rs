@@ -4,7 +4,8 @@
 //! Identity is never a claim. On the broker's link the `zone` is the broker's
 //! own bookkeeping. On the network process's link every `Get`/`Store` names a
 //! ticket the broker granted for that one request, and the vault answers from
-//! the grant's scope, not the caller's. `visible_only` is the HttpOnly split -
+//! the grant's scope, not the caller's: one `Get` at the granted URL, one
+//! `Store`. `visible_only` is the HttpOnly split -
 //! the `document.cookie` view versus the full set that goes on the wire -
 //! enforced here rather than in whoever asks.
 

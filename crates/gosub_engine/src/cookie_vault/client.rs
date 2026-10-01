@@ -421,6 +421,7 @@ impl CookieVault {
             tag: 0,
             scope: CookieScope {
                 ticket: 0,
+                url: url.to_string(),
                 zone: zone.to_string(),
                 top_level: top_level.map(|u| u.to_string()),
                 samesite: SameSite::SameSite,
@@ -627,6 +628,7 @@ impl CookieJar for VaultCookieJar {
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
         let scope = CookieScope {
             ticket: 0,
+            url: url.to_string(),
             zone: self.zone.clone(),
             top_level: top_level.map(|u| u.to_string()),
             samesite: SameSite::from(samesite),

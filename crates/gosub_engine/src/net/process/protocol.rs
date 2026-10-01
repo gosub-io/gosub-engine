@@ -114,7 +114,7 @@ impl From<SameSite> for crate::engine::cookies::SameSiteContext {
     }
 }
 
-/// A random, single-use request capability (see [`CookieScope::ticket`]).
+/// A random per-request capability (see [`CookieScope::ticket`]).
 pub type Ticket = u128;
 
 /// Whose cookies a request is about: the tab's zone and the document it is
@@ -124,8 +124,15 @@ pub type Ticket = u128;
 pub struct CookieScope {
     /// A per-request capability the broker granted to the vault before
     /// dispatch; the vault answers the network process for granted tickets
-    /// only, and from the grant's own scope. `0` on the broker's link.
+    /// only, and from the grant's own scope. It covers one request: one `Get`
+    /// at [`Self::url`] and one `Store`, until the broker revokes it or it
+    /// expires. `0` on the broker's link.
     pub ticket: Ticket,
+    /// The URL the request was granted for: under a ticket, the only one the
+    /// network process may read cookies for. The `Store` names where the
+    /// request ended instead, which a redirect may have moved - that much
+    /// stays the network process's word, as `final_url` does.
+    pub url: String,
     pub zone: String,
     pub top_level: Option<String>,
     pub samesite: SameSite,

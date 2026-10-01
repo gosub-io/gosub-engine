@@ -33,7 +33,15 @@ use url::Url;
 type Jars = Arc<Mutex<HashMap<String, DefaultCookieJar>>>;
 
 /// Tickets the broker granted, each for one request of the network process.
-type Grants = Arc<Mutex<HashMap<Ticket, (CookieScope, Instant)>>>;
+type Grants = Arc<Mutex<HashMap<Ticket, (CookieScope, Instant, Used)>>>;
+
+/// What a ticket was spent on: a request reads its cookies once and stores
+/// its response's once.
+#[derive(Default)]
+struct Used {
+    get: bool,
+    store: bool,
+}
 
 /// Longer than any request may live; a grant the broker never revoked
 /// (it died mid-request) goes away on its own.
@@ -86,12 +94,12 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
             ToVault::Shutdown => break,
             ToVault::Grant { tag, scope } => {
                 let mut grants = grants.lock();
-                grants.retain(|_, (_, since)| since.elapsed() < GRANT_TTL);
+                grants.retain(|_, (_, since, _)| since.elapsed() < GRANT_TTL);
                 let reply = if grants.len() >= MAX_GRANTS {
                     eprintln!("[vault] refusing a grant: {MAX_GRANTS} outstanding");
                     FromVault::Refused { tag }
                 } else {
-                    grants.insert(scope.ticket, (scope, Instant::now()));
+                    grants.insert(scope.ticket, (scope, Instant::now(), Used::default()));
                     FromVault::Granted { tag }
                 };
                 drop(grants);
@@ -116,15 +124,33 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
 
 /// The network process's line: `Get`/`Store` only, each under a granted
 /// ticket, and acted on with the grant's scope - the zone and document the
-/// broker recorded, whatever the message claims. A `Store` still publishes
-/// its snapshot on the broker link, which is where persistence happens.
+/// broker recorded, whatever the message claims. A ticket buys one `Get` at
+/// the URL it was granted for and one `Store` at a web URL. A `Store` still
+/// publishes its snapshot on the broker link, which is where persistence
+/// happens.
 fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<EndpointTx>>) {
     let (tx, mut rx) = link.split();
     let tx = Arc::new(Mutex::new(tx));
-    let granted = |claimed: &CookieScope| -> Option<CookieScope> {
-        let grants = grants.lock();
-        let (scope, since) = grants.get(&claimed.ticket)?;
-        (since.elapsed() < GRANT_TTL).then(|| scope.clone())
+    // Spends the ticket's `Get` or `Store`. A refused claim spends nothing.
+    let claim = |claimed: &CookieScope, url: &str, store: bool| -> Option<CookieScope> {
+        let mut grants = grants.lock();
+        let (scope, since, used) = grants.get_mut(&claimed.ticket)?;
+        if since.elapsed() >= GRANT_TTL {
+            return None;
+        }
+        if store {
+            let web = Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+            if used.store || !web {
+                return None;
+            }
+            used.store = true;
+        } else {
+            if used.get || url != scope.url {
+                return None;
+            }
+            used.get = true;
+        }
+        Some(scope.clone())
     };
     while let Ok(msg) = rx.recv::<ToVault>() {
         match msg {
@@ -139,7 +165,7 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                 url,
                 visible_only,
             } => {
-                let reply = match granted(&scope) {
+                let reply = match claim(&scope, &url, false) {
                     Some(scope) => handle(
                         ToVault::Get {
                             tag,
@@ -151,7 +177,7 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                         &snapshots,
                     ),
                     None => {
-                        eprintln!("[vault] cookies asked for without a grant; none given");
+                        eprintln!("[vault] cookies asked for outside a grant; none given");
                         Some(FromVault::Cookies { tag, header: None })
                     }
                 };
@@ -167,7 +193,7 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                 url,
                 set_cookie,
             } => {
-                match granted(&scope) {
+                match claim(&scope, &url, true) {
                     Some(scope) => {
                         handle(
                             ToVault::Store {
@@ -180,7 +206,7 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                             &snapshots,
                         );
                     }
-                    None => eprintln!("[vault] cookies stored without a grant; dropped"),
+                    None => eprintln!("[vault] cookies stored outside a grant; dropped"),
                 }
                 // Acknowledged either way: the asker is waiting.
                 if tx.lock().send(&FromVault::Stored { tag }).is_err() {
