@@ -275,6 +275,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// processes are on by default on Linux only, until the macOS and Windows
     /// backends have run in CI; the renderer tier has conditions of its own,
     /// checked in `start_renderer_process`.
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     fn resolve_isolation_settings(&self) {
         const PROCESS_SETTINGS: [&str; 5] = [
             "security.network_process",
