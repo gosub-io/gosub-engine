@@ -821,6 +821,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Handle a key press. Keys act on the page (focus traversal, link activation,
     /// scrolling); the shell has already consumed its own shortcuts before forwarding.
     /// Text editing is not here yet - that arrives with the editing slice of M1.
+    /// Where a page's link may take the tab, clicked or activated from the
+    /// keyboard alike: to the web, or from a file page to another file - never
+    /// to an internal page. `None` when it may not, or `href` does not resolve.
+    fn page_link_target(&self, href: &str) -> Option<Url> {
+        let current = self.current_url.as_ref()?;
+        let url = current.join(href).ok()?;
+        let allowed =
+            matches!(url.scheme(), "http" | "https") || (url.scheme() == "file" && current.scheme() == "file");
+        if !allowed {
+            log::debug!("link to {href} not followed: scheme not allowed from a page");
+            return None;
+        }
+        Some(url)
+    }
+
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
         // The focused control gets non-Tab keys first (typing; more editing follows).
         if key != "Tab" {
@@ -857,14 +872,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             // Activate a focused link.
             "Enter" => {
-                if let Some(href) = self.context.focused_link() {
-                    let resolved = self
-                        .current_url
-                        .as_ref()
-                        .and_then(|base| base.join(&href).ok())
-                        .map(|u| u.to_string())
-                        .unwrap_or(href);
-                    self.navigate_to(resolved, false, HistoryIntent::Push);
+                if let Some(url) = self
+                    .context
+                    .focused_link()
+                    .and_then(|href| self.page_link_target(&href))
+                {
+                    self.navigate_to(url.to_string(), false, HistoryIntent::Push);
                 }
                 ControlFlow::Continue
             }
@@ -1183,19 +1196,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
-                        let resolved = self.current_url.as_ref().and_then(|base| base.join(&href).ok());
-                        // A page's link may take the tab to the web, or a file
-                        // page to another file: never to an internal page.
-                        let allowed = resolved.as_ref().is_some_and(|url| {
-                            matches!(url.scheme(), "http" | "https")
-                                || (url.scheme() == "file"
-                                    && self.current_url.as_ref().is_some_and(|cur| cur.scheme() == "file"))
-                        });
-                        match resolved {
-                            Some(url) if allowed => {
-                                self.navigate_to(url.to_string(), false, HistoryIntent::Push);
-                            }
-                            _ => log::debug!("link to {href} not followed: scheme not allowed from a page"),
+                        if let Some(url) = self.page_link_target(&href) {
+                            self.navigate_to(url.to_string(), false, HistoryIntent::Push);
                         }
                         return ControlFlow::Continue;
                     }

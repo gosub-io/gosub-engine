@@ -1592,6 +1592,74 @@ mod tests {
         );
     }
 
+    /// Enter on a focused link goes through the same scheme check as a click:
+    /// a page's link never opens an internal page.
+    #[tokio::test]
+    async fn enter_on_a_link_does_not_open_an_internal_page() {
+        use crate::events::{Modifiers, NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body><a href=\"gosub://settings\">settings</a></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            ))
+            .await,
+            "the page never loaded"
+        );
+
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        let opened = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Started { url, .. },
+                    ..
+                }) = event_rx.recv().await
+                {
+                    return url;
+                }
+            }
+        })
+        .await;
+        assert!(opened.is_err(), "Enter on a page's gosub: link navigated: {opened:?}");
+    }
+
     #[tokio::test]
     async fn session_history_back_and_forward() {
         use crate::events::NavigationEvent;
