@@ -47,14 +47,17 @@ impl FileLocalStore {
         &self.dir
     }
 
-    pub fn area_for(&self, zone: &str, partition: &str, origin: &str) -> Arc<FileArea> {
+    /// Fails when the area's file exists but cannot be read or parsed; that
+    /// is not cached, so the next use tries again.
+    pub fn area_for(&self, zone: &str, partition: &str, origin: &str) -> Result<Arc<FileArea>> {
         let path = self.dir.join(area_file_name(zone, partition, origin));
         let mut areas = self.areas.lock();
-        Arc::clone(
-            areas
-                .entry(path.clone())
-                .or_insert_with(|| Arc::new(FileArea::load(path))),
-        )
+        if let Some(area) = areas.get(&path) {
+            return Ok(Arc::clone(area));
+        }
+        let area = Arc::new(FileArea::load(path.clone())?);
+        areas.insert(path, Arc::clone(&area));
+        Ok(area)
     }
 }
 
@@ -88,7 +91,8 @@ fn area_file_name(zone: &str, partition: &str, origin: &str) -> String {
 
 impl LocalStore for FileLocalStore {
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {
-        Ok(self.area_for(&zone.to_string(), &partition_name(part), &origin.ascii_serialization()))
+        let area = self.area_for(&zone.to_string(), &partition_name(part), &origin.ascii_serialization())?;
+        Ok(area)
     }
 
     fn service_directory(&self) -> Option<PathBuf> {
@@ -104,15 +108,20 @@ pub struct FileArea {
 }
 
 impl FileArea {
-    fn load(path: PathBuf) -> Self {
-        let items = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<HashMap<String, String>>(&bytes).ok())
-            .unwrap_or_default();
-        Self {
+    /// Only a missing file is a new, empty area. One that cannot be read or
+    /// parsed is an error: handed out empty, the next write would replace it
+    /// and erase whatever it held.
+    fn load(path: PathBuf) -> Result<Self> {
+        let items = match std::fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice::<HashMap<String, String>>(&bytes)
+                .map_err(|e| anyhow!("area file {} is damaged: {e}", path.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+            Err(e) => return Err(anyhow!("area file {} cannot be read: {e}", path.display())),
+        };
+        Ok(Self {
             path,
             items: Mutex::new(items),
-        }
+        })
     }
 
     /// Written beside the area and renamed over it, so a crash mid-write
@@ -243,7 +252,7 @@ mod tests {
     fn a_failed_write_is_rolled_back() {
         let dir = scratch("rollback");
         let store = FileLocalStore::open(&dir).expect("open");
-        let area = store.area_for("zone", "", "https://r.test");
+        let area = store.area_for("zone", "", "https://r.test").expect("area");
         area.set_item("kept", "1").expect("set");
         // The staging file's name taken by a directory: every later write fails.
         std::fs::create_dir(area.path.with_extension("json.new")).expect("block staging");
@@ -314,6 +323,22 @@ mod tests {
         assert_eq!(a.len(), 2);
         assert!(a.get_item("b2").is_none());
         assert_eq!(a.get_item("small").as_deref(), Some("x"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A damaged area file is refused, not handed out empty and overwritten.
+    #[test]
+    fn a_damaged_area_file_is_not_replaced() {
+        let dir = scratch("damaged");
+        let store = FileLocalStore::open(&dir).expect("open");
+        let path = dir.join(area_file_name("zone", "none", "https://d.test"));
+        std::fs::write(&path, b"{not json").expect("write");
+        assert!(store.area_for("zone", "none", "https://d.test").is_err());
+        assert!(
+            store.area_for("zone", "none", "https://d.test").is_err(),
+            "a failed load is not cached as an empty area"
+        );
+        assert_eq!(std::fs::read(&path).expect("read"), b"{not json");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
