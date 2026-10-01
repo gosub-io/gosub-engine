@@ -7,8 +7,9 @@
 //! ## Limitations
 //! - `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`, `HttpOnly`, and `SameSite`
 //!   are parsed and enforced; expired cookies are filtered on read and removed via
-//!   [`CookieJar::purge_expired`]. Priorities, size limits, and eviction policies
-//!   are not (yet) implemented.
+//!   [`CookieJar::purge_expired`]. A `Set-Cookie` line over 4096 bytes is
+//!   ignored, and an origin keeps at most 180 cookies: expired ones make room
+//!   first, then the oldest. Priorities are not implemented.
 //! - Cookies are bucketed by origin (`url.origin().ascii_serialization()`).
 //! - This module is not internally synchronized. Use it via a
 //!   `CookieJarHandle = Arc<RwLock<dyn CookieJar + Send + Sync>>`.
