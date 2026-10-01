@@ -561,13 +561,14 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
+                let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
-                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                    // A touchpad reports physical pixels; the page scrolls in CSS ones.
+                    MouseScrollDelta::PixelDelta(p) => (css_delta(p.x, dpr), css_delta(p.y, dpr)),
                 };
                 // The page height is in CSS pixels; so must the visible height be.
                 let (w, h) = self.content_size();
-                let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
                 let (_, content_h) = css_viewport(w, h, dpr);
                 if let Some(tab) = self.tabs.get_mut(self.active) {
                     let max_y = (tab.page_height - content_h as f32).max(0.0);
@@ -1014,6 +1015,11 @@ fn css_viewport(physical_w: u32, physical_h: u32, dpr: u32) -> (u32, u32) {
     (css(physical_w), css(physical_h))
 }
 
+/// A physical-pixel scroll distance in CSS pixels.
+fn css_delta(physical: f64, dpr: u32) -> f32 {
+    (physical / f64::from(dpr.max(1))) as f32
+}
+
 /// A window y (physical pixels) as a page y (CSS pixels). The chrome is drawn
 /// in physical pixels, so it comes off before the device-pixel ratio does.
 fn content_y_at(physical_y: f64, dpr: f64, scroll_y: f64) -> f32 {
@@ -1035,7 +1041,14 @@ fn fit_label(label: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_y_at, css_viewport, fit_label, CHROME_HEIGHT};
+    use super::{content_y_at, css_delta, css_viewport, fit_label, CHROME_HEIGHT};
+
+    #[test]
+    fn a_pixel_scroll_moves_the_page_in_css_pixels() {
+        assert_eq!(css_delta(100.0, 2), 50.0);
+        assert_eq!(css_delta(-30.0, 1), -30.0);
+        assert_eq!(css_delta(40.0, 0), 40.0, "no ratio yet counts as 1");
+    }
 
     #[test]
     fn the_viewport_goes_out_in_css_pixels() {
