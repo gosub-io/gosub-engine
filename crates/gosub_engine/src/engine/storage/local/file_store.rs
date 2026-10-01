@@ -235,7 +235,7 @@ mod tests {
     /// The quota counts what is written: escaped quotes take twice their raw size.
     #[test]
     fn the_quota_is_measured_on_the_serialized_bytes() {
-        let dir = scratch("quota");
+        let dir = scratch("serialized-quota");
         let store = FileLocalStore::open(&dir).expect("open");
         let area = store
             .area(ZoneId::new(), &PartitionKey::None, &origin("https://q.test"))
@@ -268,8 +268,7 @@ mod tests {
 
     #[test]
     fn areas_are_isolated_and_persist_across_reopen() {
-        let dir = std::env::temp_dir().join(format!("gosub-file-store-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = scratch("reopen");
         let zone = ZoneId::new();
         {
             let store = FileLocalStore::open(&dir).expect("open");
@@ -304,8 +303,7 @@ mod tests {
 
     #[test]
     fn quotas_are_enforced_and_leave_state_intact() {
-        let dir = std::env::temp_dir().join(format!("gosub-file-store-quota-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = scratch("quota");
         let store = FileLocalStore::open(&dir).expect("open");
         let a = store
             .area(ZoneId::new(), &PartitionKey::None, &origin("https://q.test"))
