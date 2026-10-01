@@ -246,12 +246,17 @@ impl AddressSpaceCache {
                 return *space;
             }
         }
-        let space = match lookup(&key).await {
-            Ok(addrs) => space_of(addrs.into_iter()),
+        match lookup(&key).await {
+            Ok(addrs) => {
+                let space = space_of(addrs.into_iter());
+                self.hosts.lock().insert(key, (Instant::now(), space));
+                space
+            }
+            // Not remembered: one failed lookup would otherwise hold a page's
+            // own neighbours to the public policy for the whole TTL; the next
+            // request asks again.
             Err(_) => AddressSpace::Public,
-        };
-        self.hosts.lock().insert(key, (Instant::now(), space));
-        space
+        }
     }
 }
 
@@ -366,6 +371,18 @@ mod tests {
             parse_ip_literal("[fe80::1%25eth0]").map(|ip| blocked_ip_reason(ip).is_some()),
             Some(true)
         );
+    }
+
+    /// A name that does not resolve is public for this request, and not
+    /// remembered as such: the next one resolves again.
+    #[tokio::test]
+    async fn a_failed_lookup_is_not_remembered() {
+        let cache = AddressSpaceCache::new();
+        assert_eq!(
+            cache.classify(&url("http://no-such-host.invalid/")).await,
+            AddressSpace::Public
+        );
+        assert!(cache.hosts.lock().is_empty());
     }
 
     #[tokio::test]
