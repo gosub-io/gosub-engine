@@ -323,14 +323,13 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// [`Self::poll_remote_passes`].
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_inflight: Option<InflightPass>,
-    /// Set when this tab lets go of its resident renderer; pass threads
-    /// still running read it before registering the tab with the pool.
+    /// Which page a remote pass is for. Bumped before anything replaces
+    /// the page (a new document, a remote navigation) or lets the renderer
+    /// go (the tab closing), and shared with pass threads: one started for
+    /// an older value must not touch the pool or the renderer, and its result
+    /// is dropped rather than merged into the new page.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    remote_closed: Arc<std::sync::atomic::AtomicBool>,
-    /// Bumped per remote page render; a pass finishing for an older page is
-    /// dropped rather than merged into the new one.
-    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    remote_generation: u64,
+    remote_epoch: Arc<std::sync::atomic::AtomicU64>,
     /// The hover changed while a pass was in flight; re-raise it once done.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_hover_pending: bool,
@@ -465,9 +464,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_inflight: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            remote_closed: Default::default(),
-            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            remote_generation: 0,
+            remote_epoch: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_hover_pending: false,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -492,8 +489,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn release_remote_renderer(&mut self) {
         if let Some(RemoteRenderer::Resident { pool, tab, .. }) = self.remote_renderer.take() {
             // Before the release: a pass thread still on its way to the pool
-            // must find the tab closed (see `RendererPool::renderer_for_live`).
-            self.remote_closed.store(true, std::sync::atomic::Ordering::Release);
+            // must find its page gone (see `RendererPool::renderer_for_live`).
+            self.supersede_remote_passes();
             pool.release(tab);
         }
     }
@@ -587,7 +584,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         source: Option<std::sync::Arc<str>>,
     ) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        self.remote_media.clear();
+        {
+            self.supersede_remote_passes();
+            self.remote_media.clear();
+        }
         self.note_invalidate("document");
         self.document = doc;
         self.damage.rebuild();
@@ -1059,6 +1059,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.raster_dirty = false;
     }
 
+    /// Mark every remote pass started so far as being for an older page:
+    /// see `remote_epoch`.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn supersede_remote_passes(&self) {
+        self.remote_epoch.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
     /// A remote pass rendered the window around `rendered_at`, where the
     /// viewport was when it was asked for. Record that window, not the one
     /// around the viewport now: it may have moved on while the pass ran, and
@@ -1138,6 +1145,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// stopped the last attempt.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn try_remote_pipeline(&mut self) -> Result<(), String> {
+        // Before the render takes the renderer: a pass waiting for it must
+        // find its page superseded rather than run against the new one.
+        self.supersede_remote_passes();
         let (Some(remote), Some(source)) = (&self.remote_renderer, &self.document_source) else {
             return Err("no remote renderer or no document source".into());
         };
@@ -1230,8 +1240,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &page,
                     started.elapsed(),
                 );
-                // A pass still in flight belongs to the page this replaces.
-                self.remote_generation = self.remote_generation.wrapping_add(1);
+                // A pass still in flight belongs to the page this replaced
+                // (superseded before the render began).
                 self.remote_inflight = None;
                 self.remote_hover_pending = false;
                 self.adopt_remote_page(page);
@@ -1299,7 +1309,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
 
         let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
-        let closed = Arc::clone(&self.remote_closed);
+        let epoch = Arc::clone(&self.remote_epoch);
+        let started_for = epoch.load(std::sync::atomic::Ordering::Acquire);
         let remote_tab = self.remote_tab.clone();
         let resources = crate::fork_server::client::TabResources {
             loader: Arc::clone(&self.loader),
@@ -1319,8 +1330,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     let site = url::Url::parse(&url)
                         .map(|u| crate::fork_server::site::site_of(&u))
                         .unwrap_or_else(|_| "about:".to_string());
-                    let renderer = pool.renderer_for_live(zone, &site, tab, &closed)?;
+                    let current = || epoch.load(std::sync::atomic::Ordering::Acquire) == started_for;
+                    let renderer = pool.renderer_for_live(zone, &site, tab, &current)?;
                     let mut renderer = renderer.lock();
+                    // A navigation that took the renderer first has replaced
+                    // the page this pass was for: running it now would render
+                    // (or, for media, retain) the wrong one.
+                    if !current() {
+                        anyhow::bail!("superseded by a newer page");
+                    }
                     // Incremental passes never answer `TileUnchanged`, so
                     // there is nothing for the exchange to look up.
                     let known = crate::fork_server::client::TileMemory::default();
@@ -1352,7 +1370,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         self.remote_inflight = Some(InflightPass {
             what,
-            generation: self.remote_generation,
+            generation: started_for,
             scroll_y,
             page_url,
             rx,
@@ -1404,7 +1422,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(inflight) = self.remote_inflight.take() else {
             return changed;
         };
-        let stale = inflight.generation != self.remote_generation;
+        let stale = inflight.generation != self.remote_epoch.load(std::sync::atomic::Ordering::Acquire);
 
         match result {
             Ok(page) if !stale => {
@@ -3340,7 +3358,7 @@ mod tests {
             tx.send((Ok(page), std::time::Duration::ZERO)).unwrap();
             ctx.remote_inflight = Some(InflightPass {
                 what,
-                generation: ctx.remote_generation,
+                generation: ctx.remote_epoch.load(std::sync::atomic::Ordering::Acquire),
                 scroll_y,
                 page_url: "https://site.test/".into(),
                 rx,
@@ -3390,6 +3408,24 @@ mod tests {
             assert!(
                 ctx.raster_dirty,
                 "the viewport moved past the rastered window during the hover"
+            );
+        }
+
+        /// A pass started for the page a new document replaces is stale the
+        /// moment the document is replaced, not only once a render lands:
+        /// its media page must not be adopted.
+        #[test]
+        fn a_new_document_supersedes_a_pass_in_flight() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Media, 0.0, page);
+            let doc = gosub_html5::html_compile::<DefaultRenderConfig>("<p>the next page</p>");
+            ctx.set_document(Arc::new(doc), None);
+            ctx.poll_remote_passes();
+            assert_ne!(
+                ctx.active_page_height(),
+                Some(5000.0),
+                "the old page's media pass was adopted"
             );
         }
 

@@ -103,31 +103,33 @@ impl RendererPool {
     /// The returned lock is held by the caller for the render - requests to
     /// one process are strictly serial, so same-site tabs take turns.
     pub fn renderer_for(&self, zone: ZoneId, site: &str, tab: TabId) -> anyhow::Result<Arc<Mutex<ResidentRenderer>>> {
-        self.renderer_for_live(zone, site, tab, &std::sync::atomic::AtomicBool::new(false))
+        self.renderer_for_live(zone, site, tab, &|| true)
     }
 
-    /// [`Self::renderer_for`] for a caller that may outlive its tab: a pass
-    /// thread the tab started before it closed. `closed` is set before the
-    /// tab is released, and read under the pool lock right before the tab
-    /// would be registered, so a late ask cannot register a closed tab again
-    /// (nothing would release it a second time). A renderer spawned for it
-    /// alone goes again.
+    /// [`Self::renderer_for`] for a caller that may be out of date: a pass
+    /// thread the tab started for a page it has since navigated away from,
+    /// or before it closed. `current` turns false before the tab replaces
+    /// its page or is released, and is read under the pool lock before the
+    /// tab's placement moves and again right before it is registered (a
+    /// spawn lets the lock go in between), so a late ask neither drags the
+    /// tab back to an old site nor registers a closed one again (nothing
+    /// would release it a second time). A renderer spawned for it alone goes
+    /// again.
     pub fn renderer_for_live(
         &self,
         zone: ZoneId,
         site: &str,
         tab: TabId,
-        closed: &std::sync::atomic::AtomicBool,
+        current: &dyn Fn() -> bool,
     ) -> anyhow::Result<Arc<Mutex<ResidentRenderer>>> {
-        use std::sync::atomic::Ordering;
         let key = RendererKey {
             zone,
             site: site.to_string(),
         };
-        if closed.load(Ordering::Acquire) {
-            anyhow::bail!("the tab was closed");
-        }
         let mut state = self.state.lock();
+        if !current() {
+            anyhow::bail!("the page this was for is gone");
+        }
 
         if let Some(old) = state.placement.get(&tab).cloned() {
             if old != key {
@@ -169,13 +171,12 @@ impl RendererPool {
                 }
             }
         };
-        // Checked here, under the lock and after any spawn (which let the
-        // lock go): `release` takes this lock after setting `closed`.
-        if closed.load(Ordering::Acquire) {
+        // Again under the lock, after any spawn (which let it go).
+        if !current() {
             if state.tabs.get(&key).is_none_or(|tabs| tabs.is_empty()) {
                 self.discard(&mut state, &key);
             }
-            anyhow::bail!("the tab was closed");
+            anyhow::bail!("the page this was for is gone");
         }
         if state.placement.get(&tab) != Some(&key) {
             state.tabs.entry(key.clone()).or_default().insert(tab);

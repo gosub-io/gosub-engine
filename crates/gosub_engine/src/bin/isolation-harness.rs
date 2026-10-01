@@ -2128,26 +2128,29 @@ fn renderer_crash<F: FontSystem + Default>() -> i32 {
             return 1;
         }
 
-        // A tab that closed before its pass thread asked for a renderer (the
-        // close outran the thread) must not be registered by that late ask.
+        // A pass the tab started for a page it has since left (closed, or
+        // navigated away from) asks too late: that ask must not register a
+        // closed tab again, nor drag a live one back to its old site.
         let late = TabId::new();
-        let closed = std::sync::atomic::AtomicBool::new(true);
         pool.release(late);
         if pool
-            .renderer_for_live(zone, "https://crash.test", late, &closed)
+            .renderer_for_live(zone, "https://crash.test", late, &|| false)
             .is_ok()
         {
             eprintln!("a closed tab got a renderer, and registered again");
             return 1;
         }
-        let tabs_now: Vec<usize> = pool
-            .snapshot()
-            .iter()
-            .filter(|r| r.key.site == "https://crash.test")
-            .map(|r| r.tabs)
-            .collect();
-        if tabs_now != [1] {
-            eprintln!("a closed tab was counted: {tabs_now:?}");
+        if pool
+            .renderer_for_live(zone, "https://old-site.test", tab, &|| false)
+            .is_ok()
+        {
+            eprintln!("a superseded ask for another site got a renderer");
+            return 1;
+        }
+        let mut sites: Vec<(String, usize)> = pool.snapshot().iter().map(|r| (r.key.site.clone(), r.tabs)).collect();
+        sites.sort();
+        if sites != [("https://crash.test".to_string(), 1)] {
+            eprintln!("a superseded ask moved the tab or spawned for it: {sites:?}");
             return 1;
         }
 
