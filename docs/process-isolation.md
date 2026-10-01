@@ -7,7 +7,9 @@ pipeline the isolated renderers run is described under
 [render-pipeline/](render-pipeline/README.md).
 
 Everything here is **on by default on Linux** for an embedder that follows the
-contract below, and off elsewhere until those platforms are verified (see
+contract below - except renderer processes for a font system that reads font
+files while shaping (Pango, Skia: `FontPathsReadable`), which an embedder opts
+into - and off elsewhere until those platforms are verified (see
 [Settings](#settings)). The renderer process family is **Linux only**; the
 network and decoder processes also run on macOS and Windows with
 platform-appropriate confinement.
