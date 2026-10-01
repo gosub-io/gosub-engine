@@ -278,9 +278,9 @@ impl ApplicationHandler<()> for BrowserApp {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
-                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                let (dx, dy, precise) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER, false),
+                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32, true),
                 };
 
                 let max_y = (self.page_height - self.viewport.1 as f32).max(0.0);
@@ -293,6 +293,7 @@ impl ApplicationHandler<()> for BrowserApp {
                         .send(TabCommand::MouseScroll {
                             delta_x: dx,
                             delta_y: dy,
+                            precise,
                         })
                         .await;
                 });

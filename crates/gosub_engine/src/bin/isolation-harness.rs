@@ -1033,6 +1033,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     .send(TabCommand::MouseScroll {
                         delta_x: 0.0,
                         delta_y: 6000.0,
+                        precise: false,
                     })
                     .await;
                 let scroll_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -3212,6 +3213,7 @@ fn engine_remote_controls<F: FontSystem + Default>() -> i32 {
                 .send(TabCommand::MouseScroll {
                     delta_x: 0.0,
                     delta_y: 120.0,
+                    precise: false,
                 })
                 .await;
             if let Err(e) = settle(&mut firehose, &mut exchanges, 1, "the wheel over the open dropdown") {
@@ -4374,6 +4376,7 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
                 .send(TabCommand::MouseScroll {
                     delta_x: 0.0,
                     delta_y: 6000.0,
+                    precise: false,
                 })
                 .await;
 
@@ -5906,7 +5909,7 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
                     0..=49 => {
                         let dy = ((rng() % 1200) as f32) - 300.0;
                         println!("{} tab {slot}: scroll {dy:+.0}", stamp());
-                        let _ = handle.send(TabCommand::MouseScroll { delta_x: 0.0, delta_y: dy }).await;
+                        let _ = handle.send(TabCommand::MouseScroll { delta_x: 0.0, delta_y: dy, precise: false }).await;
                     }
                     50..=74 => {
                         let (x, y) = ((rng() % 1280) as f32, (rng() % 720) as f32);

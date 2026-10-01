@@ -562,10 +562,10 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
 
             WindowEvent::MouseWheel { delta, .. } => {
                 let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
-                let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
+                let (dx, dy, precise) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER, false),
                     // A touchpad reports physical pixels; the page scrolls in CSS ones.
-                    MouseScrollDelta::PixelDelta(p) => (css_delta(p.x, dpr), css_delta(p.y, dpr)),
+                    MouseScrollDelta::PixelDelta(p) => (css_delta(p.x, dpr), css_delta(p.y, dpr), true),
                 };
                 // The page height is in CSS pixels; so must the visible height be.
                 let (w, h) = self.content_size();
@@ -580,6 +580,7 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
                             .send(TabCommand::MouseScroll {
                                 delta_x: dx,
                                 delta_y: dy,
+                                precise,
                             })
                             .await;
                     });
