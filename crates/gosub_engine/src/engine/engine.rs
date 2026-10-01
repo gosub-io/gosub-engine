@@ -623,10 +623,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         let services = match self.context.cookie_vault.get() {
             Some(vault) if services.cookie_jar.is_none() => {
+                let vault = Arc::clone(vault);
                 let id = zone_id.unwrap_or_default();
                 vault.open_zone(id, cookie_store.clone());
-                let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(vault), id).handle();
-                return self.create_zone_with_services(
+                let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(&vault), id).handle();
+                let created = self.create_zone_with_services(
                     config,
                     ZoneServices {
                         cookie_jar: Some(jar),
@@ -635,6 +636,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                     Some(id),
                     cookie_store,
                 );
+                // No zone came of it: the vault must not keep (or respawn
+                // with) a jar nothing will ever close.
+                if created.is_err() {
+                    vault.close_zone(id);
+                }
+                return created;
             }
             _ => services,
         };
