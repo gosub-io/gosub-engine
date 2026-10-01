@@ -462,6 +462,24 @@ fn a_renderer_crash_is_announced_and_the_tab_recovers() {
 
 /// A remote render never waits for an image download: the page paints without
 /// it and paints again once it has arrived.
+/// A remotely rendered page's history entry is titled by the renderer and
+/// published, also when its title equals the last page's.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_page_titles_its_history_entry() {
+    let out = run("engine-remote-title");
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "remote history title failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_remote_render_does_not_wait_for_images() {

@@ -137,6 +137,7 @@ fn main() {
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
+        "engine-remote-title" => with_font_backend!(engine_remote_title),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
         "storage" => storage(),
@@ -2451,6 +2452,141 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
 /// A render never waits for an image: a page whose image the server holds
 /// back for seconds must still paint promptly, and paint again - without a
 /// new navigation - once the image has arrived.
+/// Two remotely rendered pages with the same title, one after the other. The
+/// broker parses neither, so each history entry is committed untitled and must
+/// learn its title from the renderer - the second one too, although the tab's
+/// title does not change - in a snapshot the embedder receives.
+fn engine_remote_title<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_interface::font_system::Confinement;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-remote-title needs a Full-tier font system");
+            return 2;
+        }
+        let page = "<html><head><title>Same</title></head><body><p>text</p></body></html>";
+        let Ok(port) = serve_routes(vec![
+            ("/a", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/b", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if engine.renderer_pool().is_none() && !cfg!(feature = "cairo-tiles") {
+                eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
+                return 2;
+            }
+            let places = Arc::new(gosub_engine::places::MemoryPlaces::default());
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: Some(places.clone()),
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            for path in ["/a", "/b"] {
+                if tab.navigate(format!("http://127.0.0.1:{port}{path}")).await.is_err() {
+                    eprintln!("navigate to {path} failed");
+                    return 1;
+                }
+                // Until a published snapshot has this page's entry titled.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                let mut last = None;
+                loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::HistoryChanged { history },
+                            ..
+                        })) => {
+                            let current = history.current.and_then(|id| history.entries.get(id.0)).cloned();
+                            let done = current
+                                .as_ref()
+                                .is_some_and(|e| e.url.path() == path && e.title.as_deref() == Some("Same"));
+                            last = current;
+                            if done {
+                                break;
+                            }
+                        }
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        })) => {
+                            eprintln!("navigation to {path} failed: {error}");
+                            return 1;
+                        }
+                        Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                        _ => {
+                            eprintln!("no published history entry for {path} with its title; last: {last:?}");
+                            return 1;
+                        }
+                    }
+                }
+                println!("history entry for {path} titled from the renderer");
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
     #[cfg(target_os = "linux")]

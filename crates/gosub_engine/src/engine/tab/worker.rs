@@ -1923,8 +1923,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
-    /// Do a draw tick. This will be called based on the FPS that is requested
-    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     /// Title and icon of a document the renderer process parsed, once its
     /// first render reports them.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -1932,18 +1930,28 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let Some((title, favicon)) = self.context.take_remote_document_meta() else {
             return;
         };
-        if let Some(title) = title.filter(|t| *t != self.title) {
-            self.title = title.clone();
-            self.history.set_current_title(Some(title.clone()));
-            if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
-                if matches!(url.scheme(), "http" | "https") {
-                    places.record_visit(url.as_str(), &title);
+        if let Some(title) = title {
+            // The history entry was committed before anything was parsed, so it
+            // learns its title here - also when the tab's title does not change
+            // (the last page may have had the same one) - and the embedder gets
+            // the snapshot that has it.
+            let entry_title = self.history.current_entry().and_then(|e| e.title.as_deref());
+            if entry_title != Some(title.as_str()) {
+                self.history.set_current_title(Some(title.clone()));
+                if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
+                    if matches!(url.scheme(), "http" | "https") {
+                        places.record_visit(url.as_str(), &title);
+                    }
                 }
+                self.emit_history_changed();
             }
-            self.send_event(EngineEvent::TitleChanged {
-                tab_id: self.tab_id,
-                title,
-            });
+            if title != self.title {
+                self.title = title.clone();
+                self.send_event(EngineEvent::TitleChanged {
+                    tab_id: self.tab_id,
+                    title,
+                });
+            }
         }
         // Every full remote render reports the icon again; only a new one is fetched.
         if let Some(icon) = favicon.and_then(|f| Url::parse(&f).ok()) {
@@ -1955,6 +1963,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
+    /// Do a draw tick. This will be called based on the FPS that is requested
+    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.apply_remote_document_meta();
