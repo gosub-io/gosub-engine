@@ -462,6 +462,24 @@ fn a_renderer_crash_is_announced_and_the_tab_recovers() {
 
 /// A remote render never waits for an image download: the page paints without
 /// it and paints again once it has arrived.
+/// A tab whose backend presents a GPU texture renders in-process, so it
+/// parses its documents itself even with the renderer process on.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_gpu_texture_tab_parses_its_own_documents() {
+    let out = run("engine-gpu-backend-parses");
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "GPU-texture tab parsing failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A remotely rendered page's history entry is titled by the renderer and
 /// published, also when its title equals the last page's.
 #[cfg(target_os = "linux")]

@@ -501,6 +501,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
+    /// Whether this tab renders in a renderer process at all: a remote mode
+    /// was installed for it (none for a backend that presents a GPU texture,
+    /// or a font system that cannot be confined).
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    pub fn has_remote_renderer(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            return self.remote_renderer.is_some();
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            return false;
+        }
+    }
+
     /// Whether full renders go out-of-process: a remote renderer is installed
     /// *and* the current document's source is available to send it.
     #[allow(clippy::needless_return)] // the cfg arms need explicit returns

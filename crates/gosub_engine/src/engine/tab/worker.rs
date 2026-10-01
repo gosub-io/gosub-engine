@@ -614,28 +614,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Whether this tab's full renders go out-of-process (fork server or
     /// exec-per-render). Decides both the routing and whether navigation
     /// captures the document source (the renderer re-parses it there).
-    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     fn remote_render_available(&self) -> bool {
-        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        {
-            return self.context.remote_render_active() || {
-                // Before a document exists `remote_render_active` is false;
-                // what navigation needs to know is whether a mode is
-                // *installed*, which set_remote_renderer decided in `new`.
-                use gosub_interface::font_system::{Confinement, FontSystem as _};
-                match C::FontSystem::confinement() {
-                    Confinement::Full => self.zone_context.engine_context.renderer_process.get().is_some(),
-                    Confinement::FontPathsReadable => {
-                        self.zone_context.config_store.get_bool("security.renderer_process")
-                    }
-                    Confinement::Unsupported(_) => false,
-                }
-            };
-        }
-        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-        {
-            return false;
-        }
+        // What `new` installed for this tab, not what the engine could offer:
+        // a backend that presents a GPU texture gets no renderer although the
+        // engine has one, and a tab without one must parse its documents here.
+        self.context.has_remote_renderer()
     }
 
     fn on_nav_result(&mut self, res: NavigationResult<C>) {

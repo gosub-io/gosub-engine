@@ -19,32 +19,36 @@ style=\"display:block;width:400px;height:200px\">a link to hover</a></body></htm
 /// The harness's render configuration: null backend and compositor (nothing
 /// composites here), the scenario-selected font system - and, behind the
 /// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
-struct TileConfig<F>(std::marker::PhantomData<F>);
+struct TileConfig<F, B = gosub_render_pipeline::render::backends::null::NullBackend>(std::marker::PhantomData<(F, B)>);
 
-impl<F> Clone for TileConfig<F> {
+impl<F, B> Clone for TileConfig<F, B> {
     fn clone(&self) -> Self {
         Self(std::marker::PhantomData)
     }
 }
-impl<F> std::fmt::Debug for TileConfig<F> {
+impl<F, B> std::fmt::Debug for TileConfig<F, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("TileConfig")
     }
 }
-impl<F> PartialEq for TileConfig<F> {
+impl<F, B> PartialEq for TileConfig<F, B> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<F: FontSystem + Default> gosub_interface::config::ModuleConfiguration for TileConfig<F> {
+impl<F: FontSystem + Default, B: HarnessBackend> gosub_interface::config::ModuleConfiguration for TileConfig<F, B> {
     type CssSystem = gosub_css3::system::Css3System;
     type Document = gosub_html5::document::document_impl::DocumentImpl<Self>;
     type HtmlParser = gosub_html5::parser::Html5Parser<'static, Self>;
 }
 
-impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileConfig<F> {
-    type RenderBackend = gosub_render_pipeline::render::backends::null::NullBackend;
+/// A backend a harness configuration can carry.
+trait HarnessBackend: gosub_render_pipeline::render::backend::RenderBackend + Send + Sync + 'static {}
+impl<T> HarnessBackend for T where T: gosub_render_pipeline::render::backend::RenderBackend + Send + Sync + 'static {}
+
+impl<F: FontSystem + Default, B: HarnessBackend> gosub_engine::html::RenderConfiguration for TileConfig<F, B> {
+    type RenderBackend = B;
     type CompositorSink = gosub_render_pipeline::render::DefaultCompositor;
     type FontSystem = F;
 
@@ -62,6 +66,47 @@ impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileCo
             let _ = font_system;
             None
         }
+    }
+}
+
+/// The null backend, saying it presents a GPU texture as Vello does: a tab
+/// on such a backend renders in-process whether or not there is a renderer
+/// process.
+struct GpuTextureNull(gosub_render_pipeline::render::backends::null::NullBackend);
+
+impl gosub_render_pipeline::render::backend::RenderBackend for GpuTextureNull {
+    fn name(&self) -> &'static str {
+        "GpuTextureNull"
+    }
+    fn create_surface(
+        &self,
+        size: gosub_render_pipeline::render::backend::SurfaceSize,
+        present: gosub_render_pipeline::render::backend::PresentMode,
+    ) -> anyhow::Result<Box<dyn gosub_render_pipeline::render::backend::ErasedSurface + Send>> {
+        self.0.create_surface(size, present)
+    }
+    fn render(
+        &self,
+        context: &mut dyn gosub_render_pipeline::render::render_context::RenderContext,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+    ) -> anyhow::Result<()> {
+        self.0.render(context, surface)
+    }
+    fn snapshot(
+        &self,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+        max_dim: u32,
+    ) -> anyhow::Result<gosub_render_pipeline::render::backend::RgbaImage> {
+        self.0.snapshot(surface, max_dim)
+    }
+    fn external_handle(
+        &self,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+    ) -> anyhow::Result<gosub_render_pipeline::render::backend::ExternalHandle> {
+        self.0.external_handle(surface)
+    }
+    fn renders_to_gpu_texture(&self) -> bool {
+        true
     }
 }
 
@@ -138,6 +183,7 @@ fn main() {
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "engine-remote-title" => with_font_backend!(engine_remote_title),
+        "engine-gpu-backend-parses" => with_font_backend!(engine_gpu_backend_parses),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
         "storage" => storage(),
@@ -2452,6 +2498,121 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
 /// A render never waits for an image: a page whose image the server holds
 /// back for seconds must still paint promptly, and paint again - without a
 /// new navigation - once the image has arrived.
+/// A tab on a GPU-texture backend gets no renderer process, so it must parse
+/// its document itself even with the renderer process on: the commit then
+/// carries the page's title. Parsed source-only, it would have neither a
+/// document nor - with no renderer to report one - a title.
+fn engine_gpu_backend_parses<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let page = "<html><head><title>Parsed here</title></head><body><p>text</p></body></html>";
+        let Ok(port) = serve_routes(vec![(
+            "/",
+            "text/html",
+            page.as_bytes().to_vec(),
+            std::time::Duration::ZERO,
+        )]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let mut engine: GosubEngine<TileConfig<F, GpuTextureNull>> = GosubEngine::new(
+                None,
+                Arc::new(GpuTextureNull(NullBackend::new())),
+                Arc::new(DefaultCompositor::default()),
+            );
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if engine.renderer_pool().is_none() && engine.renderer_process().is_none() {
+                eprintln!("no renderer process to decline (needs a Full-tier font system and `cairo-tiles`)");
+                return 2;
+            }
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            // The snapshot the commit publishes.
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            let entry = loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::HistoryChanged { history },
+                        ..
+                    })) => break history.current.and_then(|id| history.entries.get(id.0)).cloned(),
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => {
+                        eprintln!("navigation failed: {error}");
+                        return 1;
+                    }
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    _ => {
+                        eprintln!("no history snapshot for the navigation");
+                        return 1;
+                    }
+                }
+            };
+            if entry.as_ref().and_then(|e| e.title.as_deref()) != Some("Parsed here") {
+                eprintln!("the commit carried no parsed title, so the tab has no document: {entry:?}");
+                return 1;
+            }
+            println!("a GPU-texture tab parsed its document in-process");
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 /// Two remotely rendered pages with the same title, one after the other. The
 /// broker parses neither, so each history entry is committed untitled and must
 /// learn its title from the renderer - the second one too, although the tab's
