@@ -540,9 +540,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::NotRunning);
         }
 
-        // Persist cookie stores before tearing anything down.
-        self.flush_persistence();
-
         // Ask the fork server for a clean exit (it kills-and-reaps on drop
         // regardless, but a Shutdown lets it leave without a SIGKILL).
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -554,10 +551,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             if let Some(server) = self.context.renderer_process.get() {
                 log::trace!("signal: shutting down the renderer fork server");
                 server.lock().shutdown();
-            }
-            if let Some(vault) = self.context.cookie_vault.get() {
-                log::trace!("signal: shutting down the cookie vault");
-                vault.shutdown();
             }
         }
 
@@ -571,6 +564,17 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         } else {
             log::debug!("I/O handle already gone");
         }
+
+        // The vault after I/O, so a response still in flight stores its
+        // cookies first; its shutdown waits for the snapshots it sent.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(vault) = self.context.cookie_vault.get() {
+            log::trace!("signal: shutting down the cookie vault");
+            vault.shutdown();
+        }
+
+        // Persist cookie stores once nothing can change them any more.
+        self.flush_persistence();
 
         // Send shutdown command to the run loop
         log::trace!("signal: sending shutdown to run loop");

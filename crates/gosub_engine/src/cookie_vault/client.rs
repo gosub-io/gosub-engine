@@ -489,6 +489,10 @@ impl CookieVault {
     /// Ask the vault to exit, then make sure it did.
     pub fn shutdown(&self) {
         self.closed.store(true, Ordering::Release);
+        // A round trip first, as in `close_zone`: every snapshot sent before
+        // the answer is persisted by then. `closed` keeps it from respawning
+        // a vault that is already gone.
+        let _ = self.get_all("");
         let _ = self.tx.lock().send(&ToVault::Shutdown);
         let Some(mut child) = self.child.lock().take() else {
             return;
