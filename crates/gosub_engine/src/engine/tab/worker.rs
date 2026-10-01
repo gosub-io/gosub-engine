@@ -690,6 +690,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 }
                 self.current_url = Some(final_url.clone());
+                // The document's own title, if it has one yet: `self.title` may
+                // still be the last page's (a remote page's comes later).
+                let visit_title = title.clone().unwrap_or_default();
                 if let Some(t) = title.clone() {
                     self.title = t;
                 }
@@ -736,7 +739,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // web pages: internal pages and LoadHtml stand-ins are not "places".
                 if let Some(places) = &self.services.places {
                     if matches!(final_url.scheme(), "http" | "https") {
-                        places.record_visit(final_url.as_str(), &self.title);
+                        places.record_visit(final_url.as_str(), &visit_title);
                     }
                 }
 
@@ -1938,9 +1941,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let entry_title = self.history.current_entry().and_then(|e| e.title.as_deref());
             if entry_title != Some(title.as_str()) {
                 self.history.set_current_title(Some(title.clone()));
+                // The visit was counted at the commit; only its title is new.
                 if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
                     if matches!(url.scheme(), "http" | "https") {
-                        places.record_visit(url.as_str(), &title);
+                        places.set_visit_title(url.as_str(), &title);
                     }
                 }
                 self.emit_history_changed();

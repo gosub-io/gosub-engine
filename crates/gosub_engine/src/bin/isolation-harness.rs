@@ -2575,6 +2575,20 @@ fn engine_remote_title<F: FontSystem + Default>() -> i32 {
                 }
                 println!("history entry for {path} titled from the renderer");
             }
+            // Each page visited once, under its own title: the late title is
+            // not a second visit.
+            use gosub_engine::places::Places as _;
+            let visits = places.query_visited("", 10);
+            let once = |path: &str| {
+                visits
+                    .iter()
+                    .any(|v| v.url.ends_with(path) && v.visit_count == 1 && v.title == "Same")
+            };
+            if visits.len() != 2 || !once("/a") || !once("/b") {
+                eprintln!("expected /a and /b visited once each, titled: {visits:?}");
+                return 1;
+            }
+            println!("each page counted as one visit, with its title");
             engine.close_zone(zone).await;
             let _ = engine.shutdown().await;
             0
