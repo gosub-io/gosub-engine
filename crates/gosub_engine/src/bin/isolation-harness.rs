@@ -3273,6 +3273,11 @@ fn same_page(reported: Option<&str>, asked: &str) -> bool {
     }
 }
 
+/// Not a test - a tool: the whole engine with every isolation setting on,
+/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
+/// in turn, reporting per site what it cost and what it took to render, and
+/// at the end what the renderer processes hold. Exit 1 only if a renderer
+/// crashed or a page could not be rendered out of process.
 fn engine_soak<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
     #[cfg(target_os = "linux")]
@@ -3566,11 +3571,6 @@ fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
 /// One route of [`serve_routes`]: path → (content type, body, delay before answering).
 type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
 
-/// Not a test - a tool: the whole engine with every isolation setting on,
-/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
-/// in turn, reporting per site what it cost and what it took to render, and
-/// at the end what the renderer processes hold. Exit 1 only if a renderer
-/// crashed or a page could not be rendered out of process.
 /// The escape audit in every process of a running engine: what an attacker
 /// holding each child could still reach, measured from inside it after the
 /// real spawn and lockdown. Exit 1 on any expectation violated or any role
