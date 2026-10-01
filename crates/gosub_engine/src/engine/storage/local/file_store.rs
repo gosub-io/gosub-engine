@@ -125,11 +125,25 @@ impl FileArea {
     }
 
     /// Written beside the area and renamed over it, so a crash mid-write
-    /// leaves the previous state, never a truncated file.
+    /// leaves the previous state, never a truncated file. The staged file is
+    /// synced before the rename (or a power loss could leave the new name on
+    /// empty contents), and the directory after it (the rename lives there).
     fn persist(&self, bytes: &[u8]) -> Result<()> {
+        use std::io::Write as _;
         let staged = self.path.with_extension("json.new");
-        std::fs::write(&staged, bytes)?;
+        let mut file = std::fs::File::create(&staged)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
         std::fs::rename(&staged, &self.path)?;
+        // The new contents are in place and what reads see; a failure here
+        // only leaves the rename undurable, so it is reported, not returned.
+        #[cfg(unix)]
+        if let Some(dir) = self.path.parent() {
+            if let Err(e) = std::fs::File::open(dir).and_then(|dir| dir.sync_all()) {
+                log::warn!("could not sync {}: {e}", dir.display());
+            }
+        }
         Ok(())
     }
 

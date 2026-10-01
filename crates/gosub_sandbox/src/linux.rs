@@ -881,10 +881,13 @@ const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_statx,
 ];
 
-/// What a service that *writes* needs on top: replacing a file atomically.
+/// What a service that *writes* needs on top: replacing a file atomically, and
+/// making the new file and its directory entry durable before saying so.
 /// Landlock still decides where; with a read-only grant these fail with EACCES.
 #[cfg(feature = "multi-process")]
 const FS_WRITE_EXTRA: &[libc::c_long] = &[
+    libc::SYS_fsync,
+    libc::SYS_fdatasync,
     libc::SYS_renameat,
     libc::SYS_renameat2,
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
