@@ -60,14 +60,17 @@
 //! Run it with:
 //!
 //! ```sh
-//! cargo run --example multi-process -- https://example.com https://example.org
+//! cargo run --example multi-process --features gosub_engine/cairo-tiles -- https://example.com https://example.org
 //! ```
 //!
 //! Nothing is drawn - a `NullBackend` keeps the example about the process
-//! model. The renderer processes still run the whole pipeline (parse, style,
-//! layout, paint); with no rasterizer configured for them they simply produce
-//! no pixels, which is what a `NullBackend` embedder wants anyway. A GUI
-//! embedder supplies one through `RenderConfiguration::forked_tile_rasterizer`.
+//! model - but the renderer processes run the whole pipeline (parse, style,
+//! layout, paint, rasterize), and they need a rasterizer of their own for
+//! that: `RenderConfiguration::forked_tile_rasterizer`, which
+//! `DefaultRenderConfig` provides with the engine's `cairo-tiles` (or
+//! `skia-tiles`) feature. Without one the engine does not start renderers at
+//! all - it would ship geometry with no pixels - says so in the log, and
+//! renders in-process; the tree printed at startup shows what actually runs.
 
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -146,17 +149,37 @@ async fn run(urls: Vec<String>) {
     tokio::spawn(engine.start().expect("start engine"));
 
     // Say plainly which components are separate, so the process tree is not read
-    // as a claim that everything is. Watch for the engine's own
-    // "network stack running in a separate, sandboxed process" line just above:
-    // without it, isolation silently fell back to in-process.
+    // as a claim that everything is. Read back from what start() settled on: a
+    // setting that cannot apply here (no forked rasterizer, another platform,
+    // no dispatch) was turned off there, with the reason in the log above.
+    let on = |key: &str| engine.settings().get_bool(key);
+    let mut children: Vec<&str> = Vec::new();
+    if on("security.network_process") {
+        children.push("network: one child process for the whole engine (--gosub-child-role net)");
+    }
+    if on("security.image_decoder_process") {
+        children.push("decoder: one throwaway child per image, gone as soon as it has decoded");
+    }
+    let renderers = if engine.renderer_process_tier().is_some() {
+        Some("fork-server: warmed fonts; each page renders in a renderer forked from it")
+    } else if on("security.renderer_process") {
+        Some("renderer: one exec'd child per render (this font system reads font files while shaping)")
+    } else {
+        None
+    };
+    children.extend(renderers);
     println!(
         "broker pid {} — tabs, DOM, cookies and storage live here",
         std::process::id()
     );
-    println!("  ├─ network: one child process for the whole engine (--gosub-child-role net)");
-    println!("  ├─ decoder: one throwaway child per image, gone as soon as it has decoded");
-    println!("  └─ fork-server: warmed fonts; each page renders in a renderer forked from it");
-    println!("     a renderer has no network: its images, stylesheets and fonts are brokered back here");
+    for (i, child) in children.iter().enumerate() {
+        println!("  {} {child}", if i + 1 == children.len() { "└─" } else { "├─" });
+    }
+    if renderers.is_some() {
+        println!("     a renderer has no network: its images, stylesheets and fonts are brokered back here");
+    } else {
+        println!("  (pages render in this process: see the log above for why)");
+    }
 
     let services = ZoneServices {
         storage: Arc::new(StorageService::new(
