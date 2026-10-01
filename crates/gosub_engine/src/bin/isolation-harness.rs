@@ -4094,6 +4094,24 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
                 }
             }
 
+            // What the engine reported after the last pause still counts: a crash
+            // that arrived then must fail the run too. Read before cleanup, which
+            // stops the renderers on purpose.
+            loop {
+                match events.try_recv() {
+                    Ok(EngineEvent::RendererCrashed { site, error, .. }) => {
+                        crashes += 1;
+                        println!("{} !!! RENDERER CRASHED for {site}: {error}", stamp());
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                        events_lost = true;
+                        println!("{} !!! {n} engine events lost: crashes among them would go uncounted", stamp());
+                    }
+                    Err(_) => break,
+                }
+            }
+
             println!(
                 "{} done: navs ok {nav_ok} failed {nav_failed} | loads {loads} ({} MiB) | passes {passes} | crashes {crashes}",
                 stamp(),
