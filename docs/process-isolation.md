@@ -291,15 +291,16 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   user on the machine. Which renderer serves which site is on `/renderers`
   and in the telemetry. `NSpid` in `/proc/<pid>/status` shows a renderer's
   pid inside the private PID namespace.
-- With the engine's `metrics` feature, `127.0.0.1:9090` serves `/metrics`
-  (timing aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and
-  `/events` — the **telemetry firehose**, newline-delimited JSON of engine
+- With the engine's `metrics` feature and `telemetry.metrics_enabled` on (it
+  is off by default), `127.0.0.1:9090` serves `/metrics` (timing
+  aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and `/events`
+  — the **telemetry firehose**, newline-delimited JSON of engine
   events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover` (exchange time,
   tiles, per-stage renderer timings), `net.load` (every brokered fetch:
   outcome, status, bytes, duration), `remote.resource` (every subresource a
   renderer asked for), `tab.frame`, `tab.invalidate` (why a full render
-  happened), `renderer.memory`. `tools/telemetry-viewer/index.html` is a
-  standalone page that visualizes the stream.
+  happened), `renderer.memory`. The server's own `/` is a page that
+  visualizes the stream: open `http://127.0.0.1:9090/` in a browser.
 
 ## Testing it
 
