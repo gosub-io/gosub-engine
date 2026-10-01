@@ -53,7 +53,7 @@ fn value_of(map: Option<&CssProperties>, name: &str) -> Option<String> {
         get_css_definitions()
             .find_property(name)
             .and_then(|definition| definition.canonical(computed.to_slice()))
-            .map_or_else(|| computed.to_string(), &finish)
+            .map_or_else(|| computed.to_string(), finish)
     };
 
     if let Some((map, id)) = map.zip(PropertyId::from_name(name)) {
