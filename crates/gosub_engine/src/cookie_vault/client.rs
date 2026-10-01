@@ -210,8 +210,10 @@ fn start_reader(
                     }
                 }
             }
-            alive.store(false, Ordering::Release);
+            // Clear first: once `alive` reads false a respawn may start, and
+            // its first requests put their waiters in this same map.
             waiters.lock().clear();
+            alive.store(false, Ordering::Release);
         })
         .map(|_| ())
 }
