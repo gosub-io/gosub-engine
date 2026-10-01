@@ -274,6 +274,10 @@ A backend choice usually implies a font-system pairing, and the font system deci
 
 Independently of fonts, the **GPU compositing paths** (`winit-skia-gpu`, `gtk4-skia-gpu`, Vello's wgpu surface) cannot cross a process boundary as-is: `GlTexture`/`WgpuTextureId` handles are process-local, so an isolated renderer ships CPU tiles over shared memory and GPU upload stays host-side. The CPU TileCache path already produces exactly that shape.
 
+---
+
+## Adding a new backend
+
 1. Implement `RenderBackend` for your type, with `ErasedSurface` for the surface.
 2. Handle `DisplayItem::Clear` and `DisplayItem::Blit` at minimum. Pixel data in `Blit` is premultiplied BGRA32.
 3. Return an appropriate `ExternalHandle` variant from `external_handle()`.
