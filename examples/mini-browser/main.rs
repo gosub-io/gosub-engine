@@ -231,6 +231,8 @@ impl BrowserApp {
         if w == 0 || h == 0 {
             return;
         }
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+        let (w, h) = css_viewport(w, h, dpr);
         let handle = tab.handle.clone();
         TOKIO_RT.spawn(async move {
             let _ = handle
@@ -563,7 +565,10 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
                     MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
                 };
-                let (_, content_h) = self.content_size();
+                // The page height is in CSS pixels; so must the visible height be.
+                let (w, h) = self.content_size();
+                let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+                let (_, content_h) = css_viewport(w, h, dpr);
                 if let Some(tab) = self.tabs.get_mut(self.active) {
                     let max_y = (tab.page_height - content_h as f32).max(0.0);
                     tab.scroll.0 = (tab.scroll.0 + dx).max(0.0);
@@ -1000,6 +1005,15 @@ fn main() {
     event_loop.run_app(&mut app).expect("event loop run");
 }
 
+/// The content area (physical pixels) as the viewport the engine lays out in
+/// (CSS pixels): the renderers rasterize at `dpr` themselves, so a physical
+/// size here would lay the page out `dpr` times too wide.
+fn css_viewport(physical_w: u32, physical_h: u32, dpr: u32) -> (u32, u32) {
+    let dpr = f64::from(dpr.max(1));
+    let css = |px: u32| ((f64::from(px) / dpr).round() as u32).max(1);
+    (css(physical_w), css(physical_h))
+}
+
 /// A window y (physical pixels) as a page y (CSS pixels). The chrome is drawn
 /// in physical pixels, so it comes off before the device-pixel ratio does.
 fn content_y_at(physical_y: f64, dpr: f64, scroll_y: f64) -> f32 {
@@ -1021,7 +1035,15 @@ fn fit_label(label: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_y_at, fit_label, CHROME_HEIGHT};
+    use super::{content_y_at, css_viewport, fit_label, CHROME_HEIGHT};
+
+    #[test]
+    fn the_viewport_goes_out_in_css_pixels() {
+        assert_eq!(css_viewport(2560, 1376, 2), (1280, 688));
+        assert_eq!(css_viewport(1280, 688, 1), (1280, 688));
+        assert_eq!(css_viewport(1280, 688, 0), (1280, 688), "no ratio yet counts as 1");
+        assert_eq!(css_viewport(1, 1, 2), (1, 1));
+    }
 
     #[test]
     fn the_chrome_comes_off_in_physical_pixels() {
