@@ -3822,10 +3822,17 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
             .unwrap_or(250)
             .max(10);
 
-        // Deterministic per run, seedable; no need for a crate.
+        // Deterministic per run, seedable; no need for a crate. Not zero: xorshift
+        // never leaves it, and every action would scroll the first tab.
         let mut rng_state: u64 = std::env::var("GOSUB_STRESS_SEED")
             .ok()
             .and_then(|s| s.parse().ok())
+            .filter(|&seed: &u64| {
+                if seed == 0 {
+                    eprintln!("GOSUB_STRESS_SEED=0 cannot drive xorshift; using the default seed");
+                }
+                seed != 0
+            })
             .unwrap_or(0x9E37_79B9_7F4A_7C15);
         let mut rng = move || {
             rng_state ^= rng_state << 13;
