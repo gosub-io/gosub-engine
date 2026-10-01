@@ -847,21 +847,35 @@ impl ForkServer {
 
     /// The escape audit, run in the fork server itself.
     pub fn audit(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
-        self.link.send(&ToForkServer::Audit)?;
-        match self.link.recv::<FromForkServer>()? {
-            FromForkServer::Audit(report) => Ok(report),
-            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
-            other => anyhow::bail!("unexpected reply to Audit: {other:?}"),
-        }
+        self.audit_exchange(ToForkServer::Audit)
     }
 
     /// The escape audit, run in a renderer forked for it.
     pub fn audit_forked_renderer(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
-        self.link.send(&ToForkServer::AuditRenderer)?;
-        match self.link.recv::<FromForkServer>()? {
-            FromForkServer::Audit(report) => Ok(report),
-            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
-            other => anyhow::bail!("unexpected reply to AuditRenderer: {other:?}"),
+        self.audit_exchange(ToForkServer::AuditRenderer)
+    }
+
+    /// One audit request, kept to the same rules as a render: a fork server
+    /// that is gone is replaced first, and one whose exchange failed is
+    /// stopped - a late reply would otherwise answer the next request.
+    fn audit_exchange(&mut self, ask: ToForkServer) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.ensure_running()?;
+        let answer = self
+            .link
+            .send(&ask)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| self.link.recv::<FromForkServer>().map_err(anyhow::Error::from));
+        match answer {
+            Ok(FromForkServer::Audit(report)) => Ok(report),
+            Ok(FromForkServer::Refused(reason)) => anyhow::bail!("{reason}"),
+            Ok(other) => {
+                self.stop();
+                anyhow::bail!("unexpected reply to an audit: {other:?}")
+            }
+            Err(e) => {
+                self.stop();
+                Err(e)
+            }
         }
     }
 

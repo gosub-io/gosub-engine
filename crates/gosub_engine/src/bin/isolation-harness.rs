@@ -1452,6 +1452,32 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 }
             }
         }
+        // An audit after the fork server died goes to a fresh one, as a
+        // render would, rather than to the dead link.
+        let Some(pid) = server.pid() else {
+            eprintln!("the fork server has no pid");
+            return 1;
+        };
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        match server.audit() {
+            Ok(_) if server.pid().is_some_and(|new| new != pid) => {
+                println!("an audit after the fork server died ran in a fresh one");
+            }
+            Ok(_) => {
+                eprintln!(
+                    "the audit answered, but from no new fork server (pid {pid} -> {:?})",
+                    server.pid()
+                );
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("an audit after the fork server died failed: {e}");
+                return 1;
+            }
+        }
         server.shutdown();
         0
     }
