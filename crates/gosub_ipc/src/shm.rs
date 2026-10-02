@@ -146,15 +146,18 @@ pub fn map_sealed_tile(fd: OwnedFd, width: u32, height: u32) -> io::Result<TileM
 
     // The real size, not the claimed one. F_SEAL_SHRINK (verified above) makes
     // this check stable: the file cannot shrink afterwards, so no read through
-    // the mapping can SIGBUS.
+    // the mapping can SIGBUS. Exactly the tile's size, not at least: the
+    // producer sizes the memfd to the tile, and a bigger one would keep its
+    // slack (shmem the renderer's data limit does not count) pinned for as
+    // long as this mapping lives, which is as long as the tile is kept.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } < 0 {
         return Err(io::Error::last_os_error());
     }
-    if (st.st_size as u128) < len as u128 {
+    if (st.st_size as u128) != len as u128 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("tile fd holds {} bytes, {width}x{height} needs {len}", st.st_size),
+            format!("tile fd holds {} bytes, {width}x{height} is {len}", st.st_size),
         ));
     }
 
@@ -213,6 +216,20 @@ mod tests {
         // that the fd cannot hold the claimed tile.
         let fd = create_sealed_tile(8, 4, |_| {}).unwrap();
         assert!(map_sealed_tile(fd, 512, 512).is_err());
+    }
+
+    #[test]
+    fn oversized_fd_refused() {
+        // Sealed at 8x4 pixels' worth of bytes plus a megabyte of slack: the
+        // slack would stay pinned behind a 4-byte-per-pixel mapping.
+        let len = tile_len(8, 4).unwrap() + 1024 * 1024;
+        let raw = unsafe { libc::memfd_create(c"oversized".as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+        assert!(raw >= 0);
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        assert_eq!(unsafe { libc::ftruncate(fd.as_raw_fd(), len as libc::off_t) }, 0);
+        let seals = REQUIRED_SEALS | libc::F_SEAL_SEAL;
+        assert_eq!(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_ADD_SEALS, seals) }, 0);
+        assert!(map_sealed_tile(fd, 8, 4).is_err());
     }
 
     #[test]
