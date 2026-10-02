@@ -29,8 +29,17 @@ const ENV_KEPT: &[&str] = &[
     "RUST_BACKTRACE",
 ];
 const ENV_KEPT_PREFIXES: &[&str] = &["LC_", "XDG_", "FONTCONFIG_", "GOSUB_"];
+/// `GOSUB_DUMP_*` name files for the layout and style dumps to write during
+/// a render. A confined renderer has no `openat`: the dump would be a SIGSYS
+/// on every page while the variable is set, so it stays with the broker.
+const ENV_DROPPED_PREFIXES: &[&str] = &["GOSUB_DUMP_"];
 
-fn env_kept(key: &str) -> bool {
+/// Whether a child keeps `key`. Also what the escape audit holds a child's
+/// environment against.
+pub(crate) fn env_kept(key: &str) -> bool {
+    if ENV_DROPPED_PREFIXES.iter().any(|p| key.starts_with(p)) {
+        return false;
+    }
     ENV_KEPT.contains(&key) || ENV_KEPT_PREFIXES.iter().any(|p| key.starts_with(p))
 }
 
