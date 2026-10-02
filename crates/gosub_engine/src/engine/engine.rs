@@ -26,6 +26,11 @@ use tracing::instrument;
 /// [`GosubEngine::set_process_isolation`].
 pub const PROCESS_ISOLATION_SWITCH: &str = "security.process_isolation";
 
+/// The run-only switch's three states; see `GosubEngine::process_isolation_this_run`.
+const RUN_SWITCH_UNSET: u8 = 0;
+const RUN_SWITCH_OFF: u8 = 1;
+const RUN_SWITCH_ON: u8 = 2;
+
 /// The settings that each run one of the engine's components in a sandboxed
 /// process of its own.
 pub const PROCESS_SETTINGS: [&str; 5] = [
@@ -61,8 +66,9 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     /// `security.process_isolation` chosen for this run only
     /// ([`Self::set_process_isolation_for_this_run`]): a command-line flag's
     /// choice, which must not become the persisted setting. Outranks the
-    /// stored value while set.
-    process_isolation_this_run: std::cell::Cell<Option<bool>>,
+    /// stored value while set. Three states (unset, off, on) in an atomic,
+    /// so the engine stays `Sync` for embedders that share it across threads.
+    process_isolation_this_run: std::sync::atomic::AtomicU8,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -215,7 +221,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             cookie_stores: HashMap::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             local_storage_routes: HashMap::new(),
-            process_isolation_this_run: std::cell::Cell::new(None),
+            process_isolation_this_run: std::sync::atomic::AtomicU8::new(RUN_SWITCH_UNSET),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
@@ -285,11 +291,16 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// The switch as chosen: for this run, else as stored; `None` when unset.
     fn process_isolation_switch(&self) -> Option<bool> {
         let store = &self.context.config_store;
-        self.process_isolation_this_run.get().or_else(|| {
-            store
+        match self
+            .process_isolation_this_run
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            RUN_SWITCH_OFF => Some(false),
+            RUN_SWITCH_ON => Some(true),
+            _ => store
                 .is_overridden(PROCESS_ISOLATION_SWITCH)
-                .then(|| store.get_bool(PROCESS_ISOLATION_SWITCH))
-        })
+                .then(|| store.get_bool(PROCESS_ISOLATION_SWITCH)),
+        }
     }
 
     /// `security.process_isolation`, when the embedder set it, decides the five
@@ -621,7 +632,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             .config_store
             .set_transient(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
             .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))?;
-        self.process_isolation_this_run.set(Some(enabled));
+        self.process_isolation_this_run.store(
+            if enabled { RUN_SWITCH_ON } else { RUN_SWITCH_OFF },
+            std::sync::atomic::Ordering::Release,
+        );
         Ok(())
     }
 
@@ -1004,6 +1018,14 @@ mod tests {
         ] {
             assert!(!engine.settings().get_bool(key), "{key} should have been turned off");
         }
+    }
+
+    /// Embedders share the engine across threads; the run-only switch must
+    /// not take that away.
+    #[test]
+    fn the_engine_stays_sync() {
+        fn assert_sync<T: Sync>() {}
+        assert_sync::<GosubEngine>();
     }
 
     /// The one switch decides all five for the run: off is the single-process
