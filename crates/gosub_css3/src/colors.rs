@@ -384,284 +384,6 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::colors::{convert_from_hex_str_to_vec_of_ints, is_hex};
-
-    #[test]
-    fn test_is_hex_good() {
-        // Given a good hex value
-        let good_hex = "#fffafa";
-        // When we see if it is a legit hex value
-        let result = is_hex(good_hex);
-        // Then we should get true back
-        let expected_result = true;
-        assert_eq!(result, expected_result);
-    }
-    #[test]
-    fn test_is_hex_bad_no_pound() {
-        // Given a bad hex value
-        let bad_hex = "hana";
-        // When we see if it is a legit hex value
-        let result = is_hex(bad_hex);
-        // Then we should get false back
-        let expected_result = false;
-        assert_eq!(result, expected_result);
-    }
-
-    #[test]
-    fn test_is_hex_bad_not_digit() {
-        // Given a bad hex value with a pound
-        let bad_hex = "#hana";
-        // When we see if it is a legit hex value
-        let result = is_hex(bad_hex);
-        // Then we should get false back
-        let expected_result = false;
-        assert_eq!(result, expected_result);
-    }
-
-    #[test]
-    fn test_is_hex_bad_empty() {
-        // Given an empty hex value
-        let bad_hex = "";
-        // When we see if it is a legit hex value
-        let result = is_hex(bad_hex);
-        // Then we should get false back
-        let expected_result = false;
-        assert_eq!(result, expected_result);
-    }
-
-    #[test]
-    fn convert_hex_test() {
-        // Given a valid hex str of length 3
-        let hex_str = "#c5f";
-        // When we convert to its individual parts
-        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
-        // Then we should get an expected Vec
-        let expected_vec = vec![12, 5, 15];
-        assert_eq!(expected_vec, conversion);
-    }
-
-    #[test]
-    fn convert_hex_test_4_digit() {
-        // Given a valid hex str of length 4
-        let hex_str = "#abcd";
-        // When we convert to its individual parts
-        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
-        // Then we should get an expected Vec
-        let expected_vec = vec![10, 11, 12, 13];
-        assert_eq!(expected_vec, conversion);
-    }
-
-    #[test]
-    fn test_css_color() {
-        let color = super::RgbColor::from("#ff0000");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#f00");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#ff0000ff");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#f00f");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#ff0000");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#f00");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#ff0000ff");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#f00f");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-    }
-
-    #[test]
-    fn random_colors() {
-        let color = super::RgbColor::from("#1234");
-        assert_eq!(color.r, 17.0);
-        assert_eq!(color.g, 34.0);
-        assert_eq!(color.b, 51.0);
-        assert_eq!(color.a, 68.0);
-
-        let color = super::RgbColor::from("#c2e");
-        assert_eq!(color.r, 204.0);
-        assert_eq!(color.g, 34.0);
-        assert_eq!(color.b, 238.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#432636");
-        assert_eq!(color.r, 67.0);
-        assert_eq!(color.g, 38.0);
-        assert_eq!(color.b, 54.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("#10203040");
-        assert_eq!(color.r, 16.0);
-        assert_eq!(color.g, 32.0);
-        assert_eq!(color.b, 48.0);
-        assert_eq!(color.a, 64.0);
-    }
-
-    #[test]
-    fn wrong_hex_colors() {
-        let color = super::RgbColor::from("#incorrect");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("ff0000");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("abcd");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-    }
-
-    #[test]
-    fn color_names() {
-        let color = super::RgbColor::from("red");
-        assert_eq!(color.r, 255.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("green");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 128.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("blue");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 255.0);
-        assert_eq!(color.a, 255.0);
-
-        let color = super::RgbColor::from("rebeccapurple");
-        assert_eq!(color.r, 0x66 as f32);
-        assert_eq!(color.g, 0x33 as f32);
-        assert_eq!(color.b, 0x99 as f32);
-        assert_eq!(color.a, 255.0);
-    }
-
-    #[test]
-    fn rgb_func_colors() {
-        let color = super::RgbColor::from("rgb(10, 20, 30)");
-        assert_eq!(color.r, 10.0);
-        assert_eq!(color.g, 20.0);
-        assert_eq!(color.b, 30.0);
-        assert_eq!(color.a, 255.0);
-
-        // invalid color
-        let color = super::RgbColor::from("rgb(10)");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-    }
-
-    #[test]
-    fn hsl_func_colors() {
-        let color = super::RgbColor::from("hsl(10, 20%, 30%)");
-        assert_eq!(color.r, 91.8);
-        assert_eq!(color.g, 66.3);
-        assert_eq!(color.b, 61.2);
-        assert_eq!(color.a, 255.0);
-
-        // invalid color
-        let color = super::RgbColor::from("hsl(10)");
-        assert_eq!(color.r, 0.0);
-        assert_eq!(color.g, 0.0);
-        assert_eq!(color.b, 0.0);
-        assert_eq!(color.a, 255.0);
-    }
-
-    #[test]
-    fn non_colours_are_reported_rather_than_blackened() {
-        // These reach a colour slot through the `background` shorthand, whose non-colour
-        // components used to parse as opaque black and fill the element's box.
-        for keyword in ["none", "no-repeat", "center", "inherit", "", "notacolour"] {
-            assert_eq!(
-                super::RgbColor::try_from_str(keyword),
-                None,
-                "{keyword} is not a colour"
-            );
-        }
-    }
-
-    #[test]
-    fn malformed_values_are_reported() {
-        for value in ["#incorrect", "ff0000", "abcd", "#12345", "rgb(bogus)", "hsl(nope)"] {
-            assert_eq!(super::RgbColor::try_from_str(value), None, "{value} is not a colour");
-        }
-    }
-
-    #[test]
-    fn transparent_is_a_colour_with_zero_alpha() {
-        let color = super::RgbColor::try_from_str("transparent").expect("transparent is a colour");
-        assert_eq!((color.r, color.g, color.b, color.a), (0.0, 0.0, 0.0, 0.0));
-        // CSS keywords are ASCII case-insensitive.
-        assert_eq!(super::RgbColor::try_from_str("TRANSPARENT"), Some(color));
-    }
-
-    #[test]
-    fn colours_still_parse() {
-        assert_eq!(
-            super::RgbColor::try_from_str("#ff0000"),
-            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
-        );
-        assert_eq!(
-            super::RgbColor::try_from_str("red"),
-            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
-        );
-        assert_eq!(
-            super::RgbColor::try_from_str("rgb(255, 0, 0)"),
-            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
-        );
-    }
-
-    #[test]
-    fn the_lossy_conversion_keeps_its_black_default() {
-        // `From<&str>` is unchanged for callers that have nowhere to report a failure.
-        assert_eq!(super::RgbColor::from("none"), super::RgbColor::default());
-    }
-}
-
 /// Convert an HWB colour to sRGB (css-color-4 §7.2).
 ///
 /// The hue is the fully saturated colour at that angle, and whiteness and blackness say how much
@@ -1220,5 +942,283 @@ fn alpha_suffix(alpha: Option<f64>) -> String {
         Some(alpha) if (alpha - 1.0).abs() < f64::EPSILON => String::new(),
         Some(alpha) => format!(" / {}", component(Some(alpha))),
         None => " / none".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::colors::{convert_from_hex_str_to_vec_of_ints, is_hex};
+
+    #[test]
+    fn test_is_hex_good() {
+        // Given a good hex value
+        let good_hex = "#fffafa";
+        // When we see if it is a legit hex value
+        let result = is_hex(good_hex);
+        // Then we should get true back
+        let expected_result = true;
+        assert_eq!(result, expected_result);
+    }
+    #[test]
+    fn test_is_hex_bad_no_pound() {
+        // Given a bad hex value
+        let bad_hex = "hana";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_is_hex_bad_not_digit() {
+        // Given a bad hex value with a pound
+        let bad_hex = "#hana";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_is_hex_bad_empty() {
+        // Given an empty hex value
+        let bad_hex = "";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn convert_hex_test() {
+        // Given a valid hex str of length 3
+        let hex_str = "#c5f";
+        // When we convert to its individual parts
+        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
+        // Then we should get an expected Vec
+        let expected_vec = vec![12, 5, 15];
+        assert_eq!(expected_vec, conversion);
+    }
+
+    #[test]
+    fn convert_hex_test_4_digit() {
+        // Given a valid hex str of length 4
+        let hex_str = "#abcd";
+        // When we convert to its individual parts
+        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
+        // Then we should get an expected Vec
+        let expected_vec = vec![10, 11, 12, 13];
+        assert_eq!(expected_vec, conversion);
+    }
+
+    #[test]
+    fn test_css_color() {
+        let color = super::RgbColor::from("#ff0000");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#f00");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#ff0000ff");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#f00f");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#ff0000");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#f00");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#ff0000ff");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#f00f");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn random_colors() {
+        let color = super::RgbColor::from("#1234");
+        assert_eq!(color.r, 17.0);
+        assert_eq!(color.g, 34.0);
+        assert_eq!(color.b, 51.0);
+        assert_eq!(color.a, 68.0);
+
+        let color = super::RgbColor::from("#c2e");
+        assert_eq!(color.r, 204.0);
+        assert_eq!(color.g, 34.0);
+        assert_eq!(color.b, 238.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#432636");
+        assert_eq!(color.r, 67.0);
+        assert_eq!(color.g, 38.0);
+        assert_eq!(color.b, 54.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("#10203040");
+        assert_eq!(color.r, 16.0);
+        assert_eq!(color.g, 32.0);
+        assert_eq!(color.b, 48.0);
+        assert_eq!(color.a, 64.0);
+    }
+
+    #[test]
+    fn wrong_hex_colors() {
+        let color = super::RgbColor::from("#incorrect");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("ff0000");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("abcd");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn color_names() {
+        let color = super::RgbColor::from("red");
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("green");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 128.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("blue");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 255.0);
+        assert_eq!(color.a, 255.0);
+
+        let color = super::RgbColor::from("rebeccapurple");
+        assert_eq!(color.r, 0x66 as f32);
+        assert_eq!(color.g, 0x33 as f32);
+        assert_eq!(color.b, 0x99 as f32);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn rgb_func_colors() {
+        let color = super::RgbColor::from("rgb(10, 20, 30)");
+        assert_eq!(color.r, 10.0);
+        assert_eq!(color.g, 20.0);
+        assert_eq!(color.b, 30.0);
+        assert_eq!(color.a, 255.0);
+
+        // invalid color
+        let color = super::RgbColor::from("rgb(10)");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn hsl_func_colors() {
+        let color = super::RgbColor::from("hsl(10, 20%, 30%)");
+        assert_eq!(color.r, 91.8);
+        assert_eq!(color.g, 66.3);
+        assert_eq!(color.b, 61.2);
+        assert_eq!(color.a, 255.0);
+
+        // invalid color
+        let color = super::RgbColor::from("hsl(10)");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn non_colours_are_reported_rather_than_blackened() {
+        // These reach a colour slot through the `background` shorthand, whose non-colour
+        // components used to parse as opaque black and fill the element's box.
+        for keyword in ["none", "no-repeat", "center", "inherit", "", "notacolour"] {
+            assert_eq!(
+                super::RgbColor::try_from_str(keyword),
+                None,
+                "{keyword} is not a colour"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_values_are_reported() {
+        for value in ["#incorrect", "ff0000", "abcd", "#12345", "rgb(bogus)", "hsl(nope)"] {
+            assert_eq!(super::RgbColor::try_from_str(value), None, "{value} is not a colour");
+        }
+    }
+
+    #[test]
+    fn transparent_is_a_colour_with_zero_alpha() {
+        let color = super::RgbColor::try_from_str("transparent").expect("transparent is a colour");
+        assert_eq!((color.r, color.g, color.b, color.a), (0.0, 0.0, 0.0, 0.0));
+        // CSS keywords are ASCII case-insensitive.
+        assert_eq!(super::RgbColor::try_from_str("TRANSPARENT"), Some(color));
+    }
+
+    #[test]
+    fn colours_still_parse() {
+        assert_eq!(
+            super::RgbColor::try_from_str("#ff0000"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("red"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("rgb(255, 0, 0)"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+    }
+
+    #[test]
+    fn the_lossy_conversion_keeps_its_black_default() {
+        // `From<&str>` is unchanged for callers that have nowhere to report a failure.
+        assert_eq!(super::RgbColor::from("none"), super::RgbColor::default());
     }
 }
