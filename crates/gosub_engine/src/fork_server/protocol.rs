@@ -217,6 +217,26 @@ pub enum HitCursor {
 /// than silently pretending the page ends there.
 pub const MAX_HIT_REGIONS: usize = 20_000;
 
+/// Longest `link`/`image` string a hit region carries, and longest favicon
+/// URL. A longer one is dropped whole on both sides, never cut: a cut URL
+/// would be navigated to.
+pub const MAX_HIT_TEXT: usize = 2048;
+
+/// Most bytes of `link`/`image` text one page's regions carry together. Every
+/// box under an `<a>` repeats its href; past this the rest ship without
+/// strings (the cursor still says pointer), so the `Rendered` frame stays
+/// well inside the transport's frame cap instead of killing the renderer.
+pub const MAX_HIT_TEXT_TOTAL: usize = 4 * 1024 * 1024;
+
+/// The user preferences a render answers `@media` queries with, as the
+/// broker holds them (`renderer.prefers_color_scheme`,
+/// `renderer.prefers_reduced_motion`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaPrefs {
+    pub prefers_dark: bool,
+    pub prefers_reduced_motion: bool,
+}
+
 /// Everything about one rasterized tile except its pixels, which follow as a
 /// sealed memfd (see `gosub_ipc::shm` - the consumer derives the byte count
 /// from these dimensions and validates the fd against them, never trusting a

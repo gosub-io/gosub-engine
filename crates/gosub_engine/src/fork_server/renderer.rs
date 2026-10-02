@@ -618,9 +618,15 @@ fn describe_hit<C: RenderConfiguration>(
     crate::fork_server::protocol::HitCursor,
     bool,
 ) {
-    use crate::fork_server::protocol::HitCursor;
+    use crate::fork_server::protocol::{HitCursor, MAX_HIT_TEXT};
     use gosub_interface::node::NodeType;
-    let resolve = |raw: &str| base_url.and_then(|b| b.join(raw).ok()).map(|u| u.to_string());
+    // A URL past the bound is dropped, not cut: the broker navigates to it.
+    let resolve = |raw: &str| {
+        base_url
+            .and_then(|b| b.join(raw).ok())
+            .map(|u| u.to_string())
+            .filter(|u| u.len() <= MAX_HIT_TEXT)
+    };
     let mut link = None;
     let mut image = None;
     let mut editable = false;
@@ -633,14 +639,12 @@ fn describe_hit<C: RenderConfiguration>(
     while let Some(current) = id {
         if link.is_none() && doc.tag_name(current) == Some("a") {
             if let Some(href) = doc.attribute(current, "href") {
-                link = Some(resolve(href).unwrap_or_else(|| href.to_string()));
+                link = resolve(href);
                 cursor = HitCursor::Pointer;
             }
         }
         if image.is_none() && doc.tag_name(current) == Some("img") {
-            image = doc
-                .attribute(current, "src")
-                .map(|src| resolve(src).unwrap_or_else(|| src.to_string()));
+            image = doc.attribute(current, "src").and_then(resolve);
         }
         if crate::html::is_text_input::<C>(doc, current) {
             editable = true;
@@ -658,9 +662,12 @@ fn collect_hit_regions<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
     base_url: Option<&Url>,
 ) -> Vec<HitRegion> {
+    use crate::fork_server::protocol::MAX_HIT_TEXT_TOTAL;
     let mut regions = Vec::new();
     let layer_ids = layer_list.layer_ids.read();
     let layers = layer_list.layers.read();
+    let mut text_bytes = 0usize;
+    let mut text_dropped = false;
 
     'outer: for layer_id in layer_ids.iter().rev() {
         let Some(layer) = layers.get(layer_id) else {
@@ -677,7 +684,18 @@ fn collect_hit_regions<C: RenderConfiguration>(
                 break 'outer;
             }
             let margin = &element.box_model.margin_box;
-            let (link, image, cursor, editable) = describe_hit::<C>(doc, element.dom_node_id, base_url);
+            let (mut link, mut image, cursor, editable) = describe_hit::<C>(doc, element.dom_node_id, base_url);
+            // Past the page's text budget the region still hit-tests and
+            // still says pointer; only the strings stay behind.
+            text_bytes += link.as_ref().map_or(0, String::len) + image.as_ref().map_or(0, String::len);
+            if text_bytes > MAX_HIT_TEXT_TOTAL {
+                link = None;
+                image = None;
+                if !text_dropped {
+                    text_dropped = true;
+                    log::warn!("page carries more than {MAX_HIT_TEXT_TOTAL} bytes of link text; the rest ship without");
+                }
+            }
             regions.push(HitRegion {
                 x: margin.x,
                 y: margin.y,

@@ -68,11 +68,12 @@ const MAX_EXCHANGE_MESSAGES: usize = 50_000;
 const MAX_EXCHANGE_RESOURCES: usize = 2_000;
 const MAX_EXCHANGE_TILE_BYTES: usize = 512 * 1024 * 1024;
 const EXCHANGE_DEADLINE: Duration = Duration::from_secs(600);
-/// Longest `link`/`image` string kept from a hit region, and longest title.
-const MAX_HIT_TEXT: usize = 2048;
+/// Longest title kept; `link`/`image`/favicon URLs are bounded by
+/// [`MAX_HIT_TEXT`] and dropped whole past it.
 const MAX_TITLE: usize = 1024;
 const MAX_LAYER_ORDER: usize = 100_000;
 const MAX_TIMINGS: usize = 64;
+const MAX_TIMING_NAME: usize = 64;
 
 /// What answers a renderer's subresource requests during an exchange: the
 /// broker's loader, where identity and cookies live.
@@ -247,10 +248,19 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
     }
 }
 
-/// Cut a renderer-supplied string to `max` characters.
+/// Cut a renderer-supplied string to `max` characters. For text that is
+/// displayed, never for a URL - see [`drop_long_url`].
 fn bound_text(text: &mut String, max: usize) {
     if text.len() > max {
         *text = text.chars().take(max).collect();
+    }
+}
+
+/// A renderer-supplied URL past [`MAX_HIT_TEXT`] is dropped whole: cut, it
+/// would be navigated to or fetched as a different URL.
+fn drop_long_url(url: &mut Option<String>) {
+    if url.as_ref().is_some_and(|u| u.len() > MAX_HIT_TEXT) {
+        *url = None;
     }
 }
 
@@ -259,9 +269,7 @@ fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
     if let Some(title) = summary.title.as_mut() {
         bound_text(title, MAX_TITLE);
     }
-    if let Some(favicon) = summary.favicon.as_mut() {
-        bound_text(favicon, MAX_HIT_TEXT);
-    }
+    drop_long_url(&mut summary.favicon);
     summary.layer_order.truncate(MAX_LAYER_ORDER);
     summary.timings_us.truncate(MAX_TIMINGS);
     // A scroll target is a y the tab will scroll to: finite, or not kept.
@@ -273,20 +281,23 @@ fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
         bound_text(&mut target.name, MAX_HIT_TEXT);
     }
     for (name, _) in summary.timings_us.iter_mut() {
-        bound_text(name, MAX_TIMINGS);
+        bound_text(name, MAX_TIMING_NAME);
     }
 }
 
-/// [`MAX_HIT_REGIONS`](crate::fork_server::protocol::MAX_HIT_REGIONS) is the
-/// producer's promise; this is the consumer's.
+/// [`MAX_HIT_REGIONS`](crate::fork_server::protocol::MAX_HIT_REGIONS) and
+/// [`MAX_HIT_TEXT_TOTAL`](crate::fork_server::protocol::MAX_HIT_TEXT_TOTAL)
+/// are the producer's promises; this is the consumer's.
 fn bound_hit_regions(regions: &mut Vec<crate::fork_server::protocol::HitRegion>) {
     regions.truncate(crate::fork_server::protocol::MAX_HIT_REGIONS);
+    let mut text_bytes = 0usize;
     for region in regions.iter_mut() {
-        if let Some(link) = region.link.as_mut() {
-            bound_text(link, MAX_HIT_TEXT);
-        }
-        if let Some(image) = region.image.as_mut() {
-            bound_text(image, MAX_HIT_TEXT);
+        drop_long_url(&mut region.link);
+        drop_long_url(&mut region.image);
+        text_bytes += region.link.as_ref().map_or(0, String::len) + region.image.as_ref().map_or(0, String::len);
+        if text_bytes > crate::fork_server::protocol::MAX_HIT_TEXT_TOTAL {
+            region.link = None;
+            region.image = None;
         }
     }
 }
@@ -683,7 +694,51 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fork_server::protocol::{TileHeader, TileWireAnchor, TileWireFormat};
+    use crate::fork_server::protocol::{HitCursor, TileHeader, TileWireAnchor, TileWireFormat, MAX_HIT_TEXT_TOTAL};
+
+    fn region(link: Option<String>) -> HitRegion {
+        HitRegion {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            node_id: 1,
+            anchor: TileWireAnchor::Scroll,
+            link,
+            image: None,
+            cursor: HitCursor::Pointer,
+            editable: false,
+        }
+    }
+
+    /// A URL past the bound is dropped whole: cut, it would be navigated to.
+    #[test]
+    fn a_link_past_the_bound_is_dropped_not_cut() {
+        let long = format!("https://example.test/?{}", "x".repeat(MAX_HIT_TEXT));
+        let mut regions = vec![region(Some(long)), region(Some("https://example.test/ok".into()))];
+        bound_hit_regions(&mut regions);
+        assert_eq!(regions[0].link, None);
+        assert_eq!(
+            regions[0].cursor,
+            HitCursor::Pointer,
+            "the box still hit-tests as a link"
+        );
+        assert_eq!(regions[1].link.as_deref(), Some("https://example.test/ok"));
+    }
+
+    /// Past the page's link-text budget the regions stay, their strings go.
+    #[test]
+    fn link_text_past_the_page_budget_is_dropped() {
+        let each = format!("https://example.test/{}", "y".repeat(1000));
+        let count = MAX_HIT_TEXT_TOTAL / each.len() + 2;
+        let mut regions: Vec<HitRegion> = (0..count).map(|_| region(Some(each.clone()))).collect();
+        bound_hit_regions(&mut regions);
+        assert_eq!(regions.len(), count, "no region was dropped");
+        assert!(regions.first().unwrap().link.is_some(), "the budget covers the first");
+        assert!(regions.last().unwrap().link.is_none(), "the last is past the budget");
+        let kept: usize = regions.iter().filter_map(|r| r.link.as_ref()).map(String::len).sum();
+        assert!(kept <= MAX_HIT_TEXT_TOTAL);
+    }
 
     /// A reused tile keeps the opacity and anchor it was shipped with; the
     /// `TileUnchanged` header carries only placeholders for them.
