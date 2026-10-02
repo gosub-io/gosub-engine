@@ -1477,7 +1477,20 @@ pub fn lock_down_broker(writable: &[&std::path::Path]) {
     }
 
     let temp = std::env::temp_dir();
-    match landlock::restrict_broker(&temp, workers.as_deref(), writable) {
+    // A path that does not exist cannot be anchored in the ruleset, and one
+    // that cannot would otherwise fail the ruleset whole, leaving the
+    // filesystem unconfined for the sake of a downloads directory made
+    // later. Such a path is named and left out; the embedder creates what
+    // it writes to before it locks down.
+    let (writable, missing): (Vec<&std::path::Path>, Vec<&std::path::Path>) =
+        writable.iter().copied().partition(|p| p.is_dir());
+    for path in &missing {
+        eprintln!(
+            "[broker] writable path {} does not exist and is not granted; create it before lock_down_broker",
+            path.display()
+        );
+    }
+    match landlock::restrict_broker(&temp, workers.as_deref(), &writable) {
         Ok(true) => {
             let named: Vec<String> = writable.iter().map(|p| p.display().to_string()).collect();
             eprintln!(

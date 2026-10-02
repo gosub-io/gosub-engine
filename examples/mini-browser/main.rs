@@ -866,7 +866,12 @@ fn main() {
     let data_dir = std::env::var_os("HOME")
         .map(|h| std::path::PathBuf::from(h).join(".cache").join("gosub-mini-browser"))
         .unwrap_or_else(|| std::env::temp_dir().join("gosub-mini-browser"));
-    let _ = std::fs::create_dir_all(&data_dir);
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        eprintln!(
+            "could not create {}: {e}; it will not be writable under the lockdown",
+            data_dir.display()
+        );
+    }
     gosub_engine::child_process::lock_down_broker(&[data_dir.as_path()]);
 
     simple_logger::SimpleLogger::new()
