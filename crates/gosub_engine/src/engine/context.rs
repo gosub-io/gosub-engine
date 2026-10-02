@@ -3580,6 +3580,51 @@ mod tests {
             assert_eq!(ctx.fragment_target_y("nope"), None);
         }
 
+        /// A remotely rendered page has no document to hit-test for the cursor;
+        /// the renderer's hit regions say what is under the pointer.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        #[test]
+        fn a_remote_page_reports_the_cursor_its_hit_regions_name() {
+            use crate::engine::events::CursorShape;
+            use crate::fork_server::protocol::{HitCursor, HitRegion, TileWireAnchor};
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let region = |x: f64, cursor: HitCursor, link: Option<&str>| HitRegion {
+                x,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+                node_id: x as u64 + 1,
+                anchor: TileWireAnchor::Scroll,
+                link: link.map(str::to_string),
+                image: None,
+                cursor,
+                editable: false,
+            };
+            ctx.adopt_remote_page(crate::fork_server::client::RenderedPage {
+                summary: Default::default(),
+                tiles: Vec::new(),
+                hit_regions: vec![
+                    region(0.0, HitCursor::Pointer, Some("https://example.test/")),
+                    region(100.0, HitCursor::Text, None),
+                ],
+                evicted: Default::default(),
+            });
+            assert!(ctx.document.is_none(), "a remote page keeps no document");
+
+            ctx.update_hover(50.0, 50.0);
+            assert_eq!(ctx.cursor_at(50.0, 50.0), CursorShape::Pointer, "over the link");
+            ctx.update_hover(150.0, 50.0);
+            assert_eq!(ctx.cursor_at(150.0, 50.0), CursorShape::Text, "over the text");
+            ctx.update_hover(350.0, 250.0);
+            assert_eq!(ctx.cursor_at(350.0, 250.0), CursorShape::Default, "over nothing");
+        }
+
         /// A local page resolves every target: the payload cap is the
         /// renderer's, not the lookup's.
         #[test]

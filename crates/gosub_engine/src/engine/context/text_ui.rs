@@ -449,7 +449,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return CursorKind::Text;
         }
         let Some(doc) = self.document.clone() else {
-            return CursorKind::Default;
+            // A remotely rendered page: no document here, but the hover just
+            // updated from the renderer's hit regions says what is under the
+            // pointer (a link, text), and that is the cursor.
+            return self.hover_cursor();
         };
         let (leaf, lei) = self.hit_at(vp_x, vp_y);
         // Popup rows are picked with a plain arrow.
