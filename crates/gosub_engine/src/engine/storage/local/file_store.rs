@@ -60,7 +60,7 @@ impl FileLocalStore {
     /// one set of areas.
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self> {
         let dir = dir.into();
-        std::fs::create_dir_all(&dir)?;
+        crate::storage::private_dir(&dir)?;
         let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
         Ok(Self {
             dir,

@@ -60,12 +60,12 @@ impl JsonCookieStore {
     /// Returns [`EngineError::CookieStore`] if the initial write of an empty file fails.
     pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
         if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+            let _ = crate::storage::private_dir(parent);
         }
         if !path.exists() {
             let empty = CookieStoreFile { zones: HashMap::new() };
             let bytes = serde_json::to_vec(&empty).map_err(|e| EngineError::CookieStore(e.into()))?;
-            fs::write(&path, bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
+            write_private(&path, &bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
         }
 
         let store = Arc::new(Self {
@@ -111,7 +111,7 @@ impl JsonCookieStore {
         };
         // atomic-ish: write to tmp then rename
         let tmp = self.path.with_extension("json.tmp");
-        if let Err(e) = fs::write(&tmp, &contents) {
+        if let Err(e) = write_private(&tmp, &contents) {
             log::error!("Failed to write temp cookie store file {tmp:?}: {e}");
             return;
         }
@@ -181,6 +181,20 @@ impl CookieStore for JsonCookieStore {
         }
         self.save_file(&file);
     }
+}
+
+/// Write `bytes` to `path` readable by this user alone (`0600`): cookies are
+/// credentials, and the profile directory may be traversable.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 #[cfg(test)]

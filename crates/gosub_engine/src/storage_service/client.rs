@@ -234,7 +234,7 @@ impl ServiceLocalStore {
     /// Creates `dir` now; the service cannot.
     pub fn new(dir: impl Into<PathBuf>) -> Result<Self> {
         let dir = dir.into();
-        std::fs::create_dir_all(&dir)?;
+        crate::storage::private_dir(&dir)?;
         Ok(Self {
             dir,
             backend: OnceLock::new(),

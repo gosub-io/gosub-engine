@@ -85,3 +85,28 @@ pub use service::{StorageService, Subscription};
 pub use session::in_memory::InMemorySessionStore;
 pub use types::PartitionKey;
 pub use types::PartitionPolicy;
+
+/// Create `dir` (and its parents) for this user alone: `0700`, so another
+/// local user on a traversable profile directory cannot read what pages
+/// stored. An existing directory keeps its mode (the embedder's choice).
+pub fn private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    if dir.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = dir.parent() {
+        if !parent.as_os_str().is_empty() {
+            private_dir(parent)?;
+        }
+    }
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    match builder.create(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
+}
