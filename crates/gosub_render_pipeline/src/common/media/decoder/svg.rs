@@ -89,6 +89,15 @@ impl SvgDecoder {
         };
         usvg::Options {
             fontdb,
+            image_href_resolver: usvg::ImageHrefResolver {
+                resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+                // usvg's default treats any other `href` as a path and reads
+                // it from disk: page content naming `/etc/passwd` would be
+                // read by the broker, and stat'd then SIGSYS'd in a confined
+                // renderer. An `<image>` in SVG an engine embeds is `data:`
+                // or nothing; the fetched kind goes through the media store.
+                resolve_string: Box::new(|_, _| None),
+            },
             ..Default::default()
         }
     }
@@ -167,4 +176,57 @@ fn parse_svg(bytes: &[u8], options: &usvg::Options<'static>) -> Result<usvg::Tre
     stacker::maybe_grow(SVG_PARSE_STACK_NEEDED, SVG_PARSE_STACK_SIZE, || {
         usvg::Tree::from_str(text, options).map_err(|e| ImageDecodeError::Decode(e.to_string()))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn has_image_node(tree: &usvg::Tree) -> bool {
+        fn walk(group: &usvg::Group) -> bool {
+            group.children().iter().any(|node| match node {
+                usvg::Node::Image(_) => true,
+                usvg::Node::Group(g) => walk(g),
+                _ => false,
+            })
+        }
+        walk(tree.root())
+    }
+
+    /// An `<image href>` naming a host file is dropped, never read. The
+    /// control shows usvg's own default would have loaded it.
+    #[test]
+    fn an_image_href_on_disk_is_never_read() {
+        let dir = std::env::temp_dir().join(format!("gosub-svg-href-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("secret.png");
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        std::fs::write(&png, bytes).unwrap();
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2" height="2"><image href="{}" width="2" height="2"/></svg>"#,
+            png.display()
+        );
+
+        let control = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
+        assert!(
+            has_image_node(&control),
+            "control: usvg's default resolver did not load the file"
+        );
+
+        let ours = parse_svg(svg.as_bytes(), &SvgDecoder::without_system_fonts().options()).unwrap();
+        assert!(!has_image_node(&ours), "the file on disk was read");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `data:` images still resolve: the one `href` kind page SVG legitimately carries.
+    #[test]
+    fn a_data_image_href_still_resolves() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" width="1" height="1"/></svg>"#;
+        let tree = parse_svg(svg.as_bytes(), &SvgDecoder::without_system_fonts().options()).unwrap();
+        assert!(has_image_node(&tree), "a data: image was dropped");
+    }
 }
