@@ -163,7 +163,8 @@ const FORK_SERVER_EXTRA: &[libc::c_long] = &[
     libc::SYS_clone,
     libc::SYS_clone3,
     libc::SYS_wait4,
-    libc::SYS_prctl,
+    // `prctl` is argument-filtered in `install_with` to the three commands a
+    // forked renderer's own lockdown issues; `seccomp` installs its filter.
     libc::SYS_seccomp,
     // Libc post-fork housekeeping in the child, before our code runs: glibc
     // resets the robust-futex list, musl registers a TID address. Both only
@@ -1619,14 +1620,31 @@ fn install_with(
     // sets its name (tokio names its runtime and blocking-pool threads), so a
     // role that spawns one after lockdown dies without this. `PR_SET_NAME`
     // writes a 16-byte label on the calling thread and grants nothing; every
-    // other prctl command still hits the default action. Skipped when the
-    // caller already allows `prctl` outright (the fork server, which needs
-    // `PR_SET_NO_NEW_PRIVS` for its children).
-    if !allowed.contains(&libc::SYS_prctl) {
-        let is_set_name =
-            SeccompCondition::new(0, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::PR_SET_NAME as u64)?;
-        rules.insert(libc::SYS_prctl as i64, vec![SeccompRule::new(vec![is_set_name])?]);
+    // other prctl command still hits the default action. The fork server's
+    // forked renderers lock themselves down under its filter, which takes
+    // two more: `PR_SET_NO_NEW_PRIVS` (Landlock and seccomp both require it)
+    // and `PR_SET_DUMPABLE` to 0 - never to 1, which would reopen ptrace, and
+    // nothing else (`PR_SET_PTRACER` included).
+    let mut prctl_allowed = Vec::new();
+    let mut cmds = vec![libc::PR_SET_NAME];
+    if fork_server {
+        cmds.push(libc::PR_SET_NO_NEW_PRIVS);
     }
+    for cmd in cmds {
+        let is_cmd = SeccompCondition::new(0, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, cmd as u64)?;
+        prctl_allowed.push(SeccompRule::new(vec![is_cmd])?);
+    }
+    if fork_server {
+        let is_dumpable = SeccompCondition::new(
+            0,
+            SeccompCmpArgLen::Qword,
+            SeccompCmpOp::Eq,
+            libc::PR_SET_DUMPABLE as u64,
+        )?;
+        let to_zero = SeccompCondition::new(1, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, 0)?;
+        prctl_allowed.push(SeccompRule::new(vec![is_dumpable, to_zero])?);
+    }
+    rules.insert(libc::SYS_prctl as i64, prctl_allowed);
 
     // `prlimit64` may query or lower limits of this process only (`pid`,
     // argument 0, is 0 for "self"); another process's limits are not its business.
