@@ -250,6 +250,11 @@ mod tests {
 
     /// One `/events` stream with a short heartbeat, and a client already past
     /// the response head.
+    /// The telemetry bus is process-wide: `telemetry::enabled()` is true while
+    /// any test's stream holds a subscription, so the tests that assert on it
+    /// run one at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     async fn one_stream() -> (TcpStream, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -339,6 +344,7 @@ mod tests {
     /// and with it the subscription that keeps telemetry emission on.
     #[tokio::test]
     async fn an_idle_events_client_that_hangs_up_ends_its_stream() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (client, server) = one_stream().await;
         drop(client);
 
@@ -353,6 +359,7 @@ mod tests {
     /// stream goes on, and the next event reaches it.
     #[tokio::test]
     async fn a_client_that_only_stops_sending_still_gets_events() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (mut client, server) = one_stream().await;
         client.shutdown().await.unwrap();
         // Long enough for the server to read the EOF, and for heartbeats.
