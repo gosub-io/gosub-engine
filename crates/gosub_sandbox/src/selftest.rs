@@ -86,6 +86,10 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "fcntl-dupfd",
     #[cfg(target_os = "linux")]
+    "path-stat",
+    #[cfg(target_os = "linux")]
+    "path-stat-control",
+    #[cfg(target_os = "linux")]
     "ring",
     #[cfg(target_os = "linux")]
     "netns",
@@ -890,6 +894,43 @@ fn run_macos_probe(probe: &str) {
 /// observes from outside.
 ///
 /// ## Shape note for other platforms
+/// The three stat spellings the `path-stat` probes compare before and after
+/// lockdown: `stat` by path, `fstat` as glibc 2.36 spells it
+/// (`newfstatat(fd, "", AT_EMPTY_PATH)`), and `statx` on the same fd. Each is
+/// `Ok` or the errno it failed with.
+#[cfg(target_os = "linux")]
+fn path_stat_attempts() -> (Result<(), i32>, Result<(), i32>, Result<(), i32>) {
+    let errno = || std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+    let verdict = |r: libc::c_long| if r < 0 { Err(errno()) } else { Ok(()) };
+    // SAFETY: valid paths and out-structs; fd 2 is open.
+    let by_path = unsafe {
+        let mut st: libc::stat = std::mem::zeroed();
+        verdict(libc::stat(c"/etc/passwd".as_ptr(), &mut st) as libc::c_long)
+    };
+    let by_fd = unsafe {
+        let mut st: libc::stat = std::mem::zeroed();
+        verdict(libc::syscall(
+            libc::SYS_newfstatat,
+            2,
+            c"".as_ptr(),
+            &mut st as *mut libc::stat,
+            libc::AT_EMPTY_PATH,
+        ))
+    };
+    let by_statx = unsafe {
+        let mut stx: libc::statx = std::mem::zeroed();
+        verdict(libc::syscall(
+            libc::SYS_statx,
+            2,
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH,
+            libc::STATX_BASIC_STATS,
+            &mut stx as *mut libc::statx,
+        ))
+    };
+    (by_path, by_fd, by_statx)
+}
+
 #[cfg(target_os = "linux")]
 fn run_platform_probe(probe: &str) {
     // The netns probe must run *before* the seccomp lockdown: verifying the
@@ -1501,6 +1542,16 @@ fn run_platform_probe(probe: &str) {
         }
     }
 
+    // The control for `path-stat`: the same calls before any lockdown must
+    // all succeed, or a refusal below would prove nothing.
+    if probe == "path-stat-control" {
+        let (by_path, by_fd, by_statx) = path_stat_attempts();
+        assert_eq!(by_path, Ok(()), "stat by path failed before lockdown");
+        assert_eq!(by_fd, Ok(()), "fstat spelled newfstatat failed before lockdown");
+        assert!(by_statx.is_ok(), "statx failed before lockdown: {by_statx:?}");
+        std::process::exit(0);
+    }
+
     // Drop to the renderer's privileges, exactly as a real renderer does.
     crate::lock_down_renderer();
 
@@ -1508,6 +1559,31 @@ fn run_platform_probe(probe: &str) {
         // The sandbox must NOT kill an allowed program: only reads/writes on
         // existing fds, memory, and exit. Clean exit = pass.
         "baseline" => std::process::exit(0),
+
+        // Metadata by path is refused with EPERM - not fatal, a library's
+        // `exists()` probe on page input must not take the process down -
+        // while `fstat` in glibc 2.36's `newfstatat(AT_EMPTY_PATH)` spelling
+        // is served, and `statx` gets the ENOSYS that sends Rust's std and
+        // glibc to their `fstat` fallbacks. Clean exit = pass.
+        "path-stat" => {
+            let (by_path, by_fd, by_statx) = path_stat_attempts();
+            assert_eq!(by_path, Err(libc::EPERM), "stat by path was not refused with EPERM");
+            assert_eq!(by_fd, Ok(()), "fstat spelled newfstatat(AT_EMPTY_PATH) was refused");
+            assert_eq!(by_statx, Err(libc::ENOSYS), "statx did not get ENOSYS");
+            // And the std path a renderer actually takes: a `File`'s metadata
+            // (statx, then the fstat fallback) works; `Path::exists` is false.
+            {
+                use std::os::fd::FromRawFd as _;
+                // SAFETY: fd 2 is open and outlives this borrow; never closed here.
+                let own = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(2) });
+                own.metadata().expect("File::metadata under the renderer filter");
+            }
+            assert!(
+                !std::path::Path::new("/etc/passwd").exists(),
+                "Path::exists reached the host"
+            );
+            std::process::exit(0);
+        }
 
         // W^X: turning writable memory executable must be fatal. We reach the
         // exit only if the argument filter FAILED to trap the PROT_EXEC.

@@ -266,6 +266,8 @@ mod probe_inventory {
         "socket",
         "memfd-seal",
         "fcntl-dupfd",
+        "path-stat",
+        "path-stat-control",
         "ring",
         "netns",
         "pidns",
@@ -553,6 +555,17 @@ mod sandbox_enforcement {
             Some(SIGSYS),
             "expected SIGSYS (tgkill pid filter), got {st:?}"
         );
+    }
+
+    /// A renderer cannot stat host paths (EPERM, not a kill: a library's
+    /// `exists()` on page input is not a crash), while `fstat` on its own
+    /// descriptors works in every spelling libc and std use.
+    #[test]
+    fn renderer_cannot_stat_paths_but_keeps_fstat() {
+        let control = probe("path-stat-control");
+        assert!(control.success(), "stat control failed before lockdown: {control:?}");
+        let st = probe("path-stat");
+        assert!(st.success(), "path stat under the renderer filter: {st:?}");
     }
 
     /// Where Landlock cannot scope a read-only role, its opens are read-only at

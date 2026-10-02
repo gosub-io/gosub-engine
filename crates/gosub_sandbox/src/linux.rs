@@ -36,12 +36,14 @@ const BASELINE: &[libc::c_long] = &[
     libc::SYS_recvmsg,
     libc::SYS_sendmsg,
     libc::SYS_close,
-    // Both spellings of fstat: glibc 2.36 (Debian bookworm) issues
-    // `newfstatat` with AT_EMPTY_PATH, 2.39 (Ubuntu 24.04) issues `fstat`.
-    // Allowing only one kills the ring and tile consumers on the other libc.
+    // `fstat` on an fd the process holds. glibc 2.36 (Debian bookworm)
+    // spells it `newfstatat(fd, "", AT_EMPTY_PATH)` and Rust's std tries
+    // `statx` first; neither is allowed here, because with a path they stat
+    // any file on the host by name (Landlock does not mediate stat, and this
+    // tier has none). Both trap instead, and `sigsys_handler` emulates the
+    // fd-only form with `fstat` and refuses the rest with an errno - see
+    // `emulate_fd_stat`. File roles get the real calls through `FS_EXTRA`.
     libc::SYS_fstat,
-    libc::SYS_newfstatat,
-    libc::SYS_statx,
     libc::SYS_lseek,
     // memory - mmap/mprotect are argument-filtered in `install` to forbid
     // PROT_EXEC (mremap preserves an existing mapping's protection, so it can't
@@ -822,6 +824,12 @@ const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_openat,
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     libc::SYS_open,
+    // Path stat for the roles that read files: the resolver checks
+    // `/etc/resolv.conf` for changes and fontconfig validates its caches
+    // this way. Landlock bounds what they may *open*; metadata of any path
+    // stays readable, which is these roles' design (see `audit`).
+    libc::SYS_newfstatat,
+    libc::SYS_statx,
 ];
 
 /// What a service that *writes* needs on top: replacing a file atomically.
@@ -1916,6 +1924,9 @@ fn syscall_arg(ctx: *mut libc::c_void, arg_index: usize) -> Option<u64> {
             0 => libc::REG_RDI,
             1 => libc::REG_RSI,
             2 => libc::REG_RDX,
+            3 => libc::REG_R10,
+            4 => libc::REG_R8,
+            5 => libc::REG_R9,
             _ => return None,
         };
         Some(uc.uc_mcontext.gregs[reg as usize] as u64)
@@ -1936,23 +1947,109 @@ fn syscall_arg(ctx: *mut libc::c_void, arg_index: usize) -> Option<u64> {
     }
 }
 
+/// Write the trapped syscall's return value into the signal ucontext, so that
+/// returning from the handler resumes the caller with that result instead of
+/// the call. The audit uses the same mechanism to survive its own attempts.
+#[cfg(feature = "multi-process")]
+pub(crate) fn set_syscall_return(ctx: *mut libc::c_void, value: i64) {
+    if ctx.is_null() {
+        return;
+    }
+    // SAFETY: the kernel hands a SA_SIGINFO handler a `ucontext_t`; the
+    // register written is the syscall return slot on this architecture.
+    unsafe {
+        let uc = ctx.cast::<libc::ucontext_t>();
+        #[cfg(target_arch = "x86_64")]
+        {
+            (*uc).uc_mcontext.gregs[libc::REG_RAX as usize] = value;
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            (*uc).uc_mcontext.regs[0] = value as u64;
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            let _ = (uc, value);
+        }
+    }
+}
+
+/// The one trap that does not end the process: `newfstatat`/`statx`, which
+/// are off the baseline because with a path they stat any host file by name.
+/// Their fd-only form - an empty path with `AT_EMPTY_PATH`, how glibc 2.36
+/// spells `fstat` and how Rust's std queries a `File` - is served here with
+/// `fstat` on that fd (`newfstatat`), or answered `ENOSYS` so the caller takes
+/// its `fstat` fallback (`statx`: Rust's std and glibc both do). A path form
+/// gets `EPERM`: metadata, not contents, and a page-controlled `exists()`
+/// probe (an SVG `<image href>`) must not take a site's renderer down. Said
+/// once per process. Returns what the caller should see, or `None` when the
+/// trap is not one of these and must be fatal.
+#[cfg(feature = "multi-process")]
+pub(crate) fn emulate_fd_stat(nr: i32, ctx: *mut libc::c_void) -> Option<i64> {
+    const AT_EMPTY_PATH: u64 = libc::AT_EMPTY_PATH as u64;
+    static REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let (is_fstatat, is_statx) = (nr as i64 == libc::SYS_newfstatat, nr as i64 == libc::SYS_statx);
+    if !is_fstatat && !is_statx {
+        return None;
+    }
+    // newfstatat(dirfd, path, buf, flags); statx(dirfd, path, flags, mask, buf).
+    let dirfd = syscall_arg(ctx, 0)? as i32;
+    let path = syscall_arg(ctx, 1)?;
+    let flags = syscall_arg(ctx, if is_fstatat { 3 } else { 2 })?;
+    // SAFETY: the pointer is the caller's own argument, read one byte as the
+    // kernel would have; a null pointer is not dereferenced.
+    let empty_path = path != 0 && unsafe { std::ptr::read_volatile(path as *const u8) } == 0;
+    if empty_path && flags & AT_EMPTY_PATH != 0 {
+        if is_statx {
+            return Some(-(libc::ENOSYS as i64));
+        }
+        let buf = syscall_arg(ctx, 2)?;
+        // SAFETY: `fstat` on the caller's fd into the caller's buffer, the
+        // write the trapped call was about to make; `fstat` is on every allowlist.
+        let r = unsafe { libc::syscall(libc::SYS_fstat, dirfd, buf) };
+        return Some(if r < 0 {
+            -(std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO) as i64)
+        } else {
+            r
+        });
+    }
+    if !REFUSED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        const LINE: &[u8] = b"[sandbox] stat on a path refused (EPERM); this role reads no files\n";
+        // SAFETY: fd 2 is open; the buffer is a static slice.
+        unsafe { libc::write(2, LINE.as_ptr().cast(), LINE.len()) };
+    }
+    Some(-(libc::EPERM as i64))
+}
+
 /// SIGSYS handler for `SECCOMP_RET_TRAP`: name the blocked syscall (and, for
 /// path-taking calls, the path it was given), then terminate with SIGSYS
-/// exactly as `KillProcess` would have.
+/// exactly as `KillProcess` would have. The one exception is the fd-stat
+/// family, answered in place - see [`emulate_fd_stat`].
+/// The syscall number a SIGSYS was raised for, from its `siginfo_t`; -1 when
+/// there is none.
 #[cfg(feature = "multi-process")]
-extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
+pub(crate) fn trapped_syscall_nr(info: *const libc::siginfo_t) -> i32 {
     // `si_syscall` sits at byte offset 24 of `siginfo_t` on LP64 Linux - after
     // {si_signo, si_errno, si_code, pad} (16 bytes) and the `_call_addr`
     // pointer (8). Same layout on x86_64 and aarch64, the two arches this
     // crate builds seccomp for. A wrong read only mislabels the log line; it
-    // cannot affect the termination below.
-    let nr: i32 = if info.is_null() {
-        -1
-    } else {
-        // SAFETY: `info` points at a kernel-filled siginfo_t at least 32 bytes
-        // long; the read is unaligned-safe and within that.
-        unsafe { std::ptr::read_unaligned((info as *const u8).add(24).cast::<i32>()) }
-    };
+    // cannot affect the termination that follows.
+    if info.is_null() {
+        return -1;
+    }
+    // SAFETY: `info` points at a kernel-filled siginfo_t at least 32 bytes
+    // long; the read is unaligned-safe and within that.
+    unsafe { std::ptr::read_unaligned((info as *const u8).add(24).cast::<i32>()) }
+}
+
+#[cfg(feature = "multi-process")]
+extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
+    let nr = trapped_syscall_nr(info);
+
+    if let Some(ret) = emulate_fd_stat(nr, ctx) {
+        set_syscall_return(ctx, ret);
+        return;
+    }
 
     let mut buf = [0u8; 256];
     let mut len = 0usize;
