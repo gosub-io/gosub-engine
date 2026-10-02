@@ -860,6 +860,15 @@ fn main() {
     // embedder startup runs. In the parent this returns immediately.
     gosub_engine::child_process::dispatch_with::<MiniConfig>();
 
+    // Second, before any thread exists: this process's own confinement. It
+    // writes only under its data directory (and the temp dir) from here on,
+    // and the escalation syscalls are gone.
+    let data_dir = std::env::var_os("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".cache").join("gosub-mini-browser"))
+        .unwrap_or_else(|| std::env::temp_dir().join("gosub-mini-browser"));
+    let _ = std::fs::create_dir_all(&data_dir);
+    gosub_engine::child_process::lock_down_broker(&[data_dir.as_path()]);
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .env()
@@ -950,9 +959,6 @@ fn main() {
     });
 
     // Persistent, so a second run shows the counters and cookies survived.
-    let data_dir = std::env::var_os("HOME")
-        .map(|h| std::path::PathBuf::from(h).join(".cache").join("gosub-mini-browser"))
-        .unwrap_or_else(|| std::env::temp_dir().join("gosub-mini-browser"));
     let local_store = FileLocalStore::open(data_dir.join("storage")).expect("storage directory");
     let cookie_store = SqliteCookieStore::new(data_dir.join("cookies.db"))
         .map(CookieStoreHandle::from)

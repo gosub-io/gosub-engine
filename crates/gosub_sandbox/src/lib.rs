@@ -324,16 +324,20 @@ pub fn landlock_available() -> bool {
 /// gets a Landlock ruleset limiting writes to the temp dir (read/exec stay
 /// open) plus a deny-list seccomp filter removing escalation syscalls
 /// (`ptrace`, kernel-module/`kexec`/`bpf`, keyring, `mount`/`setns`, …).
-/// Call on the main thread before the engine starts so every thread and child
-/// inherits both. Linux only (a macOS Seatbelt broker profile is not built
-/// yet). Best-effort: a kernel missing either mechanism leaves that layer off.
+/// `writable` names what the embedder itself writes beyond the temp dir: its
+/// profile directory (cookie store, localStorage, places), downloads, logs.
+/// Call on the main thread before the engine starts - before any thread, the
+/// logger and the runtime included, since Landlock binds the calling thread
+/// and the threads created after it - so every thread and child inherits
+/// both. Linux only (a macOS Seatbelt broker profile is not built yet).
+/// Best-effort: a kernel missing either mechanism leaves that layer off.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-pub fn lock_down_broker() {
-    imp::lock_down_broker();
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
+    imp::lock_down_broker(writable);
 }
 
 #[cfg(all(feature = "multi-process", not(target_os = "linux")))]
-pub fn lock_down_broker() {}
+pub fn lock_down_broker(_writable: &[&std::path::Path]) {}
 
 /// Cap the fork server (Linux only - it is the one platform with a zygote).
 #[cfg(all(feature = "multi-process", target_os = "linux"))]

@@ -1160,7 +1160,7 @@ mod landlock {
     /// engine code calls [`super::lock_down_broker`] yet; whoever wires it in
     /// must add the paths the broker still writes after lockdown (the profile
     /// directory, anything else it persists), or those writes fail with EACCES.
-    pub fn restrict_broker(temp: &Path, cgroup: Option<&Path>) -> std::io::Result<bool> {
+    pub fn restrict_broker(temp: &Path, cgroup: Option<&Path>, writable: &[&Path]) -> std::io::Result<bool> {
         // Read + traverse + execute everything, so the loader can `execve` the
         // child binary and mmap its shared libraries PROT_EXEC wherever they are.
         let root = READ_FILE | READ_DIR | EXECUTE;
@@ -1182,6 +1182,11 @@ mod landlock {
         if let Some(cg) = cgroup {
             let cg_rw = READ_FILE | READ_DIR | WRITE_FILE | MAKE_DIR | REMOVE_DIR;
             rules.push((cg, cg_rw));
+        }
+        // What the embedder writes: its profile directory (cookie store,
+        // localStorage files, places), downloads, logs - its to name.
+        for dir in writable {
+            rules.push((dir, temp_rw));
         }
         apply(&rules)
     }
@@ -1453,7 +1458,7 @@ const BROKER_DENY: &[libc::c_long] = &[
 /// temp dir - see [`landlock::restrict_broker`]) and a deny-list seccomp
 /// filter (allow by default, `Trap` the [`BROKER_DENY`] escalation syscalls).
 #[cfg(feature = "multi-process")]
-pub fn lock_down_broker() {
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
     // cgroup memory bounding first (best-effort): it moves the broker into a
     // leader cgroup and writes to `/sys/fs/cgroup`, so it must run *before*
     // Landlock/seccomp go on. The `workers` path it returns, if any, is handed to
@@ -1472,9 +1477,15 @@ pub fn lock_down_broker() {
     }
 
     let temp = std::env::temp_dir();
-    match landlock::restrict_broker(&temp, workers.as_deref()) {
+    match landlock::restrict_broker(&temp, workers.as_deref(), writable) {
         Ok(true) => {
-            eprintln!("[broker] landlock active (writes confined to {})", temp.display())
+            let named: Vec<String> = writable.iter().map(|p| p.display().to_string()).collect();
+            eprintln!(
+                "[broker] landlock active (writes confined to {}{}{})",
+                temp.display(),
+                if named.is_empty() { "" } else { ", " },
+                named.join(", ")
+            )
         }
         Ok(false) => {
             eprintln!("[broker] landlock unavailable on this kernel; broker filesystem unconfined")

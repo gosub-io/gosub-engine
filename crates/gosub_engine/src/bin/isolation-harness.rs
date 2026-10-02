@@ -158,6 +158,12 @@ fn main() {
         }
     }
 
+    // The engine scenarios run as an embedder would: the broker confined,
+    // here before any thread. Writes go to the temp dir, which is where every
+    // scenario puts what it writes.
+    if std::env::args().nth(1).is_some_and(|s| s.starts_with("engine-")) {
+        gosub_engine::child_process::lock_down_broker(&[]);
+    }
     let scenario = std::env::args().nth(1).unwrap_or_default();
     let code = match scenario.as_str() {
         "direct" => direct(),

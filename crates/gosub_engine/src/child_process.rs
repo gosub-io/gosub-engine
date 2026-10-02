@@ -113,6 +113,24 @@ fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String
 }
 
 /// Whether this process was started as a child role.
+/// Confine this, the embedder's own process, after [`dispatch_with`] and
+/// before anything else: a Landlock ruleset that limits its filesystem
+/// writes to the temp dir plus `writable` (the embedder's profile directory,
+/// downloads, logs - whatever it writes itself), and a seccomp deny-list
+/// removing the escalation syscalls (`ptrace`, `mount`, `bpf`, kernel
+/// modules, keyrings, ...). The children's sandboxes are the boundary against
+/// page content; this is the one against a bug in the broker reaching the
+/// rest of the account. Call it on the main thread before the logger, the
+/// runtime or the engine exist - Landlock binds the calling thread and the
+/// threads created after it, and nothing undoes it. Best-effort on a kernel
+/// without either mechanism; a no-op where process isolation is not built.
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
+    #[cfg(feature = "process-isolation")]
+    gosub_sandbox::lock_down_broker(writable);
+    #[cfg(not(feature = "process-isolation"))]
+    let _ = writable;
+}
+
 pub fn is_child_process() -> bool {
     std::env::args().any(|a| a == ROLE_FLAG)
 }
