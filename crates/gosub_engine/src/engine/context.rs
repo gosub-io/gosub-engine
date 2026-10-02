@@ -1885,7 +1885,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if let Some(regions) = self.remote_hit_regions() {
             if let Some(region) = hit_region_at(regions, vp_x, vp_y, self.scroll_x, self.scroll_y) {
                 out.link_url = region.link.clone();
-                out.image_url = region.image.clone();
+                // The renderer's word, handed to the embedder's "open image"
+                // and "save image" menus: only a URL the embedder may act on.
+                out.image_url = region.image.clone().filter(|image| {
+                    Url::parse(image).is_ok_and(|u| {
+                        matches!(u.scheme(), "http" | "https")
+                            || (u.scheme() == "file" && base.is_some_and(|b| b.scheme() == "file"))
+                    })
+                });
                 out.is_editable = region.editable;
             }
             return out;

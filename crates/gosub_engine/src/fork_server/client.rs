@@ -449,6 +449,24 @@ fn bound_text(text: &mut String, max: usize) {
     }
 }
 
+/// A string that will be shown by the embedder (the window title): control
+/// characters and the bidi overrides go, so a page cannot reorder or hide
+/// what the embedder displays next to it. Whitespace is kept.
+fn displayable(text: &mut String) {
+    const BIDI: [char; 9] = [
+        '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    if text
+        .chars()
+        .any(|c| (c.is_control() && !c.is_whitespace()) || BIDI.contains(&c))
+    {
+        *text = text
+            .chars()
+            .filter(|c| !((c.is_control() && !c.is_whitespace()) || BIDI.contains(c)))
+            .collect();
+    }
+}
+
 /// A renderer-supplied URL past [`MAX_HIT_TEXT`] is dropped whole: cut, it
 /// would be navigated to or fetched as a different URL.
 fn drop_long_url(url: &mut Option<String>) {
@@ -461,6 +479,7 @@ fn drop_long_url(url: &mut Option<String>) {
 fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
     if let Some(title) = summary.title.as_mut() {
         bound_text(title, MAX_TITLE);
+        displayable(title);
     }
     drop_long_url(&mut summary.favicon);
     summary.layer_order.truncate(MAX_LAYER_ORDER);
