@@ -656,23 +656,28 @@ impl ForkServer {
         };
         // A fork server stuck in a relay never reads `Shutdown`: give it a
         // moment to leave on its own, then end it, so engine shutdown cannot hang.
+        let pid = child.id();
         let deadline = std::time::Instant::now() + SHUTDOWN_GRACE;
         while std::time::Instant::now() < deadline {
             if matches!(child.try_wait(), Ok(true) | Err(_)) {
+                remove_scratch_dir(FORK_SERVER_ROLE, pid);
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         let _ = child.kill();
         let _ = child.wait();
+        remove_scratch_dir(FORK_SERVER_ROLE, pid);
     }
 
     /// Kill and reap the fork server; the handle is inert until the next render
     /// spawns a replacement.
     fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
+            let pid = child.id();
             let _ = child.kill();
             let _ = child.wait();
+            remove_scratch_dir(FORK_SERVER_ROLE, pid);
         }
     }
 }

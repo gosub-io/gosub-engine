@@ -47,7 +47,8 @@ pub fn render_page(
             name: "gosub-renderer",
             internet: false,
             fs_grant: None,
-            data_limit: None,
+            // The renderer family's ceiling, not a service's: it holds a page.
+            data_limit: Some(RENDERER_DATA_LIMIT),
             extra_fds: &[],
             max_tasks: 256,
             file_size_limit: None,
@@ -79,8 +80,11 @@ pub fn render_page(
 
     // Kill before reaping, on every path: a renderer that will not exit -
     // wedged or hostile - must not be able to hold this thread open.
+    let pid = child.id();
     let _ = child.kill();
     let _ = child.wait();
+    // Its private scratch directory outlives it otherwise, one per render.
+    remove_scratch_dir(RENDERER_ROLE, pid);
 
     result
 }
