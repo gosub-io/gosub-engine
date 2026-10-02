@@ -318,9 +318,13 @@ fn mutate(
     let mut jars = jars.lock();
     let jar = jars.get_mut(zone)?;
     change(jar);
-    let _ = snapshots.lock().send(&FromVault::Snapshot {
+    // A jar past the link's frame cap cannot be snapshotted, and then nothing
+    // of it is persisted from here on: said, since nothing else would say it.
+    if let Err(e) = snapshots.lock().send(&FromVault::Snapshot {
         zone: zone.to_string(),
         jar: jar.clone(),
-    });
+    }) {
+        eprintln!("[vault] zone {zone}: jar snapshot not sent, its cookies are not being persisted: {e}");
+    }
     None
 }

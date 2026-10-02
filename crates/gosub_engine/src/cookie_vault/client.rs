@@ -371,7 +371,11 @@ impl CookieVault {
             self.stores.lock().insert(key.clone(), (zone, store.clone()));
         }
         self.open_zones.lock().insert(key.clone(), (zone, store));
-        let _ = self.tx.lock().send(&ToVault::OpenZone { zone: key, snapshot });
+        // A jar past the link's frame cap cannot be opened: the zone would
+        // then answer every Get with nothing and store nothing, silently.
+        if let Err(e) = self.tx.lock().send(&ToVault::OpenZone { zone: key, snapshot }) {
+            log::error!("zone {zone} could not be opened in the cookie vault; it has no cookies there: {e}");
+        }
     }
 
     pub fn close_zone(&self, zone: ZoneId) {
@@ -425,8 +429,7 @@ impl CookieVault {
             return;
         }
         self.ensure_alive();
-        self.expect_snapshot(zone);
-        let _ = self.tx.lock().send(&ToVault::Store {
+        let sent = self.tx.lock().send(&ToVault::Store {
             tag: 0,
             scope: CookieScope {
                 ticket: 0,
@@ -438,6 +441,12 @@ impl CookieVault {
             url: url.to_string(),
             set_cookie,
         });
+        // A credit only for a mutation that reached the vault: one left over
+        // from a failed send would admit an unasked-for snapshot later.
+        match sent {
+            Ok(()) => self.expect_snapshot(zone),
+            Err(e) => log::warn!("cookie store for zone {zone} did not reach the vault: {e}"),
+        }
     }
 
     /// Let the network process act on `scope` for one request. `false` means
@@ -490,7 +499,12 @@ impl CookieVault {
         | ToVault::RemoveForUrl { zone, .. }
         | ToVault::PurgeExpired { zone } = &msg
         {
-            self.expect_snapshot(zone);
+            let zone = zone.clone();
+            match self.tx.lock().send(&msg) {
+                Ok(()) => self.expect_snapshot(&zone),
+                Err(e) => log::warn!("cookie mutation for zone {zone} did not reach the vault: {e}"),
+            }
+            return;
         }
         let _ = self.tx.lock().send(&msg);
     }
