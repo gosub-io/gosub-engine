@@ -192,14 +192,16 @@ pub(crate) fn snapshot_cached_jars(
     mut save: impl FnMut(ZoneId, &DefaultCookieJar),
 ) {
     for (zone_id, jar_handle) in jars {
-        let jar = jar_handle.read();
-        let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() else {
-            continue;
-        };
-        let inner = persist.inner.read();
-        let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() else {
-            continue;
-        };
-        save(*zone_id, default);
+        if let Some(snapshot) = persisted_snapshot(&**jar_handle.read()) {
+            save(*zone_id, &snapshot);
+        }
     }
+}
+
+/// The snapshot a persisting store saves for `jar`: its [`DefaultCookieJar`],
+/// when it is a [`PersistentCookieJar`] around one.
+pub(crate) fn persisted_snapshot(jar: &(dyn crate::cookies::CookieJar + Send + Sync)) -> Option<DefaultCookieJar> {
+    let persist = jar.as_any().downcast_ref::<PersistentCookieJar>()?;
+    let inner = persist.inner.read();
+    inner.as_any().downcast_ref::<DefaultCookieJar>().cloned()
 }

@@ -160,12 +160,25 @@ impl CookieStore for JsonCookieStore {
     fn persist_all(&self) {
         let jars = self.jars.read();
 
+        // Every cached jar is read-locked before the file and held through the
+        // write. A change then cannot land between its jar's snapshot and the
+        // write (which would put the stale snapshot back), and the order is the
+        // one a jar saving itself uses - jar, then file - so neither waits on
+        // the other. In zone order, so two flushes cannot cross either.
+        let mut cached: Vec<_> = jars.iter().collect();
+        cached.sort_by_key(|(zone_id, _)| zone_id.to_string());
+        let held: Vec<_> = cached
+            .into_iter()
+            .map(|(zone_id, jar)| (*zone_id, jar.read()))
+            .collect();
+
         let _file = self.file.lock();
         let mut file = self.load_file();
-        crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| {
-            file.zones.insert(zone_id, snapshot.clone());
-        });
-
+        for (zone_id, jar) in &held {
+            if let Some(snapshot) = crate::cookies::store::persisted_snapshot(&***jar) {
+                file.zones.insert(*zone_id, snapshot);
+            }
+        }
         self.save_file(&file);
     }
 }
@@ -209,6 +222,37 @@ mod tests {
                 zones.contains_key(&a) && zones.contains_key(&b),
                 "a concurrent snapshot was overwritten"
             );
+        }
+    }
+
+    /// A flush and a jar saving its own change, side by side, both finish: the
+    /// two take the jar and file locks in the same order.
+    #[test]
+    fn a_flush_and_a_jar_saving_itself_do_not_deadlock() {
+        let dir = tempdir().unwrap();
+        let store = JsonCookieStore::new(dir.path().join("cookies.json")).unwrap();
+        let jar = store.jar_for(ZoneId::new()).unwrap();
+        let url = Url::parse("https://example.com/").unwrap();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let writer_done = done_tx.clone();
+        std::thread::spawn(move || {
+            for i in 0..200 {
+                jar.write()
+                    .store_response_cookies(&url, &mk_headers(&[&format!("c{i}=1; Path=/")]), None);
+            }
+            let _ = writer_done.send(());
+        });
+        let flusher = store.clone();
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                flusher.persist_all();
+            }
+            let _ = done_tx.send(());
+        });
+        for _ in 0..2 {
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .expect("a flush and a jar's own save deadlocked");
         }
     }
 
