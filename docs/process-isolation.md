@@ -51,11 +51,15 @@ Every child renames itself for `ps`/`pstree` (comm + cmdline), so the tree above
 is what you actually see on a running system.
 
 Every child starts with an allowlisted environment (`HOME`, `TMPDIR`, locale,
-`XDG_*`, `SSL_CERT_*`, `RUST_LOG`, `GOSUB_*` and little else), no stdin, and
-only the descriptors the spawner named — everything else is marked
-close-on-exec first. Each has a task ceiling (`pids.max`) and a memory ceiling
-sized for its role in its own cgroup, where cgroup v2 is delegated. Roles that
-may write files (the storage service) or read and reach the network (gosub-net)
+`XDG_*`, `SSL_CERT_*`, `RUST_LOG`, `GOSUB_*` except the `GOSUB_DUMP_*` debug
+dumps, and little else), no stdin, and only the descriptors the spawner named
+— everything else is marked close-on-exec first. Each has a task ceiling
+(`pids.max`) and a memory ceiling sized for its role in its own cgroup, where
+cgroup v2 is delegated; a forked renderer is moved out of the fork server's
+cgroup into one of its own as soon as the fork server announces it, so one
+site's renderer never trips a cap shared with another's. Roles that may write
+files (the storage service), read and reach the network (gosub-net), or read
+font files while rendering page content (the font-readable renderer tier)
 refuse to start on a kernel without Landlock rather than run unscoped; the
 engine then falls back in-process and says so.
 
@@ -120,13 +124,23 @@ storage, the fork server, a renderer forked for it and every resident renderer
 - to run the escape audit inside itself after its real spawn and lockdown:
 open `/etc/passwd`, `$HOME`, `/proc`, create in `/tmp`, sockets of each
 family, fork, exec, unshare, signal the broker, ptrace, executable memory,
-plus what it inherited (open fds, environment). Each attempt's outcome is
-checked against the role's design, and the suite fails on any violation
-(`gosub_sandbox::audit`; the seccomp trap is caught and turned into an errno
-so the audit survives its own attempts).
+stat by path, plus what it inherited: every descriptor beyond its links
+(a forked renderer still holding the fork server's broker link, say) and
+every environment key the spawner's allowlist would not have passed. Each
+attempt's outcome is checked against the role's design - where the kernel
+would refuse on its own (pid 1 as a signal target, a user namespace on a host
+that blocks them) the row demands the seccomp trap itself - and the suite
+fails on any violation (`gosub_sandbox::audit`; the seccomp trap is caught
+and turned into an errno so the audit survives its own attempts).
 
 Confinement is layered per role: seccomp allowlists (default-deny, violations
-die with a SIGSYS naming the syscall and, for path-taking calls, the path),
+die with a SIGSYS naming the syscall and, for path-taking calls, the path;
+the one exception is `stat` by path, which a role without files gets back as
+`EPERM` so a library's `exists()` probe on page input is a missing file and
+not a dead renderer, while `fstat` on its own descriptors keeps working in
+every spelling libc and std use. The filter's default is a trap rather than a
+kill so the signal can be reported; a compromised child can install its own
+handler and survive the signal, but the refused syscall still never runs),
 Landlock filesystem scoping where a role needs any files at all, namespace
 unsharing (network, IPC, UTS, and PID for the renderer family), rlimits
 (committed memory, fd count, no core dumps, lowered priority), and non-dumpable
@@ -212,7 +226,15 @@ only; elsewhere the network process buffers as before.
 
 **Subresources are brokered.** A confined renderer cannot fetch, so it sends
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
-identity and cookies live and replies with bytes. Stylesheets and fonts are
+identity and cookies live - with the page's `Referer` and `Accept-Language`,
+as the page's own fetch would, and `file:` only for a page that itself came
+from disk - and replies with bytes. The private-network and opaque-response
+policies below are decided from the document the request is for, which the
+broker stamps on it, so a page still shown keeps asking as itself while the
+tab loads the next one. The renderer also gets the user's media preferences
+(`prefers-color-scheme`, reduced motion, the DPR media environment) with
+every render request, since it has no settings of its own to read.
+Stylesheets and fonts are
 blocking (layout cannot proceed without them). Images ask **deferred**: the
 broker answers immediately — bytes if cached, `Pending` otherwise — fetches in
 the background, and re-renders the tab when the bytes land, so a render never
@@ -223,15 +245,23 @@ and huge images are kept downscaled (with their true intrinsic size preserved
 for layout); the renderer's decoded-image cache holds at most ~96 MiB, evicting
 LRU pixels and re-decoding on use from kept encoded bytes; and a renderer
 retains at most 3 laid-out pages (LRU tab's page is dropped; its next scroll
-comes back empty, which makes the broker re-render it). The renderer family
-runs under a 1 GiB `RLIMIT_DATA`; other children get 512 MiB.
+comes back empty, which makes the broker re-render it). The renderer family -
+forked and exec'd alike - runs under a 1 GiB `RLIMIT_DATA`; other children get
+512 MiB. On the broker's side a tab keeps at most 512 MiB and 20 000 of its
+renderer's tiles (the oldest go, and the renderer ships them again if the page
+still needs them), and the link text a page's hit regions carry is bounded
+per URL (a longer one is dropped whole, never cut) and per page.
 
 **Crashes** are detected eagerly (a non-blocking liveness probe on every idle
 renderer, ~4×/s) and by any failing exchange; the pool replaces the process,
 emits `RendererCrashed`, and the tab re-renders in the replacement. A wedged
 renderer is bounded by the exchange timeouts (60 s for renders — generous on
 purpose, so a slow page is never mistaken for a wedged process — 10 s for control
-traffic).
+traffic). A renderer also bounds itself: a one-shot one arms a
+120 s deadline before its lockdown and a resident one arms the same per
+request, so a page that loops in layout ends the process rather than keeping
+a core busy at its memory limit until the engine exits - the broker holds
+only a socket and cannot kill it.
 
 ## What a page may load
 
@@ -335,7 +365,9 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   lists; stage 6 runs where the GPU lives).
 - **`FontPathsReadable` font systems** (fontconfig-based: Pango, Skia) get a
   weaker arrangement: no fork server, a throwaway renderer exec'd per render,
-  with read-only Landlock-scoped font paths. See fonts.md.
+  with read-only Landlock-scoped font paths (scoped before the font system is
+  built, since Landlock binds threads and the font stack may start one; a
+  kernel without Landlock gets no such renderer at all). See fonts.md.
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an
   embedder-supplied jar is not vaulted.
