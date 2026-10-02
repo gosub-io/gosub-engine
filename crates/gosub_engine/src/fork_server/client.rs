@@ -653,8 +653,15 @@ pub const MAX_TAB_TILES: usize = 20_000;
 #[derive(Debug, Default)]
 pub struct TileMemory {
     tiles: std::collections::HashMap<u64, KeptTile>,
-    /// Arrival order, oldest first, for what goes when the budget is passed.
-    order: std::collections::VecDeque<u64>,
+    /// Arrival order, oldest first, for what goes when the budget is passed:
+    /// (sequence, hash). A removed tile's entry stays and is skipped when it
+    /// surfaces, so a pass evicting tens of thousands of hashes costs a map
+    /// lookup each, not a scan of this deque each.
+    order: std::collections::VecDeque<(u64, u64)>,
+    /// The sequence number each kept hash arrived with; a stale deque entry
+    /// has another.
+    arrived: std::collections::HashMap<u64, u64>,
+    next_seq: u64,
     bytes: usize,
 }
 
@@ -679,6 +686,7 @@ impl TileMemory {
     pub fn replace_with(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
         self.tiles.clear();
         self.order.clear();
+        self.arrived.clear();
         self.bytes = 0;
         self.extend(tiles);
     }
@@ -698,23 +706,32 @@ impl TileMemory {
         for (hash, tile) in tiles {
             self.remove(hash);
             self.bytes += tile.pixels.len();
-            self.order.push_back(hash);
+            let seq = self.next_seq;
+            self.next_seq += 1;
+            self.order.push_back((seq, hash));
+            self.arrived.insert(hash, seq);
             self.tiles.insert(hash, tile);
         }
         while self.bytes > MAX_TAB_TILE_BYTES || self.tiles.len() > MAX_TAB_TILES {
-            let Some(oldest) = self.order.pop_front() else {
+            let Some((seq, oldest)) = self.order.pop_front() else {
                 break;
             };
-            if let Some(tile) = self.tiles.remove(&oldest) {
-                self.bytes -= tile.pixels.len();
+            if self.arrived.get(&oldest) != Some(&seq) {
+                continue; // removed or re-added since: a stale entry
             }
+            self.remove(oldest);
+        }
+        // Stale entries would otherwise outnumber live ones without bound.
+        if self.order.len() > 2 * self.tiles.len() + 64 {
+            let arrived = &self.arrived;
+            self.order.retain(|(seq, hash)| arrived.get(hash) == Some(seq));
         }
     }
 
     fn remove(&mut self, hash: u64) {
         if let Some(tile) = self.tiles.remove(&hash) {
             self.bytes -= tile.pixels.len();
-            self.order.retain(|h| *h != hash);
+            self.arrived.remove(&hash);
         }
     }
 
@@ -1316,6 +1333,39 @@ mod tests {
         memory.apply_pass(&[10, 11], []);
         assert_eq!(memory.bytes(), 2 * tile);
         assert_eq!(memory.hashes().len(), 2);
+    }
+
+    /// A title reaches the embedder's window: no control or bidi characters.
+    #[test]
+    fn a_title_is_displayable() {
+        let mut summary = crate::fork_server::protocol::PageSummary {
+            title: Some("Pay \u{202E}evil\u{202C} bank\x1b[0m\u{7f} ok\n".into()),
+            ..Default::default()
+        };
+        bound_summary(&mut summary);
+        assert_eq!(summary.title.as_deref(), Some("Pay evil bank[0m ok\n"));
+    }
+
+    /// Thousands of evictions in one pass cost a lookup each, and the
+    /// arrival order still decides what goes past the budget.
+    #[test]
+    fn tile_memory_evictions_are_cheap_and_order_survives() {
+        let mut memory = TileMemory::default();
+        memory.replace_with((0..20_000u64).map(|h| (h, kept(16))));
+        let evicted: Vec<u64> = (0..19_990).collect();
+        let started = std::time::Instant::now();
+        memory.apply_pass(&evicted, [(50_000, kept(16))]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "evictions scanned the deque"
+        );
+        assert_eq!(memory.hashes().len(), 11);
+        // Past the count budget, what arrived first goes first: the survivors
+        // 19_990..19_999, then 50_000.
+        memory.apply_pass(&[], (60_000..60_000 + MAX_TAB_TILES as u64).map(|h| (h, kept(16))));
+        assert!(memory.get(19_990).is_none() && memory.get(50_000).is_none());
+        assert!(memory.get(60_000 + MAX_TAB_TILES as u64 - 1).is_some());
+        assert_eq!(memory.hashes().len(), MAX_TAB_TILES);
     }
 
     /// A URL past the bound is dropped whole: cut, it would be navigated to.
