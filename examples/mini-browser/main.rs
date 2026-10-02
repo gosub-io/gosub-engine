@@ -942,9 +942,10 @@ fn main() {
         .settings()
         .set("telemetry.metrics_enabled", Setting::Bool(true))
         .unwrap_or_else(|e| panic!("enable telemetry.metrics_enabled: {e}"));
+    // A flag is for this run: the persisted setting stays the user's.
     if let Some(on) = isolation {
         engine
-            .set_process_isolation(on)
+            .set_process_isolation_for_this_run(on)
             .unwrap_or_else(|e| panic!("set security.process_isolation: {e}"));
     }
 

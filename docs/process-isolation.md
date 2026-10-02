@@ -173,8 +173,13 @@ the tiers and why they exist.
    switch, `security.process_isolation` (`GosubEngine::set_process_isolation`),
    decides everything: `false` is the single-process engine, as it always
    was; `true` asks for every component process, and says which cannot
-   apply here. An embedder's `--single-process` flag is that one call
-   (`examples/mini-browser` has it, and `--isolated`). Left unset, the five
+   apply here. `set_process_isolation` writes the setting through the
+   configured settings storage, so with a persistent adapter it holds for
+   later runs until the key is removed: the user's preference. An embedder's
+   `--single-process` flag is a choice for this run and maps to
+   `set_process_isolation_for_this_run`, which writes nothing back and
+   outranks the stored value (`examples/mini-browser` has it, and
+   `--isolated`). Left unset, the five
    settings decide on their own: `security.network_process`,
    `security.image_decoder_process`, `security.renderer_process`,
    `security.cookie_vault`, `security.storage_service` - for an embedder that

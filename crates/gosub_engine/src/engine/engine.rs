@@ -58,6 +58,11 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     /// has none, whatever directory its store names.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     local_storage_routes: HashMap<ZoneId, std::path::PathBuf>,
+    /// `security.process_isolation` chosen for this run only
+    /// ([`Self::set_process_isolation_for_this_run`]): a command-line flag's
+    /// choice, which must not become the persisted setting. Outranks the
+    /// stored value while set.
+    process_isolation_this_run: std::cell::Cell<Option<bool>>,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -210,6 +215,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             cookie_stores: HashMap::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             local_storage_routes: HashMap::new(),
+            process_isolation_this_run: std::cell::Cell::new(None),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
@@ -273,7 +279,17 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // default) has still made a choice. The one switch, set, is that
         // choice for all five.
         let store = &self.context.config_store;
-        !store.is_overridden(key) && !store.is_overridden(PROCESS_ISOLATION_SWITCH)
+        !store.is_overridden(key) && self.process_isolation_switch().is_none()
+    }
+
+    /// The switch as chosen: for this run, else as stored; `None` when unset.
+    fn process_isolation_switch(&self) -> Option<bool> {
+        let store = &self.context.config_store;
+        self.process_isolation_this_run.get().or_else(|| {
+            store
+                .is_overridden(PROCESS_ISOLATION_SWITCH)
+                .then(|| store.get_bool(PROCESS_ISOLATION_SWITCH))
+        })
     }
 
     /// `security.process_isolation`, when the embedder set it, decides the five
@@ -284,10 +300,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// what they were for a run with the switch unset.
     fn apply_process_isolation_switch(&self) {
         let store = &self.context.config_store;
-        if !store.is_overridden(PROCESS_ISOLATION_SWITCH) {
+        let Some(on) = self.process_isolation_switch() else {
             return;
-        }
-        let on = store.get_bool(PROCESS_ISOLATION_SWITCH);
+        };
         for key in PROCESS_SETTINGS {
             let _ = store.set_transient(key, gosub_config::settings::Setting::Bool(on));
         }
@@ -583,16 +598,31 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// Run the engine's components in separate sandboxed processes (`true`),
     /// or everything in this process as the engine always has (`false`). The
     /// same as setting `security.process_isolation`: it decides all five
-    /// `security.*` process settings at [`start`](Self::start), so a
-    /// `--single-process` flag in an embedder is this one call. Persisted
-    /// like any setting; the per-component settings are for finer choices
-    /// while this one is unset. Needs `child_process::dispatch_with()` first
-    /// in `main()` to take effect, like the settings it governs.
+    /// `security.*` process settings at [`start`](Self::start). **Persisted**
+    /// like any setting: with a persistent settings adapter it holds for
+    /// later runs too, until the key is removed - the user's preference. A
+    /// command-line flag is a choice for this run and belongs to
+    /// [`Self::set_process_isolation_for_this_run`]. The per-component
+    /// settings are for finer choices while this one is unset. Needs
+    /// `child_process::dispatch_with()` first in `main()` to take effect, like
+    /// the settings it governs.
     pub fn set_process_isolation(&self, enabled: bool) -> Result<(), EngineError> {
         self.context
             .config_store
             .set(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
             .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))
+    }
+
+    /// [`Self::set_process_isolation`] for this run only: nothing is written
+    /// to the settings storage, and the choice outranks whatever is stored.
+    /// What an embedder's `--single-process` or `--isolated` flag maps to.
+    pub fn set_process_isolation_for_this_run(&self, enabled: bool) -> Result<(), EngineError> {
+        self.context
+            .config_store
+            .set_transient(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
+            .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))?;
+        self.process_isolation_this_run.set(Some(enabled));
+        Ok(())
     }
 
     pub fn backend(&self) -> Arc<C::RenderBackend> {
@@ -1010,6 +1040,20 @@ mod tests {
         for key in PROCESS_SETTINGS {
             assert!(store.get_bool(key), "{key} is off with the switch on");
         }
+
+        // A flag's choice for this run outranks the stored one and is not
+        // written back: the stored value stays `true`.
+        engine
+            .set_process_isolation_for_this_run(false)
+            .expect("switch off for this run");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(!store.get_bool(key), "{key} is on with the run's switch off");
+        }
+        assert!(
+            store.is_overridden(PROCESS_ISOLATION_SWITCH),
+            "the stored choice is still there"
+        );
     }
 
     /// The defaults are on, but they too need `dispatch()`: an engine in a
