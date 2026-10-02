@@ -985,6 +985,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // What the in-process pipeline would have found in this process: the
         // document the subresource loads are for, and the user's media
         // preferences, which the renderer has no settings of its own to read.
+        self.loader.set_document(self.document_url.as_ref());
         let env = self.media_environment();
         crate::fork_server::client::set_media_prefs(crate::fork_server::protocol::MediaPrefs {
             prefers_dark: matches!(env.color_scheme, gosub_css3::media_query::ColorScheme::Dark),

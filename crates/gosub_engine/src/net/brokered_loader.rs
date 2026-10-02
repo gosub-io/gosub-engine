@@ -42,6 +42,12 @@ pub struct BrokeredLoader {
     /// Loads are issued from plain threads too, where `Handle::try_current`
     /// finds nothing to spawn on.
     runtime: Option<tokio::runtime::Handle>,
+    /// The document the loads are made for ([`ResourceLoader::set_document`]):
+    /// its `Referer`, and whether `file:` neighbours may be loaded. Shared,
+    /// since the loader is cloned into the subsystems that use it.
+    document: Arc<parking_lot::Mutex<Option<Url>>>,
+    /// The tab's `Accept-Language`, as the in-process fetches send it.
+    accept_language: Option<String>,
 }
 
 impl BrokeredLoader {
@@ -52,6 +58,8 @@ impl BrokeredLoader {
             io_tx,
             cancel: CancellationToken::new(),
             runtime: tokio::runtime::Handle::try_current().ok(),
+            document: Arc::new(parking_lot::Mutex::new(None)),
+            accept_language: None,
         }
     }
 
@@ -59,6 +67,12 @@ impl BrokeredLoader {
     /// cancels the fetches too.
     pub fn with_cancel(mut self, parent: &CancellationToken) -> Self {
         self.cancel = parent.child_token();
+        self
+    }
+
+    /// Send `Accept-Language` on every load, like the tab's own fetches.
+    pub fn with_accept_language(mut self, langs: Option<String>) -> Self {
+        self.accept_language = langs;
         self
     }
 
@@ -75,23 +89,50 @@ impl ResourceLoader for BrokeredLoader {
         crate::telemetry::net_load(url.as_str(), self.tab_id, started, result.as_ref().ok());
         result.and_then(into_loaded)
     }
+
+    fn set_document(&self, url: Option<&Url>) {
+        *self.document.lock() = url.cloned();
+    }
 }
 
 impl BrokeredLoader {
     fn load_inner(&self, url: &Url) -> Result<FetchResult, LoadError> {
+        let document = self.document.lock().clone();
         // `data:` carries its own bytes, and the I/O runtime answers it without
-        // the network. `file:` stays refused: a renderer asks through here, and
-        // local files are the broker's to open, behind its own policy.
-        if !matches!(url.scheme(), "http" | "https" | "data") {
+        // the network. `file:` only for a document that itself came from
+        // disk - the same rule the in-process media source applies - and
+        // then under the I/O side's own file policy, which reads the
+        // `Referer` set below: a renderer asks through here, and local files
+        // are the broker's to open.
+        let from_disk = document.as_ref().is_some_and(|doc| doc.scheme() == "file");
+        let served = match url.scheme() {
+            "http" | "https" | "data" => true,
+            "file" => from_disk,
+            _ => false,
+        };
+        if !served {
             return Err(LoadError::UnsupportedUrl(url.to_string()));
         }
         warn_if_current_thread_runtime();
 
-        let req = FetchRequest::builder(Method::GET, url.clone())
+        // The request a page's own fetch would have made: `Referer` (what a
+        // hotlink-protected image or a `file:` load is judged by) and the
+        // tab's language preference.
+        let mut headers = http::HeaderMap::new();
+        if let Some(langs) = &self.accept_language {
+            if let Ok(value) = langs.parse() {
+                headers.insert(http::header::ACCEPT_LANGUAGE, value);
+            }
+        }
+        let mut builder = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(RequestId::new())
+            .with_headers(headers)
             .with_streaming(false)
-            .with_auto_decode(true)
-            .build();
+            .with_auto_decode(true);
+        if let Some(doc) = document {
+            builder = builder.with_referrer(doc);
+        }
+        let req = builder.build();
 
         let handle = FetchHandle {
             req_id: req.req_id,
@@ -205,5 +246,18 @@ mod tests {
 
         let refused = loader.load(&Url::parse("file:///etc/hostname").unwrap());
         assert!(matches!(refused, Err(LoadError::UnsupportedUrl(_))), "{refused:?}");
+
+        // A document loaded from disk may load its neighbours, like in-process.
+        let dir = std::env::temp_dir().join(format!("gosub-brokered-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("page.css"), b"body{}").unwrap();
+        let page = Url::from_file_path(dir.join("index.html")).unwrap();
+        loader.set_document(Some(&page));
+        let neighbour = Url::from_file_path(dir.join("page.css")).unwrap();
+        let loaded = loader
+            .load(&neighbour)
+            .expect("a file: neighbour of a file: document loads");
+        assert_eq!(&loaded.body[..], b"body{}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

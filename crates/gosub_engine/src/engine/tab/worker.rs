@@ -298,6 +298,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let mut context = BrowsingContext::with_loader(
             config_store.clone(),
             crate::net::brokered_loader::BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone())
+                .with_accept_language(services.accept_language.clone())
                 .shared(),
         );
 

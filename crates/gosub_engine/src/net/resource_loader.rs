@@ -68,6 +68,12 @@ pub trait ResourceLoader: Send + Sync + fmt::Debug {
     /// Fetch `url`, blocking until the resource arrives or the attempt fails.
     fn load(&self, url: &Url) -> Result<LoadedResource, LoadError>;
 
+    /// The document the next loads are made for, so a loader that fetches on
+    /// a page's behalf can send its `Referer` and apply the document's own
+    /// policy (a `file:` page may load `file:` neighbours). Loaders that
+    /// serve no page ignore it.
+    fn set_document(&self, _url: Option<&Url>) {}
+
     /// [`load`](Self::load), reduced to what the stylesheet and web-font paths
     /// consume: the bytes and their content type, or nothing.
     fn fetch(&self, url: &str) -> Option<(Option<String>, Vec<u8>)> {
