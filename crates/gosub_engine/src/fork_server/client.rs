@@ -14,6 +14,21 @@ pub const FORK_SERVER_ROLE: &str = "fork-server";
 
 /// Committed memory a renderer process may hold (`RLIMIT_DATA`).
 pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
+/// Tasks a renderer may have at once (`pids.max`): it never forks and
+/// rasterizes sequentially, so this is the fork-bomb bound, not a budget.
+pub const RENDERER_MAX_TASKS: u32 = 256;
+
+/// Whether `fd` is a socket - what a link must be before this side writes a
+/// page into it.
+fn is_stream_socket(fd: &std::os::fd::OwnedFd) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    let Ok(dup) = fd.try_clone() else {
+        return false;
+    };
+    std::fs::File::from(dup)
+        .metadata()
+        .is_ok_and(|m| m.file_type().is_socket())
+}
 
 /// The user's media preferences as last set by [`set_media_prefs`]. The
 /// in-process pipeline treats them as process-wide (one colour scheme per
@@ -916,6 +931,16 @@ impl ForkServer {
             other => anyhow::bail!("unexpected reply to SpawnRenderer: {other:?}"),
         };
         let fd = self.link.rx.recv_fd()?;
+        // A claim from a child: the link must be a socket before anything is
+        // written to it, and the renderer gets its own memory and task
+        // bounds - forked, it inherited the fork server's cgroup, where one
+        // site's renderer could trip a cap shared with every other's.
+        if !is_stream_socket(&fd) {
+            anyhow::bail!("the fork server handed over something that is not a socket");
+        }
+        if let Err(e) = gosub_sandbox::confine_child_pid(pid as u32, RENDERER_DATA_LIMIT, RENDERER_MAX_TASKS) {
+            log::warn!("could not apply parent-side confinement to renderer {pid}: {e}");
+        }
         let channel = gosub_ipc::channel::Channel::from_stream(std::os::unix::net::UnixStream::from(fd));
         let mut link = Endpoint::from_channel(channel)?;
         let _ = link.tx.set_write_timeout(Some(REPLY_TIMEOUT));

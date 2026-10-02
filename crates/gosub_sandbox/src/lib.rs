@@ -402,6 +402,22 @@ pub fn disarm_deadline() {
     imp::disarm_deadline();
 }
 
+/// Parent-side confinement for a child this process did not spawn itself but
+/// knows by pid - a renderer the fork server forked and announced: the same
+/// best-effort cgroup memory and task bounds [`confine_spawned_child`]
+/// applies, so it does not share its parent's leaf. A no-op outside Linux.
+#[cfg(feature = "multi-process")]
+pub fn confine_child_pid(pid: u32, data_limit: u64, max_tasks: u32) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        imp::confine_spawned_child(pid, data_limit, max_tasks)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, data_limit, max_tasks);
+        Ok(())
+    }
+}
 
 /// Exit immediately without running destructors or `atexit` handlers - the only
 /// correct way out of a forked child. Linux only.
