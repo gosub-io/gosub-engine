@@ -2320,6 +2320,10 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
             };
             println!("tab rendered in renderer pid {}", before.pid);
 
+            // From here the firehose says what renders: the proof of recovery
+            // is a page rendered in the replacement, not just a new pid.
+            let mut firehose = gosub_engine::telemetry::subscribe();
+
             // Kill it, then give the tab a reason to talk to it.
             if pool.crash_renderers_for_test(site) != 1 {
                 eprintln!("expected to crash one renderer");
@@ -2367,6 +2371,42 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
                 }
             };
             println!("tab recovered in replacement renderer pid {}", after.pid);
+
+            // ...and rendered the page there: a navigate pass with pixels,
+            // then a composited frame carrying them.
+            loop {
+                let remaining = recover_deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, firehose.recv()).await {
+                    Ok(Ok(event)) if event.kind == "remote.navigate" => {
+                        let fresh = event.data["tiles_fresh"].as_u64().unwrap_or(0);
+                        let height = event.data["page_height"].as_f64().unwrap_or(0.0);
+                        if height <= 0.0 || (cfg!(feature = "cairo-tiles") && fresh == 0) {
+                            eprintln!("the replacement rendered nothing: {}", event.data);
+                            return 1;
+                        }
+                        println!("replacement rendered the page: {fresh} fresh tiles, height {height:.0}");
+                        break;
+                    }
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    _ => {
+                        eprintln!("the replacement renderer never rendered the tab");
+                        return 1;
+                    }
+                }
+            }
+            if cfg!(feature = "cairo-tiles") {
+                let frame = loop {
+                    if tokio::time::Instant::now() >= recover_deadline {
+                        eprintln!("no frame composited from the replacement's render");
+                        return 1;
+                    }
+                    match compositor.frame_for(tab.tab_id) {
+                        Some(ExternalHandle::TileCache { tiles, .. }) if !tiles.is_empty() => break tiles.len(),
+                        _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                    }
+                };
+                println!("composited {frame} tiles from the replacement");
+            }
 
             engine.close_zone(zone).await;
             if engine.shutdown().await.is_err() {
