@@ -74,6 +74,14 @@ impl StorageService {
     /// write over, so the routing is refused and `false` returned.
     pub fn route_local_through(&self, store: Arc<dyn LocalStore>) -> bool {
         let mut local = self.local.write();
+        // The store already in place is routed, not refused: a service shared
+        // by several zones is routed by the first and offered the same
+        // process's store by each later one. Refusing those undid their
+        // count on the process, which the first zone's close then shut down
+        // under them.
+        if std::ptr::addr_eq(Arc::as_ptr(&*local), Arc::as_ptr(&store)) {
+            return true;
+        }
         if self.handed_out.load(std::sync::atomic::Ordering::Acquire) {
             return false;
         }
@@ -228,5 +236,26 @@ mod tests {
             .local_for(ZoneId::new(), &PartitionKey::None, &origin)
             .expect("area");
         assert!(!service.route_local_through(Arc::new(InMemoryLocalStore::new())));
+    }
+
+    /// A service shared by several zones is routed once; each later zone
+    /// offers the same store and is counted, not refused.
+    #[test]
+    fn routing_the_store_already_in_place_is_not_a_refusal() {
+        let service = StorageService::new(
+            Arc::new(InMemoryLocalStore::new()),
+            Arc::new(InMemorySessionStore::new()),
+        );
+        let shared: Arc<dyn LocalStore> = Arc::new(InMemoryLocalStore::new());
+        assert!(service.route_local_through(Arc::clone(&shared)));
+        let origin = url::Url::parse("https://a.test").unwrap().origin();
+        let _area = service
+            .local_for(ZoneId::new(), &PartitionKey::None, &origin)
+            .expect("area");
+        assert!(service.route_local_through(Arc::clone(&shared)), "the same store again");
+        assert!(
+            !service.route_local_through(Arc::new(InMemoryLocalStore::new())),
+            "another store"
+        );
     }
 }
