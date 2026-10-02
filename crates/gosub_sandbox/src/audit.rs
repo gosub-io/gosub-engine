@@ -34,6 +34,9 @@ pub enum Outcome {
     Errno(i32),
     /// It worked; the detail says what was reached.
     Allowed(String),
+    /// An inventory (inherited fds, environment) held nothing beyond the
+    /// role's design; the detail lists what it held.
+    Clean(String),
 }
 
 impl Outcome {
@@ -45,10 +48,14 @@ impl Outcome {
 /// What the role's design says should happen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expect {
+    /// Refused by some layer: an errno from the kernel or a seccomp trap.
     Denied,
+    /// Refused by the seccomp filter itself. Stricter than `Denied` where the
+    /// kernel would refuse anyway (pid 1 as a signal target, a user namespace
+    /// on a host that blocks them): an errno there says nothing about the
+    /// filter, a trap does.
+    Trapped,
     Allowed,
-    /// Recorded for the reader, not judged (inherited fds, environment).
-    Info,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,8 +70,8 @@ impl AuditItem {
     pub fn violated(&self) -> bool {
         match self.expect {
             Expect::Denied => !self.outcome.denied(),
+            Expect::Trapped => self.outcome != Outcome::Trapped,
             Expect::Allowed => self.outcome.denied(),
-            Expect::Info => false,
         }
     }
 }
@@ -90,12 +97,9 @@ impl AuditReport {
                 Outcome::Errno(e) => format!("errno {e} ({})", std::io::Error::from_raw_os_error(*e)),
                 Outcome::Allowed(detail) if detail.is_empty() => "ALLOWED".to_string(),
                 Outcome::Allowed(detail) => format!("ALLOWED: {detail}"),
+                Outcome::Clean(detail) => format!("clean: {detail}"),
             };
-            let mark = match (item.expect, item.violated()) {
-                (Expect::Info, _) => "  ",
-                (_, false) => "ok",
-                (_, true) => "!!",
-            };
+            let mark = if item.violated() { "!!" } else { "ok" };
             out.push_str(&format!("  {mark} {:<38} {outcome}\n", item.check));
         }
         out
@@ -112,25 +116,16 @@ mod runner {
 
     /// SIGSYS handler for the audit: mark the trap and make the syscall return
     /// `-EPERM` instead of killing the process. The reporter that normally owns
-    /// SIGSYS is put back once the audit is over.
-    extern "C" fn audit_sigsys(_sig: libc::c_int, _info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
-        TRAPPED.store(true, Ordering::SeqCst);
-        if ctx.is_null() {
+    /// SIGSYS is put back once the audit is over. The fd-stat family is served
+    /// exactly as the reporter serves it, so those rows measure production.
+    extern "C" fn audit_sigsys(_sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
+        let nr = crate::linux::trapped_syscall_nr(info);
+        if let Some(ret) = crate::linux::emulate_fd_stat(nr, ctx) {
+            crate::linux::set_syscall_return(ctx, ret);
             return;
         }
-        // SAFETY: the kernel hands a SA_SIGINFO handler a `ucontext_t`; the
-        // register written is the syscall return slot on this architecture.
-        unsafe {
-            let uc = ctx.cast::<libc::ucontext_t>();
-            #[cfg(target_arch = "x86_64")]
-            {
-                (*uc).uc_mcontext.gregs[libc::REG_RAX as usize] = -(libc::EPERM as i64);
-            }
-            #[cfg(target_arch = "aarch64")]
-            {
-                (*uc).uc_mcontext.regs[0] = (-(libc::EPERM as i64)) as u64;
-            }
-        }
+        TRAPPED.store(true, Ordering::SeqCst);
+        crate::linux::set_syscall_return(ctx, -(libc::EPERM as i64));
     }
 
     /// Run `attempt` with SIGSYS caught; `Err(Trapped)` when the filter denied
@@ -247,10 +242,10 @@ mod runner {
         }
     }
 
-    /// The descriptors this process holds, by number and kind.
-    fn open_fds() -> String {
+    /// The descriptors this process holds beyond 0-2, by number and kind.
+    fn open_fds() -> Vec<(i32, &'static str)> {
         let mut out = Vec::new();
-        for fd in 0..256 {
+        for fd in 3..256 {
             // SAFETY: F_GETFD on a possibly-closed fd is harmless.
             if unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0 {
                 continue;
@@ -264,22 +259,64 @@ mod runner {
                     libc::S_IFCHR => "chr",
                     libc::S_IFREG => "file",
                     libc::S_IFDIR => "dir",
-                    _ => "other",
+                    // Anonymous inodes: epoll, eventfd, timerfd (a runtime's).
+                    _ => "anon",
                 }
             } else {
                 "?"
             };
-            out.push(format!("{fd}:{kind}"));
+            out.push((fd, kind));
         }
-        out.join(" ")
+        out
     }
 
-    fn env_keys() -> String {
+    /// The descriptors the role holds beyond its design: more sockets than
+    /// its links, a pipe outside the fork server (whose anchor pipe is its
+    /// own), a runtime's anonymous inodes outside the net role, any file or
+    /// directory anywhere.
+    fn unexpected_fds(role: Role) -> Outcome {
+        let fds = open_fds();
+        let listed = |fds: &[(i32, &str)]| {
+            fds.iter()
+                .map(|(fd, k)| format!("{fd}:{k}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let sockets = fds.iter().filter(|(_, k)| *k == "sock").count();
+        let mut unexpected: Vec<(i32, &str)> = fds
+            .iter()
+            .copied()
+            .filter(|(_, kind)| match *kind {
+                "sock" => false,
+                "pipe" => role != Role::ForkServer,
+                "anon" => role != Role::Net,
+                _ => true,
+            })
+            .collect();
+        if let Some(links) = link_sockets(role) {
+            if sockets > links {
+                unexpected.extend(fds.iter().copied().filter(|(_, k)| *k == "sock"));
+            }
+        }
+        if unexpected.is_empty() {
+            Outcome::Clean(listed(&fds))
+        } else {
+            Outcome::Allowed(listed(&unexpected))
+        }
+    }
+
+    /// The environment keys the spawner's allowlist would not have passed.
+    fn unexpected_env() -> Outcome {
         let mut keys: Vec<String> = std::env::vars_os()
             .map(|(k, _)| k.to_string_lossy().into_owned())
             .collect();
         keys.sort();
-        keys.join(" ")
+        let foreign: Vec<&String> = keys.iter().filter(|k| !crate::spawn::env_kept(k)).collect();
+        if foreign.is_empty() {
+            Outcome::Clean(keys.join(" "))
+        } else {
+            Outcome::Allowed(foreign.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(" "))
+        }
     }
 
     fn check(items: &mut Vec<AuditItem>, name: &str, expect: Expect, attempt: &dyn Fn() -> Outcome) {
@@ -290,31 +327,45 @@ mod runner {
         });
     }
 
+    /// The descriptors a role holds by design beyond 0-2: its link sockets
+    /// (the broker's, plus the network process's direct line for the vault),
+    /// at most this many. The net role's internet sockets are unbounded.
+    fn link_sockets(role: Role) -> Option<usize> {
+        match role {
+            Role::Renderer | Role::ForkServer | Role::Decoder | Role::Storage => Some(1),
+            Role::Vault => Some(2),
+            Role::Net => None,
+        }
+    }
+
     /// Run the audit for `role`. `own_paths` are what a scoped service may
     /// touch (its directory); everything else on the filesystem is expected out
     /// of reach.
     pub fn run(role: Role, own_paths: &[std::path::PathBuf]) -> AuditReport {
-        use Expect::{Allowed, Denied, Info};
+        use Expect::{Allowed, Denied, Trapped};
         let mut items: Vec<AuditItem> = Vec::new();
         let files = matches!(role, Role::Net | Role::Storage);
         let network = role == Role::Net;
         let forks = role == Role::ForkServer;
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+        // A role with `openat` is bounded by Landlock (an errno); one without
+        // never reaches the kernel (a trap).
+        let no_file = if files { Denied } else { Trapped };
 
         // Files: only a scoped service reaches its own paths; nobody reaches the rest.
-        check(&mut items, "open /etc/passwd", Denied, &|| {
+        check(&mut items, "open /etc/passwd", no_file, &|| {
             try_open("/etc/passwd", libc::O_RDONLY)
         });
-        check(&mut items, "open $HOME", Denied, &|| {
+        check(&mut items, "open $HOME", no_file, &|| {
             try_open(&home, libc::O_RDONLY | libc::O_DIRECTORY)
         });
-        check(&mut items, "open /proc/self/maps", Denied, &|| {
+        check(&mut items, "open /proc/self/maps", no_file, &|| {
             try_open("/proc/self/maps", libc::O_RDONLY)
         });
-        check(&mut items, "open /proc/1/status", Denied, &|| {
+        check(&mut items, "open /proc/1/status", no_file, &|| {
             try_open("/proc/1/status", libc::O_RDONLY)
         });
-        check(&mut items, "create /tmp file", Denied, &|| {
+        check(&mut items, "create /tmp file", no_file, &|| {
             try_open(
                 &format!("/tmp/gosub-audit-{}", std::process::id()),
                 libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
@@ -328,6 +379,34 @@ mod runner {
                 &|| try_open("/etc/resolv.conf", libc::O_RDONLY),
             );
         }
+        // Metadata by path. Landlock does not mediate stat, so a file role
+        // keeps it (the resolver and fontconfig rely on it); every other role
+        // has the path forms trapped and answered `EPERM` - while `fstat` on
+        // a descriptor it holds, in every spelling, must keep working.
+        check(
+            &mut items,
+            "stat /etc/passwd",
+            if files { Allowed } else { Denied },
+            &|| {
+                let mut st: libc::stat = unsafe { std::mem::zeroed() };
+                // SAFETY: a NUL-terminated path and a valid out-struct.
+                rc(unsafe { libc::stat(c"/etc/passwd".as_ptr(), &mut st) } as libc::c_long)
+            },
+        );
+        check(&mut items, "fstat via newfstatat(AT_EMPTY_PATH)", Allowed, &|| {
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            // SAFETY: fd 2 is open; empty path with AT_EMPTY_PATH is the
+            // fd-only form glibc 2.36 issues for `fstat`.
+            rc(unsafe {
+                libc::syscall(
+                    libc::SYS_newfstatat,
+                    2,
+                    c"".as_ptr(),
+                    &mut st as *mut libc::stat,
+                    libc::AT_EMPTY_PATH,
+                )
+            })
+        });
         for path in own_paths {
             let p = path.to_string_lossy().into_owned();
             check(&mut items, &format!("open own {p}"), Allowed, &|| {
@@ -340,22 +419,25 @@ mod runner {
         }
 
         // Network: internet families for the net role, nothing for anyone else;
-        // never the unix/netlink families that reach the session.
+        // never the unix/netlink families that reach the session. The net role
+        // refuses those with an errno (its family pre-filter, so the resolver's
+        // nscd probe survives); everyone else has no `socket` at all.
+        let no_socket = if network { Denied } else { Trapped };
         check(
             &mut items,
             "socket AF_INET",
-            if network { Allowed } else { Denied },
+            if network { Allowed } else { Trapped },
             &|| try_socket(libc::AF_INET, libc::SOCK_STREAM),
         );
-        check(&mut items, "socket AF_UNIX", Denied, &|| {
+        check(&mut items, "socket AF_UNIX", no_socket, &|| {
             try_socket(libc::AF_UNIX, libc::SOCK_STREAM)
         });
-        check(&mut items, "socket AF_NETLINK", Denied, &|| {
+        check(&mut items, "socket AF_NETLINK", no_socket, &|| {
             try_socket(libc::AF_NETLINK, libc::SOCK_RAW)
         });
 
         // Processes: only the fork server forks; nobody execs.
-        check(&mut items, "fork", if forks { Allowed } else { Denied }, &try_fork);
+        check(&mut items, "fork", if forks { Allowed } else { Trapped }, &try_fork);
         if forks {
             // Where fork works, exec in the parent would replace us: test it in a child.
             // SAFETY: the child exits with the verdict.
@@ -377,49 +459,67 @@ mod runner {
                 } else {
                     Outcome::Trapped
                 },
-                expect: Denied,
+                expect: Trapped,
             });
         } else {
-            check(&mut items, "execve", Denied, &try_exec);
+            check(&mut items, "execve", Trapped, &try_exec);
         }
-        check(&mut items, "unshare(CLONE_NEWUSER)", Denied, &|| {
+        // Each of these the kernel may refuse on its own (a host that blocks
+        // user namespaces, pid 1 as a target); only a trap proves the filter.
+        check(&mut items, "unshare(CLONE_NEWUSER)", Trapped, &|| {
             // SAFETY: plain syscall.
             rc(unsafe { libc::unshare(libc::CLONE_NEWUSER) } as libc::c_long)
         });
-        check(&mut items, "kill(parent, 0)", Denied, &|| {
+        check(&mut items, "kill(parent, 0)", Trapped, &|| {
             // SAFETY: signal 0 delivers nothing.
             rc(unsafe { libc::kill(libc::getppid(), 0) } as libc::c_long)
         });
-        check(&mut items, "tgkill(1, 1, 0)", Denied, &|| {
-            // SAFETY: signal 0 delivers nothing; pid 1 is EPERM anyway.
-            rc(unsafe { libc::syscall(libc::SYS_tgkill, 1, 1, 0) })
+        // `tgkill` exists for the SIGSYS re-raise alone: pinned to this process
+        // and to SIGSYS. One row per pin.
+        check(&mut items, "tgkill(parent, 0)", Trapped, &|| {
+            // SAFETY: signal 0 delivers nothing. Inside a PID namespace the
+            // parent is invisible (0), which the kernel would refuse as EINVAL
+            // - and which the filter must still trap first.
+            let parent = unsafe { libc::getppid() };
+            rc(unsafe { libc::syscall(libc::SYS_tgkill, parent, parent, 0) })
         });
-        check(&mut items, "ptrace(TRACEME)", Denied, &|| {
+        check(&mut items, "tgkill(self, 0)", Trapped, &|| {
+            // SAFETY: signal 0 to this very thread delivers nothing.
+            let pid = unsafe { libc::getpid() };
+            let tid = unsafe { libc::syscall(libc::SYS_gettid) };
+            rc(unsafe { libc::syscall(libc::SYS_tgkill, pid, tid, 0) })
+        });
+        check(&mut items, "ptrace(TRACEME)", Trapped, &|| {
             // SAFETY: with no tracer attached this only marks the process.
             rc(
                 unsafe { libc::ptrace(libc::PTRACE_TRACEME, 0, std::ptr::null_mut::<libc::c_void>(), 0) }
                     as libc::c_long,
             )
         });
-        check(&mut items, "prlimit(pid 1)", Denied, &|| {
+        check(&mut items, "prlimit(pid 1)", Trapped, &|| {
             let mut lim: libc::rlimit = unsafe { std::mem::zeroed() };
             // SAFETY: a query on another pid; out-struct valid.
             rc(unsafe { libc::prlimit(1, libc::RLIMIT_NOFILE, std::ptr::null(), &mut lim) } as libc::c_long)
         });
 
         // Memory: no executable pages, ever.
-        check(&mut items, "mprotect PROT_EXEC", Denied, &try_exec_memory);
+        check(&mut items, "mprotect PROT_EXEC", Trapped, &try_exec_memory);
 
-        // For the reader: what the process inherited.
+        // What the process inherited: nothing beyond its links. A forked
+        // renderer still holding the fork server's broker link or the anchor
+        // pipe is exactly the hole this row exists for; a stray file is a
+        // spawner that forgot close-on-exec.
         items.push(AuditItem {
-            check: "open fds".into(),
-            outcome: Outcome::Allowed(open_fds()),
-            expect: Info,
+            check: "fds beyond 0-2 and the links".into(),
+            outcome: unexpected_fds(role),
+            expect: Denied,
         });
+        // The spawner allowlists the environment; a forked child inherits the
+        // allowlisted one. Anything else reached this process some other way.
         items.push(AuditItem {
-            check: "environment".into(),
-            outcome: Outcome::Allowed(env_keys()),
-            expect: Info,
+            check: "environment beyond the allowlist".into(),
+            outcome: unexpected_env(),
+            expect: Denied,
         });
 
         AuditReport {

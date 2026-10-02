@@ -36,6 +36,9 @@ pub struct ContainerProfile<'a> {
 
 #[cfg(unix)]
 mod unix;
+// What the escape audit holds a child's environment against (Linux only).
+#[cfg(target_os = "linux")]
+pub(crate) use unix::env_kept;
 #[cfg(unix)]
 pub use unix::{spawn, Child};
 

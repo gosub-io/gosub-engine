@@ -1455,6 +1455,18 @@ fn run_platform_probe(probe: &str) {
     // run the audit exactly as an engine child would.
     if let Some(role) = probe.strip_prefix("audit-") {
         use crate::audit::{run, Role};
+        // An engine child gets the spawner's allowlisted environment; this
+        // probe was started by a test with the test's. Same reduction, done
+        // here (single-threaded still), so the audit's environment row
+        // measures the lockdown and not the test runner.
+        let foreign: Vec<std::ffi::OsString> = std::env::vars_os()
+            .filter(|(k, _)| !k.to_str().is_some_and(crate::spawn::env_kept))
+            .map(|(k, _)| k)
+            .collect();
+        for key in foreign {
+            // Sound here: no other thread exists yet to read the environment.
+            std::env::remove_var(key);
+        }
         let (role, own) = match role {
             "renderer" => {
                 crate::lock_down_renderer();
