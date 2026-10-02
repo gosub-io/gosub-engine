@@ -160,11 +160,20 @@ the tiers and why they exist.
    `security.*` process settings off at `start()` with one warning naming the
    omission, so a child can never re-exec into the embedder's startup (a child
    that was somehow started that way refuses to spawn further processes too).
-2. **Flip the settings before `start()`** (they are read once at startup):
+2. **Confine the embedder's own process next:**
+   `gosub_engine::child_process::lock_down_broker(&[profile_dir, ...])`,
+   right after dispatch and before any thread, the logger or the engine
+   exist. It limits this process's filesystem writes to the temp dir plus
+   the directories named (the profile with its cookie store, localStorage and
+   places; downloads; logs) and removes the escalation syscalls. The
+   children's sandboxes are the boundary against page content; this is the
+   one against a bug in the broker reaching the rest of the account. The
+   mini-browser does it; the harness runs every engine scenario under it.
+3. **Flip the settings before `start()`** (they are read once at startup):
    `security.network_process`, `security.image_decoder_process`,
    `security.renderer_process`, `security.cookie_vault`,
    `security.storage_service`.
-3. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
+4. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
    the child; `RenderConfiguration::forked_tile_rasterizer` must return one.
    `DefaultRenderConfig` does so when the engine's `cairo-tiles` (or
    `skia-tiles`) feature is on, whatever the broker's own backend; a custom
@@ -174,7 +183,7 @@ the tiers and why they exist.
    Tip from the test embedder (`examples/mini-browser`): use the *null* backend
    for the embedder's own rendering, so that if the isolated path ever broke and
    fell back, tabs would go blank rather than quietly rendering unisolated.
-4. **Listen for `EngineEvent::RendererCrashed { zone_id, site, tabs, error }`.**
+5. **Listen for `EngineEvent::RendererCrashed { zone_id, site, tabs, error }`.**
    A dead renderer is replaced transparently on its tabs' next render — most
    pages recover on their own — but the embedder may want to show something
    meanwhile, and when the error names the fork server the tab could not be
@@ -260,8 +269,11 @@ purpose, so a slow page is never mistaken for a wedged process — 10 s for cont
 traffic). A renderer also bounds itself: a one-shot one arms a
 120 s deadline before its lockdown and a resident one arms the same per
 request, so a page that loops in layout ends the process rather than keeping
-a core busy at its memory limit until the engine exits - the broker holds
-only a socket and cannot kill it.
+a core busy at its memory limit until the engine exits. That bounds a buggy
+page, not a hostile renderer, which can disarm its own timer: the broker
+holds a pidfd for every resident renderer - opened at spawn and verified
+against `/proc` to be the fork server's child, never taken on the fork
+server's word - and kills through it whatever it has given up on.
 
 ## What a page may load
 
@@ -333,7 +345,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   outcome, status, bytes, duration), `remote.resource` (every subresource a
   renderer asked for), `tab.frame`, `tab.invalidate` (why a full render
   happened), `renderer.memory`. The server's own `/` is a page that
-  visualizes the stream: open `http://127.0.0.1:9090/` in a browser.
+  visualizes the stream: open `http://127.0.0.1:9090/` in a browser. The
+  server answers only requests whose `Host` is a loopback name, so a page
+  elsewhere cannot read the stream by pointing its own name at 127.0.0.1; it
+  is still readable by every local user while it is on, which is why it is
+  off by default.
 
 ## Testing it
 
@@ -368,6 +384,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   with read-only Landlock-scoped font paths (scoped before the font system is
   built, since Landlock binds threads and the font stack may start one; a
   kernel without Landlock gets no such renderer at all). See fonts.md.
+- A `file:` page may embed any readable local file, as in Chromium and
+  Firefox; with a renderer exploit that is a local file read. Keep
+  `net.file.enabled` off where local pages are not needed. See
+  [security-assessment.md](security-assessment.md) for this and the other
+  accepted limits.
 - The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
   starts to matter when scripts can read cookies. A zone using an
   embedder-supplied jar is not vaulted.
