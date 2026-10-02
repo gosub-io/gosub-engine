@@ -157,9 +157,21 @@ impl VaultLink {
 
 /// A respawned vault's line: the fd arrives twice, one per half, because this
 /// process may not `dup`.
+/// How long the vault line's descriptors may take to follow their message.
+const VAULT_LINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(super) fn adopt_vault_line(rx: &mut EndpointRx) -> Result<VaultLink, String> {
-    let tx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
-    let rx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
+    // The two descriptors follow the `VaultLine` message at once; a broker
+    // whose send of them failed must not leave this loop waiting for them
+    // forever, serving no more fetches.
+    let _ = rx.set_read_timeout(Some(VAULT_LINE_TIMEOUT));
+    let fds = (|| {
+        let tx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
+        let rx_fd = rx.recv_fd().map_err(|e| e.to_string())?;
+        Ok::<_, String>((tx_fd, rx_fd))
+    })();
+    let _ = rx.set_read_timeout(None);
+    let (tx_fd, rx_fd) = fds?;
     Ok(VaultLink::new(Endpoint::from_halves(
         std::os::unix::net::UnixStream::from(tx_fd),
         std::os::unix::net::UnixStream::from(rx_fd),
