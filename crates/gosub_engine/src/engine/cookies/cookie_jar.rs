@@ -260,9 +260,12 @@ impl DefaultCookieJar {
 }
 
 impl DefaultCookieJar {
-    /// Past [`MAX_COOKIES_TOTAL`], expired cookies go first, then the oldest
-    /// live ones anywhere in the jar, as browsers evict.
-    fn enforce_total_cap(&mut self, now: i64) {
+    /// Past [`MAX_COOKIES_TOTAL`]: expired cookies go first; then the origin
+    /// that was just written gives up its oldest, then the registrable domain
+    /// holding the most cookies does, and only then the jar's oldest anywhere
+    /// (RFC 6265 §5.3 step 12's order). A page naming thousands of its own
+    /// subdomains therefore evicts itself, not every other site's session.
+    fn enforce_total_cap(&mut self, now: i64, written: &str) {
         let over = |entries: &HashMap<String, Vec<Cookie>>| {
             let (count, bytes) = entries
                 .values()
@@ -276,19 +279,64 @@ impl DefaultCookieJar {
         for bucket in self.entries.values_mut() {
             bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
         }
+        let site_of = |origin: &str| -> String {
+            use psl::Psl as _;
+            let Ok(url) = Url::parse(origin) else {
+                return origin.to_string();
+            };
+            match url.host() {
+                Some(url::Host::Domain(name)) => psl::List
+                    .domain(name.as_bytes())
+                    .and_then(|d| std::str::from_utf8(d.as_bytes()).ok())
+                    .unwrap_or(name)
+                    .to_string(),
+                _ => url.host_str().unwrap_or(origin).to_string(),
+            }
+        };
         while over(&self.entries) {
-            let Some((origin, index)) = self
+            // The origin being written, while it has more than the cookie
+            // just stored to give: evicting that one would make every write
+            // at the cap a no-op, and the point is to spare other sites.
+            let mut from = self
                 .entries
+                .get(written)
+                .filter(|b| b.len() > 1)
+                .map(|_| written.to_string());
+
+            // Else the registrable domain with the most cookies, its oldest first.
+            if from.is_none() {
+                let mut per_site: HashMap<String, usize> = HashMap::new();
+                for (origin, bucket) in &self.entries {
+                    *per_site.entry(site_of(origin)).or_default() += bucket.len();
+                }
+                let largest = per_site
+                    .into_iter()
+                    .max_by_key(|(site, n)| (*n, site.clone()))
+                    .map(|(s, _)| s);
+                from = largest.and_then(|site| {
+                    self.entries
+                        .iter()
+                        .filter(|(origin, bucket)| !bucket.is_empty() && site_of(origin) == site)
+                        .flat_map(|(origin, bucket)| bucket.iter().map(move |c| (c.created_at, origin.clone())))
+                        .min_by_key(|(created_at, origin)| (*created_at, origin.clone()))
+                        .map(|(_, origin)| origin)
+                });
+            }
+            let Some(origin) = from else {
+                break;
+            };
+            let Some(bucket) = self.entries.get_mut(&origin) else {
+                break;
+            };
+            let Some(oldest) = bucket
                 .iter()
-                .flat_map(|(origin, bucket)| bucket.iter().enumerate().map(move |(i, c)| (c.created_at, origin, i)))
-                .min_by_key(|(created_at, _, _)| *created_at)
-                .map(|(_, origin, i)| (origin.clone(), i))
+                .enumerate()
+                .min_by_key(|(_, c)| c.created_at)
+                .map(|(i, _)| i)
             else {
                 break;
             };
-            if let Some(bucket) = self.entries.get_mut(&origin) {
-                bucket.remove(index);
-            }
+            bucket.remove(oldest);
         }
         self.entries.retain(|_, bucket| !bucket.is_empty());
     }
@@ -321,7 +369,7 @@ impl CookieJar for DefaultCookieJar {
             .rsplit_once('/')
             .map_or("/", |(a, _)| if a.is_empty() { "/" } else { a });
 
-        let bucket = self.entries.entry(origin).or_default();
+        let bucket = self.entries.entry(origin.clone()).or_default();
 
         for header in headers.get_all("set-cookie") {
             // Use from_utf8 (not to_str) so that non-ASCII cookie values (e.g.
@@ -506,7 +554,7 @@ impl CookieJar for DefaultCookieJar {
                 bucket.push(cookie);
             }
         }
-        self.enforce_total_cap(Utc::now().timestamp());
+        self.enforce_total_cap(Utc::now().timestamp(), &origin);
     }
 
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
@@ -1262,31 +1310,34 @@ mod tests {
 
     /// Origins are unbounded, so the jar is capped as a whole: past the cap
     /// the oldest cookie anywhere goes, whichever origin it belongs to.
+    /// Origins are unbounded, so the jar is capped as a whole - and a page
+    /// naming thousands of its own subdomains evicts its own cookies, not
+    /// every other site's session.
     #[test]
-    fn the_jar_is_capped_over_all_origins() {
+    fn the_jar_is_capped_over_all_origins_and_a_flooder_evicts_itself() {
         let mut jar = DefaultCookieJar::new();
-        let first = url("https://origin-first.test/");
-        jar.store_response_cookies(&first, &headers(&["oldest=1; Path=/"]), None);
-        // Creation times are milliseconds: let the first one be strictly older.
+        let bank = url("https://bank.test/");
+        jar.store_response_cookies(&bank, &headers(&["session=1; Path=/"]), None);
+        // Creation times are milliseconds: let the session be strictly older.
         std::thread::sleep(std::time::Duration::from_millis(3));
-        // Enough origins with a cookie each to pass the cap by a margin.
         for i in 0..MAX_COOKIES_TOTAL + 20 {
-            let req = url(&format!("https://o{i}.test/"));
+            let req = url(&format!("https://s{i}.flood.test/"));
             jar.store_response_cookies(&req, &headers(&["c=1; Path=/"]), None);
         }
         let total: usize = jar.entries.values().map(Vec::len).sum();
         assert_eq!(total, MAX_COOKIES_TOTAL, "the jar holds at most the cap");
-        assert!(
-            jar.get_request_cookies(&first, None, SameSiteContext::SameSite)
-                .is_none(),
-            "the oldest cookie made room"
+        assert_eq!(
+            jar.get_request_cookies(&bank, None, SameSiteContext::SameSite)
+                .as_deref(),
+            Some("session=1"),
+            "the older session of another site survived the flood"
         );
-        let last = url(&format!("https://o{}.test/", MAX_COOKIES_TOTAL + 19));
+        let last = url(&format!("https://s{}.flood.test/", MAX_COOKIES_TOTAL + 19));
         assert_eq!(
             jar.get_request_cookies(&last, None, SameSiteContext::SameSite)
                 .as_deref(),
             Some("c=1"),
-            "the newest stayed"
+            "the flooder keeps its newest"
         );
     }
 
