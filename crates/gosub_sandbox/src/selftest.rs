@@ -1467,6 +1467,24 @@ fn run_platform_probe(probe: &str) {
             // Sound here: no other thread exists yet to read the environment.
             std::env::remove_var(key);
         }
+        // Likewise the descriptors: an engine child gets only the links its
+        // spawner named (everything else is close-on-exec before the exec);
+        // this probe inherits whatever the test runner had open - CI runners
+        // leak pipes into every process they start. The probe holds no link,
+        // so everything beyond 0-2 goes, and the audit's fd row measures the
+        // lockdown and not the runner.
+        {
+            const CLOSE_RANGE_FIRST: u32 = 3;
+            // SAFETY: close_range(3, ~0, 0) closes descriptors this process owns
+            // and nothing else; a kernel without it (pre-5.9) answers ENOSYS,
+            // and the loop below does the same by hand.
+            if unsafe { libc::syscall(libc::SYS_close_range, CLOSE_RANGE_FIRST, u32::MAX, 0u32) } < 0 {
+                for fd in CLOSE_RANGE_FIRST as libc::c_int..1024 {
+                    // SAFETY: closing a descriptor number; a closed one is EBADF.
+                    unsafe { libc::close(fd) };
+                }
+            }
+        }
         let (role, own) = match role {
             "renderer" => {
                 crate::lock_down_renderer();
