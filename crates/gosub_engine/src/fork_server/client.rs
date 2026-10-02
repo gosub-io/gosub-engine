@@ -635,11 +635,23 @@ impl KeptTile {
     }
 }
 
+/// Most a tab keeps of its renderer's tiles, in pixel bytes and in tiles. A
+/// kept tile pins the renderer's sealed pages in this process, and a pass
+/// only takes away what the renderer *says* it evicted - so without this a
+/// renderer answering every hover with fresh hashes and no evictions would
+/// grow the broker by a pass's worth each time. Generous for an honest page:
+/// a 4K viewport's raster window is well under a tenth of it.
+pub const MAX_TAB_TILE_BYTES: usize = 512 * 1024 * 1024;
+pub const MAX_TAB_TILES: usize = 20_000;
+
 /// What the broker remembers of a tab's last remote render, keyed by content
 /// hash - the input to the next render's `known_tiles`.
 #[derive(Debug, Default)]
 pub struct TileMemory {
     tiles: std::collections::HashMap<u64, KeptTile>,
+    /// Arrival order, oldest first, for what goes when the budget is passed.
+    order: std::collections::VecDeque<u64>,
+    bytes: usize,
 }
 
 impl TileMemory {
@@ -652,20 +664,54 @@ impl TileMemory {
         self.tiles.get(&hash).cloned()
     }
 
+    /// Pixel bytes kept.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     /// Replace the memory with exactly this page's tiles: what is not on the
     /// page cannot help the next render of it, and keeping it would grow
     /// without bound.
     pub fn replace_with(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
-        self.tiles = tiles.into_iter().collect();
+        self.tiles.clear();
+        self.order.clear();
+        self.bytes = 0;
+        self.extend(tiles);
     }
 
     /// Merge one pass of a retained page: what the renderer let go of leaves,
-    /// what it shipped arrives.
+    /// what it shipped arrives. Past the budget the oldest tiles go too: the
+    /// renderer's next `known_tiles` no longer names them, so it ships them
+    /// again if the page still needs them.
     pub fn apply_pass(&mut self, evicted: &[u64], tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
         for hash in evicted {
-            self.tiles.remove(hash);
+            self.remove(*hash);
         }
-        self.tiles.extend(tiles);
+        self.extend(tiles);
+    }
+
+    fn extend(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
+        for (hash, tile) in tiles {
+            self.remove(hash);
+            self.bytes += tile.pixels.len();
+            self.order.push_back(hash);
+            self.tiles.insert(hash, tile);
+        }
+        while self.bytes > MAX_TAB_TILE_BYTES || self.tiles.len() > MAX_TAB_TILES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(tile) = self.tiles.remove(&oldest) {
+                self.bytes -= tile.pixels.len();
+            }
+        }
+    }
+
+    fn remove(&mut self, hash: u64) {
+        if let Some(tile) = self.tiles.remove(&hash) {
+            self.bytes -= tile.pixels.len();
+            self.order.retain(|h| *h != hash);
+        }
     }
 
     /// Every kept tile as compositor input, back to front: `layer_order` is
@@ -1140,6 +1186,46 @@ mod tests {
             cursor: HitCursor::Pointer,
             editable: false,
         }
+    }
+
+    fn kept(bytes: usize) -> KeptTile {
+        KeptTile {
+            page_x: 0.0,
+            page_y: 0.0,
+            layer_id: 1,
+            width: 1,
+            height: 1,
+            format: TileWireFormat::Rgba8,
+            opacity: 1.0,
+            anchor: TileWireAnchor::Scroll,
+            pixels: bytes::Bytes::from(vec![0u8; bytes]),
+        }
+    }
+
+    /// A pass that evicts nothing cannot grow a tab past its budget: the
+    /// oldest tiles go, and the renderer is simply not told it has them.
+    #[test]
+    fn tile_memory_is_bounded_across_passes() {
+        let tile = MAX_TAB_TILE_BYTES / 4;
+        let mut memory = TileMemory::default();
+        memory.replace_with((0..4u64).map(|h| (h, kept(tile))));
+        assert_eq!(memory.bytes(), MAX_TAB_TILE_BYTES);
+        // Two more passes, each shipping fresh hashes and evicting nothing.
+        memory.apply_pass(&[], [(10, kept(tile))]);
+        memory.apply_pass(&[], [(11, kept(tile))]);
+        assert!(memory.bytes() <= MAX_TAB_TILE_BYTES);
+        assert!(
+            memory.get(0).is_none() && memory.get(1).is_none(),
+            "the oldest went first"
+        );
+        assert!(
+            memory.get(10).is_some() && memory.get(11).is_some(),
+            "the newest stayed"
+        );
+        // What the renderer evicts is removed and its bytes given back.
+        memory.apply_pass(&[10, 11], []);
+        assert_eq!(memory.bytes(), 2 * tile);
+        assert_eq!(memory.hashes().len(), 2);
     }
 
     /// A URL past the bound is dropped whole: cut, it would be navigated to.
