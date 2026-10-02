@@ -605,30 +605,26 @@ pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]
 
 /// Scope a font role's filesystem to `fs_allow`. Landlock before seccomp, as
 /// everywhere: its own syscalls and the O_PATH anchor opens must run
-/// unfiltered. The main filter allows `openat` with any flags, so where
-/// Landlock does not take, the role's opens are made read-only instead
-/// ([`install_read_only_opens`]): a writable grant (a scratch directory) is
-/// lost, but the role never writes outside its scope. With Landlock active,
-/// the same holds for a role granted nothing writable.
+/// unfiltered. Fail-closed like the net role: this role parses page content
+/// and its filter allows `openat`, so without Landlock nothing would bound
+/// which files it reads - read-only opens over the whole filesystem are not
+/// a confinement. A role granted nothing writable additionally gets its opens
+/// made read-only at the syscall layer ([`install_read_only_opens`]).
 #[cfg(feature = "multi-process")]
 fn scope_font_filesystem(role: &str, fs_allow: &[(&std::path::Path, bool)]) {
-    let scoped = !fs_allow.is_empty()
-        && match landlock::restrict(fs_allow) {
-            Ok(true) => {
-                eprintln!("[{role}] landlock active (filesystem scoped to font paths)");
-                true
-            }
-            Ok(false) => {
-                eprintln!("[{role}] landlock unavailable on this kernel; opens made read-only");
-                false
-            }
-            Err(e) => {
-                eprintln!("[{role}] landlock could not be applied ({e}); opens made read-only");
-                false
-            }
-        };
+    match landlock::restrict(fs_allow) {
+        Ok(true) => eprintln!("[{role}] landlock active (filesystem scoped to font paths)"),
+        Ok(false) => {
+            eprintln!("[{role}] landlock unavailable on this kernel; refusing to run with an unscoped filesystem");
+            exit_now(1);
+        }
+        Err(e) => {
+            eprintln!("[{role}] landlock could not be applied ({e}); refusing to run with an unscoped filesystem");
+            exit_now(1);
+        }
+    }
     let writes = fs_allow.iter().any(|(_, writable)| *writable);
-    if !scoped || !writes {
+    if !writes {
         enforce_read_only_opens(role);
     }
 }
