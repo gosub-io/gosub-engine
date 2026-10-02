@@ -161,12 +161,19 @@ async fn load(url: &Url) -> std::io::Result<(&'static str, Bytes)> {
     }
     use tokio::io::AsyncReadExt as _;
     let mut body = Vec::new();
-    // The size was a moment ago; the bound is what we hold, whatever it is now.
+    // The size was a moment ago. Read one byte past the cap: a file that
+    // grew meanwhile is refused whole, never served cut as if complete.
     tokio::fs::File::open(&path)
         .await?
-        .take(MAX_FILE_BYTES)
+        .take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut body)
         .await?;
+    if body.len() as u64 > MAX_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("grew past the {MAX_FILE_BYTES}-byte cap on local files while being read"),
+        ));
+    }
     Ok((content_type_for(&path), Bytes::from(body)))
 }
 
