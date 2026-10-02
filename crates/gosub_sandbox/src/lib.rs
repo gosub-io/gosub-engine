@@ -411,10 +411,11 @@ pub use imp::PidNamespaceAnchor;
 /// Park a child as PID 1 of the fork server's (lazily-unshared) PID namespace,
 /// for as long as the returned anchor lives - without it, the first exiting
 /// child kills the namespace and every later `fork` fails with `ENOMEM`. Call
-/// before the fork-server lockdown. Linux only.
+/// before the fork-server lockdown; `parent_only` are the caller's descriptors
+/// (its broker link) the anchor closes before confining itself. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
-    imp::hold_pid_namespace_anchor()
+pub fn hold_pid_namespace_anchor(parent_only: &[i32]) -> std::io::Result<PidNamespaceAnchor> {
+    imp::hold_pid_namespace_anchor(parent_only)
 }
 
 /// A private, writable scratch directory for a renderer that must stage files

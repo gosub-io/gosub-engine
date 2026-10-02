@@ -501,9 +501,11 @@ impl Drop for PidNamespaceAnchor {
 }
 
 /// Park a child as PID 1 of the fork server's PID namespace, for as long as
-/// the returned anchor lives.
+/// the returned anchor lives. `parent_only` names the fork server's own
+/// descriptors (its broker link) the anchor must not keep: it is forked
+/// before the lockdown, and fork ignores `FD_CLOEXEC`.
 #[cfg(feature = "multi-process")]
-pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
+pub fn hold_pid_namespace_anchor(parent_only: &[libc::c_int]) -> std::io::Result<PidNamespaceAnchor> {
     let mut fds: [libc::c_int; 2] = [0; 2];
     // SAFETY: `fds` is a valid two-slot out-array.
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
@@ -515,6 +517,7 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
         Forked::Child => {
             // SAFETY: closing the inherited copy of the parent's end.
             unsafe { libc::close(write_fd) };
+            close_inherited(parent_only);
             set_process_title("pidns-anchor", "gosub: pid-namespace anchor");
             // Confine quietly (no lockdown banner - this is plumbing, not a
             // component). PID 1 of the renderers' namespace with the fork
