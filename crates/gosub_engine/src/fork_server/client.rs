@@ -1037,6 +1037,7 @@ impl ResidentRenderer {
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
+            media: media_prefs(),
             scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,

@@ -95,12 +95,13 @@ pub fn serve<C: RenderConfiguration>(
                 viewport_width,
                 viewport_height,
                 dpr,
+                media,
                 scroll_y,
                 known_tiles,
                 hovered_node,
             } => {
                 let _ = &url;
-                gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.store(dpr, std::sync::atomic::Ordering::Relaxed);
+                renderer::apply_media_prefs(dpr, media);
                 gosub_sandbox::set_process_title(&comm, &title());
                 // A new page: what earlier pages decoded is dead weight past
                 // the budget, and this process lives as long as the site's tabs.

@@ -117,6 +117,8 @@ pub enum ToRenderer {
         /// See [`ToForkServer::RenderPage::dpr`]; a retained page keeps it
         /// until the next navigate.
         dpr: u32,
+        /// See [`ToForkServer::RenderPage::media`]; kept the same way.
+        media: MediaPrefs,
         /// Where the viewport is: only the raster window around it is
         /// rasterized and shipped (see [`ToRenderer::Scroll`]).
         scroll_y: f64,
