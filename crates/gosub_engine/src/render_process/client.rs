@@ -1,6 +1,8 @@
 //! The broker's side of an exec'd renderer: spawn, render one page, reap.
 
-use crate::fork_server::client::{drive_render_exchange, RenderedPage, TileMemory, RENDER_GAP};
+use crate::fork_server::client::{
+    drive_render_exchange, media_prefs, remove_scratch_dir, RenderedPage, TileMemory, RENDERER_DATA_LIMIT, RENDER_GAP,
+};
 use crate::fork_server::protocol::ToForkServer;
 use gosub_ipc::Endpoint;
 
@@ -68,6 +70,7 @@ pub fn render_page(
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
+            media: media_prefs(),
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;

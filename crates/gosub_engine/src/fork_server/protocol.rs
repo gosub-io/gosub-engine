@@ -52,6 +52,10 @@ pub enum ToForkServer {
         /// The broker's device-pixel ratio. Tile pixels are physical; the
         /// renderer is another process, so the host's global does not reach it.
         dpr: u32,
+        /// The user's preferences the page's `@media` queries and
+        /// `light-dark()` answer to - process-wide state in the broker, so
+        /// they travel the same way as `dpr`.
+        media: MediaPrefs,
         /// Content hashes of tiles the broker still holds from a previous
         /// render of this tab. A tile whose hash is in here is neither
         /// rasterized nor shipped - the renderer answers

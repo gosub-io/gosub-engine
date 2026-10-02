@@ -2,7 +2,8 @@
 //! tier, ask it to fork.
 
 use crate::fork_server::protocol::{
-    ConfinementTier, FromForkServer, FromRenderer, HitRegion, PageSummary, ResourceReply, TileHeader, ToForkServer,
+    ConfinementTier, FromForkServer, FromRenderer, HitRegion, MediaPrefs, PageSummary, ResourceReply, TileHeader,
+    ToForkServer, MAX_HIT_TEXT,
 };
 use crate::net::resource_loader::{LoadError, LoadedResource};
 use gosub_ipc::Endpoint;
@@ -13,6 +14,37 @@ pub const FORK_SERVER_ROLE: &str = "fork-server";
 
 /// Committed memory a renderer process may hold (`RLIMIT_DATA`).
 pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
+
+/// The user's media preferences as last set by [`set_media_prefs`]. The
+/// in-process pipeline treats them as process-wide (one colour scheme per
+/// engine, like the device-pixel ratio); every render request carries them to
+/// the renderer, which has no settings of its own to read.
+static MEDIA_PREFS: parking_lot::Mutex<MediaPrefs> = parking_lot::Mutex::new(MediaPrefs {
+    prefers_dark: false,
+    prefers_reduced_motion: false,
+});
+
+/// Record the preferences a render request should carry; the tab sets them
+/// from its settings before each remote render.
+pub fn set_media_prefs(prefs: MediaPrefs) {
+    *MEDIA_PREFS.lock() = prefs;
+}
+
+/// What the next render request carries - see [`set_media_prefs`].
+pub fn media_prefs() -> MediaPrefs {
+    *MEDIA_PREFS.lock()
+}
+
+/// Remove the scratch directory a child claimed (`claim_scratch_dir`), once it
+/// has exited. The child cannot: its lockdown has no `unlinkat`.
+pub(crate) fn remove_scratch_dir(role: &str, pid: u32) {
+    let dir = std::env::temp_dir().join(format!("gosub-{role}-scratch-{pid}"));
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::debug!("could not remove {}: {e}", dir.display());
+        }
+    }
+}
 
 /// How long to wait for `Ready`. Spawn plus font warm-up: the slowest measured
 /// preparation (full warm-up on a font-heavy host) is well under a second, so
@@ -590,6 +622,7 @@ impl ForkServer {
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
+            media: media_prefs(),
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;

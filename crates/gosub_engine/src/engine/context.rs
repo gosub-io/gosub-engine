@@ -982,6 +982,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .unwrap_or_else(|| "about:blank".to_string());
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
         let started = std::time::Instant::now();
+        // What the in-process pipeline would have found in this process: the
+        // document the subresource loads are for, and the user's media
+        // preferences, which the renderer has no settings of its own to read.
+        let env = self.media_environment();
+        crate::fork_server::client::set_media_prefs(crate::fork_server::protocol::MediaPrefs {
+            prefers_dark: matches!(env.color_scheme, gosub_css3::media_query::ColorScheme::Dark),
+            prefers_reduced_motion: matches!(env.reduced_motion, gosub_css3::media_query::ReducedMotion::Reduce),
+        });
         let resources = crate::fork_server::client::LoaderResources(&self.loader);
         let loader: &dyn crate::fork_server::client::RenderResources = &resources;
         // The whole exchange blocks on the renderer's socket (and, relaying its

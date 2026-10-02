@@ -57,6 +57,31 @@ pub fn render_page<C: RenderConfiguration>(
     (pass.summary, pass.tiles, retained.hit_regions)
 }
 
+/// Install what the broker's process-wide render state would have supplied
+/// in-process: the device-pixel ratio and the user's media preferences, which
+/// `@media` queries, `light-dark()` and the engine-drawn controls read. Once
+/// per renderer process, on the thread that renders, before the first page;
+/// `set_layout_viewport` keeps the rest of the environment.
+pub fn apply_media_prefs(dpr: u32, media: crate::fork_server::protocol::MediaPrefs) {
+    use gosub_css3::media_query::{ColorScheme, ReducedMotion};
+    gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.store(dpr, std::sync::atomic::Ordering::Relaxed);
+    gosub_css3::stylesheet::set_prefers_dark(media.prefers_dark);
+    gosub_render_pipeline::common::theme::set_dark(media.prefers_dark);
+    let mut env = gosub_css3::media_query::media_environment();
+    env.device_pixel_ratio = dpr as f32;
+    env.color_scheme = if media.prefers_dark {
+        ColorScheme::Dark
+    } else {
+        ColorScheme::Light
+    };
+    env.reduced_motion = if media.prefers_reduced_motion {
+        ReducedMotion::Reduce
+    } else {
+        ReducedMotion::NoPreference
+    };
+    gosub_css3::media_query::set_media_environment(env);
+}
+
 /// What to render: the page, the viewport it is laid out against, and the
 /// tiles the broker already holds.
 pub struct PageRequest<'a> {
@@ -668,4 +693,32 @@ fn collect_hit_regions<C: RenderConfiguration>(
         }
     }
     regions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fork_server::protocol::MediaPrefs;
+    use gosub_css3::media_query::{media_environment, ColorScheme, ReducedMotion};
+
+    /// What the broker sends reaches the environment `@media` reads; the
+    /// viewport setter that follows keeps it. Light scheme, so the
+    /// process-wide colour flags other tests read stay at their default.
+    #[test]
+    fn media_prefs_reach_the_media_environment() {
+        apply_media_prefs(
+            2,
+            MediaPrefs {
+                prefers_dark: false,
+                prefers_reduced_motion: true,
+            },
+        );
+        gosub_css3::stylesheet::set_layout_viewport(800.0, 600.0);
+        let env = media_environment();
+        assert_eq!(env.device_pixel_ratio, 2.0);
+        assert_eq!(env.color_scheme, ColorScheme::Light);
+        assert_eq!(env.reduced_motion, ReducedMotion::Reduce);
+        assert_eq!((env.width, env.height), (800.0, 600.0));
+        apply_media_prefs(1, MediaPrefs::default());
+    }
 }
