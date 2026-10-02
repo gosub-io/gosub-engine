@@ -439,17 +439,30 @@ enum Body {
 /// Per-subscriber queue for a ring-fed body, in chunks: the same order of
 /// magnitude gosub-sonar uses for its own streamed responses.
 const RING_BODY_QUEUE: usize = 64;
+/// Chunks read off the ring and not yet taken by the body's pump. Bounded,
+/// so a body nobody reads stalls the ring (and, past the ring's patience,
+/// the network process ends the stream) rather than filling this process.
+const RING_CHUNKS_AHEAD: usize = 8;
+/// How long the body may go without a byte before it is ended: longer than
+/// the network process's own read-idle timeout on the origin, so origin
+/// silence is judged there, by the fetcher, with its configured bound.
+const RING_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Feed a [`SharedBody`] from a ring on a thread of its own: the ring's reads
-/// block (bounded by its stall timeout), so this is not runtime work. The
-/// body ends when the producer finishes; a producer that aborts or stalls
-/// ends it with an error.
+/// Feed a [`SharedBody`] from a ring. The ring's reads block (bounded by its
+/// stall timeout), so they run on a thread of their own; what it reads goes
+/// through [`SharedBody::from_reader`], whose pump does not start consuming
+/// until the first subscriber attaches - a `SharedBody` replays nothing to
+/// a late subscriber, and the body's consumer attaches only after the
+/// `Stream` result has crossed into the requester's task, by which time the
+/// network process has long written the head of the body into the ring.
+/// Pushing straight from the thread lost that head. The body ends when the
+/// producer finishes; a producer that aborts or stalls ends it with an error.
+/// Must run inside the I/O runtime, which the pump is spawned on.
 ///
 /// [`SharedBody`]: gosub_sonar::net::shared_body::SharedBody
 fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
-    use gosub_sonar::net::shared_body::SharedBody;
-    let shared = Arc::new(SharedBody::new(RING_BODY_QUEUE));
-    let sink = Arc::clone(&shared);
+    use gosub_sonar::net::shared_body::{ReaderOptions, SharedBody};
+    let (chunks_tx, chunks_rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(RING_CHUNKS_AHEAD);
     let spawned = std::thread::Builder::new()
         .name("net-ring-consumer".into())
         .spawn(move || {
@@ -458,28 +471,28 @@ fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
                 let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
                     Ok(c) => c,
                     Err(e) => {
-                        sink.error(net_error(format!("body stream could not be opened: {e}")));
+                        let _ = chunks_tx.blocking_send(Err(std::io::Error::other(format!(
+                            "body stream could not be opened: {e}"
+                        ))));
                         return;
                     }
                 };
                 let mut buf = vec![0u8; 64 * 1024];
-                let mut total: u64 = 0;
                 loop {
                     match consumer.read(&mut buf) {
-                        Ok(0) => {
-                            sink.finish();
-                            return;
-                        }
+                        // EOF: dropping the sender ends the stream cleanly.
+                        Ok(0) => return,
                         Ok(n) => {
-                            total += n as u64;
-                            if total > gosub_ipc::ring::MAX_BODY_LEN {
-                                sink.error(net_error("body stream exceeded the size cap"));
-                                return;
+                            if chunks_tx
+                                .blocking_send(Ok(bytes::Bytes::copy_from_slice(&buf[..n])))
+                                .is_err()
+                            {
+                                return; // the body was dropped unread
                             }
-                            sink.push(bytes::Bytes::copy_from_slice(&buf[..n]));
                         }
                         Err(e) => {
-                            sink.error(net_error(format!("body stream failed: {e}")));
+                            let _ =
+                                chunks_tx.blocking_send(Err(std::io::Error::other(format!("body stream failed: {e}"))));
                             return;
                         }
                     }
@@ -488,13 +501,75 @@ fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = ring;
-                sink.error(net_error("body streams are not carried on this platform"));
+                let _ = chunks_tx.blocking_send(Err(std::io::Error::other(
+                    "body streams are not carried on this platform",
+                )));
             }
         });
     if spawned.is_err() {
+        let shared = Arc::new(SharedBody::new(RING_BODY_QUEUE));
         shared.error(net_error("could not start the body stream consumer"));
+        return shared;
     }
-    shared
+    let chunks = Box::pin(futures::stream::unfold(chunks_rx, |mut rx| async move {
+        rx.recv().await.map(|item| (item, rx))
+    }));
+    SharedBody::from_reader(
+        tokio_util::io::StreamReader::new(chunks),
+        ReaderOptions {
+            capacity: RING_BODY_QUEUE,
+            buf_size: 64 * 1024,
+            cancel: None,
+            idle_timeout: Some(RING_IDLE_TIMEOUT),
+            total_timeout: None,
+            // No cap: nothing here holds the body, and the in-process path has none.
+            max_size: None,
+        },
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+
+    /// The body's consumer attaches after the head has already crossed the
+    /// ring; it must still see every byte.
+    #[test]
+    fn a_streamed_body_is_whole_for_a_late_subscriber() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let body: Vec<u8> = (0..300 * 1024).map(|i| (i % 253) as u8).collect();
+        let (mut producer, fd) = gosub_ipc::ring::RingProducer::create(64 * 1024).unwrap();
+        let expected = body.clone();
+        // The ring is smaller than the body: the producer blocks until the
+        // consumer drains, exactly as the network process would.
+        let writer = std::thread::spawn(move || {
+            producer.write_all(&body).unwrap();
+            producer.finish();
+        });
+        let shared = {
+            let _in_rt = rt.enter();
+            drain_ring(fd)
+        };
+        // Late, as the real consumer is: the head of the body is in the ring,
+        // and the consumer thread has had every chance to read it.
+        std::thread::sleep(Duration::from_millis(200));
+        let got = rt.block_on(async move {
+            let mut stream = shared.subscribe_stream();
+            let mut got = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                got.extend_from_slice(&chunk.expect("a body chunk"));
+            }
+            got
+        });
+        writer.join().unwrap();
+        assert_eq!(got.len(), expected.len(), "the late subscriber missed part of the body");
+        assert_eq!(got, expected);
+    }
 }
 
 /// A failure that came from (or about) the network process, as the engine's own
