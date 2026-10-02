@@ -46,11 +46,48 @@ async fn serve(port: u16, context: Arc<EngineContext>) -> std::io::Result<()> {
     }
 }
 
+/// Whether the request's `Host` names this server as a local address. The
+/// listener is on 127.0.0.1, which keeps the network out but not a web page:
+/// a page on `attacker.example` whose DNS answer is switched to 127.0.0.1
+/// after it loaded reaches this port same-origin and reads the firehose -
+/// every URL the browser fetches. The `Host` it sends is its own name;
+/// refusing anything but the loopback names closes that, and the cross-site
+/// `POST /metrics/reset` with it.
+fn host_is_local(req: &str) -> bool {
+    let Some(host) = req
+        .lines()
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("host")))
+        .map(|(_, v)| v.trim())
+    else {
+        return false;
+    };
+    let name = if let Some(rest) = host.strip_prefix('[') {
+        rest.split_once(']').map(|(n, _)| n).unwrap_or(rest)
+    } else {
+        host.rsplit_once(':').map_or(host, |(n, _)| n)
+    };
+    ["127.0.0.1", "localhost", "::1"]
+        .iter()
+        .any(|local| name.eq_ignore_ascii_case(local))
+}
+
 async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
     let mut buf = vec![0u8; 2048];
     let n = stream.read(&mut buf).await.unwrap_or(0);
     let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
     let first_line = req.lines().next().unwrap_or("");
+
+    if !host_is_local(req) {
+        let body = r#"{"error":"this server answers only to its loopback name"}"#;
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+        return;
+    }
 
     if first_line.starts_with("GET /events") {
         stream_events(stream).await;
@@ -243,13 +280,59 @@ mod tests {
             handle(stream, context).await;
         });
         let mut client = TcpStream::connect(addr).await.unwrap();
-        client.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n\r\n")
+            .await
+            .unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).await.unwrap();
         let response = String::from_utf8_lossy(&response);
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response:.80}");
         assert!(response.contains("Content-Type: text/html"), "not served as HTML");
         assert!(response.contains("<title>Gosub telemetry</title>"), "not the viewer");
+    }
+
+    /// A request under any other name is a page that reached 127.0.0.1 by
+    /// DNS rebinding (its `Host` is its own name), or a proxy: refused.
+    #[tokio::test]
+    async fn a_request_for_another_host_name_is_refused() {
+        for (host, allowed) in [
+            ("attacker.example:9090", false),
+            ("attacker.example", false),
+            ("127.0.0.1.attacker.example", false),
+            ("127.0.0.1:9090", true),
+            ("localhost:9090", true),
+            ("LOCALHOST", true),
+            ("[::1]:9090", true),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+                let context = Arc::new(EngineContext {
+                    event_tx,
+                    ..Default::default()
+                });
+                handle(stream, context).await;
+            });
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            client
+                .write_all(format!("GET /health HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).await.unwrap();
+            let response = String::from_utf8_lossy(&response);
+            let expected = if allowed {
+                "HTTP/1.1 200 OK"
+            } else {
+                "HTTP/1.1 403 Forbidden"
+            };
+            assert!(response.starts_with(expected), "Host {host}: {response:.60}");
+        }
+        // No Host at all is not local either.
+        assert!(!host_is_local("GET /health HTTP/1.1\r\n\r\n"));
     }
 
     /// An `/events` client that leaves while no events flow ends its stream,
