@@ -420,7 +420,8 @@ fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
                 .join(", ")
         );
         let refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+        gosub_sandbox::scope_renderer_font_filesystem(&refs);
+        gosub_sandbox::lock_down_renderer_with_font_access();
     }
 
     // Never shaped, never warmed: the match runs cold, under the profile.
@@ -472,7 +473,8 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
         let paths = gosub_sandbox::font_filesystem_paths();
         let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
         refs.push((scratch.as_path(), true));
-        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+        gosub_sandbox::scope_renderer_font_filesystem(&refs);
+        gosub_sandbox::lock_down_renderer_with_font_access();
     }
 
     if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {

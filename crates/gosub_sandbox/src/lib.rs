@@ -159,14 +159,23 @@ pub fn lock_down_vault() {
     imp::lock_down_vault();
 }
 
-/// Confine a renderer whose font system must read font files (fontconfig
-/// stacks consult the filesystem while shaping; no warm-up covers it): the
-/// renderer profile plus read-only, Landlock-scoped access to `fs_allow` -
-/// pass [`font_filesystem_paths`]. Linux only. Fail-closed on the seccomp
-/// install; the Landlock portion is best-effort like the other roles.
+/// Scope the filesystem of a renderer whose font system must read font files
+/// (fontconfig stacks consult the filesystem while shaping; no warm-up covers
+/// it) to `fs_allow` - pass [`font_filesystem_paths`] read-only, plus a
+/// writable scratch. Landlock, so it binds the calling thread and the threads
+/// created after it: call while the process is still one thread, before the
+/// font system. Fail-closed: without Landlock the role exits. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
-    imp::lock_down_renderer_with_font_access(fs_allow);
+pub fn scope_renderer_font_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
+    imp::scope_renderer_font_filesystem(fs_allow);
+}
+
+/// The seccomp half of that renderer's confinement: the renderer profile
+/// plus the file-reading syscalls, over every thread. Call after
+/// [`scope_renderer_font_filesystem`]. Linux only. Fail-closed on the install.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn lock_down_renderer_with_font_access() {
+    imp::lock_down_renderer_with_font_access();
 }
 
 /// The read-only paths [`lock_down_renderer_with_font_access`] normally wants:

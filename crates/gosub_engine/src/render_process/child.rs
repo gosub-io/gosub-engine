@@ -51,16 +51,19 @@ impl ResourceLoader for DirectBrokeredLoader {
 
 /// Render one page for the broker, then return the process exit code.
 ///
-/// Everything that touches the filesystem beyond font paths - building the
-/// font system (which may spawn a library worker thread; permitted, this
-/// process kept its PID namespace and the filter is applied with TSYNC), the
-/// media store's placeholder decode - happens before the lockdown; the parse
-/// and render happen confined, reading only font paths and the private
-/// scratch, fetching everything else through the broker.
+/// The filesystem is scoped first, while the process is still one thread:
+/// Landlock restricts the calling thread only, and the font system built
+/// after it may start a library worker thread (which then inherits the
+/// scope). What needs `/proc` - the title region, SVG's stack bounds - runs
+/// before that. The seccomp filter comes last, applied with TSYNC over every
+/// thread; the parse and render happen under both, reading only font paths
+/// and the private scratch, fetching everything else through the broker.
 pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // Before the lockdown (it reads /proc), so the rename on the incoming
     // request can rewrite the cmdline too.
     gosub_sandbox::capture_process_title_region();
+    // Parsing SVG finds its stack bounds through /proc/self/maps; do it before that is gone.
+    gosub_render_pipeline::common::media::SvgDecoder::prepare_for_confinement();
 
     // Before the font system, which may start a thread: `TMPDIR` is set here.
     let scratch = match gosub_sandbox::claim_scratch_dir("renderer") {
@@ -70,6 +73,14 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
             return 1;
         }
     };
+
+    // The font-readable tier, whatever the instance answered: a `Full` system
+    // routed here still works under the weaker profile, and this role exists
+    // for the systems that need it.
+    let paths = gosub_sandbox::font_filesystem_paths();
+    let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
+    refs.push((scratch.as_path(), true));
+    gosub_sandbox::scope_renderer_font_filesystem(&refs);
 
     let mut fonts = C::FontSystem::default();
     let _ = fonts.families();
@@ -91,16 +102,8 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
         Arc::clone(&loader),
     )));
     media_store.set_synchronous_fetch(true);
-    // Parsing SVG finds its stack bounds through /proc/self/maps; do it before that is gone.
-    gosub_render_pipeline::common::media::SvgDecoder::prepare_for_confinement();
 
-    // The font-readable tier, whatever the instance answered: a `Full` system
-    // routed here still works under the weaker profile, and this role exists
-    // for the systems that need it.
-    let paths = gosub_sandbox::font_filesystem_paths();
-    let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-    refs.push((scratch.as_path(), true));
-    gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+    gosub_sandbox::lock_down_renderer_with_font_access();
 
     // One request, one render, gone.
     let request = {
