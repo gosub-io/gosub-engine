@@ -242,8 +242,10 @@ mod runner {
         }
     }
 
-    /// The descriptors this process holds beyond 0-2, by number and kind.
-    fn open_fds() -> Vec<(i32, &'static str)> {
+    /// The descriptors this process holds beyond 0-2: number, kind, and the
+    /// inode behind it (a link is one socket seen through two descriptors,
+    /// its send and receive halves).
+    fn open_fds() -> Vec<(i32, &'static str, u64)> {
         let mut out = Vec::new();
         for fd in 3..256 {
             // SAFETY: F_GETFD on a possibly-closed fd is harmless.
@@ -252,8 +254,8 @@ mod runner {
             }
             let mut st: libc::stat = unsafe { std::mem::zeroed() };
             // SAFETY: fstat into a zeroed struct.
-            let kind = if unsafe { libc::fstat(fd, &mut st) } == 0 {
-                match st.st_mode & libc::S_IFMT {
+            let (kind, ino) = if unsafe { libc::fstat(fd, &mut st) } == 0 {
+                let kind = match st.st_mode & libc::S_IFMT {
                     libc::S_IFSOCK => "sock",
                     libc::S_IFIFO => "pipe",
                     libc::S_IFCHR => "chr",
@@ -261,11 +263,12 @@ mod runner {
                     libc::S_IFDIR => "dir",
                     // Anonymous inodes: epoll, eventfd, timerfd (a runtime's).
                     _ => "anon",
-                }
+                };
+                (kind, st.st_ino)
             } else {
-                "?"
+                ("?", 0)
             };
-            out.push((fd, kind));
+            out.push((fd, kind, ino));
         }
         out
     }
@@ -276,17 +279,21 @@ mod runner {
     /// directory anywhere.
     fn unexpected_fds(role: Role) -> Outcome {
         let fds = open_fds();
-        let listed = |fds: &[(i32, &str)]| {
+        let listed = |fds: &[(i32, &str, u64)]| {
             fds.iter()
-                .map(|(fd, k)| format!("{fd}:{k}"))
+                .map(|(fd, k, _)| format!("{fd}:{k}"))
                 .collect::<Vec<_>>()
                 .join(" ")
         };
-        let sockets = fds.iter().filter(|(_, k)| *k == "sock").count();
-        let mut unexpected: Vec<(i32, &str)> = fds
+        let sockets: std::collections::HashSet<u64> = fds
+            .iter()
+            .filter(|(_, k, _)| *k == "sock")
+            .map(|(_, _, ino)| *ino)
+            .collect();
+        let mut unexpected: Vec<(i32, &str, u64)> = fds
             .iter()
             .copied()
-            .filter(|(_, kind)| match *kind {
+            .filter(|(_, kind, _)| match *kind {
                 "sock" => false,
                 "pipe" => role != Role::ForkServer,
                 "anon" => role != Role::Net,
@@ -294,8 +301,8 @@ mod runner {
             })
             .collect();
         if let Some(links) = link_sockets(role) {
-            if sockets > links {
-                unexpected.extend(fds.iter().copied().filter(|(_, k)| *k == "sock"));
+            if sockets.len() > links {
+                unexpected.extend(fds.iter().copied().filter(|(_, k, _)| *k == "sock"));
             }
         }
         if unexpected.is_empty() {
@@ -327,9 +334,10 @@ mod runner {
         });
     }
 
-    /// The descriptors a role holds by design beyond 0-2: its link sockets
-    /// (the broker's, plus the network process's direct line for the vault),
-    /// at most this many. The net role's internet sockets are unbounded.
+    /// The sockets a role holds by design beyond 0-2, counted as distinct
+    /// sockets (a link's two halves are one): the broker's link, plus the
+    /// network process's direct line for the vault. The net role's internet
+    /// sockets are unbounded.
     fn link_sockets(role: Role) -> Option<usize> {
         match role {
             Role::Renderer | Role::ForkServer | Role::Decoder | Role::Storage => Some(1),
