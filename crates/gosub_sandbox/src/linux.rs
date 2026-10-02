@@ -395,6 +395,53 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A pidfd for `pid`, which must be a child of `parent`: opened first, so a
+/// pid reused after the check is pinned to the dead process (a signal through
+/// the fd then finds nothing) rather than to whatever took the number. The
+/// pid is a child's claim; `/proc/<pid>/status` is the kernel's word on whose
+/// child it is. Refuses pid 0/1 and this process, which a hostile claimant
+/// would name to have the caller act on itself.
+#[cfg(feature = "multi-process")]
+pub fn open_child_pidfd(pid: u32, parent: u32) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd as _;
+    // SAFETY: getpid has no preconditions.
+    if pid <= 1 || pid == unsafe { libc::getpid() } as u32 {
+        return Err(std::io::Error::other(format!("pid {pid} cannot be a child")));
+    }
+    // SAFETY: pidfd_open takes a pid and flags; the result is a new fd we own.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0u32) };
+    if raw < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a descriptor pidfd_open just returned.
+    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as libc::c_int) };
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status"))?;
+    let ppid = status
+        .lines()
+        .find_map(|l| l.strip_prefix("PPid:"))
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    match ppid {
+        Some(p) if p == parent => Ok(fd),
+        Some(p) => Err(std::io::Error::other(format!(
+            "pid {pid} is a child of {p}, not of {parent}"
+        ))),
+        None => Err(std::io::Error::other(format!("no parent recorded for pid {pid}"))),
+    }
+}
+
+/// `SIGKILL` through a pidfd: exactly the process the fd was opened on, or
+/// nothing if it is gone (never a reused pid).
+#[cfg(feature = "multi-process")]
+pub fn pidfd_kill(fd: &std::os::fd::OwnedFd) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    // SAFETY: a signal to a pidfd we own, no siginfo, no flags.
+    let r = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, 0usize, 0u32) };
+    if r < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Cancel the deadline [`arm_deadline`] set: the request finished in time.
 #[cfg(feature = "multi-process")]
 pub fn disarm_deadline() {
@@ -2524,4 +2571,40 @@ fn set_rlimit(resource: RlimitResource, limit: libc::rlim_t) -> std::io::Result<
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "multi-process"))]
+mod pidfd_tests {
+    /// Only a process that /proc says is `parent`'s child gets a pidfd: not
+    /// pid 1, not the caller, not a child of someone else.
+    #[test]
+    fn a_pidfd_is_opened_only_for_a_verified_child() {
+        use std::os::fd::AsRawFd as _;
+        // SAFETY: the child only sleeps and exits; the parent reaps it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0);
+        if child == 0 {
+            // SAFETY: a plain sleep then _exit in the child.
+            unsafe {
+                libc::sleep(30);
+                libc::_exit(0);
+            }
+        }
+        let me = std::process::id();
+        let fd = super::open_child_pidfd(child as u32, me).expect("our own child");
+        assert!(fd.as_raw_fd() >= 0);
+        assert!(super::open_child_pidfd(1, me).is_err(), "pid 1 is nobody's child here");
+        assert!(super::open_child_pidfd(me, me).is_err(), "the caller itself");
+        assert!(
+            super::open_child_pidfd(child as u32, me + 1_000_000).is_err(),
+            "a child of someone else"
+        );
+        super::pidfd_kill(&fd).expect("kill through the pidfd");
+        let mut status = 0;
+        // SAFETY: reaping the child we forked.
+        assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+        // After the process is gone the fd still names it: a signal finds nothing.
+        assert!(super::pidfd_kill(&fd).is_err());
+    }
 }

@@ -3,7 +3,7 @@
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{Channel, Rx, Tx};
+pub use unix::{is_stream_socket, Channel, Rx, Tx};
 
 #[cfg(windows)]
 mod windows;

@@ -18,18 +18,6 @@ pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
 /// rasterizes sequentially, so this is the fork-bomb bound, not a budget.
 pub const RENDERER_MAX_TASKS: u32 = 256;
 
-/// Whether `fd` is a socket - what a link must be before this side writes a
-/// page into it.
-fn is_stream_socket(fd: &std::os::fd::OwnedFd) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    let Ok(dup) = fd.try_clone() else {
-        return false;
-    };
-    std::fs::File::from(dup)
-        .metadata()
-        .is_ok_and(|m| m.file_type().is_socket())
-}
-
 /// The user's media preferences as last set by [`set_media_prefs`]. The
 /// in-process pipeline treats them as process-wide (one colour scheme per
 /// engine, like the device-pixel ratio); every render request carries them to
@@ -966,13 +954,25 @@ impl ForkServer {
             other => anyhow::bail!("unexpected reply to SpawnRenderer: {other:?}"),
         };
         let fd = self.link.rx.recv_fd()?;
-        // A claim from a child: the link must be a socket before anything is
-        // written to it, and the renderer gets its own memory and task
-        // bounds - forked, it inherited the fork server's cgroup, where one
-        // site's renderer could trip a cap shared with every other's.
-        if !is_stream_socket(&fd) {
-            anyhow::bail!("the fork server handed over something that is not a socket");
+        // Claims from a child. The link must be a stream socket before
+        // anything is written to it. The pid must be the fork server's own
+        // child, by /proc's word: it is placed in its own cgroup (forked, it
+        // inherited the fork server's, where one site's renderer could trip a
+        // cap shared with every other's) and killed through its pidfd when the
+        // broker gives up on it - naming the broker's pid, or any other
+        // process's, would have the broker do that to the wrong one. A wrong
+        // claim is a hostile fork server, and the caller stops it.
+        {
+            use std::os::fd::AsRawFd as _;
+            if !gosub_ipc::channel::is_stream_socket(fd.as_raw_fd()) {
+                anyhow::bail!("the fork server handed over something that is not a stream socket");
+            }
         }
+        let Some(fork_server) = self.child.as_ref().map(|c| c.id()) else {
+            anyhow::bail!("no fork server to have spawned renderer {pid}");
+        };
+        let pidfd = gosub_sandbox::open_child_pidfd(pid as u32, fork_server)
+            .map_err(|e| anyhow::anyhow!("the fork server announced a renderer it did not spawn: {e}"))?;
         if let Err(e) = gosub_sandbox::confine_child_pid(pid as u32, RENDERER_DATA_LIMIT, RENDERER_MAX_TASKS) {
             log::warn!("could not apply parent-side confinement to renderer {pid}: {e}");
         }
@@ -983,6 +983,7 @@ impl ForkServer {
         Ok(ResidentRenderer {
             link,
             pid,
+            pidfd: Some(pidfd),
             dead: Default::default(),
         })
     }
@@ -1062,6 +1063,11 @@ const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub struct ResidentRenderer {
     link: Endpoint,
     pid: i32,
+    /// The process itself, verified at spawn: what the broker kills once it
+    /// gives up on the renderer. Asking nicely is for a renderer that still
+    /// listens; a hostile one that disarmed its own deadline and spins only
+    /// ends this way (`None` in tests that build a handle without a process).
+    pidfd: Option<std::os::fd::OwnedFd>,
     /// Set once the link failed: nothing sent afterwards can be trusted to
     /// arrive, and the pool replaces the process on the next request.
     /// Shared and atomic so the pool can read it without taking the lock a
@@ -1096,8 +1102,15 @@ impl ResidentRenderer {
         std::sync::Arc::clone(&self.dead)
     }
 
+    /// Dead to the broker is dead: whatever the process is doing - wedged,
+    /// spinning, hostile - it ends now, through the pidfd, so a renderer the
+    /// broker gave up on never keeps a core or its memory. Idempotent.
     fn mark_dead(&self) {
-        self.dead.store(true, std::sync::atomic::Ordering::Release);
+        if !self.dead.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            if let Some(pidfd) = &self.pidfd {
+                let _ = gosub_sandbox::pidfd_kill(pidfd);
+            }
+        }
     }
 
     fn send(&mut self, msg: &ToRenderer) -> anyhow::Result<()> {

@@ -395,6 +395,20 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     imp::arm_deadline(after)
 }
 
+/// A pidfd for a process a child announced as its own child - verified
+/// against `/proc`, never taken on the child's word - so the caller can end
+/// it later with [`pidfd_kill`] whatever the pid has become since. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn open_child_pidfd(pid: u32, parent: u32) -> std::io::Result<std::os::fd::OwnedFd> {
+    imp::open_child_pidfd(pid, parent)
+}
+
+/// `SIGKILL` the process behind a pidfd from [`open_child_pidfd`]. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn pidfd_kill(fd: &std::os::fd::OwnedFd) -> std::io::Result<()> {
+    imp::pidfd_kill(fd)
+}
+
 /// Cancel a deadline from [`arm_deadline`]: the bounded work finished. A
 /// resident renderer arms one per request and disarms it after. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
