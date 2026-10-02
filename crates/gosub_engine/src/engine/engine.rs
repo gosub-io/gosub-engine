@@ -22,6 +22,20 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::time::timeout;
 use tracing::instrument;
 
+/// The one switch over the five process settings; see
+/// [`GosubEngine::set_process_isolation`].
+pub const PROCESS_ISOLATION_SWITCH: &str = "security.process_isolation";
+
+/// The settings that each run one of the engine's components in a sandboxed
+/// process of its own.
+pub const PROCESS_SETTINGS: [&str; 5] = [
+    "security.network_process",
+    "security.image_decoder_process",
+    "security.renderer_process",
+    "security.cookie_vault",
+    "security.storage_service",
+];
+
 /// Main Gosub engine struct
 pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Context is what can be shared downstream
@@ -256,8 +270,36 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     fn setting_at_default(&self, key: &str) -> bool {
         // Not "equals the default": an embedder that sets the default value
         // explicitly (turning the network process on where it is off by
-        // default) has still made a choice.
-        !self.context.config_store.is_overridden(key)
+        // default) has still made a choice. The one switch, set, is that
+        // choice for all five.
+        let store = &self.context.config_store;
+        !store.is_overridden(key) && !store.is_overridden(PROCESS_ISOLATION_SWITCH)
+    }
+
+    /// `security.process_isolation`, when the embedder set it, decides the five
+    /// process settings for this run: `false` is the single-process engine,
+    /// `true` asks for every component process. The five keep their own
+    /// values only while the switch is unset. Transient, like every value the
+    /// engine resolves itself: the user's persisted per-component choices stay
+    /// what they were for a run with the switch unset.
+    fn apply_process_isolation_switch(&self) {
+        let store = &self.context.config_store;
+        if !store.is_overridden(PROCESS_ISOLATION_SWITCH) {
+            return;
+        }
+        let on = store.get_bool(PROCESS_ISOLATION_SWITCH);
+        for key in PROCESS_SETTINGS {
+            let _ = store.set_transient(key, gosub_config::settings::Setting::Bool(on));
+        }
+        log::info!(
+            "{PROCESS_ISOLATION_SWITCH} is {}: {}",
+            if on { "on" } else { "off" },
+            if on {
+                "every component process requested"
+            } else {
+                "single process, no component processes"
+            }
+        );
     }
 
     /// For this run only: what this process cannot do must not be written back as
@@ -279,13 +321,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// checked in `start_renderer_process`.
     #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 5] = [
-            "security.network_process",
-            "security.image_decoder_process",
-            "security.renderer_process",
-            "security.cookie_vault",
-            "security.storage_service",
-        ];
+        self.apply_process_isolation_switch();
 
         #[cfg(not(feature = "process-isolation"))]
         {
@@ -542,6 +578,21 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// builds the I/O runtime, so overrides must land before then.
     pub fn settings(&self) -> &Config {
         &self.context.config_store
+    }
+
+    /// Run the engine's components in separate sandboxed processes (`true`),
+    /// or everything in this process as the engine always has (`false`). The
+    /// same as setting `security.process_isolation`: it decides all five
+    /// `security.*` process settings at [`start`](Self::start), so a
+    /// `--single-process` flag in an embedder is this one call. Persisted
+    /// like any setting; the per-component settings are for finer choices
+    /// while this one is unset. Needs `child_process::dispatch_with()` first
+    /// in `main()` to take effect, like the settings it governs.
+    pub fn set_process_isolation(&self, enabled: bool) -> Result<(), EngineError> {
+        self.context
+            .config_store
+            .set(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
+            .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))
     }
 
     pub fn backend(&self) -> Arc<C::RenderBackend> {
@@ -922,6 +973,42 @@ mod tests {
             "security.renderer_process",
         ] {
             assert!(!engine.settings().get_bool(key), "{key} should have been turned off");
+        }
+    }
+
+    /// The one switch decides all five for the run: off is the single-process
+    /// engine whatever the per-component settings say, on requests every one,
+    /// and unset leaves them alone.
+    #[test]
+    fn the_process_isolation_switch_decides_all_five() {
+        use gosub_config::settings::Setting;
+        let engine = engine_with_max_zones(1);
+        let store = engine.settings();
+        store.set("security.cookie_vault", Setting::Bool(true)).expect("set");
+        store
+            .set("security.renderer_process", Setting::Bool(true))
+            .expect("set");
+
+        engine.apply_process_isolation_switch();
+        assert!(
+            store.get_bool("security.cookie_vault"),
+            "unset: the component setting stands"
+        );
+
+        engine.set_process_isolation(false).expect("switch off");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(!store.get_bool(key), "{key} is on with the switch off");
+        }
+        assert!(
+            !engine.setting_at_default("security.network_process"),
+            "the switch is the embedder's choice for every component"
+        );
+
+        engine.set_process_isolation(true).expect("switch on");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(store.get_bool(key), "{key} is off with the switch on");
         }
     }
 

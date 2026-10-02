@@ -880,8 +880,25 @@ fn main() {
         .init()
         .unwrap_or_default();
 
+    // `--single-process` runs the engine as it always has, in this process;
+    // `--isolated` asks for every component process explicitly (and says
+    // which cannot apply here). Neither: the defaults, which on Linux are on.
+    let mut isolation: Option<bool> = None;
     let urls: Vec<String> = {
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| match a.as_str() {
+                "--single-process" => {
+                    isolation = Some(false);
+                    false
+                }
+                "--isolated" => {
+                    isolation = Some(true);
+                    false
+                }
+                _ => true,
+            })
+            .collect();
         if args.is_empty() {
             vec!["https://example.com/".into()]
         } else {
@@ -925,6 +942,11 @@ fn main() {
         .settings()
         .set("telemetry.metrics_enabled", Setting::Bool(true))
         .unwrap_or_else(|e| panic!("enable telemetry.metrics_enabled: {e}"));
+    if let Some(on) = isolation {
+        engine
+            .set_process_isolation(on)
+            .unwrap_or_else(|e| panic!("set security.process_isolation: {e}"));
+    }
 
     let mut event_rx = engine.subscribe_events();
     TOKIO_RT.spawn(engine.start().expect("engine start"));

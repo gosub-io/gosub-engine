@@ -436,6 +436,12 @@
   ],
   "security": [
     {
+      "key": "process_isolation",
+      "type": "b",
+      "default": "b:true",
+      "description": "The one switch for running the engine's components in separate sandboxed processes. Set explicitly, it decides all five process settings (network_process, image_decoder_process, renderer_process, cookie_vault, storage_service): false is the single-process engine, exactly as without process isolation built; true requests every one of them, with a warning for each that cannot apply here. Left unset, the five settings decide on their own (on by default on Linux). Takes effect at start(); needs gosub_engine::child_process::dispatch_with() first thing in main() like the settings it governs."
+    },
+    {
       "key": "network_process",
       "type": "b",
       "default": "b:true",

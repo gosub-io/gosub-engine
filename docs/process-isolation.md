@@ -169,10 +169,16 @@ the tiers and why they exist.
    children's sandboxes are the boundary against page content; this is the
    one against a bug in the broker reaching the rest of the account. The
    mini-browser does it; the harness runs every engine scenario under it.
-3. **Flip the settings before `start()`** (they are read once at startup):
-   `security.network_process`, `security.image_decoder_process`,
-   `security.renderer_process`, `security.cookie_vault`,
-   `security.storage_service`.
+3. **Choose before `start()`** (the settings are read once at startup). One
+   switch, `security.process_isolation` (`GosubEngine::set_process_isolation`),
+   decides everything: `false` is the single-process engine, as it always
+   was; `true` asks for every component process, and says which cannot
+   apply here. An embedder's `--single-process` flag is that one call
+   (`examples/mini-browser` has it, and `--isolated`). Left unset, the five
+   settings decide on their own: `security.network_process`,
+   `security.image_decoder_process`, `security.renderer_process`,
+   `security.cookie_vault`, `security.storage_service` - for an embedder that
+   wants, say, the service processes without the renderer tier.
 4. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
    the child; `RenderConfiguration::forked_tile_rasterizer` must return one.
    `DefaultRenderConfig` does so when the engine's `cairo-tiles` (or
@@ -307,6 +313,7 @@ at navigation), never from anything the requester sent.
 
 | Setting | Default | Effect |
 |---|---|---|
+| `security.process_isolation` | unset | Set, it decides the five below for the run: `false` is single-process, `true` requests all five (explicitly, so each that cannot apply warns). Unset, the five decide on their own. |
 | `security.network_process` | on (Linux) | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
 | `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
 | `security.storage_service` | on (Linux) | A zone's `localStorage` served by the storage process when its local store is a `FileLocalStore` (one process per directory). Other stores stay in-process. |
