@@ -2604,9 +2604,12 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
         use gosub_engine::zone::ZoneId;
 
         let rounds: usize = std::env::args().nth(3).and_then(|a| a.parse().ok()).unwrap_or(120);
-        // Image edge in px per round (argv[4]); tiny images make the media
-        // cache negligible, so any growth left is the pipeline's own.
-        let image_px: usize = std::env::args().nth(4).and_then(|a| a.parse().ok()).unwrap_or(200);
+        // Image edge in px per round (argv[4]). Big enough that the rounds
+        // together decode several times the growth ceiling below (640 px is
+        // 1.6 MiB of pixels, 120 rounds near 200 MiB): a media cache that
+        // never trims, or a page that is retained rather than replaced,
+        // crosses it; with tiny images nothing could.
+        let image_px: usize = std::env::args().nth(4).and_then(|a| a.parse().ok()).unwrap_or(640);
         let server = match ForkServer::spawn() {
             Ok(s) => s,
             Err(e) => {
@@ -2700,7 +2703,12 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
                 }
             }
             if round + 1 == warmup {
-                rss_after_warmup = memory_of(pid).map(|m| m.0).unwrap_or(0);
+                // Unreadable memory would read as zero growth: a pass that proves nothing.
+                let Some((rss, _)) = memory_of(pid) else {
+                    eprintln!("cannot read the renderer's memory from /proc/{pid}");
+                    return 1;
+                };
+                rss_after_warmup = rss;
                 println!(
                     "after {warmup} rounds: renderer pid {pid} rss {} MiB",
                     rss_after_warmup / 1024
@@ -2715,7 +2723,10 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
                 );
             }
         }
-        let (rss_end, data_end) = memory_of(pid).unwrap_or((0, 0));
+        let Some((rss_end, data_end)) = memory_of(pid) else {
+            eprintln!("cannot read the renderer's memory from /proc/{pid}");
+            return 1;
+        };
         println!(
             "after {rounds} rounds: rss {} MiB, data {} MiB (grew {} MiB since round {warmup})",
             rss_end / 1024,

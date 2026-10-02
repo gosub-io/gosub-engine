@@ -251,6 +251,16 @@ impl MediaStore {
         MediaRequest::Pending
     }
 
+    /// Bytes kept to decode raster images again (see `set_decoded_budget`),
+    /// their source strings included.
+    pub fn encoded_bytes(&self) -> usize {
+        self.encoded
+            .read()
+            .values()
+            .map(|source| source.bytes.len() + source.src.len())
+            .sum()
+    }
+
     /// Decoded bytes held for loaded media (RGBA for images; an estimate for SVG trees).
     pub fn resident_bytes(&self) -> usize {
         self.entries
@@ -344,7 +354,11 @@ impl MediaStore {
     /// known to be needed again and re-fetching what is comes from the broker's
     /// cache anyway. Returns how many bytes were released.
     pub fn trim(&self, budget_bytes: usize) -> usize {
-        let held = self.resident_bytes();
+        // Everything the store holds for its images, not just resident
+        // pixels: the encoded bytes kept for re-decoding (and their source
+        // strings - a data: URL is the image again) can outweigh pixels the
+        // decoded budget already let go of, and nothing else bounds them.
+        let held = self.resident_bytes() + self.encoded_bytes();
         if held <= budget_bytes {
             return 0;
         }

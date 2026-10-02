@@ -162,6 +162,13 @@ pub fn serve<C: RenderConfiguration>(
             }
         }
         gosub_sandbox::disarm_deadline();
+        // The pipeline's timing table is process-global and grows by every
+        // timer it records - each with its context, which for an image decode
+        // is the source URL, a whole data: URL included. The broker's metrics
+        // scrape clears it; nothing scrapes a renderer, so a resident one
+        // cleared its own after each request or grew by a page's worth of
+        // labels per navigation (measured by `renderer-soak`).
+        gosub_shared::timing::reset_stats();
     }
 }
 
