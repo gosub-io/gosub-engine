@@ -1,9 +1,10 @@
 //! `localStorage` as one JSON file per `(zone, partition, origin)` area.
 //!
 //! Plain files rather than SQLite because the storage service's filter allows
-//! `openat` and not much else (no locks, renames or directory listing).
-//! Filenames are hex-encoded tuples, so page-controlled strings never reach a
-//! path; keys live inside the file. Per-value and per-area size caps.
+//! `openat`, the rename that replaces a file whole, and not much else (no
+//! locks, no directory listing). Filenames are hex-encoded tuples, so
+//! page-controlled strings never reach a path; keys live inside the file.
+//! Per-value and per-area size caps, and a cap on areas kept loaded.
 
 use crate::storage::{LocalStore, PartitionKey, StorageArea};
 use crate::zone::ZoneId;
@@ -16,6 +17,12 @@ use std::sync::Arc;
 pub const MAX_VALUE_BYTES: usize = 5 * 1024 * 1024;
 /// Per-origin quota, in the range browsers use.
 pub const MAX_AREA_BYTES: usize = 10 * 1024 * 1024;
+/// Areas a store keeps loaded with no handle out on them. Each holds its
+/// items in memory, up to the quota; a page naming origins without end would
+/// otherwise grow the service to its memory limit. One with a handle out is
+/// never let go of (its handle is the live copy), and a let-go area reloads
+/// from its file on next use.
+pub const MAX_LOADED_AREAS: usize = 64;
 
 /// Loaded areas by file path.
 type AreaMap = Mutex<HashMap<PathBuf, Arc<FileArea>>>;
@@ -85,6 +92,12 @@ impl FileLocalStore {
         }
         let area = live_area(&path)?;
         areas.insert(path, Arc::clone(&area));
+        if areas.len() > MAX_LOADED_AREAS {
+            // Only what nobody holds: a handle is the one live copy of its
+            // area, and this store's clone is what shares it. The one just
+            // loaded is held by `area` and stays.
+            areas.retain(|_, cached| Arc::strong_count(cached) > 1);
+        }
         Ok(area)
     }
 }
