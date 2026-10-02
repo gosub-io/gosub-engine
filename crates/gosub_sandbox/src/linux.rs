@@ -87,6 +87,9 @@ const BASELINE: &[libc::c_long] = &[
     // identity (cheap, non-escalating)
     libc::SYS_getpid,
     libc::SYS_gettid,
+    // A renderer's bound on itself (`arm_deadline`): a resident one arms it
+    // per request, after its lockdown. A process's timers reach no other.
+    libc::SYS_setitimer,
     // teardown
     libc::SYS_exit,
     libc::SYS_exit_group,
@@ -163,9 +166,6 @@ const FORK_SERVER_EXTRA: &[libc::c_long] = &[
     libc::SYS_clone,
     libc::SYS_clone3,
     libc::SYS_wait4,
-    // Each forked renderer arms its own deadline (`arm_deadline`) before its
-    // lockdown; a process's timers reach no other process.
-    libc::SYS_setitimer,
     // `prctl` is argument-filtered in `install_with` to the three commands a
     // forked renderer's own lockdown issues; `seccomp` installs its filter.
     libc::SYS_seccomp,
@@ -393,6 +393,17 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Cancel the deadline [`arm_deadline`] set: the request finished in time.
+#[cfg(feature = "multi-process")]
+pub fn disarm_deadline() {
+    let off = libc::itimerval {
+        it_interval: libc::timeval { tv_sec: 0, tv_usec: 0 },
+        it_value: libc::timeval { tv_sec: 0, tv_usec: 0 },
+    };
+    // SAFETY: a zero itimerval disarms the timer; no old value requested.
+    unsafe { libc::setitimer(libc::ITIMER_REAL, &off, std::ptr::null_mut()) };
 }
 
 /// Wait for a forked child and return its raw wait status.

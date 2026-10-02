@@ -395,6 +395,14 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     imp::arm_deadline(after)
 }
 
+/// Cancel a deadline from [`arm_deadline`]: the bounded work finished. A
+/// resident renderer arms one per request and disarms it after. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn disarm_deadline() {
+    imp::disarm_deadline();
+}
+
+
 /// Exit immediately without running destructors or `atexit` handlers - the only
 /// correct way out of a forked child. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]

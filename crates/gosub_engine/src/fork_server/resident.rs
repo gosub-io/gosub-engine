@@ -27,6 +27,13 @@ const MEDIA_CACHE_BUDGET: usize = 64 * 1024 * 1024;
 /// it afresh.
 const MAX_RETAINED_PAGES: usize = 3;
 
+/// The longest one request may run before this process ends itself with
+/// `SIGALRM`. The broker gives up on a render well before (and replaces the
+/// process), but it holds only a socket: nothing on its side can end a
+/// renderer spinning in layout, which would otherwise burn a core at its
+/// memory limit until the engine exits. Same bound as a one-shot render.
+const REQUEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// One incremental request, bound to run against a tab's retained page.
 type PagePass = Box<dyn FnOnce(&mut RetainedPage) -> renderer::RenderPass>;
 
@@ -80,6 +87,11 @@ pub fn serve<C: RenderConfiguration>(
             // The broker went away (or closed the link on purpose).
             Err(_) => gosub_sandbox::exit_now(0),
         };
+        // Armed per request, not per process: a resident lives as long as
+        // its site's tabs, so only the work in flight is bounded.
+        if gosub_sandbox::arm_deadline(REQUEST_DEADLINE).is_err() {
+            gosub_sandbox::exit_now(1);
+        }
         match request {
             ToRenderer::OpenTab { .. } => {}
             ToRenderer::CloseTab { tab } => {
@@ -149,6 +161,7 @@ pub fn serve<C: RenderConfiguration>(
                 );
             }
         }
+        gosub_sandbox::disarm_deadline();
     }
 }
 
