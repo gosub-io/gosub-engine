@@ -2396,15 +2396,19 @@ pub fn isolate_namespaces(mode: crate::NamespaceIsolation) -> std::io::Result<()
     }
     // NoPidNamespace, or the PID attempt was refused: the load-bearing network
     // isolation alone. `unshare` is all-or-nothing, so a failed attempt above
-    // changed nothing. Said once, since nothing else records the difference.
+    // changed nothing.
+    if unsafe { libc::unshare(flags) } < 0 {
+        // The user namespace itself was refused (a host that blocks
+        // unprivileged user namespaces): the spawn fails, and says so.
+        return Err(std::io::Error::last_os_error());
+    }
+    // Only the PID namespace was refused. Said once, since nothing else
+    // records the difference.
     if matches!(mode, NamespaceIsolation::Full) {
         // Async-signal-safe: a single write of a static line.
         const LINE: &[u8] = b"[sandbox] PID namespace refused by the kernel; renderers share the host PID namespace\n";
         // SAFETY: fd 2 is open; the buffer is a static slice.
         unsafe { libc::write(2, LINE.as_ptr().cast(), LINE.len()) };
-    }
-    if unsafe { libc::unshare(flags) } < 0 {
-        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }
