@@ -227,6 +227,11 @@ pub trait CookieJar: Send + Sync {
 const MAX_COOKIE_BYTES: usize = 4096;
 /// RFC 6265bis limit: an origin keeps at most this many cookies.
 const MAX_COOKIES_PER_ORIGIN: usize = 180;
+/// A jar keeps at most this many cookies over all origins (the order
+/// browsers use). Origins are unbounded - a page can name one per `<img>` -
+/// so the per-origin cap alone bounded nothing; in the vault every change
+/// ships the whole jar, and past the link's frame cap nothing persists.
+const MAX_COOKIES_TOTAL: usize = 3000;
 
 /// Default cookie jar which holds cookies for a single zone.
 ///
@@ -281,6 +286,35 @@ impl DefaultCookieJar {
     pub fn with_policy(mut self, policy: ThirdPartyCookiePolicy) -> Self {
         self.third_party_policy = policy;
         self
+    }
+}
+
+impl DefaultCookieJar {
+    /// Past [`MAX_COOKIES_TOTAL`], expired cookies go first, then the oldest
+    /// live ones anywhere in the jar, as browsers evict.
+    fn enforce_total_cap(&mut self, now: i64) {
+        let total = |entries: &HashMap<String, Vec<Cookie>>| entries.values().map(Vec::len).sum::<usize>();
+        if total(&self.entries) <= MAX_COOKIES_TOTAL {
+            return;
+        }
+        for bucket in self.entries.values_mut() {
+            bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
+        }
+        while total(&self.entries) > MAX_COOKIES_TOTAL {
+            let Some((origin, index)) = self
+                .entries
+                .iter()
+                .flat_map(|(origin, bucket)| bucket.iter().enumerate().map(move |(i, c)| (c.created_at, origin, i)))
+                .min_by_key(|(created_at, _, _)| *created_at)
+                .map(|(_, origin, i)| (origin.clone(), i))
+            else {
+                break;
+            };
+            if let Some(bucket) = self.entries.get_mut(&origin) {
+                bucket.remove(index);
+            }
+        }
+        self.entries.retain(|_, bucket| !bucket.is_empty());
     }
 }
 
@@ -493,6 +527,7 @@ impl CookieJar for DefaultCookieJar {
                 bucket.push(cookie);
             }
         }
+        self.enforce_total_cap(Utc::now().timestamp());
     }
 
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
@@ -1180,6 +1215,36 @@ mod tests {
                 .as_deref(),
             Some("t=1"),
             "Max-Age must override a past Expires date"
+        );
+    }
+
+    /// Origins are unbounded, so the jar is capped as a whole: past the cap
+    /// the oldest cookie anywhere goes, whichever origin it belongs to.
+    #[test]
+    fn the_jar_is_capped_over_all_origins() {
+        let mut jar = DefaultCookieJar::new();
+        let first = url("https://origin-first.test/");
+        jar.store_response_cookies(&first, &headers(&["oldest=1; Path=/"]), None);
+        // Creation times are milliseconds: let the first one be strictly older.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        // Enough origins with a cookie each to pass the cap by a margin.
+        for i in 0..MAX_COOKIES_TOTAL + 20 {
+            let req = url(&format!("https://o{i}.test/"));
+            jar.store_response_cookies(&req, &headers(&["c=1; Path=/"]), None);
+        }
+        let total: usize = jar.entries.values().map(Vec::len).sum();
+        assert_eq!(total, MAX_COOKIES_TOTAL, "the jar holds at most the cap");
+        assert!(
+            jar.get_request_cookies(&first, None, SameSiteContext::SameSite)
+                .is_none(),
+            "the oldest cookie made room"
+        );
+        let last = url(&format!("https://o{}.test/", MAX_COOKIES_TOTAL + 19));
+        assert_eq!(
+            jar.get_request_cookies(&last, None, SameSiteContext::SameSite)
+                .as_deref(),
+            Some("c=1"),
+            "the newest stayed"
         );
     }
 
