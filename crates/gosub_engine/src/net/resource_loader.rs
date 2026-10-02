@@ -73,11 +73,16 @@ pub trait ResourceLoader: Send + Sync + fmt::Debug {
     /// Fetch `url`, blocking until the resource arrives or the attempt fails.
     fn load(&self, url: &Url) -> Result<LoadedResource, LoadError>;
 
-    /// The document the next loads are made for, so a loader that fetches on
-    /// a page's behalf can send its `Referer` and apply the document's own
-    /// policy (a `file:` page may load `file:` neighbours). Loaders that
-    /// serve no page ignore it.
-    fn set_document(&self, _url: Option<&Url>) {}
+    /// This loader bound to the document its loads are made for, so a loader
+    /// that fetches on a page's behalf stamps every request with it: its
+    /// `Referer`, the document its policies are judged by (a `file:` page may
+    /// load `file:` neighbours; a public page may not reach the private
+    /// network). Bound per render pass, never shared and swapped: a pass of
+    /// the page still shown must keep asking as that page while the next one
+    /// loads. Loaders that serve no page answer `None`.
+    fn for_document(&self, _url: Option<&Url>) -> Option<Arc<dyn ResourceLoader>> {
+        None
+    }
 
     /// [`load`](Self::load), reduced to what the stylesheet and web-font paths
     /// consume: the bytes and their content type, or nothing.

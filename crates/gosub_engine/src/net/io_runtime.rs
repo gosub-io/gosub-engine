@@ -395,6 +395,21 @@ fn dispatch_to_net_process(
 }
 
 /// A vault jar answers over IPC, so the lookup runs on a blocking thread.
+/// The document a request's policies (private-network protection, opaque
+/// response blocking) are decided from: the one the request was made for,
+/// which engine code stamps as the referrer of every subresource fetch - the
+/// in-process pipeline's for the page it is loading, the brokered loader's
+/// for the page a renderer is showing. The tab's top-level URL is only the
+/// fallback. It moves to the navigation target as soon as a navigation
+/// starts, while the page still shown keeps asking through scroll, hover and
+/// media passes until the new one commits; judged by the top-level URL, a
+/// public page's late requests were classified as the private page's own.
+fn policy_document(req: &FetchRequest, identity: Option<&TabIdentity>) -> Option<url::Url> {
+    req.referrer
+        .clone()
+        .or_else(|| identity.and_then(|id| id.top_level.clone()))
+}
+
 async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
     req.headers.remove(http::header::COOKIE);
 
@@ -597,11 +612,11 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // every other tab's requests.
                             spawn_named("io-fetch", async move {
                                 let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
-                                let document = identity.as_ref().and_then(|id| id.top_level.clone());
+                                let document = policy_document(&req, identity.as_ref());
                                 attach_request_cookies(&mut req, identity.as_ref()).await;
 
-                                // Policy for what a page loads, decided from the tab's own
-                                // document - never from anything the requester sent. A
+                                // Policy for what a page loads, decided from the document the
+                                // request is for - never from anything a renderer sent. A
                                 // subresource of a public document may not reach the private
                                 // network, and its cross-origin bytes pass through ORB.
                                 let refuse_private = subresource
@@ -671,6 +686,29 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
+
+    /// A tab navigating from a public page to a private one: the public
+    /// page's own late subresource requests (made for it, so stamped with it)
+    /// stay judged as the public page's, not as the private target's.
+    #[test]
+    fn a_request_is_judged_by_the_document_it_was_made_for() {
+        use crate::net::tab_identity::TabIdentity;
+        use url::Url;
+        let public = Url::parse("https://evil.example/").unwrap();
+        let private = Url::parse("http://192.168.1.1/").unwrap();
+        let identity = TabIdentity {
+            cookie_jar: crate::cookies::DefaultCookieJar::new().into(),
+            top_level: Some(private.clone()),
+        };
+        let for_public = FetchRequest::builder(http::Method::GET, Url::parse("http://192.168.1.1/img.png").unwrap())
+            .with_referrer(public.clone())
+            .build();
+        assert_eq!(policy_document(&for_public, Some(&identity)), Some(public));
+        // Without a document of its own a request takes the tab's.
+        let bare = FetchRequest::builder(http::Method::GET, Url::parse("http://192.168.1.1/img.png").unwrap()).build();
+        assert_eq!(policy_document(&bare, Some(&identity)), Some(private));
+        assert_eq!(policy_document(&bare, None), None);
+    }
 
     /// Cookie attachment: what the I/O side puts on a request, given who is asking.
     mod cookies {

@@ -42,10 +42,10 @@ pub struct BrokeredLoader {
     /// Loads are issued from plain threads too (the remote media cache's fetch
     /// threads), where `Handle::try_current` finds nothing to spawn on.
     runtime: Option<tokio::runtime::Handle>,
-    /// The document the loads are made for ([`ResourceLoader::set_document`]):
-    /// its `Referer`, and whether `file:` neighbours may be loaded. Shared,
-    /// since the loader is cloned into the subsystems that use it.
-    document: Arc<parking_lot::Mutex<Option<Url>>>,
+    /// The document the loads are made for ([`ResourceLoader::for_document`]):
+    /// its `Referer`, which is also what the I/O side judges the request's
+    /// policies by, and whether `file:` neighbours may be loaded.
+    document: Option<Url>,
     /// The tab's `Accept-Language`, as the in-process fetches send it.
     accept_language: Option<String>,
 }
@@ -58,7 +58,7 @@ impl BrokeredLoader {
             io_tx,
             cancel: CancellationToken::new(),
             runtime: tokio::runtime::Handle::try_current().ok(),
-            document: Arc::new(parking_lot::Mutex::new(None)),
+            document: None,
             accept_language: None,
         }
     }
@@ -90,14 +90,17 @@ impl ResourceLoader for BrokeredLoader {
         result.and_then(into_loaded)
     }
 
-    fn set_document(&self, url: Option<&Url>) {
-        *self.document.lock() = url.cloned();
+    fn for_document(&self, url: Option<&Url>) -> Option<Arc<dyn ResourceLoader>> {
+        Some(Arc::new(Self {
+            document: url.cloned(),
+            ..self.clone()
+        }))
     }
 }
 
 impl BrokeredLoader {
     fn load_inner(&self, url: &Url) -> Result<FetchResult, LoadError> {
-        let document = self.document.lock().clone();
+        let document = self.document.clone();
         // `data:` carries its own bytes, and the I/O runtime answers it without
         // the network. `file:` only for a document that itself came from
         // disk - the same rule the in-process media source applies - and
@@ -272,9 +275,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("page.css"), b"body{}").unwrap();
         let page = Url::from_file_path(dir.join("index.html")).unwrap();
-        loader.set_document(Some(&page));
+        let for_page = loader
+            .for_document(Some(&page))
+            .expect("a brokered loader binds to a document");
         let neighbour = Url::from_file_path(dir.join("page.css")).unwrap();
-        let loaded = loader
+        let loaded = for_page
             .load(&neighbour)
             .expect("a file: neighbour of a file: document loads");
         assert_eq!(&loaded.body[..], b"body{}");

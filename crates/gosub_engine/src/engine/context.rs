@@ -1133,6 +1133,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .is_some_and(|url| matches!(url.scheme(), "gosub" | "about"))
     }
 
+    /// This tab's loader bound to the document it shows, for one render pass:
+    /// every request the pass makes is then judged as that document's, even
+    /// one answered after the tab has moved on to loading another.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn loader_for_document(&self) -> Arc<dyn crate::net::resource_loader::ResourceLoader> {
+        self.loader
+            .for_document(self.document_url.as_ref())
+            .unwrap_or_else(|| Arc::clone(&self.loader))
+    }
+
     /// The reason the last out-of-process render could not happen, once.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn take_remote_failure(&mut self) -> Option<String> {
@@ -1164,14 +1174,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // What the in-process pipeline would have found in this process: the
         // document the subresource loads are for, and the user's media
         // preferences, which the renderer has no settings of its own to read.
-        self.loader.set_document(self.document_url.as_ref());
         let env = self.media_environment();
         crate::fork_server::client::set_media_prefs(crate::fork_server::protocol::MediaPrefs {
             prefers_dark: matches!(env.color_scheme, gosub_css3::media_query::ColorScheme::Dark),
             prefers_reduced_motion: matches!(env.reduced_motion, gosub_css3::media_query::ReducedMotion::Reduce),
         });
         let resources = crate::fork_server::client::TabResources {
-            loader: Arc::clone(&self.loader),
+            loader: self.loader_for_document(),
             media: Arc::clone(&self.remote_media),
         };
         // The whole exchange blocks on the renderer's socket (and, relaying its
@@ -1313,7 +1322,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let started_for = epoch.load(std::sync::atomic::Ordering::Acquire);
         let remote_tab = self.remote_tab.clone();
         let resources = crate::fork_server::client::TabResources {
-            loader: Arc::clone(&self.loader),
+            loader: self.loader_for_document(),
             media: Arc::clone(&self.remote_media),
         };
         let scroll_y = self.scroll_y;
