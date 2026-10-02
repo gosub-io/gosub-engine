@@ -294,34 +294,35 @@ impl DefaultCookieJar {
             }
         };
         while over(&self.entries) {
-            // The origin being written, while it has more than the cookie
-            // just stored to give: evicting that one would make every write
-            // at the cap a no-op, and the point is to spare other sites.
-            let mut from = self
-                .entries
-                .get(written)
-                .filter(|b| b.len() > 1)
-                .map(|_| written.to_string());
-
-            // Else the registrable domain with the most cookies, its oldest first.
-            if from.is_none() {
-                let mut per_site: HashMap<String, usize> = HashMap::new();
-                for (origin, bucket) in &self.entries {
-                    *per_site.entry(site_of(origin)).or_default() += bucket.len();
-                }
-                let largest = per_site
-                    .into_iter()
-                    .max_by_key(|(site, n)| (*n, site.clone()))
-                    .map(|(s, _)| s);
-                from = largest.and_then(|site| {
-                    self.entries
-                        .iter()
-                        .filter(|(origin, bucket)| !bucket.is_empty() && site_of(origin) == site)
-                        .flat_map(|(origin, bucket)| bucket.iter().map(move |c| (c.created_at, origin.clone())))
-                        .min_by_key(|(created_at, origin)| (*created_at, origin.clone()))
-                        .map(|(_, origin)| origin)
-                });
+            // The registrable domain holding the most cookies gives first;
+            // within it, the origin being written if that is where it sits
+            // (RFC 6265 §5.3 step 12), else the domain's oldest. Never the
+            // writer's domain merely because it wrote: at a cap a flooder
+            // filled, every write by a victim site would otherwise evict the
+            // victim's own session while the flood sat untouched.
+            let mut per_site: HashMap<String, usize> = HashMap::new();
+            for (origin, bucket) in &self.entries {
+                *per_site.entry(site_of(origin)).or_default() += bucket.len();
             }
+            let Some(largest) = per_site
+                .into_iter()
+                .max_by_key(|(site, n)| (*n, site.clone()))
+                .map(|(s, _)| s)
+            else {
+                break;
+            };
+            let written_is_largest =
+                site_of(written) == largest && self.entries.get(written).is_some_and(|b| b.len() > 1);
+            let from = if written_is_largest {
+                Some(written.to_string())
+            } else {
+                self.entries
+                    .iter()
+                    .filter(|(origin, bucket)| !bucket.is_empty() && site_of(origin) == largest)
+                    .flat_map(|(origin, bucket)| bucket.iter().map(move |c| (c.created_at, origin.clone())))
+                    .min_by_key(|(created_at, origin)| (*created_at, origin.clone()))
+                    .map(|(_, origin)| origin)
+            };
             let Some(origin) = from else {
                 break;
             };
@@ -1339,6 +1340,21 @@ mod tests {
             Some("c=1"),
             "the flooder keeps its newest"
         );
+
+        // The victim keeps writing at the cap: its own cookies stay, the
+        // flood pays for each one.
+        jar.store_response_cookies(&bank, &headers(&["pref=dark; Path=/", "lang=nl; Path=/"]), None);
+        let banks = jar
+            .get_request_cookies(&bank, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        for name in ["session=1", "pref=dark", "lang=nl"] {
+            assert!(
+                banks.contains(name),
+                "{name} missing from {banks:?} after writing at the cap"
+            );
+        }
+        let total: usize = jar.entries.values().map(Vec::len).sum();
+        assert_eq!(total, MAX_COOKIES_TOTAL);
     }
 
     /// A full origin makes room from its expired cookies before it evicts a
