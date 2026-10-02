@@ -36,7 +36,9 @@ commit's subject on this branch.
   is on). A remote page whose DNS answer switches to 127.0.0.1 after it loads
   reached `/events`, the firehose of every URL fetched, same-origin; and
   `POST /metrics/reset` was a cross-site form away. Requests whose `Host` is
-  not a loopback name are refused.
+  not a loopback name are refused, which closes the read; the reset also
+  requires an `Origin` that is this server's own when one is sent, since a
+  cross-site form reaches it with the server's name as `Host`.
 - **A page could log the user out of every other site in the zone** (medium).
   The jar-wide cookie cap evicted the oldest cookie anywhere; a page naming
   3000 of its own subdomains was the newest. Eviction now takes from the origin

@@ -46,23 +46,17 @@ async fn serve(port: u16, context: Arc<EngineContext>) -> std::io::Result<()> {
     }
 }
 
-/// Whether the request's `Host` names this server as a local address. The
-/// listener is on 127.0.0.1, which keeps the network out but not a web page:
-/// a page on `attacker.example` whose DNS answer is switched to 127.0.0.1
-/// after it loaded reaches this port same-origin and reads the firehose -
-/// every URL the browser fetches. The `Host` it sends is its own name;
-/// refusing anything but the loopback names closes that, and the cross-site
-/// `POST /metrics/reset` with it.
-fn host_is_local(req: &str) -> bool {
-    let Some(host) = req
-        .lines()
+/// The value of header `name` in `req`, if present.
+fn header<'a>(req: &'a str, name: &str) -> Option<&'a str> {
+    req.lines()
         .skip(1)
         .take_while(|l| !l.is_empty())
-        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("host")))
+        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case(name)))
         .map(|(_, v)| v.trim())
-    else {
-        return false;
-    };
+}
+
+/// Whether `host` (`host` or `host:port`, IPv6 in brackets) is a loopback name.
+fn is_loopback_host(host: &str) -> bool {
     let name = if let Some(rest) = host.strip_prefix('[') {
         rest.split_once(']').map(|(n, _)| n).unwrap_or(rest)
     } else {
@@ -71,6 +65,32 @@ fn host_is_local(req: &str) -> bool {
     ["127.0.0.1", "localhost", "::1"]
         .iter()
         .any(|local| name.eq_ignore_ascii_case(local))
+}
+
+/// Whether the request's `Host` names this server as a local address. The
+/// listener is on 127.0.0.1, which keeps the network out but not a web page:
+/// a page on `attacker.example` whose DNS answer is switched to 127.0.0.1
+/// after it loaded reaches this port same-origin and reads the firehose -
+/// every URL the browser fetches. The `Host` it sends is its own name;
+/// refusing anything but the loopback names closes that read. It does not
+/// close a cross-site *write*: a form on any page may POST here, and the
+/// browser then sends this server's own name as `Host` - see
+/// [`origin_is_local`] for the mutation.
+fn host_is_local(req: &str) -> bool {
+    header(req, "host").is_some_and(is_loopback_host)
+}
+
+/// Whether a mutation may run: its `Origin`, when there is one, must be this
+/// server's own (the viewer at `/`). A browser sends `Origin` on every POST,
+/// a cross-site form's being the other page's, or `null`; a request without
+/// one did not come from a browser (`examples/metrics_cli.rs`, curl).
+fn origin_is_local(req: &str) -> bool {
+    match header(req, "origin") {
+        None => true,
+        Some(origin) => origin
+            .strip_prefix("http://")
+            .is_some_and(|rest| is_loopback_host(rest.trim_end_matches('/'))),
+    }
 }
 
 async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
@@ -95,10 +115,20 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
     }
 
     const JSON: &str = "application/json";
-    // A mutation on a GET is a `<img>` tag away; POST only.
+    // A mutation on a GET is a `<img>` tag away, so POST only - and a POST
+    // is a cross-site form away, so its `Origin` must be ours.
     let (code, phrase, content_type, body) = if first_line.starts_with("POST /metrics/reset") {
-        gosub_shared::timing::reset_stats();
-        (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
+        if origin_is_local(req) {
+            gosub_shared::timing::reset_stats();
+            (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
+        } else {
+            (
+                403,
+                "Forbidden",
+                JSON,
+                r#"{"error":"a reset must come from this server's own page"}"#.to_string(),
+            )
+        }
     } else if first_line.starts_with("GET / ") || first_line.starts_with("HEAD / ") {
         (200, "OK", "text/html; charset=utf-8", VIEWER.to_string())
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
@@ -338,6 +368,53 @@ mod tests {
         }
         // No Host at all is not local either.
         assert!(!host_is_local("GET /health HTTP/1.1\r\n\r\n"));
+    }
+
+    /// A cross-site form POSTs with this server's name as `Host` and its own
+    /// page as `Origin`: refused. The viewer's own origin, or no `Origin` at
+    /// all (not a browser), may reset.
+    #[tokio::test]
+    async fn a_reset_from_another_origin_is_refused() {
+        for (origin, allowed) in [
+            (Some("https://attacker.example"), false),
+            (Some("null"), false),
+            (Some("http://127.0.0.1.attacker.example"), false),
+            (Some("http://127.0.0.1:9090"), true),
+            (Some("http://localhost:9090"), true),
+            (None, true),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+                let context = Arc::new(EngineContext {
+                    event_tx,
+                    ..Default::default()
+                });
+                handle(stream, context).await;
+            });
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            let origin_line = origin.map_or(String::new(), |o| format!("Origin: {o}\r\n"));
+            client
+                .write_all(
+                    format!(
+                        "POST /metrics/reset HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n{origin_line}Content-Length: 0\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).await.unwrap();
+            let response = String::from_utf8_lossy(&response);
+            let expected = if allowed {
+                "HTTP/1.1 200 OK"
+            } else {
+                "HTTP/1.1 403 Forbidden"
+            };
+            assert!(response.starts_with(expected), "Origin {origin:?}: {response:.60}");
+        }
     }
 
     /// An `/events` client that leaves while no events flow ends its stream,
