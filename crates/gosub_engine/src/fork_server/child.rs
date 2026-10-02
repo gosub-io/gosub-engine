@@ -75,7 +75,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     // namespace, whose PID 1 is whatever forks first - and must then outlive
     // every renderer, or `fork` starts failing with `ENOMEM`. Held for the
     // whole serve loop.
-    let anchor = match gosub_sandbox::hold_pid_namespace_anchor() {
+    let anchor = match gosub_sandbox::hold_pid_namespace_anchor(&link.raw_fds()) {
         Ok(anchor) => anchor,
         Err(e) => {
             eprintln!("[fork-server] could not anchor the PID namespace: {e}");
