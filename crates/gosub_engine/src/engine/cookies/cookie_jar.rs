@@ -246,6 +246,7 @@ fn cookie_bytes(cookie: &Cookie) -> usize {
         + cookie.value.len()
         + cookie.path.as_deref().map_or(0, str::len)
         + cookie.domain.as_deref().map_or(0, str::len)
+        + cookie.same_site.as_deref().map_or(0, str::len)
         + 64
 }
 
@@ -1248,14 +1249,30 @@ mod tests {
     #[test]
     fn the_jar_is_bounded_in_bytes_too() {
         let mut jar = DefaultCookieJar::new();
-        let value = "v".repeat(4000);
+        // The bulk sits in an unrecognised SameSite value, which is kept
+        // verbatim, so every string the snapshot carries has to count.
+        let value = "v".repeat(2000);
         for i in 0..MAX_COOKIES_TOTAL {
             let req = url(&format!("https://o{i}.test/"));
-            jar.store_response_cookies(&req, &headers(&[&format!("c={value}; Path=/")]), None);
+            let header = format!("c={value}; Path=/; SameSite={value}");
+            jar.store_response_cookies(&req, &headers(&[&header]), None);
         }
+        let strings: usize = jar
+            .entries
+            .values()
+            .flatten()
+            .map(|c| {
+                c.name.len()
+                    + c.value.len()
+                    + c.path.as_deref().map_or(0, str::len)
+                    + c.domain.as_deref().map_or(0, str::len)
+                    + c.same_site.as_deref().map_or(0, str::len)
+            })
+            .sum();
         let bytes: usize = jar.entries.values().flatten().map(cookie_bytes).sum();
         let count: usize = jar.entries.values().map(Vec::len).sum();
         assert!(bytes <= MAX_JAR_BYTES, "{bytes} bytes kept");
+        assert!(strings <= MAX_JAR_BYTES, "{strings} bytes of strings kept");
         assert!(count < MAX_COOKIES_TOTAL, "the byte budget bit first: {count} kept");
         assert!(count > 1000, "and still holds a jar's worth: {count}");
     }
