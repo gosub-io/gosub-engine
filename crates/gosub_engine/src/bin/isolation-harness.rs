@@ -185,6 +185,7 @@ fn main() {
         "renderer-lifecycle" => with_font_backend!(renderer_lifecycle),
         "renderer-scroll-window" => with_font_backend!(renderer_scroll_window),
         "renderer-hover" => with_font_backend!(renderer_hover),
+        "renderer-input" => with_font_backend!(renderer_input),
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
@@ -635,6 +636,8 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
                 viewport_height: 720.0,
                 known_tiles: &Default::default(),
                 hovered_node: None,
+                dpr: 1,
+                media: gosub_engine::fork_server::protocol::MediaPrefs::default(),
             },
             shared,
             media_store,
@@ -1635,6 +1638,8 @@ fn render_file_locked<F: FontSystem + Default>() -> i32 {
                 viewport_height: 720.0,
                 known_tiles: &Default::default(),
                 hovered_node: None,
+                dpr: 1,
+                media: gosub_engine::fork_server::protocol::MediaPrefs::default(),
             },
             shared,
             media_store,
@@ -2094,6 +2099,370 @@ fn renderer_hover<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
         }
+
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Input reaches a retained page where its DOM is: a click focuses a field
+/// and typing paints into it without a layout; Tab moves focus and Space
+/// toggles a checkbox, which lays the page out again and ships it by hash;
+/// Enter submits the form as a navigation request; and the renderer scrolls
+/// as before afterwards.
+fn renderer_input<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::events::MouseButton;
+        use gosub_engine::fork_server::client::{ForkServer, PageTile, RenderedPage, ResidentRenderer, TileMemory};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::{ConfinementTier, Effect, HitCursor, InputEvent};
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-input needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-input needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_engine::net::resource_loader::NoResourceLoader;
+        let mut memory = TileMemory::default();
+        let html = r#"<html><head><style>
+            body { margin: 0; } p { height: 100px; margin: 0; }
+        </style></head><body>
+            <p>above</p>
+            <form action="/submit" method="get">
+                <p><input id="name" name="name" type="text"></p>
+                <p><input id="agree" name="agree" type="checkbox"></p>
+                <p><button type="submit">Go</button></p>
+            </form>
+            <p>below</p><p>and below that</p><p>and more</p>
+        </body></html>"#;
+
+        let renderer = match pool.renderer_for(zone, "https://input.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        let tab_name = tab.to_string();
+        let page = match renderer.navigate(
+            html,
+            "https://input.test/",
+            &tab_name,
+            (1280.0, 720.0),
+            0.0,
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+        };
+        // The text field is the only editable box; the checkbox the only square one.
+        let Some(field) = page.hit_regions.iter().find(|r| r.editable).cloned() else {
+            eprintln!("no editable hit region among {}", page.hit_regions.len());
+            return 1;
+        };
+        let Some(checkbox) = page
+            .hit_regions
+            .iter()
+            .filter(|r| {
+                !r.editable && r.width > 4.0 && r.width < 30.0 && (r.width - r.height).abs() <= 2.0 && r.y > field.y
+            })
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .cloned()
+        else {
+            for r in &page.hit_regions {
+                eprintln!(
+                    "  region node {} at ({}, {}) {}x{} editable={}",
+                    r.node_id, r.x, r.y, r.width, r.height, r.editable
+                );
+            }
+            eprintln!("no square hit region for the checkbox");
+            return 1;
+        };
+        let first = page.tiles.len();
+        memory.replace_with(page.tiles.iter().map(PageTile::keep));
+        println!(
+            "page rendered: {first} tiles; field at ({}, {}) {}x{}, checkbox at ({}, {})",
+            field.x, field.y, field.width, field.height, checkbox.x, checkbox.y
+        );
+
+        struct Outcome {
+            fresh: usize,
+            laid_out: bool,
+            regions: usize,
+            effects: Vec<Effect>,
+            no_page: bool,
+        }
+        let input =
+            |renderer: &mut ResidentRenderer, memory: &mut TileMemory, event: InputEvent| -> Result<Outcome, String> {
+                let page: RenderedPage = renderer
+                    .input(&tab_name, 0.0, event, &loader, memory)
+                    .map_err(|e| e.to_string())?;
+                let fresh = page
+                    .tiles
+                    .iter()
+                    .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                    .count();
+                let laid_out = page.summary.timings_us.iter().any(|(name, _)| name == "input.layout");
+                if page
+                    .summary
+                    .timings_us
+                    .iter()
+                    .any(|(name, _)| name.starts_with("build."))
+                {
+                    return Err(format!(
+                        "an input pass must never parse again: {:?}",
+                        page.summary.timings_us
+                    ));
+                }
+                memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep));
+                Ok(Outcome {
+                    fresh,
+                    laid_out,
+                    regions: page.hit_regions.len(),
+                    effects: page.effects,
+                    no_page: page.summary.no_page,
+                })
+            };
+        let centre = |r: &gosub_engine::fork_server::protocol::HitRegion| (r.x + r.width / 2.0, r.y + r.height / 2.0);
+
+        // A click into the field focuses it: a paint-only pass, and the broker is told.
+        let (fx, fy) = centre(&field);
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::PointerDown {
+                x: fx,
+                y: fy,
+                button: MouseButton::Left,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("click into the field failed: {e}");
+                return 1;
+            }
+        };
+        let focused_editable = out.effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::Focus {
+                    focused: true,
+                    editable: true,
+                    bounds: Some(_)
+                }
+            )
+        });
+        let text_cursor = out.effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::Cursor {
+                    cursor: HitCursor::Text
+                }
+            )
+        });
+        if !focused_editable || !text_cursor || out.laid_out {
+            eprintln!(
+                "clicking the field should focus it (editable, with bounds) under a text cursor and lay nothing out; \
+                 got laid_out={} effects {:?}",
+                out.laid_out, out.effects
+            );
+            return 1;
+        }
+        println!("click focused the field ({} tile(s) repainted, no layout)", out.fresh);
+        let _ = input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::PointerUp {
+                x: fx,
+                y: fy,
+                button: MouseButton::Left,
+            },
+        );
+
+        // Typing paints the text; the field's box does not move.
+        let out = match input(&mut renderer, &mut memory, InputEvent::Text { text: "hi".into() }) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("typing failed: {e}");
+                return 1;
+            }
+        };
+        if out.fresh == 0 || out.laid_out || out.fresh >= first {
+            eprintln!(
+                "typing should repaint the field's tiles only, got {} of {} fresh, laid_out={}",
+                out.fresh, first, out.laid_out
+            );
+            return 1;
+        }
+        println!("typing repainted {} tile(s), no layout", out.fresh);
+
+        // Tab moves focus to the checkbox, which is not editable.
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::KeyDown {
+                key: "Tab".into(),
+                modifiers: 0,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("Tab failed: {e}");
+                return 1;
+            }
+        };
+        if !out.effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::Focus {
+                    focused: true,
+                    editable: false,
+                    ..
+                }
+            )
+        }) {
+            eprintln!("Tab should move focus to the checkbox, got {:?}", out.effects);
+            return 1;
+        }
+        println!("Tab moved focus to the checkbox");
+
+        // Space toggles it: `:checked` may restyle, so the page is laid out again
+        // and ships by hash, with fresh hit regions.
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::KeyDown {
+                key: " ".into(),
+                modifiers: 0,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("Space failed: {e}");
+                return 1;
+            }
+        };
+        if !out.laid_out || out.regions == 0 || out.fresh == 0 || out.fresh >= first {
+            eprintln!(
+                "toggling the checkbox should lay out again and reship only changed tiles; \
+                 got laid_out={} regions={} fresh={} of {}",
+                out.laid_out, out.regions, out.fresh, first
+            );
+            return 1;
+        }
+        println!(
+            "Space toggled the checkbox: laid out again, {} of {} tiles fresh, {} hit regions",
+            out.fresh, first, out.regions
+        );
+
+        // Back in the field, Enter submits the form: a navigation for the broker.
+        for event in [
+            InputEvent::PointerDown {
+                x: fx,
+                y: fy,
+                button: MouseButton::Left,
+            },
+            InputEvent::PointerUp {
+                x: fx,
+                y: fy,
+                button: MouseButton::Left,
+            },
+        ] {
+            if let Err(e) = input(&mut renderer, &mut memory, event) {
+                eprintln!("refocusing the field failed: {e}");
+                return 1;
+            }
+        }
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::KeyDown {
+                key: "Enter".into(),
+                modifiers: 0,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("Enter failed: {e}");
+                return 1;
+            }
+        };
+        let submitted = out.effects.iter().find_map(|e| match e {
+            Effect::Navigate {
+                url,
+                post: false,
+                body: None,
+            } => Some(url.clone()),
+            _ => None,
+        });
+        match submitted {
+            Some(url)
+                if url.starts_with("https://input.test/submit?")
+                    && url.contains("name=hi")
+                    && url.contains("agree=on") =>
+            {
+                println!("Enter submitted the form: {url}");
+            }
+            other => {
+                eprintln!(
+                    "Enter in the field should submit the form with its values, got {other:?} in {:?}",
+                    out.effects
+                );
+                return 1;
+            }
+        }
+
+        // The renderer is still itself: a scroll pass works and a tab it never saw
+        // says so.
+        if let Err(e) = renderer.scroll(&tab_name, 300.0, &loader, &memory) {
+            eprintln!("a scroll after input failed: {e}");
+            return 1;
+        }
+        match renderer.input("no-such-tab", 0.0, InputEvent::Blur, &loader, &memory) {
+            Ok(page) if page.summary.no_page && page.effects.is_empty() => {}
+            Ok(page) => {
+                eprintln!("input for an unknown tab should answer no_page, got {:?}", page.summary);
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("input for an unknown tab failed the exchange: {e}");
+                return 1;
+            }
+        }
+        if out.no_page {
+            eprintln!("the page went missing");
+            return 1;
+        }
+        println!("scroll after input works; an unknown tab answers no_page");
 
         drop(renderer);
         pool.shutdown_all();

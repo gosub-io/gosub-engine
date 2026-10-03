@@ -14,13 +14,14 @@ use crate::EngineError;
 use bitflags::bitflags;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::Viewport;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MouseButton {
     Left,
     Middle,
@@ -29,7 +30,7 @@ pub enum MouseButton {
 
 /// The mouse cursor the page wants shown at the pointer's position. The engine reports it
 /// (see [`EngineEvent::CursorChanged`]); the shell maps it to the native cursor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum CursorShape {
     /// The platform's ordinary arrow.
     #[default]
@@ -150,7 +151,7 @@ pub enum IoCommand {
 
 /// Which picker an input opens; the `type` attribute, for the six types the engine does not
 /// edit as text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PickerKind {
     Color,
     Date,

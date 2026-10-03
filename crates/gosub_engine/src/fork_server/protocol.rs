@@ -139,6 +139,21 @@ pub enum ToRenderer {
     /// nothing) on a page this renderer retains: restyle the hover chains and
     /// repaint just the tiles they cover. Same streamed answer as `Scroll`.
     Hover { tab: String, node: Option<u64> },
+    /// The user acted on a page this renderer retains: apply the event to
+    /// the page's DOM, re-lay out when the boxes may have moved, and answer
+    /// with the same streamed sequence as `Scroll` - the tiles the input
+    /// changed - ending in a [`FromRenderer::Rendered`] that carries what
+    /// the input asked of the broker ([`Effect`]). `known_tiles` is what the
+    /// broker holds, as on `Navigate`: a re-layout ships the page again by
+    /// content hash, and only tiles whose pixels changed travel.
+    Input {
+        tab: String,
+        /// Where the viewport is; viewport coordinates in `event` are
+        /// measured against it.
+        scroll_y: f64,
+        known_tiles: Vec<u64>,
+        event: InputEvent,
+    },
     /// Die without replying, the way a crashing renderer would. For tests
     /// of the broker's recovery; a renderer that obeys it was going to be
     /// trusted with nothing anyway.
@@ -149,6 +164,114 @@ pub enum ToRenderer {
     /// closes; a closed link means the same.
     Shutdown,
 }
+
+/// One user action on a retained page, in viewport CSS px - the space the
+/// embedder's pointer events arrive in. The host's scroll offset travels
+/// beside it on [`ToRenderer::Input`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InputEvent {
+    PointerDown {
+        x: f64,
+        y: f64,
+        button: crate::engine::events::MouseButton,
+    },
+    PointerUp {
+        x: f64,
+        y: f64,
+        button: crate::engine::events::MouseButton,
+    },
+    /// Only while the renderer holds a pointer capture (see
+    /// [`Effect::Capture`]); a plain move is hover, which stays
+    /// [`ToRenderer::Hover`].
+    PointerMove {
+        x: f64,
+        y: f64,
+    },
+    /// A wheel notch over the page: a dropdown or a textarea may take it;
+    /// otherwise the broker scrolls the page itself.
+    Wheel {
+        x: f64,
+        y: f64,
+        delta_y: f64,
+    },
+    KeyDown {
+        key: String,
+        /// [`Modifiers`](crate::engine::events::Modifiers) as bits.
+        modifiers: u8,
+    },
+    KeyUp {
+        key: String,
+        modifiers: u8,
+    },
+    /// Committed text for the focused control: IME output, or the clipboard
+    /// in answer to [`Effect::PasteRequested`].
+    Text {
+        text: String,
+    },
+    /// The embedder's picker moved; see [`Effect::Picker`].
+    PickerChanged {
+        value: String,
+    },
+    PickerClosed,
+    /// The window lost focus: blur, end gestures, close popups.
+    Blur,
+}
+
+/// A rectangle in viewport CSS px, as an effect reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WireRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// What an input pass asks of the broker. A request, every one of it: the
+/// renderer is the process a page exploits, and the broker checks each
+/// before acting, as it does a hit region's link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Effect {
+    /// Keyboard focus moved or cleared. `bounds` is the focused control's
+    /// border box, for IME placement and scrolling it into view.
+    Focus {
+        focused: bool,
+        editable: bool,
+        bounds: Option<WireRect>,
+    },
+    /// The cursor for the pointer's position after the event.
+    Cursor { cursor: HitCursor },
+    /// A form submission, or a link activated from the keyboard or by a
+    /// click the renderer saw first: a navigation for the broker to decide
+    /// on. `body` is the form-encoded body of a POST.
+    Navigate {
+        url: String,
+        post: bool,
+        body: Option<String>,
+    },
+    /// A control that needs the embedder's picker: the fields of
+    /// `EngineEvent::PickerRequested`.
+    Picker {
+        kind: crate::engine::events::PickerKind,
+        bounds: WireRect,
+        value: String,
+        min: Option<String>,
+        max: Option<String>,
+        step: Option<String>,
+    },
+    /// The page copied or cut `text` in a text control.
+    ClipboardWrite { text: String },
+    /// The page wants to paste: the clipboard comes back as
+    /// [`InputEvent::Text`].
+    PasteRequested,
+    /// The renderer is mid-gesture (a slider thumb, a textarea grip, a
+    /// dropdown scrollbar, a selection drag) or has let go: while held, send
+    /// it pointer moves and wheel and skip hover processing.
+    Capture { pointer: bool },
+}
+
+/// Effects one pass may carry. A handful answer any one event; past this
+/// the broker treats the frame as a renderer gone wrong.
+pub const MAX_EFFECTS: usize = 16;
 
 /// Fork server → broker.
 #[derive(Debug, Serialize, Deserialize)]
@@ -296,6 +419,8 @@ pub enum HitCursor {
     Default,
     Pointer,
     Text,
+    /// Over a textarea's resize grip; only an input pass reports it.
+    Resize,
 }
 
 /// Upper bound on regions shipped for one page. A pathological page (tens of
@@ -474,10 +599,13 @@ pub enum FromRenderer {
     #[cfg(feature = "process-isolation")]
     Audit(gosub_sandbox::audit::AuditReport),
     /// The final message: the render is complete, with the page's hit-test
-    /// geometry.
+    /// geometry and, after an [`ToRenderer::Input`], what the input asked of
+    /// the broker. Hit regions travel with a navigate and with an input pass
+    /// that laid the page out again; empty otherwise.
     Rendered {
         summary: PageSummary,
         hit_regions: Vec<HitRegion>,
+        effects: Vec<Effect>,
     },
 }
 

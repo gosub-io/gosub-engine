@@ -6,7 +6,7 @@
 //! rasterizes what came into the raster window - no parse, no layout.
 
 use crate::fork_server::loader::ForkedResourceLoader;
-use crate::fork_server::protocol::{FromRenderer, HitRegion, PageSummary, TileHeader, ToRenderer};
+use crate::fork_server::protocol::{Effect, FromRenderer, HitRegion, PageSummary, TileHeader, ToRenderer};
 use crate::fork_server::renderer::{self, RenderedTile, RetainedPage};
 use crate::html::RenderConfiguration;
 use gosub_interface::font_system::FontSystem;
@@ -34,8 +34,13 @@ const MAX_RETAINED_PAGES: usize = 3;
 /// memory limit until the engine exits. Same bound as a one-shot render.
 const REQUEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// The longest one input pass may run: a keystroke that takes longer than
+/// this on a retained page is a wedged renderer, not a slow one. Re-armed
+/// over [`REQUEST_DEADLINE`] for `Input` only.
+const INPUT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// One incremental request, bound to run against a tab's retained page.
-type PagePass = Box<dyn FnOnce(&mut RetainedPage) -> renderer::RenderPass>;
+type PagePass<C> = Box<dyn FnOnce(&mut RetainedPage<C>) -> renderer::RenderPass>;
 
 /// This renderer's `ps` name: `renderer-<6 hex>`, drawn once per process.
 /// Deliberately not the site or tab: the process list is visible to every
@@ -73,7 +78,7 @@ pub fn serve<C: RenderConfiguration>(
     let _ = label; // the pool's key; the process is named after itself
     let comm = comm();
 
-    let mut pages: HashMap<String, RetainedPage> = HashMap::new();
+    let mut pages: HashMap<String, RetainedPage<C>> = HashMap::new();
     // Tab names, most recently used last; parallel to `pages`.
     let mut recent: Vec<String> = Vec::new();
     let touch = |recent: &mut Vec<String>, tab: &str| {
@@ -125,7 +130,7 @@ pub fn serve<C: RenderConfiguration>(
                 // the budget, and this process lives as long as the site's tabs.
                 media_store.trim(MEDIA_CACHE_BUDGET);
                 let known_tiles: HashSet<u64> = known_tiles.into_iter().collect();
-                let mut page = RetainedPage::build::<C>(
+                let mut page = RetainedPage::<C>::build(
                     renderer::PageRequest {
                         html: &html,
                         page_url: &url,
@@ -133,6 +138,8 @@ pub fn serve<C: RenderConfiguration>(
                         viewport_height,
                         known_tiles: &known_tiles,
                         hovered_node,
+                        dpr,
+                        media,
                     },
                     Arc::clone(&fonts),
                     Arc::clone(&media_store),
@@ -149,12 +156,55 @@ pub fn serve<C: RenderConfiguration>(
                     recent.remove(0);
                     pages.remove(&oldest);
                 }
-                if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, hit_regions) {
+                if !stream_rendered(
+                    &mut link.lock(),
+                    &pass.tiles,
+                    &pass.evicted,
+                    pass.summary,
+                    hit_regions,
+                    Vec::new(),
+                ) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
+            ToRenderer::Input {
+                tab,
+                scroll_y,
+                known_tiles,
+                event,
+            } => {
+                if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
+                let known: HashSet<u64> = known_tiles.into_iter().collect();
+                let (pass, hit_regions, effects) = match pages.get_mut(&tab) {
+                    Some(page) => {
+                        touch(&mut recent, &tab);
+                        let out = page.input(scroll_y, &known, event);
+                        // The geometry changed only when the page was laid out again;
+                        // the broker keeps the regions it has otherwise.
+                        let regions = if out.relayouted {
+                            page.hit_regions.clone()
+                        } else {
+                            Vec::new()
+                        };
+                        (out.pass, regions, out.effects)
+                    }
+                    None => (no_page_pass(), Vec::new(), Vec::new()),
+                };
+                if !stream_rendered(
+                    &mut link.lock(),
+                    &pass.tiles,
+                    &pass.evicted,
+                    pass.summary,
+                    hit_regions,
+                    effects,
+                ) {
                     gosub_sandbox::exit_now(1);
                 }
             }
             ToRenderer::Scroll { tab, scroll_y } => {
-                let run: PagePass = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
+                let run: PagePass<C> = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
                 incremental_pass(&link, &mut pages, &mut recent, tab, run);
             }
             ToRenderer::Hover { tab, node } => {
@@ -181,12 +231,12 @@ pub fn serve<C: RenderConfiguration>(
 /// Run a scroll or hover pass over `tab`'s retained page and stream it out. A tab with no
 /// retained page (never navigated, or closed) gets an empty pass, so the exchange still
 /// completes. Exits the process when the link is gone.
-fn incremental_pass(
+fn incremental_pass<C: RenderConfiguration>(
     link: &Mutex<Endpoint>,
-    pages: &mut HashMap<String, RetainedPage>,
+    pages: &mut HashMap<String, RetainedPage<C>>,
     recent: &mut Vec<String>,
     tab: String,
-    run: PagePass,
+    run: PagePass<C>,
 ) {
     let pass = match pages.get_mut(&tab) {
         Some(page) => {
@@ -194,19 +244,32 @@ fn incremental_pass(
             recent.push(tab);
             run(page)
         }
-        None => renderer::RenderPass {
-            summary: PageSummary {
-                no_page: true,
-                ..PageSummary::default()
-            },
-            tiles: Vec::new(),
-            evicted: Vec::new(),
-        },
+        None => no_page_pass(),
     };
     // Hit regions travel with the navigate pass only; the broker
     // keeps those and ignores any sent here.
-    if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, Vec::new()) {
+    if !stream_rendered(
+        &mut link.lock(),
+        &pass.tiles,
+        &pass.evicted,
+        pass.summary,
+        Vec::new(),
+        Vec::new(),
+    ) {
         gosub_sandbox::exit_now(1);
+    }
+}
+
+/// The answer for a tab with no retained page (never navigated, or let go
+/// of): an empty pass that says so, so the exchange still completes.
+fn no_page_pass() -> renderer::RenderPass {
+    renderer::RenderPass {
+        summary: PageSummary {
+            no_page: true,
+            ..PageSummary::default()
+        },
+        tiles: Vec::new(),
+        evicted: Vec::new(),
     }
 }
 
@@ -222,6 +285,7 @@ pub(super) fn stream_rendered(
     evicted: &[u64],
     summary: PageSummary,
     hit_regions: Vec<HitRegion>,
+    effects: Vec<Effect>,
 ) -> bool {
     if !evicted.is_empty()
         && link
@@ -275,7 +339,12 @@ pub(super) fn stream_rendered(
             return false;
         }
     }
-    link.send(&FromRenderer::Rendered { summary, hit_regions }).is_ok()
+    link.send(&FromRenderer::Rendered {
+        summary,
+        hit_regions,
+        effects,
+    })
+    .is_ok()
 }
 
 /// The header for a tile the broker already holds. Its physical dimensions

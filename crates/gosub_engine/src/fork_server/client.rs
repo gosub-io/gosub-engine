@@ -5,6 +5,7 @@ use crate::fork_server::protocol::{
     ConfinementTier, FromForkServer, FromRenderer, HitRegion, MediaPrefs, PageSummary, ResourceReply, TileHeader,
     ToForkServer, ToRenderer, MAX_HIT_TEXT,
 };
+use crate::fork_server::protocol::{Effect, InputEvent, WireRect, MAX_EFFECTS};
 use crate::net::resource_loader::{LoadError, LoadedResource};
 use gosub_ipc::Endpoint;
 use std::time::Duration;
@@ -81,6 +82,11 @@ const EXCHANGE_DEADLINE: Duration = Duration::from_secs(600);
 /// Longest title kept; `link`/`image`/favicon URLs are bounded by
 /// [`MAX_HIT_TEXT`] and dropped whole past it.
 const MAX_TITLE: usize = 1024;
+/// A form body an input pass may hand over. A longer one drops the whole
+/// submission: cut, it would be a different form.
+const MAX_FORM_BODY: usize = 1024 * 1024;
+/// Text a page may put on the clipboard in one go.
+const MAX_CLIPBOARD_TEXT: usize = 1024 * 1024;
 const MAX_LAYER_ORDER: usize = 100_000;
 const MAX_TIMINGS: usize = 64;
 const MAX_TIMING_NAME: usize = 64;
@@ -282,6 +288,7 @@ pub(crate) enum RenderEvent {
     Rendered {
         summary: PageSummary,
         hit_regions: Vec<HitRegion>,
+        effects: Vec<Effect>,
     },
     Evict(Vec<u64>),
     Refused(String),
@@ -302,7 +309,11 @@ impl RenderStream for FromForkServer {
             FromForkServer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromForkServer::Tile(header) => RenderEvent::Tile(header),
             FromForkServer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
-            FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+            FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered {
+                summary,
+                hit_regions,
+                effects: Vec::new(),
+            },
             FromForkServer::Refused(reason) => RenderEvent::Refused(reason),
             other => anyhow::bail!("unexpected render-exchange message: {other:?}"),
         })
@@ -319,7 +330,15 @@ impl RenderStream for FromRenderer {
             FromRenderer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromRenderer::Tile(header) => RenderEvent::Tile(header),
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
-            FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+            FromRenderer::Rendered {
+                summary,
+                hit_regions,
+                effects,
+            } => RenderEvent::Rendered {
+                summary,
+                hit_regions,
+                effects,
+            },
             FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
             FromRenderer::Audit(_) => anyhow::bail!("an audit report in the middle of a render"),
         })
@@ -426,14 +445,17 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
             RenderEvent::Rendered {
                 mut summary,
                 mut hit_regions,
+                mut effects,
             } => {
                 bound_summary(&mut summary);
                 bound_hit_regions(&mut hit_regions);
+                bound_effects(&mut effects)?;
                 return Ok(RenderedPage {
                     summary,
                     tiles: received,
                     hit_regions,
                     evicted,
+                    effects,
                 });
             }
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
@@ -514,9 +536,55 @@ fn bound_hit_regions(regions: &mut Vec<crate::fork_server::protocol::HitRegion>)
     }
 }
 
+/// What an input pass asks of the broker, as this side is willing to keep:
+/// a bounded handful of effects, their strings cut or dropped like a hit
+/// region's, their rectangles finite. Past [`MAX_EFFECTS`] the frame is a
+/// renderer gone wrong, which ends the exchange like any malformed frame.
+fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
+    if effects.len() > MAX_EFFECTS {
+        anyhow::bail!(
+            "renderer sent {} effects in one pass (limit {MAX_EFFECTS})",
+            effects.len()
+        );
+    }
+    let finite = |r: &WireRect| r.x.is_finite() && r.y.is_finite() && r.width.is_finite() && r.height.is_finite();
+    effects.retain(|effect| match effect {
+        Effect::Focus { bounds: Some(b), .. } | Effect::Picker { bounds: b, .. } => finite(b),
+        _ => true,
+    });
+    for effect in effects.iter_mut() {
+        match effect {
+            Effect::Navigate { url, body, .. } => {
+                let mut candidate = Some(std::mem::take(url));
+                drop_long_url(&mut candidate);
+                // A body past the bound is not cut: the whole navigation goes,
+                // like a URL past its bound, by emptying what the retain below
+                // checks.
+                if body.as_ref().is_some_and(|b| b.len() > MAX_FORM_BODY) {
+                    candidate = None;
+                }
+                *url = candidate.unwrap_or_default();
+            }
+            Effect::Picker {
+                value, min, max, step, ..
+            } => {
+                bound_text(value, MAX_HIT_TEXT);
+                for field in [min, max, step].into_iter().flatten() {
+                    bound_text(field, MAX_HIT_TEXT);
+                }
+            }
+            Effect::ClipboardWrite { text } => bound_text(text, MAX_CLIPBOARD_TEXT),
+            Effect::Focus { .. } | Effect::Cursor { .. } | Effect::PasteRequested | Effect::Capture { .. } => {}
+        }
+    }
+    // A navigation whose URL or body was dropped for its length is no navigation.
+    effects.retain(|effect| !matches!(effect, Effect::Navigate { url, .. } if url.is_empty()));
+    Ok(())
+}
+
 /// One page as the broker receives it: what the renderer measured, its tiles
-/// (freshly mapped or reused from the previous render), and the geometry hit
-/// testing needs.
+/// (freshly mapped or reused from the previous render), the geometry hit
+/// testing needs, and what an input pass asked for.
 #[derive(Debug)]
 pub struct RenderedPage {
     pub summary: crate::fork_server::protocol::PageSummary,
@@ -525,6 +593,8 @@ pub struct RenderedPage {
     /// Content hashes of tiles the renderer let go of (retained pages only);
     /// the broker drops them from its memory.
     pub evicted: Vec<u64>,
+    /// What the input asked of the broker; empty for any other pass.
+    pub effects: Vec<Effect>,
 }
 
 /// A tile of a rendered page: either pixels that just crossed, or pixels the
@@ -1216,6 +1286,27 @@ impl ResidentRenderer {
         self.exchange(loader, known_tiles)
     }
 
+    /// The user acted on `tab`'s retained page: collect the tiles the input
+    /// changed and what it asked of the broker. `known_tiles` is sent along as
+    /// on a navigate, since an input that lays the page out again ships it by
+    /// content hash.
+    pub fn input(
+        &mut self,
+        tab: &str,
+        scroll_y: f64,
+        event: InputEvent,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Input {
+            tab: tab.to_string(),
+            scroll_y,
+            known_tiles: known_tiles.hashes(),
+            event,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
     /// The pointer moved on `tab`'s retained page: collect the repainted tiles.
     pub fn hover(
         &mut self,
@@ -1297,6 +1388,82 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What an input pass may ask for is bounded like a hit region: over the cap
+    /// is a crash, a long URL or an oversized body drops the navigation whole,
+    /// a non-finite rectangle drops its effect, display strings are cut.
+    #[test]
+    fn effects_are_bounded_before_the_broker_sees_them() {
+        use crate::fork_server::protocol::{Effect, HitCursor, WireRect, MAX_EFFECTS};
+
+        let mut too_many: Vec<Effect> = (0..=MAX_EFFECTS).map(|_| Effect::PasteRequested).collect();
+        assert!(
+            bound_effects(&mut too_many).is_err(),
+            "over the cap is a renderer gone wrong"
+        );
+
+        let rect = WireRect {
+            x: 1.0,
+            y: 2.0,
+            width: 3.0,
+            height: 4.0,
+        };
+        let mut effects = vec![
+            Effect::Navigate {
+                url: "https://a.test/ok".into(),
+                post: true,
+                body: Some("a=1".into()),
+            },
+            Effect::Navigate {
+                url: format!("https://a.test/{}", "x".repeat(MAX_HIT_TEXT)),
+                post: false,
+                body: None,
+            },
+            Effect::Navigate {
+                url: "https://a.test/big".into(),
+                post: true,
+                body: Some("b".repeat(MAX_FORM_BODY + 1)),
+            },
+            Effect::Focus {
+                focused: true,
+                editable: true,
+                bounds: Some(WireRect { x: f64::NAN, ..rect }),
+            },
+            Effect::Picker {
+                kind: crate::engine::events::PickerKind::Date,
+                bounds: rect,
+                value: "v".repeat(MAX_HIT_TEXT + 5),
+                min: None,
+                max: None,
+                step: None,
+            },
+            Effect::Cursor {
+                cursor: HitCursor::Text,
+            },
+        ];
+        bound_effects(&mut effects).expect("a bounded list passes");
+        let kept: Vec<String> = effects
+            .iter()
+            .map(|e| match e {
+                Effect::Navigate { url, body, .. } => {
+                    format!("nav {url} body={}", body.as_ref().map_or(0, String::len))
+                }
+                Effect::Focus { .. } => "focus".into(),
+                Effect::Picker { value, .. } => format!("picker {}", value.len()),
+                Effect::Cursor { .. } => "cursor".into(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            vec![
+                "nav https://a.test/ok body=3".to_string(),
+                format!("picker {MAX_HIT_TEXT}"),
+                "cursor".to_string(),
+            ],
+            "the long URL, the oversized body and the NaN focus rectangle are gone; the rest is cut, not dropped"
+        );
+    }
     use crate::fork_server::protocol::{HitCursor, TileHeader, TileWireAnchor, TileWireFormat, MAX_HIT_TEXT_TOTAL};
 
     fn region(link: Option<String>) -> HitRegion {

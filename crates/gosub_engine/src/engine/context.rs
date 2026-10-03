@@ -2999,6 +2999,7 @@ mod tests {
                 tiles: Vec::new(),
                 hit_regions: Vec::new(),
                 evicted: Vec::new(),
+                effects: Vec::new(),
             }
         }
 
@@ -3153,6 +3154,7 @@ mod tests {
                 tiles: Vec::new(),
                 hit_regions: Vec::new(),
                 evicted: Default::default(),
+                effects: Vec::new(),
             });
             assert!(ctx.active_layer_list().is_none(), "a remote page keeps no layout");
 
@@ -3197,6 +3199,7 @@ mod tests {
                     region(100.0, HitCursor::Text, None),
                 ],
                 evicted: Default::default(),
+                effects: Vec::new(),
             });
             assert!(ctx.document.is_none(), "a remote page keeps no document");
 
