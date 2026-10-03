@@ -1195,7 +1195,11 @@ impl ResidentRenderer {
         self.send(&ToRenderer::Audit)?;
         match self.link.recv::<FromRenderer>() {
             Ok(FromRenderer::Audit(report)) => Ok(report),
-            Ok(other) => anyhow::bail!("unexpected reply to Audit: {other:?}"),
+            // The link is out of step; nothing read from it later can be trusted.
+            Ok(other) => {
+                self.mark_dead();
+                anyhow::bail!("unexpected reply to Audit: {other:?}")
+            }
             Err(e) => {
                 self.mark_dead();
                 anyhow::bail!("renderer link failed: {e}")
