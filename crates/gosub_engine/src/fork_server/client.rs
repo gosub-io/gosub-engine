@@ -739,7 +739,7 @@ pub const MAX_TAB_TILES: usize = 20_000;
 
 /// What the broker remembers of a tab's last remote render, keyed by content
 /// hash - the input to the next render's `known_tiles`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TileMemory {
     tiles: std::collections::HashMap<u64, KeptTile>,
     /// Arrival order, oldest first, for what goes when the budget is passed:

@@ -186,6 +186,7 @@ fn main() {
         "renderer-scroll-window" => with_font_backend!(renderer_scroll_window),
         "renderer-hover" => with_font_backend!(renderer_hover),
         "renderer-input" => with_font_backend!(renderer_input),
+        "engine-remote-input" => with_font_backend!(engine_remote_input),
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
@@ -2155,6 +2156,7 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
                 <p><input id="name" name="name" type="text"></p>
                 <p><input id="agree" name="agree" type="checkbox"></p>
                 <p><button type="submit">Go</button></p>
+                <p><input id="vol" name="vol" type="range" min="0" max="100" value="50"></p>
             </form>
             <p>below</p><p>and below that</p><p>and more</p>
         </body></html>"#;
@@ -2428,7 +2430,8 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
             Some(url)
                 if url.starts_with("https://input.test/submit?")
                     && url.contains("name=hi")
-                    && url.contains("agree=on") =>
+                    && url.contains("agree=on")
+                    && url.contains("vol=") =>
             {
                 println!("Enter submitted the form: {url}");
             }
@@ -2440,6 +2443,89 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
         }
+
+        // A drag on the slider: the press takes the pointer, the move repaints the
+        // thumb without a layout, the release lets go.
+        let Some(slider) = page
+            .hit_regions
+            .iter()
+            .filter(|r| !r.editable && r.y > checkbox.y && r.height < 40.0 && r.width > 60.0)
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+            .cloned()
+        else {
+            eprintln!("no hit region for the range slider");
+            return 1;
+        };
+        let (sy, sx0, sx1) = (
+            slider.y + slider.height / 2.0,
+            slider.x + 8.0,
+            slider.x + slider.width - 8.0,
+        );
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::PointerDown {
+                x: sx0,
+                y: sy,
+                button: MouseButton::Left,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("press on the slider failed: {e}");
+                return 1;
+            }
+        };
+        if !out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Capture { pointer: true }))
+            || out.laid_out
+        {
+            eprintln!(
+                "pressing the slider should take the pointer without a layout, got laid_out={} {:?}",
+                out.laid_out, out.effects
+            );
+            return 1;
+        }
+        let out = match input(&mut renderer, &mut memory, InputEvent::PointerMove { x: sx1, y: sy }) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("dragging the slider failed: {e}");
+                return 1;
+            }
+        };
+        if out.fresh == 0 || out.laid_out {
+            eprintln!(
+                "dragging the slider should repaint its thumb only, got fresh={} laid_out={}",
+                out.fresh, out.laid_out
+            );
+            return 1;
+        }
+        let out = match input(
+            &mut renderer,
+            &mut memory,
+            InputEvent::PointerUp {
+                x: sx1,
+                y: sy,
+                button: MouseButton::Left,
+            },
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("releasing the slider failed: {e}");
+                return 1;
+            }
+        };
+        if !out
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Capture { pointer: false }))
+        {
+            eprintln!("releasing the slider should let the pointer go, got {:?}", out.effects);
+            return 1;
+        }
+        println!("the slider drag took the pointer, repainted its thumb and let go");
 
         // The renderer is still itself: a scroll pass works and a tab it never saw
         // says so.
@@ -2468,6 +2554,316 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
         pool.shutdown_all();
         pool.fork_server().lock().shutdown();
         0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// The next engine event satisfying `pred`, on a clock; a failed navigation
+/// meanwhile is an error. Lagging behind the broadcast is not.
+#[cfg(target_os = "linux")]
+async fn next_engine_event(
+    events: &mut tokio::sync::broadcast::Receiver<gosub_engine::events::EngineEvent>,
+    deadline: tokio::time::Instant,
+    what: &str,
+    pred: impl Fn(&gosub_engine::events::EngineEvent) -> bool,
+) -> Result<gosub_engine::events::EngineEvent, String> {
+    use gosub_engine::events::{EngineEvent, NavigationEvent};
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(format!("timed out waiting for {what}"));
+        }
+        match tokio::time::timeout(remaining, events.recv()).await {
+            Ok(Ok(event)) if pred(&event) => return Ok(event),
+            Ok(Ok(EngineEvent::Navigation {
+                event: NavigationEvent::Failed { error, .. },
+                ..
+            })) => return Err(format!("navigation failed while waiting for {what}: {error}")),
+            Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+            _ => return Err(format!("event channel closed while waiting for {what}")),
+        }
+    }
+}
+
+/// Input through the engine to a page a resident renderer retains: the tab
+/// worker forwards the press, the text and the keys, and what the renderer
+/// asked for comes back as focus events and a form submission. The firehose
+/// shows the passes went out of process; a page quietly handled in-process
+/// would satisfy the events alone.
+fn engine_remote_input<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, HitTestToken, Modifiers, MouseButton, NavigationEvent, TabCommand};
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("engine-remote-input needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-remote-input needs a Full-tier font system");
+            return 2;
+        }
+        // The same page the renderer-input scenario lays out: the field sits in
+        // the second 100px row, the checkbox in the third.
+        let page = br#"<html><head><style>
+            body { margin: 0; } p { height: 100px; margin: 0; }
+        </style></head><body>
+            <p>above</p>
+            <form action="/submit" method="get">
+                <p><input id="name" name="name" type="text"></p>
+                <p><input id="agree" name="agree" type="checkbox"></p>
+                <p><button type="submit">Go</button></p>
+            </form>
+            <p>below</p><p>and below that</p><p>and more</p>
+        </body></html>"#
+            .to_vec();
+        let Ok(port) = serve_routes(vec![
+            ("/", "text/html", page, std::time::Duration::ZERO),
+            (
+                "/submit?name=hi&agree=on",
+                "text/html",
+                b"<html><body><p>submitted</p></body></html>".to_vec(),
+                std::time::Duration::ZERO,
+            ),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let mut events = engine.subscribe_events();
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if !matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                eprintln!("the engine did not start a Full-tier renderer fork server");
+                return 1;
+            }
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            let finished = |e: &EngineEvent| {
+                matches!(
+                    e,
+                    EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }
+                )
+            };
+            if let Err(e) = next_engine_event(&mut events, deadline, "the page to load", finished).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            // The frame must come from the renderer: tiles over shared memory.
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for a remotely rendered frame");
+                    return 1;
+                }
+                match compositor.frame_for(tab.tab_id) {
+                    Some(ExternalHandle::TileCache { tiles, .. }) if !tiles.is_empty() => break,
+                    _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                }
+            }
+            // Where the field is, through the hit regions the renderer shipped.
+            let (fx, fy) = (79.0f32, 112.0f32);
+            let _ = tab
+                .send(TabCommand::QueryHitTest {
+                    x: fx,
+                    y: fy,
+                    token: HitTestToken(7),
+                })
+                .await;
+            match next_engine_event(&mut events, deadline, "the hit test", |e| {
+                matches!(
+                    e,
+                    EngineEvent::HitTestResult {
+                        token: HitTestToken(7),
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                Ok(EngineEvent::HitTestResult { hit, .. }) if hit.is_editable => {}
+                Ok(other) => {
+                    eprintln!("the point ({fx}, {fy}) should be the editable field, got {other:?}");
+                    return 1;
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            }
+
+            // A press in the field: focus comes back from the renderer.
+            let _ = tab.send(TabCommand::MouseMove { x: fx, y: fy }).await;
+            let _ = tab
+                .send(TabCommand::MouseDown {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            let _ = tab
+                .send(TabCommand::MouseUp {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the field", |e| {
+                matches!(
+                    e,
+                    EngineEvent::FocusChanged {
+                        focused: true,
+                        editable: true,
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            println!("the press focused the field out of process");
+
+            // Type, then Tab to the checkbox and Space to tick it.
+            let _ = tab.send(TabCommand::TextInput { text: "hi".into() }).await;
+            let key = |key: &str| TabCommand::KeyDown {
+                key: key.to_string(),
+                code: String::new(),
+                modifiers: Modifiers::empty(),
+            };
+            let _ = tab.send(key("Tab")).await;
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the checkbox", |e| {
+                matches!(
+                    e,
+                    EngineEvent::FocusChanged {
+                        focused: true,
+                        editable: false,
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            println!("Tab moved focus to the checkbox");
+            let _ = tab.send(key(" ")).await;
+
+            // Back in the field, Enter submits: the renderer asks, the broker navigates.
+            let _ = tab
+                .send(TabCommand::MouseDown {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            let _ = tab
+                .send(TabCommand::MouseUp {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            let _ = tab.send(key("Enter")).await;
+            match next_engine_event(&mut events, deadline, "the form submission", finished).await {
+                Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { url, .. },
+                    ..
+                }) if url.as_str().ends_with("/submit?name=hi&agree=on") => {
+                    println!("Enter submitted the form: {url}");
+                }
+                Ok(other) => {
+                    eprintln!("expected the submission to finish, got {other:?}");
+                    return 1;
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            }
+
+            // The proof it went out of process: input passes on the firehose.
+            let mut input_passes = 0usize;
+            while let Ok(event) = firehose.try_recv() {
+                if event.kind == "remote.input" {
+                    input_passes += 1;
+                }
+            }
+            if input_passes < 5 {
+                eprintln!("expected at least 5 remote.input passes on the firehose, saw {input_passes}");
+                return 1;
+            }
+            println!("{input_passes} input passes went to the resident renderer");
+
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {

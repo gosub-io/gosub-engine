@@ -1,6 +1,7 @@
 mod handle;
 pub mod history;
 mod options;
+pub(crate) mod remote_effects;
 mod scroll;
 pub mod services;
 mod sink;

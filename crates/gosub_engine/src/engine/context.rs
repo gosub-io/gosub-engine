@@ -292,6 +292,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The hover changed while a pass was in flight; re-raise it once done.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_hover_pending: bool,
+    /// Input that arrived while a pass was in flight, each with the scroll
+    /// offset it was measured against, in order. Pointer moves and wheel
+    /// notches coalesce; nothing else does. A keystroke is never dropped.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_input_queue: std::collections::VecDeque<(crate::fork_server::protocol::InputEvent, f64)>,
+    /// What input passes asked of the broker, with what produced each, for
+    /// the tab worker to judge and act on.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_effects: Vec<(InputProvenance, crate::fork_server::protocol::Effect)>,
     /// Why the last out-of-process render could not happen at all - page
     /// content is never rendered in-process instead; the tab worker takes
     /// this and tells the embedder.
@@ -311,7 +320,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 /// A scroll or hover exchange the tab is waiting on.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 struct InflightPass {
-    what: RemotePass,
+    what: PassKind,
     generation: u64,
     /// The scroll position the pass was asked for: what its window covers.
     scroll_y: f64,
@@ -417,6 +426,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_epoch: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_hover_pending: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_input_queue: std::collections::VecDeque::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_effects: Vec::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_failure: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -565,6 +578,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.supersede_remote_passes();
             self.remote_media.clear();
             self.remote_document_meta = None;
+            // Input queued for the page that is going would land on the next.
+            self.remote_input_queue.clear();
+            self.remote_effects.clear();
         }
         self.note_invalidate("document");
         self.document = doc;
@@ -1287,11 +1303,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return false;
         };
         if self.remote_inflight.is_some() {
-            if matches!(what, RemotePass::Hover) {
-                self.remote_hover_pending = true;
+            match what {
+                RemotePass::Hover => self.remote_hover_pending = true,
+                RemotePass::Input(event, scroll_y) => self.queue_remote_input(event, scroll_y),
+                RemotePass::Scroll | RemotePass::Media => {}
             }
             return true;
         }
+        let kind = what.kind();
         let Some(page_url) = self.document_url.as_ref().map(|url| url.to_string()) else {
             return false;
         };
@@ -1304,11 +1323,23 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             loader: self.loader_for_document(),
             media: Arc::clone(&self.remote_media),
         };
-        let scroll_y = self.scroll_y;
+        let scroll_y = match &what {
+            // Measured against the viewport the event was sent for, which the
+            // page may have scrolled away from since.
+            RemotePass::Input(_, scroll_y) => *scroll_y,
+            _ => self.scroll_y,
+        };
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
         let source = self.document_source.clone();
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
+        // An input pass that lays the page out again ships it by content hash
+        // against what this tab holds; the other passes never answer
+        // `TileUnchanged`, so they look nothing up.
+        let known = match &what {
+            RemotePass::Input(..) => self.remote_tile_memory.clone(),
+            _ => crate::fork_server::client::TileMemory::default(),
+        };
         let (tx, rx) = std::sync::mpsc::channel();
         let spawned = std::thread::Builder::new()
             .name("gosub-remote-pass".into())
@@ -1327,12 +1358,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     if !current() {
                         anyhow::bail!("superseded by a newer page");
                     }
-                    // Incremental passes never answer `TileUnchanged`, so
-                    // there is nothing for the exchange to look up.
-                    let known = crate::fork_server::client::TileMemory::default();
                     match what {
                         RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, &resources, &known),
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
+                        RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll_y, event, &resources, &known),
                         RemotePass::Media => {
                             let Some(source) = source.as_deref() else {
                                 anyhow::bail!("no document source to render again");
@@ -1353,11 +1382,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let _ = tx.send((result, started.elapsed()));
             });
         if let Err(e) = spawned {
-            log::warn!("could not start a remote {} pass: {e}", what.event_kind());
+            log::warn!("could not start a remote {} pass: {e}", kind.event_kind());
             return false;
         }
         self.remote_inflight = Some(InflightPass {
-            what,
+            what: kind,
             generation: started_for,
             scroll_y,
             page_url,
@@ -1417,10 +1446,45 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 // The renderer no longer has this page (replaced after a
                 // crash, or past its retained-page limit): only a full render
                 // gets the tiles back.
-                if matches!(inflight.what, RemotePass::Scroll | RemotePass::Hover) && page.summary.no_page {
+                if matches!(inflight.what, PassKind::Scroll | PassKind::Hover | PassKind::Input(_))
+                    && page.summary.no_page
+                {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
+                    // Whatever input waited was for that page.
+                    self.remote_input_queue.clear();
                     self.damage.rebuild();
-                } else if matches!(inflight.what, RemotePass::Media) {
+                } else if let PassKind::Input(provenance) = inflight.what {
+                    report_remote_pass(
+                        inflight.what.event_kind(),
+                        &self.remote_tab,
+                        &inflight.page_url,
+                        inflight.scroll_y,
+                        &page,
+                        exchange,
+                    );
+                    let relaid = !page.hit_regions.is_empty();
+                    let effects = std::mem::take(&mut self.remote_effects);
+                    let mut effects = effects;
+                    effects.extend(page.effects.iter().cloned().map(|effect| (provenance, effect)));
+                    let (regions, page_height, fragment_targets) = (
+                        page.hit_regions.clone(),
+                        page.summary.page_height,
+                        page.summary.fragment_targets.clone(),
+                    );
+                    self.merge_remote_pass(page);
+                    if relaid {
+                        // The page was laid out again: its geometry is new, and a
+                        // frame must follow so hit tests stop answering from the old.
+                        if let Some(cache) = self.pipeline_cache.as_mut() {
+                            cache.hit_regions = regions;
+                            cache.page_height = page_height;
+                            cache.fragment_targets = fragment_targets;
+                        }
+                        self.recheck_viewport();
+                    }
+                    self.remote_effects = effects;
+                    self.scroll_dirty = true;
+                } else if matches!(inflight.what, PassKind::Media) {
                     // A whole page, like a navigate: what came back replaces
                     // this tab's tiles and geometry.
                     report_remote_pass(
@@ -1445,7 +1509,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         exchange,
                     );
                     self.merge_remote_pass(page);
-                    if matches!(inflight.what, RemotePass::Scroll) {
+                    if matches!(inflight.what, PassKind::Scroll) {
                         // Before the check: a fresh raster makes evicted regions live again.
                         self.tile_budget.note_full_raster();
                         self.note_pass_window(inflight.scroll_y);
@@ -1471,11 +1535,77 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 }
             }
         }
+        // Input that waited goes first: a keystroke is the user's, a hover is
+        // cosmetic and is re-raised afterwards.
+        if self.remote_inflight.is_none() {
+            if let Some((event, scroll_y)) = self.remote_input_queue.pop_front() {
+                self.try_remote_pass(RemotePass::Input(event, scroll_y));
+            }
+        }
         if self.remote_hover_pending {
             self.remote_hover_pending = false;
             self.damage.escalate(DamageLevel::Paint);
         }
         true
+    }
+
+    /// The user acted on a page a resident renderer retains: send the event
+    /// there, or queue it behind the pass in flight. False when this tab does
+    /// not render through a resident renderer, so the caller handles the
+    /// input in-process as before.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_input(&mut self, event: crate::fork_server::protocol::InputEvent) -> bool {
+        if !self.remote_input_available() {
+            return false;
+        }
+        self.try_remote_pass(RemotePass::Input(event, self.scroll_y))
+    }
+
+    /// Whether input goes out of process: a resident renderer retains this
+    /// tab's page. An exec'd renderer keeps nothing between renders and gets
+    /// none.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn remote_input_available(&self) -> bool {
+        matches!(self.remote_renderer, Some(RemoteRenderer::Resident { .. })) && self.remote_render_active()
+    }
+
+    /// Queue input behind the pass in flight. Consecutive pointer moves keep
+    /// only the last and consecutive wheel notches add up: what matters is
+    /// where the pointer is and how far the wheel turned, not every step.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn queue_remote_input(&mut self, event: crate::fork_server::protocol::InputEvent, scroll_y: f64) {
+        use crate::fork_server::protocol::InputEvent;
+        if let Some((last, last_scroll)) = self.remote_input_queue.back_mut() {
+            match (last, &event) {
+                (InputEvent::PointerMove { x, y }, InputEvent::PointerMove { x: nx, y: ny }) => {
+                    (*x, *y) = (*nx, *ny);
+                    *last_scroll = scroll_y;
+                    return;
+                }
+                (
+                    InputEvent::Wheel { x, y, delta_y },
+                    InputEvent::Wheel {
+                        x: nx,
+                        y: ny,
+                        delta_y: nd,
+                    },
+                ) => {
+                    (*x, *y) = (*nx, *ny);
+                    *delta_y += nd;
+                    *last_scroll = scroll_y;
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.remote_input_queue.push_back((event, scroll_y));
+    }
+
+    /// What input passes asked of the broker since the last call, each with
+    /// what produced it. The tab worker judges every one before acting.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_effects(&mut self) -> Vec<(InputProvenance, crate::fork_server::protocol::Effect)> {
+        std::mem::take(&mut self.remote_effects)
     }
 
     /// Fold one pass's tiles and evictions into this tab's remote tile set.
@@ -2555,22 +2685,101 @@ fn pipeline_extend_raster(
 
 /// The incremental exchanges a resident renderer answers from its retained page.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum RemotePass {
     Scroll,
     Hover,
     /// Images the renderer went without have arrived: render the page again
     /// off the tab thread, so the next navigation is not queued behind it.
     Media,
+    /// The user acted on the retained page, at the scroll offset the event's
+    /// viewport coordinates were measured against.
+    Input(crate::fork_server::protocol::InputEvent, f64),
 }
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 impl RemotePass {
+    fn kind(&self) -> PassKind {
+        match self {
+            RemotePass::Scroll => PassKind::Scroll,
+            RemotePass::Hover => PassKind::Hover,
+            RemotePass::Media => PassKind::Media,
+            RemotePass::Input(event, _) => PassKind::Input(InputProvenance::of(event)),
+        }
+    }
+}
+
+/// What a pass in flight is, as the poll side needs it: the kind, and for an
+/// input pass what produced it, which decides which of its effects are
+/// believed.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+#[derive(Clone, Copy)]
+enum PassKind {
+    Scroll,
+    Hover,
+    Media,
+    Input(InputProvenance),
+}
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+impl PassKind {
     fn event_kind(self) -> &'static str {
         match self {
-            RemotePass::Scroll => "remote.scroll",
-            RemotePass::Hover => "remote.hover",
-            RemotePass::Media => "remote.media",
+            PassKind::Scroll => "remote.scroll",
+            PassKind::Hover => "remote.hover",
+            PassKind::Media => "remote.media",
+            PassKind::Input(_) => "remote.input",
+        }
+    }
+}
+
+/// The clipboard chord a key press was, if any: what a clipboard effect
+/// from its pass may be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardChord {
+    None,
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// What produced an input pass: enough for the tab worker to judge the
+/// effects that came back. A cursor is believed from a pointer press or
+/// move; a clipboard effect only from the chord that asks for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputProvenance {
+    /// A pointer press or move, at a position the cursor can be for.
+    pub pointer: bool,
+    pub chord: ClipboardChord,
+}
+
+impl InputProvenance {
+    pub fn of(event: &crate::fork_server::protocol::InputEvent) -> Self {
+        use crate::engine::events::Modifiers;
+        use crate::fork_server::protocol::InputEvent;
+        match event {
+            InputEvent::PointerDown { .. } | InputEvent::PointerMove { .. } => Self {
+                pointer: true,
+                chord: ClipboardChord::None,
+            },
+            InputEvent::KeyDown { key, modifiers } => {
+                let held = Modifiers::from_bits_truncate(*modifiers);
+                let chord = if held.intersects(Modifiers::CONTROL | Modifiers::META) {
+                    match key.as_str() {
+                        "c" | "C" => ClipboardChord::Copy,
+                        "x" | "X" => ClipboardChord::Cut,
+                        "v" | "V" => ClipboardChord::Paste,
+                        _ => ClipboardChord::None,
+                    }
+                } else {
+                    ClipboardChord::None
+                };
+                Self { pointer: false, chord }
+            }
+            _ => Self {
+                pointer: false,
+                chord: ClipboardChord::None,
+            },
         }
     }
 }
@@ -2984,7 +3193,7 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             tx.send((Ok(page), std::time::Duration::ZERO)).unwrap();
             ctx.remote_inflight = Some(InflightPass {
-                what,
+                what: what.kind(),
                 generation: ctx.remote_epoch.load(std::sync::atomic::Ordering::Acquire),
                 scroll_y,
                 page_url: "https://site.test/".into(),
