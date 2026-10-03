@@ -3775,6 +3775,7 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
     #[cfg(target_os = "linux")]
     {
         use gosub_config::settings::Setting;
+        use gosub_engine::decoder_process::client::ProcessImageDecoder;
         use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
         use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
         use gosub_engine::tab::{TabHandle, TabId};
@@ -3877,6 +3878,12 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
                 eprintln!("renderer isolation did not start");
                 return 1;
             };
+            // The decoder is spawned per image and a failed decode is not a
+            // failed run, so prove one can start and lock down before the run.
+            if ProcessImageDecoder.audit().ok().flatten().is_none() {
+                eprintln!("decoder isolation did not start");
+                return 1;
+            }
             let mut firehose = gosub_engine::telemetry::subscribe();
             let mut events = engine.subscribe_events();
             println!(
