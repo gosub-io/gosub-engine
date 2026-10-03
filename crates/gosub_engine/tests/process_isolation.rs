@@ -620,6 +620,10 @@ fn spawned_children_get_a_restricted_token() {
     let out = run("direct");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
+        out.status.success(),
+        "the direct scenario failed before it could prove anything about the token:\n{stderr}"
+    );
+    assert!(
         !stderr.contains("using inherited token"),
         "a child fell back to the inherited token - restricted_token() failed:\n{stderr}"
     );
