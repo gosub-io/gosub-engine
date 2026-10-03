@@ -465,13 +465,15 @@ fn fork_and_render<C: RenderConfiguration>(
                     viewport_height,
                     known_tiles,
                     hovered_node,
+                    dpr,
+                    media,
                 },
                 shared,
                 Arc::clone(media_store),
                 Arc::clone(forked_loader) as Arc<dyn crate::net::resource_loader::ResourceLoader>,
             );
 
-            let ok = resident::stream_rendered(&mut link.lock(), &tiles, &[], summary, hit_regions);
+            let ok = resident::stream_rendered(&mut link.lock(), &tiles, &[], summary, hit_regions, Vec::new());
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
@@ -517,7 +519,9 @@ fn fork_and_render<C: RenderConfiguration>(
                                 .map_err(|e| std::io::Error::other(format!("could not relay a tile fd: {e}")))?;
                             // `fd` drops here; the broker holds the only copy.
                         }
-                        FromRenderer::Rendered { summary, hit_regions } => {
+                        FromRenderer::Rendered {
+                            summary, hit_regions, ..
+                        } => {
                             broker
                                 .send(&FromForkServer::PageRendered { summary, hit_regions })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;

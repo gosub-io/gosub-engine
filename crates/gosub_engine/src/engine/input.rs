@@ -11,7 +11,7 @@
 //! damage, so neither side needs to know how the other renders.
 
 use crate::engine::edit;
-use crate::engine::events::{CursorShape, PickerKind};
+use crate::engine::events::{CursorShape, Modifiers, PickerKind};
 use crate::engine::focus;
 use crate::engine::form;
 pub use crate::engine::form::Submission;
@@ -54,6 +54,17 @@ pub(crate) trait InputHost {
     fn damage_nodes(&mut self, nodes: &[NodeId]);
     /// The page must be rebuilt from the document: boxes may have moved.
     fn relayout(&mut self);
+}
+
+/// What a key press came to, for a host that owns navigation and scrolling.
+#[derive(Debug, PartialEq, Eq)]
+pub enum KeyOutcome {
+    /// The focused control or the focus machinery took the key.
+    Consumed,
+    /// Enter on a focused link: the host decides whether to follow `href`.
+    FollowLink(String),
+    /// Not the page's key: the host may scroll with it, or drop it.
+    Unhandled,
 }
 
 /// A picker input the user activated: the embedder should open its picker over it.
@@ -677,5 +688,60 @@ impl PageInput {
             Self::select_all_on_focus(host, order[next]);
         }
         changed
+    }
+
+    /// A key press, as the tab worker dispatches it: the focused control first, then
+    /// Tab and Shift+Tab for focus traversal, Escape to blur, Enter on a focused link.
+    /// Arrow and page keys with nothing editable focused are the host's to scroll with.
+    pub fn key_down<H: InputHost>(&mut self, host: &mut H, key: &str, modifiers: Modifiers) -> KeyOutcome {
+        let shift = modifiers.contains(Modifiers::SHIFT);
+        if key != "Tab" {
+            let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
+            let alt = modifiers.contains(Modifiers::ALT);
+            if self.edit_key(host, key, chord, alt, shift) {
+                return KeyOutcome::Consumed;
+            }
+        }
+        match key {
+            "Tab" => {
+                self.focus_step(host, shift);
+                KeyOutcome::Consumed
+            }
+            "Escape" => {
+                if self.set_focus(host, None, false) {
+                    KeyOutcome::Consumed
+                } else {
+                    KeyOutcome::Unhandled
+                }
+            }
+            "Enter" => match Self::focused_link(host) {
+                Some(href) => KeyOutcome::FollowLink(href),
+                None => KeyOutcome::Unhandled,
+            },
+            _ => KeyOutcome::Unhandled,
+        }
+    }
+
+    /// The window lost focus: an open dropdown closes, focus clears, gestures end.
+    /// Returns whether the page changed.
+    pub fn blur<H: InputHost>(&mut self, host: &mut H) -> bool {
+        let mut changed = false;
+        if host.document().is_some_and(|doc| doc.open_select().is_some()) {
+            Self::close_select_popup(host);
+            changed = true;
+        }
+        changed |= self.set_focus(host, None, false);
+        self.end_drag();
+        changed
+    }
+
+    /// Whether a gesture holds the pointer: a slider thumb, a textarea grip or
+    /// scrollbar, a dropdown scrollbar, or a selection being dragged out.
+    pub fn has_capture(&self) -> bool {
+        self.drag_range.is_some()
+            || self.drag_resize.is_some()
+            || self.drag_popup_thumb.is_some()
+            || self.drag_select.is_some()
+            || self.drag_area_thumb.is_some()
     }
 }

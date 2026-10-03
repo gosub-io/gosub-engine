@@ -469,6 +469,26 @@ fn a_resident_renderer_repaints_hover_without_relayout() {
     );
 }
 
+/// Input on a retained page: a click focuses a field and typing paints into it
+/// without a layout; Tab and Space reach a checkbox, which lays the page out
+/// again and ships it by hash; Enter submits the form as a navigation request.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resident_renderer_takes_input_where_its_dom_is() {
+    let out = run("renderer-input");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the resident renderer's input pass failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A resident renderer that dies is replaced on the next request, and the
 /// tab renders again in the replacement.
 #[cfg(target_os = "linux")]

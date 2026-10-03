@@ -155,6 +155,8 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
             viewport_height,
             known_tiles: &known_tiles.into_iter().collect(),
             hovered_node,
+            dpr,
+            media,
         },
         shared,
         media_store,
