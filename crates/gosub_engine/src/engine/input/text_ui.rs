@@ -2,12 +2,14 @@
 //! row navigation and scrolling in textareas, and the clipboard handshake with the embedder.
 //! Geometry comes from [`text_field`], the same code the painter draws with.
 
-use super::BrowsingContext;
+use super::select_ui::popup_lei;
+use super::{hit_at, layout_element_of, resize_grip_hit, InputHost, PageInput};
 use crate::engine::edit::{self, EditAction, Motion};
-use crate::html::RenderConfiguration;
+use crate::engine::events::CursorShape;
 use gosub_interface::document::{ControlEditState, Document as _};
 use gosub_render_pipeline::common::font::FontInfo;
 use gosub_render_pipeline::common::geo::Rect;
+use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::{ElementContext, FormControl, LayoutElementId};
 use gosub_render_pipeline::painter::text_field;
 use gosub_shared::node::NodeId;
@@ -18,48 +20,47 @@ const MULTI_CLICK: Duration = Duration::from_millis(400);
 const MULTI_CLICK_SLOP: f64 = 4.0;
 
 /// What the layouter knows about a text control's box.
-pub(super) struct TextGeometry {
-    pub font_info: FontInfo,
-    pub masked: bool,
-    pub multiline: bool,
-    pub content: Rect,
+struct TextGeometry {
+    font_info: FontInfo,
+    masked: bool,
+    multiline: bool,
+    content: Rect,
 }
 
-impl<C: RenderConfiguration> BrowsingContext<C> {
-    pub(super) fn text_geometry(&self, lei: LayoutElementId) -> Option<TextGeometry> {
-        let ll = self.active_layer_list()?;
-        let el = ll.layout_tree.get_node_by_id(lei)?;
-        let ElementContext::FormControl(fc) = &el.context else {
-            return None;
-        };
-        let FormControl::TextField { masked, multiline, .. } = &fc.control else {
-            return None;
-        };
-        Some(TextGeometry {
-            font_info: fc.font_info.clone(),
-            masked: *masked,
-            multiline: *multiline,
-            content: el.box_model.content_box,
-        })
-    }
+fn text_geometry(layer_list: Option<&LayerList>, lei: LayoutElementId) -> Option<TextGeometry> {
+    let el = layer_list?.layout_tree.get_node_by_id(lei)?;
+    let ElementContext::FormControl(fc) = &el.context else {
+        return None;
+    };
+    let FormControl::TextField { masked, multiline, .. } = &fc.control else {
+        return None;
+    };
+    Some(TextGeometry {
+        font_info: fc.font_info.clone(),
+        masked: *masked,
+        multiline: *multiline,
+        content: el.box_model.content_box,
+    })
+}
 
-    pub(super) fn layout_element_of(&self, node: NodeId) -> Option<LayoutElementId> {
-        let ll = self.active_layer_list()?;
-        ll.layout_tree
-            .arena
-            .iter()
-            .find(|(_, el)| el.dom_node_id == node)
-            .map(|(id, _)| *id)
+/// What the painter draws for `state`: bullets for a password field.
+fn shown_text(state: &ControlEditState, masked: bool) -> String {
+    if masked {
+        "\u{2022}".repeat(state.value.chars().count())
+    } else {
+        state.value.clone()
     }
+}
 
+impl PageInput {
     /// The control's edit state, or a fresh one from the markup: a textarea starts with the caret
     /// at the top (its scroll is 0), a single-line field at the end.
-    pub(super) fn edit_state(&self, node: NodeId) -> ControlEditState {
-        let Some(doc) = self.document.as_ref() else {
+    pub(super) fn edit_state<H: InputHost>(host: &H, node: NodeId) -> ControlEditState {
+        let Some(doc) = host.document() else {
             return ControlEditState::new(String::new(), 0);
         };
         doc.control_edit_state(node).unwrap_or_else(|| {
-            let value = edit::initial_value(doc, node);
+            let value = edit::initial_value(&doc, node);
             let caret = if doc.tag_name(node) == Some("textarea") {
                 0
             } else {
@@ -69,45 +70,44 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         })
     }
 
-    /// What the painter draws for `state`: bullets for a password field.
-    fn shown_text(state: &ControlEditState, masked: bool) -> String {
-        if masked {
-            "\u{2022}".repeat(state.value.chars().count())
-        } else {
-            state.value.clone()
-        }
-    }
-
     /// Store `state` (keeping a textarea's caret inside its view) and repaint the control.
-    pub(super) fn commit_edit_state(&mut self, node: NodeId, mut state: ControlEditState) {
-        let Some(doc) = self.document.clone() else {
+    pub(super) fn commit_edit_state<H: InputHost>(&mut self, host: &mut H, node: NodeId, mut state: ControlEditState) {
+        let Some(doc) = host.document() else {
             return;
         };
-        if let Some(geo) = self.layout_element_of(node).and_then(|lei| self.text_geometry(lei)) {
+        let ll = host.layer_list();
+        if let Some(geo) = layout_element_of(ll.as_deref(), node).and_then(|lei| text_geometry(ll.as_deref(), lei)) {
             if geo.multiline {
-                let fs = self.font_system();
+                let fs = host.font_system();
                 let mut fs = fs.lock();
-                let shown = Self::shown_text(&state, geo.masked);
+                let shown = shown_text(&state, geo.masked);
                 let area = text_field::area_layout(&mut *fs, &shown, &geo.font_info, geo.content);
                 let caret_row = text_field::row_of_caret(&area.rows, state.caret);
                 state.scroll = area.first_showing(state.scroll, caret_row);
             }
         }
         doc.set_control_edit_state(node, Some(state));
-        self.request_repaint(node);
+        Self::request_repaint(host, node);
     }
 
     /// Char index under a viewport point in text control `node`, mirroring the painter's window
     /// (insets, single-line horizontal scroll, textarea rows + scroll). `None` on the scrollbar.
-    fn caret_index_at(&self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> Option<usize> {
-        let geo = self.text_geometry(lei)?;
-        let state = self.edit_state(node);
+    fn caret_index_at<H: InputHost>(
+        host: &H,
+        node: NodeId,
+        lei: LayoutElementId,
+        vp_x: f64,
+        vp_y: f64,
+    ) -> Option<usize> {
+        let geo = text_geometry(host.layer_list().as_deref(), lei)?;
+        let state = Self::edit_state(host, node);
         if state.value.is_empty() {
             return Some(0);
         }
-        let shown = Self::shown_text(&state, geo.masked);
-        let (px, py) = (vp_x + self.scroll_x, vp_y + self.scroll_y);
-        let fs = self.font_system();
+        let shown = shown_text(&state, geo.masked);
+        let (scroll_x, scroll_y) = host.scroll();
+        let (px, py) = (vp_x + scroll_x, vp_y + scroll_y);
+        let fs = host.font_system();
         let mut fs = fs.lock();
         if geo.multiline {
             let area = text_field::area_layout(&mut *fs, &shown, &geo.font_info, geo.content);
@@ -133,17 +133,24 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// A press straight into text control `node`: put the caret there (collapsing any selection).
     /// Paint-only.
-    pub(super) fn place_caret(&mut self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> bool {
-        let Some(doc) = self.document.clone() else {
+    pub(super) fn place_caret<H: InputHost>(
+        &mut self,
+        host: &mut H,
+        node: NodeId,
+        lei: LayoutElementId,
+        vp_x: f64,
+        vp_y: f64,
+    ) -> bool {
+        let Some(doc) = host.document() else {
             return false;
         };
         if edit::text_entry_kind(&doc, node).is_none() {
             return false;
         }
-        let Some(idx) = self.caret_index_at(node, lei, vp_x, vp_y) else {
+        let Some(idx) = Self::caret_index_at(host, node, lei, vp_x, vp_y) else {
             return false;
         };
-        let mut state = self.edit_state(node);
+        let mut state = Self::edit_state(host, node);
         let changed = edit::apply(
             &mut state,
             &EditAction::Move {
@@ -154,21 +161,28 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if !changed && doc.control_edit_state(node).is_some() {
             return false;
         }
-        self.commit_edit_state(node, state);
+        self.commit_edit_state(host, node, state);
         true
     }
 
     /// The rest of a press on a text control (after the caret was placed): a textarea scrollbar
     /// press scrolls/drags, a double click selects the word, a triple click everything, and a
     /// single press starts a drag selection.
-    pub(super) fn text_press(&mut self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> bool {
-        let Some(doc) = self.document.clone() else {
+    pub(super) fn text_press<H: InputHost>(
+        &mut self,
+        host: &mut H,
+        node: NodeId,
+        lei: LayoutElementId,
+        vp_x: f64,
+        vp_y: f64,
+    ) -> bool {
+        let Some(doc) = host.document() else {
             return false;
         };
         if edit::text_entry_kind(&doc, node).is_none() {
             return false;
         }
-        if self.area_track_press(node, lei, vp_x, vp_y) {
+        if self.area_track_press(host, node, lei, vp_x, vp_y) {
             return true;
         }
         let now = Instant::now();
@@ -183,7 +197,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             _ => 1,
         };
         self.last_press = Some((now, vp_x, vp_y, count));
-        let mut state = self.edit_state(node);
+        let mut state = Self::edit_state(host, node);
         match count {
             1 => {
                 self.drag_select = Some((node, lei));
@@ -193,36 +207,39 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let (s, e) = edit::word_at(&state.value, state.caret);
                 state.anchor = (s != e).then_some(s);
                 state.caret = e;
-                self.commit_edit_state(node, state);
+                self.commit_edit_state(host, node, state);
                 true
             }
             _ => {
                 edit::apply(&mut state, &EditAction::SelectAll);
-                self.commit_edit_state(node, state);
+                self.commit_edit_state(host, node, state);
                 true
             }
         }
     }
 
     /// A press on a textarea's scrollbar: on the thumb starts a drag, on the track pages.
-    fn area_track_press(&mut self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> bool {
-        let Some(geo) = self.text_geometry(lei) else {
+    fn area_track_press<H: InputHost>(
+        &mut self,
+        host: &mut H,
+        node: NodeId,
+        lei: LayoutElementId,
+        vp_x: f64,
+        vp_y: f64,
+    ) -> bool {
+        let Some(geo) = text_geometry(host.layer_list().as_deref(), lei) else {
             return false;
         };
         if !geo.multiline {
             return false;
         }
-        let state = self.edit_state(node);
-        let (px, py) = (vp_x + self.scroll_x, vp_y + self.scroll_y);
+        let state = Self::edit_state(host, node);
+        let (scroll_x, scroll_y) = host.scroll();
+        let (px, py) = (vp_x + scroll_x, vp_y + scroll_y);
         let area = {
-            let fs = self.font_system();
+            let fs = host.font_system();
             let mut fs = fs.lock();
-            text_field::area_layout(
-                &mut *fs,
-                &Self::shown_text(&state, geo.masked),
-                &geo.font_info,
-                geo.content,
-            )
+            text_field::area_layout(&mut *fs, &shown_text(&state, geo.masked), &geo.font_info, geo.content)
         };
         let Some(track) = area.track.filter(|t| t.contains(px, py)) else {
             return false;
@@ -241,33 +258,33 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         } else {
             first + area.rows_fit
         };
-        self.set_area_scroll(node, area.clamp_first(target))
+        Self::set_area_scroll(host, node, area.clamp_first(target))
     }
 
-    fn set_area_scroll(&mut self, node: NodeId, first: usize) -> bool {
-        let Some(doc) = self.document.clone() else {
+    fn set_area_scroll<H: InputHost>(host: &mut H, node: NodeId, first: usize) -> bool {
+        let Some(doc) = host.document() else {
             return false;
         };
-        let mut state = self.edit_state(node);
+        let mut state = Self::edit_state(host, node);
         if state.scroll == first && doc.control_edit_state(node).is_some() {
             return false;
         }
         state.scroll = first;
         doc.set_control_edit_state(node, Some(state));
-        self.request_repaint(node);
+        Self::request_repaint(host, node);
         true
     }
 
     /// Pointer moved with the button held after a press in a text control: extend the selection
     /// to the char under the pointer. Paint-only.
-    pub(super) fn drag_select_to(&mut self, vp_x: f64, vp_y: f64) -> bool {
+    pub(super) fn drag_select_to<H: InputHost>(&mut self, host: &mut H, vp_x: f64, vp_y: f64) -> bool {
         let Some((node, lei)) = self.drag_select else {
             return false;
         };
-        let Some(idx) = self.caret_index_at(node, lei, vp_x, vp_y) else {
+        let Some(idx) = Self::caret_index_at(host, node, lei, vp_x, vp_y) else {
             return false;
         };
-        let mut state = self.edit_state(node);
+        let mut state = Self::edit_state(host, node);
         let changed = edit::apply(
             &mut state,
             &EditAction::Move {
@@ -278,58 +295,49 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if !changed {
             return false;
         }
-        self.commit_edit_state(node, state);
+        self.commit_edit_state(host, node, state);
         true
     }
 
     /// Textarea scrollbar thumb being dragged: `start_y`/`start_first` from the press.
-    pub(super) fn area_thumb_drag_to(&mut self, vp_y: f64) -> bool {
+    pub(super) fn area_thumb_drag_to<H: InputHost>(&mut self, host: &mut H, vp_y: f64) -> bool {
         let Some((node, lei, start_y, start_first)) = self.drag_area_thumb else {
             return false;
         };
-        let Some(geo) = self.text_geometry(lei) else {
+        let Some(geo) = text_geometry(host.layer_list().as_deref(), lei) else {
             return false;
         };
-        let state = self.edit_state(node);
+        let state = Self::edit_state(host, node);
         let area = {
-            let fs = self.font_system();
+            let fs = host.font_system();
             let mut fs = fs.lock();
-            text_field::area_layout(
-                &mut *fs,
-                &Self::shown_text(&state, geo.masked),
-                &geo.font_info,
-                geo.content,
-            )
+            text_field::area_layout(&mut *fs, &shown_text(&state, geo.masked), &geo.font_info, geo.content)
         };
         let first = area.first_for_thumb_drag(start_first, vp_y - start_y);
-        self.set_area_scroll(node, first)
+        Self::set_area_scroll(host, node, first)
     }
 
     /// Wheel over a textarea whose rows overflow scrolls it by `delta_y` px (~3 rows per notch
     /// of 120). Returns whether the wheel was consumed.
-    pub fn area_scroll(&mut self, vp_x: f64, vp_y: f64, delta_y: f64) -> bool {
-        let Some(doc) = self.document.clone() else {
+    pub fn area_scroll<H: InputHost>(host: &mut H, vp_x: f64, vp_y: f64, delta_y: f64) -> bool {
+        let Some(doc) = host.document() else {
             return false;
         };
-        let (Some(leaf), Some(lei)) = self.hit_at(vp_x, vp_y) else {
+        let ll = host.layer_list();
+        let (Some(leaf), Some(lei)) = hit_at(ll.as_deref(), host.scroll(), vp_x, vp_y) else {
             return false;
         };
         if edit::text_entry_kind(&doc, leaf) != Some(true) {
             return false;
         }
-        let Some(geo) = self.text_geometry(lei) else {
+        let Some(geo) = text_geometry(ll.as_deref(), lei) else {
             return false;
         };
-        let state = self.edit_state(leaf);
+        let state = Self::edit_state(host, leaf);
         let area = {
-            let fs = self.font_system();
+            let fs = host.font_system();
             let mut fs = fs.lock();
-            text_field::area_layout(
-                &mut *fs,
-                &Self::shown_text(&state, geo.masked),
-                &geo.font_info,
-                geo.content,
-            )
+            text_field::area_layout(&mut *fs, &shown_text(&state, geo.masked), &geo.font_info, geo.content)
         };
         if area.track.is_none() {
             return false;
@@ -338,22 +346,23 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let rows = if rows == 0 { delta_y.signum() as i64 } else { rows };
         let first = (area.clamp_first(state.scroll) as i64 + rows).clamp(0, area.max_first() as i64) as usize;
         // Consume the wheel even at the ends so the page doesn't scroll under the textarea.
-        self.set_area_scroll(leaf, first);
+        Self::set_area_scroll(host, leaf, first);
         true
     }
 
     /// Row-based keys in a textarea (`ArrowUp`/`ArrowDown`/`PageUp`/`PageDown`/`Home`/`End`);
     /// `None` when `key` isn't one. Up/Down keep the caret's x on the new row.
-    pub(super) fn row_key(&mut self, node: NodeId, key: &str, shift: bool) -> Option<bool> {
+    pub(super) fn row_key<H: InputHost>(&mut self, host: &mut H, node: NodeId, key: &str, shift: bool) -> Option<bool> {
         if !matches!(key, "ArrowUp" | "ArrowDown" | "PageUp" | "PageDown" | "Home" | "End") {
             return None;
         }
-        let lei = self.layout_element_of(node)?;
-        let geo = self.text_geometry(lei)?;
-        let mut state = self.edit_state(node);
-        let shown = Self::shown_text(&state, geo.masked);
+        let ll = host.layer_list();
+        let lei = layout_element_of(ll.as_deref(), node)?;
+        let geo = text_geometry(ll.as_deref(), lei)?;
+        let mut state = Self::edit_state(host, node);
+        let shown = shown_text(&state, geo.masked);
         let target = {
-            let fs = self.font_system();
+            let fs = host.font_system();
             let mut fs = fs.lock();
             let area = text_field::area_layout(&mut *fs, &shown, &geo.font_info, geo.content);
             let row_i = text_field::row_of_caret(&area.rows, state.caret);
@@ -392,7 +401,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             },
         );
         if changed {
-            self.commit_edit_state(node, state);
+            self.commit_edit_state(host, node, state);
         }
         Some(changed)
     }
@@ -401,10 +410,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// [`take_clipboard_write`](Self::take_clipboard_write); paste asks for the clipboard
     /// ([`take_paste_request`](Self::take_paste_request)), which comes back as `TextInput`.
     /// `None` when `key` isn't a clipboard chord.
-    pub(super) fn clipboard_key(&mut self, node: NodeId, key: &str, masked: bool) -> Option<bool> {
+    pub(super) fn clipboard_key<H: InputHost>(
+        &mut self,
+        host: &mut H,
+        node: NodeId,
+        key: &str,
+        masked: bool,
+    ) -> Option<bool> {
         match key {
             "c" | "C" | "x" | "X" => {
-                let mut state = self.edit_state(node);
+                let mut state = Self::edit_state(host, node);
                 let Some((s, e)) = state.selection() else {
                     return Some(false);
                 };
@@ -413,7 +428,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.clipboard_write = Some(state.value.chars().skip(s).take(e - s).collect());
                 }
                 if key.eq_ignore_ascii_case("x") && edit::apply(&mut state, &EditAction::Insert(String::new())) {
-                    self.commit_edit_state(node, state);
+                    self.commit_edit_state(host, node, state);
                     return Some(true);
                 }
                 Some(false)
@@ -440,53 +455,53 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// What the mouse cursor should be at a viewport point: I-beam over editable text (but not
     /// its scrollbar), resize arrows over a textarea's grip, a pointing hand over links, default
     /// elsewhere. An active drag keeps its cursor even when the pointer strays off the control.
-    pub fn cursor_at(&self, vp_x: f64, vp_y: f64) -> crate::engine::events::CursorShape {
-        use crate::engine::events::CursorShape as CursorKind;
+    pub fn cursor_at<H: InputHost>(&self, host: &H, vp_x: f64, vp_y: f64) -> CursorShape {
         if self.drag_resize.is_some() {
-            return CursorKind::Resize;
+            return CursorShape::Resize;
         }
         if self.drag_select.is_some() {
-            return CursorKind::Text;
+            return CursorShape::Text;
         }
-        let Some(doc) = self.document.clone() else {
+        let Some(doc) = host.document() else {
             // A remotely rendered page: no document here, but the hover just
             // updated from the renderer's hit regions says what is under the
             // pointer (a link, text), and that is the cursor.
-            return self.hover_cursor();
+            return host.hover_cursor();
         };
-        let (leaf, lei) = self.hit_at(vp_x, vp_y);
+        let ll = host.layer_list();
+        let (leaf, lei) = hit_at(ll.as_deref(), host.scroll(), vp_x, vp_y);
         // Popup rows are picked with a plain arrow.
-        if doc.open_select().is_some() && self.popup_lei() == lei {
-            return CursorKind::Default;
+        if doc.open_select().is_some() && popup_lei(ll.as_deref()) == lei {
+            return CursorShape::Default;
         }
-        if self.hover_link_url.is_some() {
-            return CursorKind::Pointer;
+        if host.hover_has_link() {
+            return CursorShape::Pointer;
         }
         let (Some(leaf), Some(lei)) = (leaf, lei) else {
-            return CursorKind::Default;
+            return CursorShape::Default;
         };
         if edit::text_entry_kind(&doc, leaf).is_none() {
-            return CursorKind::Default;
+            return CursorShape::Default;
         }
-        if self.resize_grip_hit(leaf, lei, vp_x, vp_y).is_some() {
-            return CursorKind::Resize;
+        if resize_grip_hit(ll.as_deref(), host.scroll(), leaf, lei, vp_x, vp_y).is_some() {
+            return CursorShape::Resize;
         }
         // The scrollbar strip of an overflowing textarea is not text.
-        if self.caret_index_at(leaf, lei, vp_x, vp_y).is_none() {
-            return CursorKind::Default;
+        if Self::caret_index_at(host, leaf, lei, vp_x, vp_y).is_none() {
+            return CursorShape::Default;
         }
-        CursorKind::Text
+        CursorShape::Text
     }
 
     /// Keyboard focus landing on a single-line text field selects its text (Tab behaviour).
-    pub(super) fn select_all_on_focus(&mut self, node: NodeId) {
-        let Some(doc) = self.document.clone() else {
+    pub(super) fn select_all_on_focus<H: InputHost>(host: &H, node: NodeId) {
+        let Some(doc) = host.document() else {
             return;
         };
         if edit::text_entry_kind(&doc, node) != Some(false) {
             return;
         }
-        let mut state = self.edit_state(node);
+        let mut state = Self::edit_state(host, node);
         edit::apply(&mut state, &EditAction::SelectAll);
         doc.set_control_edit_state(node, Some(state));
     }
