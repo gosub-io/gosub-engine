@@ -119,6 +119,8 @@ pub use cookie_jar::SameSiteContext;
 pub use cookie_jar::ThirdPartyCookiePolicy;
 pub use persistent_cookie_jar::PersistentCookieJar;
 
+/// Registrable-domain comparison, for the I/O side's SameSite decisions.
+pub(crate) use cookie_jar::same_site;
 pub use store::CookieStore;
 pub use store::InMemoryCookieStore;
 pub use store::JsonCookieStore;

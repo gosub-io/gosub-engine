@@ -141,7 +141,26 @@ extern crate core;
 
 mod engine;
 
+/// Child-role dispatch. An embedder that wants process isolation must call
+/// [`child_process::dispatch`] as the first statement of its `main`.
+#[cfg(feature = "process-isolation")]
+pub mod child_process;
+
+/// Image decoding in a throwaway, sandboxed process.
+#[cfg(feature = "process-isolation")]
+pub mod decoder_process;
+
+/// The fork server renderers are forked from: warmed fonts, tier-chosen
+/// sandbox. The processes are Linux only - no other platform has a fork to
+/// serve - but the wire protocol is plain data and stays available everywhere,
+/// so the tab's remotely-rendered page state need not be gated.
+pub mod fork_server;
+
 pub mod net;
+/// Exec-fresh, throwaway renderer processes - how `FontPathsReadable`
+/// configurations render out-of-process. Linux only.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod render_process;
 
 pub mod util;
 
@@ -149,6 +168,9 @@ pub mod html;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
+
+/// The engine's event firehose for external tooling; see the module docs.
+pub mod telemetry;
 
 pub use engine::{BrowsingContext, Damage, DamageLevel, EngineError, GosubEngine};
 

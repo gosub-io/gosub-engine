@@ -87,6 +87,9 @@ const BASELINE: &[libc::c_long] = &[
     // identity (cheap, non-escalating)
     libc::SYS_getpid,
     libc::SYS_gettid,
+    // A renderer's bound on itself (`arm_deadline`): a resident one arms it
+    // per request, after its lockdown. A process's timers reach no other.
+    libc::SYS_setitimer,
     // teardown
     libc::SYS_exit,
     libc::SYS_exit_group,
@@ -366,6 +369,43 @@ pub fn fork_process() -> std::io::Result<Forked> {
     }
 }
 
+/// End this process with `SIGALRM` after `after`; see the public wrapper.
+#[cfg(feature = "multi-process")]
+pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
+    // SAFETY: a zeroed sigaction with SIG_DFL is a valid disposition, set for a
+    // signal this process never handles itself.
+    unsafe {
+        let mut dfl: libc::sigaction = std::mem::zeroed();
+        dfl.sa_sigaction = libc::SIG_DFL;
+        if libc::sigaction(libc::SIGALRM, &dfl, std::ptr::null_mut()) < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    let timer = libc::itimerval {
+        it_interval: libc::timeval { tv_sec: 0, tv_usec: 0 },
+        it_value: libc::timeval {
+            tv_sec: after.as_secs().min(i64::MAX as u64) as libc::time_t,
+            tv_usec: after.subsec_micros() as libc::suseconds_t,
+        },
+    };
+    // SAFETY: a valid itimerval in, no old value requested.
+    if unsafe { libc::setitimer(libc::ITIMER_REAL, &timer, std::ptr::null_mut()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Cancel the deadline [`arm_deadline`] set: the request finished in time.
+#[cfg(feature = "multi-process")]
+pub fn disarm_deadline() {
+    let off = libc::itimerval {
+        it_interval: libc::timeval { tv_sec: 0, tv_usec: 0 },
+        it_value: libc::timeval { tv_sec: 0, tv_usec: 0 },
+    };
+    // SAFETY: a zero itimerval disarms the timer; no old value requested.
+    unsafe { libc::setitimer(libc::ITIMER_REAL, &off, std::ptr::null_mut()) };
+}
+
 /// Wait for a forked child and return its raw wait status.
 #[cfg(feature = "multi-process")]
 pub fn reap_child(pid: i32) -> std::io::Result<i32> {
@@ -593,14 +633,23 @@ const FONT_READ_EXTRA: &[libc::c_long] = &[
     223,
 ];
 
-/// Cap a renderer whose font system must read font files: the renderer
-/// baseline plus the file-reading syscalls, with Landlock deciding which
-/// paths they may reach (pass [`font_filesystem_paths`], read-only).
+/// The filesystem half of an exec'd font-readable renderer's confinement:
+/// Landlock scoping to `fs_allow` (pass [`font_filesystem_paths`], read-only,
+/// plus the scratch, writable). Separate from the seccomp half because
+/// Landlock restricts the calling thread only: it must be applied before the
+/// font system, which may start a worker thread, while
+/// [`lock_down_renderer_with_font_access`] follows with TSYNC over them all.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
-    deny_debugger_attach();
+pub fn scope_renderer_font_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
     scope_font_filesystem("renderer+fonts", fs_allow);
+}
 
+/// Cap a renderer whose font system must read font files: the renderer
+/// baseline plus the file-reading syscalls. Pair with
+/// [`scope_renderer_font_filesystem`], applied first, which decides the paths.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_renderer_with_font_access() {
+    deny_debugger_attach();
     let mut allowed = BASELINE.to_vec();
     allowed.extend_from_slice(FS_EXTRA);
     allowed.extend_from_slice(FONT_READ_EXTRA);

@@ -25,6 +25,9 @@ pub struct DecodedImage {
     width: u32,
     height: u32,
     pixels: PixelBuffer,
+    /// The size the image *is* for layout, which is the pixel buffer's size
+    /// unless the decoder downscaled a huge image to bound memory.
+    intrinsic: (u32, u32),
 }
 
 impl DecodedImage {
@@ -45,15 +48,34 @@ impl DecodedImage {
             width,
             height,
             pixels: PixelBuffer::Rgba8(pixels),
+            intrinsic: (width, height),
         })
     }
 
+    /// Record that the pixels are a downscaled rendition of a `width` × `height` image.
+    pub fn with_intrinsic(mut self, width: u32, height: u32) -> Self {
+        self.intrinsic = (width, height);
+        self
+    }
+
+    /// Pixel buffer width.
     pub fn width(&self) -> u32 {
         self.width
     }
 
+    /// Pixel buffer height.
     pub fn height(&self) -> u32 {
         self.height
+    }
+
+    /// Width for layout: the image's own, even when the pixels were downscaled.
+    pub fn intrinsic_width(&self) -> u32 {
+        self.intrinsic.0
+    }
+
+    /// Height for layout: the image's own, even when the pixels were downscaled.
+    pub fn intrinsic_height(&self) -> u32 {
+        self.intrinsic.1
     }
 
     pub fn pixels(&self) -> &PixelBuffer {
@@ -77,6 +99,7 @@ impl From<image::RgbaImage> for DecodedImage {
             width,
             height,
             pixels: PixelBuffer::Rgba8(img.into_raw()),
+            intrinsic: (width, height),
         }
     }
 }
@@ -140,6 +163,12 @@ pub trait MediaDecoder: Send + Sync {
     fn supports_magic(&self, bytes: &[u8]) -> bool;
 
     fn decode(&self, bytes: &[u8]) -> Result<DecodedMedia, ImageDecodeError>;
+
+    /// The intrinsic size from the header alone, without decoding pixels. `None` when the
+    /// format has no cheap answer (vector formats, or a decoder that does not implement it).
+    fn dimensions(&self, _bytes: &[u8]) -> Option<(u32, u32)> {
+        None
+    }
 }
 
 /// Ordered set of decoders. The MIME hint (e.g. an HTTP `Content-Type`) is treated as a hint
@@ -200,6 +229,18 @@ impl MediaDecoderRegistry {
         }
 
         Err(last_err.unwrap_or(ImageDecodeError::UnsupportedFormat))
+    }
+}
+
+impl MediaDecoderRegistry {
+    /// The intrinsic size of `bytes` from its header, by the same decoder selection as
+    /// [`decode`](Self::decode); `None` when no decoder can answer without decoding.
+    pub fn dimensions(&self, mime: Option<&str>, bytes: &[u8]) -> Option<(u32, u32)> {
+        let by_mime = mime
+            .into_iter()
+            .flat_map(|mime| self.decoders.iter().filter(move |decoder| decoder.supports_mime(mime)));
+        let by_magic = self.decoders.iter().filter(|decoder| decoder.supports_magic(bytes));
+        by_mime.chain(by_magic).find_map(|decoder| decoder.dimensions(bytes))
     }
 }
 

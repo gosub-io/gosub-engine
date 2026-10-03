@@ -9,6 +9,7 @@ use crate::engine::resource_pipeline::image::{ImagePipeline, ImagePipelineImpl};
 use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
+use crate::tab::TabId;
 use crate::zone::ZoneId;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -43,18 +44,22 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 impl<C: RenderConfiguration> ResourcePipelines<C> {
     pub fn new(
         zone_id: ZoneId,
+        tab_id: TabId,
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
         font_system: Arc<Mutex<C::FontSystem>>,
+        capture_source: bool,
     ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
                 zone_id,
+                tab_id,
                 io_tx,
                 accept_language,
                 max_document_bytes,
                 font_system,
+                capture_source,
             )),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),

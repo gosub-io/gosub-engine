@@ -390,6 +390,8 @@ fn blit_handle_to_buffer(
 }
 
 fn main() {
+    // First, before any window or thread: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<AppConfig>();
     eprintln!(
         "{} v{} — winit browser window, Cairo (CPU) rendering",
         env!("CARGO_BIN_NAME"),

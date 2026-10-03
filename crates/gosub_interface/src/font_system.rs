@@ -99,10 +99,9 @@ pub struct ShapedGlyph {
 
 /// Decoration metrics for a shaped run, in pixels.
 ///
-/// Offsets are measured from the run's baseline to the **top** of the stroke, positive
-/// **downward** (so `underline_offset` is typically positive, `strikethrough_offset` typically
-/// negative). A painter draws a decoration as a filled rect at
-/// `(run.x, run.baseline + offset, run.width, size)`.
+/// Offsets are from the run's baseline to the top of the stroke, positive downward
+/// (underline typically positive, strikethrough typically negative). Draw as a filled
+/// rect at `(run.x, run.baseline + offset, run.width, size)`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RunMetrics {
     pub underline_offset: f32,
@@ -173,10 +172,6 @@ pub enum TextAlign {
 }
 
 /// CSS-resolved text style passed to [`FontSystem::measure`].
-///
-/// Carries everything an engine needs to lay out a run of text: the family (the implementation
-/// appends its own generic/bundled fallback), size, the font selectors, an optional absolute line
-/// height, an optional wrap width, and the device-pixel scale.
 #[derive(Debug, Clone)]
 pub struct TextStyle {
     /// Primary CSS family name (implementations append a generic/bundled fallback).
@@ -219,19 +214,29 @@ impl TextStyle {
 
 // Core trait
 
-/// A swappable font system - the entire surface the engine and layouter need.
+/// Sandbox tier a renderer process may run under with this font system,
+/// as reported by [`FontSystem::prepare_for_confinement`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "the answer decides which sandbox tier the renderer gets; ignoring it defeats the preparation"]
+pub enum Confinement {
+    /// All filesystem data is in memory; a no-file-access sandbox works.
+    /// Fonts arriving later as bytes (`@font-face`) keep working.
+    Full,
+    /// Reads font files at match time (e.g. fontconfig cache revalidation), so the
+    /// sandbox must grant read-only platform font paths plus one private writable
+    /// scratch dir (some stacks can only ingest a web font as a file).
+    FontPathsReadable,
+    /// Cannot operate in an isolated renderer; the string says why. The engine
+    /// must fall back to single-process rendering.
+    Unsupported(String),
+}
+
+/// A swappable font system: registers fonts, resolves CSS font queries, shapes and measures text.
 ///
-/// It registers fonts, **resolves** CSS font queries to concrete fonts (with their raw bytes),
-/// **shapes** text into positioned glyph runs, and **measures** it. All of it goes through
-/// whichever font system the engine was configured with, so layout boxes are sized by the very
-/// engine whose glyphs will be drawn (Parley, Pango, Skia, cosmic-text, …) - measurement,
-/// shaping, and drawing can't disagree.
+/// Layout and rendering must share one implementation so measurement, shaping, and drawing agree.
+/// Drawing is not on this trait: glyph IDs plus a [`crate::font::FontBlob`] are all a rasterizer
+/// needs, so any font system serves any backend.
 ///
-/// Drawing itself is *not* on this trait: painting the [`ShapedText`] returned by
-/// [`FontSystem::shape`] is the render backend's job - glyph IDs + a [`crate::font::FontBlob`]
-/// are everything a rasterizer needs, so any font system serves any backend.
-///
-/// # Threading
 /// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
 /// and the renderer.
 pub trait FontSystem: Send + Sync + 'static {
@@ -255,6 +260,28 @@ pub trait FontSystem: Send + Sync + 'static {
     /// [`FontSystem::resolve`], not families, so they don't appear here. Takes `&mut self`
     /// because some engines populate their font database lazily on first enumeration.
     fn families(&mut self) -> Vec<String>;
+
+    /// The confinement tier this font system supports; static, no instance needed.
+    ///
+    /// `Unsupported` unless the implementation opts in: a tier is a promise
+    /// about the font stack's file access that only the implementation can make.
+    fn confinement() -> Confinement
+    where
+        Self: Sized,
+    {
+        Confinement::Unsupported("this font system does not declare a confinement tier".into())
+    }
+
+    /// Front-load all filesystem work, then report the sandbox tier the renderer
+    /// may apply. Overstating the tier means content-dependent `SIGSYS` deaths
+    /// when a page later uses an unloaded typeface.
+    ///
+    /// `Unsupported` unless the implementation opts in, like [`confinement`](Self::confinement):
+    /// a generic warm-up cannot establish that later font operations stay off the
+    /// filesystem. An implementation that answers a tier does its own warm-up.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        Confinement::Unsupported("this font system does not assess its confinement".into())
+    }
 
     /// Shape `text` laid out in `style` into positioned glyph runs.
     ///
@@ -294,4 +321,38 @@ pub trait FontSystem: Send + Sync + 'static {
 /// ```
 pub trait HasFontSystem {
     fn font_system(&self) -> Arc<Mutex<dyn FontSystem>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A font system that implements only what it must.
+    struct Undeclared;
+
+    impl FontSystem for Undeclared {
+        fn register_font(&mut self, _data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
+            Ok(())
+        }
+        fn resolve(&mut self, _query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+            Err(FontError::FontNotFound("no fonts".into()))
+        }
+        fn families(&mut self) -> Vec<String> {
+            Vec::new()
+        }
+        fn shape(&mut self, _text: &str, _style: &TextStyle) -> ShapedText {
+            ShapedText::empty()
+        }
+    }
+
+    /// A tier is a promise only the implementation can make: without an
+    /// override, both answers are `Unsupported`, never `Full`.
+    #[test]
+    fn a_font_system_that_declares_nothing_is_not_confined() {
+        assert!(matches!(Undeclared::confinement(), Confinement::Unsupported(_)));
+        assert!(matches!(
+            Undeclared.prepare_for_confinement(),
+            Confinement::Unsupported(_)
+        ));
+    }
 }

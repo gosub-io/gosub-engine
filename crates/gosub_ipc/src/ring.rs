@@ -25,8 +25,11 @@ const DONE_FINISHED: u32 = 1;
 const DONE_ABORTED: u32 = 2;
 
 /// How long either side tolerates zero progress from its peer before giving
-/// up. Bounds what a dead - or deliberately stalling - peer can cost.
-const STALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// up. Bounds what a dead - or deliberately stalling - peer can cost. The
+/// producer only writes what the origin sends, so for the consumer this is
+/// also how long origin silence may last: longer than the fetcher's own
+/// read-idle timeout, which is where that silence is meant to be judged.
+const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// Individual futex waits are short slices of the stall budget, so a lost
 /// wakeup costs at most one slice.
 const WAIT_SLICE: Duration = Duration::from_millis(100);

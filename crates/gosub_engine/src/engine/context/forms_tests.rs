@@ -39,7 +39,7 @@ fn page(body_html: &str) -> Ctx {
     let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(&html);
     doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
     doc.url = Some(url::Url::parse("http://test.local/page.html").unwrap_or_else(|_| unreachable!()));
-    ctx.set_document(Arc::new(doc));
+    ctx.set_document(Arc::new(doc), None);
     ctx.rebuild_pipeline_cache_if_needed();
     ctx
 }

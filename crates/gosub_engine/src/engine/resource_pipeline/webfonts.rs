@@ -56,6 +56,35 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
     }
 }
 
+/// A blocking fetch: the bytes and their content type, or nothing.
+type FetchBlocking<'a> = &'a dyn Fn(&str) -> Option<(Option<String>, Vec<u8>)>;
+
+/// Hands a fetched face to the font system: `(bytes, css_family)`.
+type RegisterFont<'a> = &'a mut dyn FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError>;
+
+/// [`load_web_fonts`] for a caller with no runtime to await on: a renderer process, whose
+/// every fetch is a blocking round trip to the broker. `register` hands each face to the font
+/// system under its CSS family.
+pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    base_url: &Url,
+    fetch: FetchBlocking<'_>,
+    register: RegisterFont<'_>,
+) {
+    for face in collect_faces::<C>(doc, base_url) {
+        let Some((url, bytes)) = face.sources.iter().find_map(|url| match fetch(url.as_str()) {
+            Some((_, bytes)) if !bytes.is_empty() => Some((url, bytes)),
+            _ => None,
+        }) else {
+            continue;
+        };
+        match register(decode_web_font(bytes, url), &face.family) {
+            Ok(()) => log::debug!("Registered web font '{}' from {url}", face.family),
+            Err(e) => log::warn!("Failed to register web font '{}': {e:?}", face.family),
+        }
+    }
+}
+
 /// Every face worth loading, in document order, deduplicated by source URL.
 fn collect_faces<C: RenderConfiguration>(doc: &EngineDocument<C>, base_url: &Url) -> Vec<Face> {
     let mut seen: HashSet<String> = HashSet::new();

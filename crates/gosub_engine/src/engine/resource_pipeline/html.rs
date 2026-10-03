@@ -3,6 +3,7 @@ use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguratio
 use crate::net::req_ref_tracker::REF_REGISTRY;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
+use crate::tab::TabId;
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
@@ -22,7 +23,7 @@ use tokio_util::io::StreamReader;
 type SheetBodies = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Receiver<SheetBody>>>>;
 
 /// A fetched stylesheet: its `Content-Type` and its bytes. `None` when it could not be had.
-type SheetBody = Option<(Option<String>, Vec<u8>)>;
+pub(crate) type SheetBody = Option<(Option<String>, Vec<u8>)>;
 
 /// Hand a fetched stylesheet to the parse waiting for it, or tell the global hand-off what
 /// became of a resource somebody else may be waiting on. Exactly one of the two applies,
@@ -56,6 +57,19 @@ fn deliver(
     }
 }
 
+/// What the pipeline made of a document body: the parsed document, with its
+/// source when a renderer process may re-parse it.
+pub struct ParsedDocument<C: RenderConfiguration> {
+    pub doc: Box<EngineDocument<C>>,
+    pub source: Option<Arc<str>>,
+}
+
+impl<C: RenderConfiguration> ParsedDocument<C> {
+    pub fn into_parts(self) -> (EngineDocument<C>, Option<Arc<str>>) {
+        (*self.doc, self.source)
+    }
+}
+
 #[async_trait]
 pub trait HtmlPipeline<C: RenderConfiguration> {
     async fn parse_stream(
@@ -65,7 +79,7 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         body: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument<C>>;
+    ) -> anyhow::Result<ParsedDocument<C>>;
 
     async fn parse_bytes(
         &mut self,
@@ -73,34 +87,45 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument<C>>;
+    ) -> anyhow::Result<ParsedDocument<C>>;
 }
 
 pub struct HtmlPipelineImpl<C: RenderConfiguration> {
     io_tx: IoChannel,
     zone_id: ZoneId,
+    /// The tab these subresources belong to, so the I/O side can attach its
+    /// cookies. Subresources previously carried none at all.
+    tab_id: TabId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
     max_document_bytes: usize,
     /// Where `@font-face` fonts are registered, once fetched.
     font_system: Arc<Mutex<C::FontSystem>>,
+    /// Also return the parsed document's source text (see
+    /// `HtmlParseConfig::capture_source`) - on when the engine renders
+    /// out-of-process and its renderer will need to re-parse.
+    capture_source: bool,
 }
 
 impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
     pub fn new(
         zone_id: ZoneId,
+        tab_id: TabId,
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
         font_system: Arc<Mutex<C::FontSystem>>,
+        capture_source: bool,
     ) -> Self {
         Self {
             io_tx,
             zone_id,
+            tab_id,
             accept_language,
             max_document_bytes,
             font_system,
+            capture_source,
         }
     }
 
@@ -110,7 +135,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         handle: FetchHandle,
         meta: FetchResultMeta,
         reader: R,
-    ) -> anyhow::Result<EngineDocument<C>>
+    ) -> anyhow::Result<ParsedDocument<C>>
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
@@ -138,10 +163,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             max_bytes: self.max_document_bytes,
             stylesheets: None,
             timing_scope,
+            capture_source: self.capture_source,
         };
 
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
+        let tab_id = self.tab_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
 
@@ -240,7 +267,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             }
 
             let join_handle = spawn_named("html-sub-resource", async move {
-                match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
+                match submit_to_io(zone_id, Some(tab_id), sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);
 
@@ -270,6 +297,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             bodies: sheet_bodies.clone(),
             runtime: tokio::runtime::Handle::current(),
             zone_id,
+            tab_id,
             io_tx: io_tx.clone(),
             parent_ref,
             parent_cancel: parent_cancel.clone(),
@@ -294,9 +322,10 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         // handed on, so what the tab receives is complete, exactly as it was when the parser
         // fetched the sheets itself.
         let res = match res {
-            Ok(mut doc) => {
+            Ok((mut doc, source)) => {
                 let sheets = SubFetch {
                     zone_id,
+                    tab_id,
                     io_tx: &io_tx,
                     parent_ref,
                     parent_cancel: &parent_cancel,
@@ -308,7 +337,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 // Registered before the document is handed on, which is what keeps the first
                 // layout from measuring text in a fallback face and having to do it again.
                 super::webfonts::load_web_fonts::<C>(&doc, &doc_url, &self.font_system, &sheets, timing_scope).await;
-                Ok(doc)
+                Ok((doc, source))
             }
             Err(e) => Err(e),
         };
@@ -336,7 +365,11 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             }
         }
 
-        res.map_err(|e| anyhow!("Failed to parse HTML document: {:?}", e))
+        res.map(|(doc, source)| ParsedDocument {
+            doc: Box::new(doc),
+            source,
+        })
+        .map_err(|e| anyhow!("Failed to parse HTML document: {:?}", e))
     }
 }
 
@@ -349,7 +382,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument<C>> {
+    ) -> anyhow::Result<ParsedDocument<C>> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
         self.parse_with_reader(request, handle, meta, reader).await
     }
@@ -360,7 +393,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl<C> {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument<C>> {
+    ) -> anyhow::Result<ParsedDocument<C>> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
@@ -378,6 +411,7 @@ struct ParseSheetGate {
     bodies: SheetBodies,
     runtime: tokio::runtime::Handle,
     zone_id: ZoneId,
+    tab_id: TabId,
     io_tx: IoChannel,
     parent_ref: gosub_sonar::RequestReference,
     parent_cancel: tokio_util::sync::CancellationToken,
@@ -402,6 +436,7 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
                             crate::net::types::ResourceKind::Stylesheet,
                             &SubFetch {
                                 zone_id: self.zone_id,
+                                tab_id: self.tab_id,
                                 io_tx: &self.io_tx,
                                 parent_ref: self.parent_ref,
                                 parent_cancel: &self.parent_cancel,
@@ -422,6 +457,7 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
 /// What the post-parse stages need to fetch something the document scan missed.
 pub(crate) struct SubFetch<'a> {
     pub(crate) zone_id: ZoneId,
+    pub(crate) tab_id: TabId,
     pub(crate) io_tx: &'a IoChannel,
     pub(crate) parent_ref: gosub_sonar::RequestReference,
     pub(crate) parent_cancel: &'a tokio_util::sync::CancellationToken,
@@ -443,7 +479,6 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
     bodies: &SheetBodies,
     fetch: &SubFetch<'_>,
 ) {
-    use gosub_interface::css3::{CssOrigin, CssSystem};
     use gosub_interface::document::Document as _;
 
     let mut pending = doc.take_pending_stylesheets();
@@ -466,36 +501,76 @@ async fn resolve_pending_stylesheets<C: RenderConfiguration>(
             // same path, rather than reaching for a client of our own.
             None => fetch_subresource(&url, crate::net::types::ResourceKind::Stylesheet, fetch).await,
         };
-
-        let Some((content_type, bytes)) = body else {
-            log::warn!("Could not load external stylesheet from {url}");
-            continue;
-        };
-        match content_type {
-            Some(ref ct) if !ct.starts_with("text/css") => {
-                log::warn!("External stylesheet has unexpected content type: {ct}");
-            }
-            None => log::warn!("External stylesheet has no content type: {url}"),
-            _ => {}
+        // Everything already slotted in sat at or before this position, so each one
+        // shifts this sheet one place further along.
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, body) {
+            inserted += 1;
         }
-        let Ok(css) = String::from_utf8(bytes) else {
-            log::warn!("External stylesheet from {url} is not valid UTF-8");
-            continue;
-        };
+    }
+}
 
-        let config = gosub_shared::config::ParserConfig {
-            source: Some(url.clone()),
-            ignore_errors: true,
-            ..Default::default()
-        };
-        match <C::CssSystem as CssSystem>::parse_str(&css, config, CssOrigin::Author, &url) {
-            Ok(sheet) => {
-                // Everything already slotted in sat at or before this position, so each one
-                // shifts this sheet one place further along.
-                doc.insert_stylesheet(position + inserted, sheet);
-                inserted += 1;
-            }
-            Err(err) => log::warn!("Error while parsing CSS stylesheet from {url}: {err}"),
+/// [`resolve_pending_stylesheets`] for a caller with no runtime to await on: a renderer
+/// process, whose every fetch is a blocking round trip to the broker.
+pub(crate) fn resolve_pending_stylesheets_blocking<C: RenderConfiguration>(
+    doc: &mut EngineDocument<C>,
+    fetch: &dyn Fn(&str) -> SheetBody,
+) {
+    use gosub_interface::document::Document as _;
+
+    let mut pending = doc.take_pending_stylesheets();
+    pending.sort_by_key(|(position, _)| *position);
+
+    let mut inserted = 0usize;
+    for (position, url) in pending {
+        if insert_fetched_sheet::<C>(doc, position + inserted, &url, fetch(&url)) {
+            inserted += 1;
+        }
+    }
+}
+
+/// Parse a fetched stylesheet and put it at `position` in the cascade. `false` when there was
+/// nothing usable to put there.
+///
+/// A sheet that fails to load leaves no gap and no error: the document renders without it,
+/// which is what a browser does and what this code did when the parser fetched them itself.
+fn insert_fetched_sheet<C: RenderConfiguration>(
+    doc: &mut EngineDocument<C>,
+    position: usize,
+    url: &str,
+    body: SheetBody,
+) -> bool {
+    use gosub_interface::css3::{CssOrigin, CssSystem};
+    use gosub_interface::document::Document as _;
+
+    let Some((content_type, bytes)) = body else {
+        log::warn!("Could not load external stylesheet from {url}");
+        return false;
+    };
+    match content_type {
+        Some(ref ct) if !ct.starts_with("text/css") => {
+            log::warn!("External stylesheet has unexpected content type: {ct}");
+        }
+        None => log::warn!("External stylesheet has no content type: {url}"),
+        _ => {}
+    }
+    let Ok(css) = String::from_utf8(bytes) else {
+        log::warn!("External stylesheet from {url} is not valid UTF-8");
+        return false;
+    };
+
+    let config = gosub_shared::config::ParserConfig {
+        source: Some(url.to_string()),
+        ignore_errors: true,
+        ..Default::default()
+    };
+    match <C::CssSystem as CssSystem>::parse_str(&css, config, CssOrigin::Author, url) {
+        Ok(sheet) => {
+            doc.insert_stylesheet(position, sheet);
+            true
+        }
+        Err(err) => {
+            log::warn!("Error while parsing CSS stylesheet from {url}: {err}");
+            false
         }
     }
 }
@@ -531,16 +606,22 @@ pub(crate) async fn fetch_subresource(
         .with_auto_decode(true)
         .build();
 
-    let (_handle, rx) = submit_to_io(
+    let started = std::time::Instant::now();
+    let result = match submit_to_io(
         fetch.zone_id,
+        Some(fetch.tab_id),
         req,
         fetch.io_tx.clone(),
         Some(fetch.parent_cancel.clone()),
     )
     .await
-    .ok()?;
-    match rx.await {
-        Ok(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
+    {
+        Ok((_handle, rx)) => rx.await.ok(),
+        Err(_) => None,
+    };
+    crate::telemetry::net_load(url, Some(fetch.tab_id), started, result.as_ref());
+    match result {
+        Some(FetchResult::Buffered { meta, body }) if meta.status == 200 && !body.is_empty() => {
             Some((meta.content_type.clone(), body.to_vec()))
         }
         _ => None,
@@ -610,6 +691,7 @@ mod tests {
                 match cmd {
                     IoCommand::Fetch {
                         zone_id: _,
+                        tab_id: _,
                         req: _,
                         handle,
                         reply_tx,
@@ -619,7 +701,7 @@ mod tests {
                         // drop the sender to unblock the pipeline's `rx.await` without crafting a FetchResult
                         drop(reply_tx);
                     }
-                    IoCommand::Decision { .. } => { /* not used here */ }
+                    IoCommand::Decision { .. } | IoCommand::SetTopLevel { .. } => { /* not used here */ }
                     IoCommand::ShutdownZone { reply_tx, .. } => {
                         let _ = reply_tx.send(());
                     }
@@ -637,10 +719,12 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,
             Arc::new(Mutex::new(Default::default())),
+            false,
         );
 
         let (req, handle) = test_request("https://example.com/path/index.html");
@@ -648,9 +732,10 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let doc = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+        let (doc, _source) = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
-            .expect("parse_bytes should succeed");
+            .expect("parse_bytes should succeed")
+            .into_parts();
 
         // Allow spawned tasks to submit to IO and be recorded
         sleep(Duration::from_millis(10)).await;
@@ -675,10 +760,12 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,
             Arc::new(Mutex::new(Default::default())),
+            false,
         );
 
         let (req, handle) = test_request("https://example.com/");
@@ -713,10 +800,12 @@ mod tests {
         let zone_id = ZoneId::new();
         let mut pipeline = HtmlPipelineImpl::<DefaultRenderConfig>::new(
             zone_id,
+            TabId::new(),
             io_tx,
             None,
             10 * 1024 * 1024,
             Arc::new(Mutex::new(Default::default())),
+            false,
         );
 
         let (req, handle) = test_request("https://example.com/");

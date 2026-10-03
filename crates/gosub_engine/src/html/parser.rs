@@ -74,6 +74,11 @@ pub struct HtmlParseConfig {
     /// parser's own blocking `net.fetch.css` are recorded. `None` for parses with no
     /// navigation behind them; those samples stay unattributed rather than misfiled.
     pub timing_scope: Option<gosub_shared::timing::ScopeId>,
+    /// Also return the document's source text, for an engine that will hand it
+    /// to a renderer process (which re-parses; a DOM cannot cross a fork by
+    /// value). Off by default - retaining a copy of every document would tax
+    /// engines that render in-process.
+    pub capture_source: bool,
 }
 
 impl Default for HtmlParseConfig {
@@ -83,6 +88,7 @@ impl Default for HtmlParseConfig {
             max_bytes: 10 * 1024 * 1024,
             stylesheets: None,
             timing_scope: None,
+            capture_source: false,
         }
     }
 }
@@ -101,7 +107,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     cancel: CancellationToken,
     cfg: HtmlParseConfig,
     mut on_discover: F,
-) -> Result<EngineDocument<C>, DocumentError>
+) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>), DocumentError>
 where
     C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
@@ -144,7 +150,8 @@ where
         }
     }
 
-    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    // Lossy UTF-8 for the fast resource-discovery regex scan; the parse below
+    // decodes properly.
     let html_lossy = String::from_utf8_lossy(&buf);
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
@@ -162,6 +169,12 @@ where
         tmp.read_from_bytes(&buf)?;
         tmp.detect_encoding()
     };
+    // Decoded the way the parse below decodes, so the renderer process re-parses
+    // the same text this process would have: a UTF-16 page read as lossy UTF-8
+    // would be nothing but replacement characters.
+    let source = cfg
+        .capture_source
+        .then(|| std::sync::Arc::<str>::from(decode_source(&buf, &encoding)));
     // The parse below is synchronous, and because the parser fetches external stylesheets
     // inline it can sit still for as long as a server cares to stay silent. Run on a
     // runtime worker, that starves every task the worker owns -- and always at least one:
@@ -201,21 +214,37 @@ where
     // No blocking pool on wasm, and no worker to starve either: nothing else was going to
     // run on that thread anyway.
     #[cfg(target_arch = "wasm32")]
-    {
-        parse()
-    }
+    let parsed = parse();
     #[cfg(not(target_arch = "wasm32"))]
-    {
-        match tokio::task::spawn_blocking(parse).await {
-            Ok(result) => result,
-            // The pool cancels its tasks at runtime shutdown, which is a cancelled
-            // navigation by another name; a panic in the parser is not, but there is no
-            // document either way.
-            Err(e) => {
-                log::error!("HTML parse task failed: {e}");
-                Err(DocumentError::Cancelled)
-            }
+    let parsed = match tokio::task::spawn_blocking(parse).await {
+        Ok(result) => result,
+        // The pool cancels its tasks at runtime shutdown, which is a cancelled
+        // navigation by another name; a panic in the parser is not, but there is no
+        // document either way.
+        Err(e) => {
+            log::error!("HTML parse task failed: {e}");
+            Err(DocumentError::Cancelled)
         }
+    };
+    parsed.map(|doc| (doc, source))
+}
+
+/// The document's text as the parser reads it: UTF-16 when the detection said so,
+/// UTF-8 otherwise (the only other encoding the parser decodes), minus a BOM.
+fn decode_source(bytes: &[u8], encoding: &Encoding) -> String {
+    let utf16 = |bytes: &[u8], unit: fn([u8; 2]) -> u16| -> String {
+        let bytes = bytes
+            .strip_prefix(&[0xFF, 0xFE])
+            .or_else(|| bytes.strip_prefix(&[0xFE, 0xFF]))
+            .unwrap_or(bytes);
+        // A trailing odd byte is dropped, as `from_utf16_lossy` could not use it anyway.
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| unit(*pair)).collect();
+        String::from_utf16_lossy(&units)
+    };
+    match encoding {
+        Encoding::UTF16LE => utf16(bytes, u16::from_le_bytes),
+        Encoding::UTF16BE => utf16(bytes, u16::from_be_bytes),
+        _ => String::from_utf8_lossy(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes)).into_owned(),
     }
 }
 
@@ -382,6 +411,23 @@ fn decode_ampersands(url: &str) -> std::borrow::Cow<'_, str> {
 mod tests {
     use super::*;
 
+    /// The source handed to a renderer process is the text the parser read, BOM
+    /// and all encodings it knows accounted for.
+    #[test]
+    fn the_captured_source_is_decoded_like_the_parse() {
+        let text = "<p>héllo</p>";
+        let mut le = vec![0xFF, 0xFE];
+        le.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let mut be = vec![0xFE, 0xFF];
+        be.extend(text.encode_utf16().flat_map(u16::to_be_bytes));
+        let mut utf8 = b"\xEF\xBB\xBF".to_vec();
+        utf8.extend_from_slice(text.as_bytes());
+
+        assert_eq!(decode_source(&le, &Encoding::UTF16LE), text);
+        assert_eq!(decode_source(&be, &Encoding::UTF16BE), text);
+        assert_eq!(decode_source(&utf8, &Encoding::UTF8), text);
+    }
+
     #[test]
     fn an_escaped_ampersand_does_not_reach_the_network() {
         let base = Url::parse("https://en.wikipedia.org/wiki/BASIC").unwrap();
@@ -444,7 +490,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        parse_main_document_stream::<DefaultRenderConfig, _, _>(
+        let (_doc, _) = parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -481,6 +527,7 @@ mod tests {
                 |_| {},
             )
         };
+        let parse = |html: String| async { parse(html).await.map(|(doc, _source)| doc) };
 
         let quirks = parse(format!("<html><body>{body}</body></html>")).await.unwrap();
         assert_eq!(quirks.quirks_mode(), QuirksMode::Quirks);

@@ -262,6 +262,10 @@ impl NetObserver for EngineEventEmitter {
             NetEvent::Failed { url, error } => {
                 self.report_failure(url.to_string(), classify(&error), error);
             }
+            // A preflight is an internal hop of a CORS request, not a resource.
+            NetEvent::CorsPreflight { url } => {
+                log::trace!("CORS preflight for {url}");
+            }
             NetEvent::Cancelled { url, reason } => {
                 REF_REGISTRY.forget_request(self.req_id);
                 self.emit(ResourceEvent::Cancelled {

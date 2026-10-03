@@ -159,14 +159,23 @@ pub fn lock_down_vault() {
     imp::lock_down_vault();
 }
 
-/// Confine a renderer whose font system must read font files (fontconfig
-/// stacks consult the filesystem while shaping; no warm-up covers it): the
-/// renderer profile plus read-only, Landlock-scoped access to `fs_allow` -
-/// pass [`font_filesystem_paths`]. Linux only. Fail-closed on the seccomp
-/// install; the Landlock portion is best-effort like the other roles.
+/// Scope the filesystem of a renderer whose font system must read font files
+/// (fontconfig stacks consult the filesystem while shaping; no warm-up covers
+/// it) to `fs_allow` - pass [`font_filesystem_paths`] read-only, plus a
+/// writable scratch. Landlock, so it binds the calling thread and the threads
+/// created after it: call while the process is still one thread, before the
+/// font system. Fail-closed: without Landlock the role exits. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
-    imp::lock_down_renderer_with_font_access(fs_allow);
+pub fn scope_renderer_font_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
+    imp::scope_renderer_font_filesystem(fs_allow);
+}
+
+/// The seccomp half of that renderer's confinement: the renderer profile
+/// plus the file-reading syscalls, over every thread. Call after
+/// [`scope_renderer_font_filesystem`]. Linux only. Fail-closed on the install.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn lock_down_renderer_with_font_access() {
+    imp::lock_down_renderer_with_font_access();
 }
 
 /// The read-only paths [`lock_down_renderer_with_font_access`] normally wants:
@@ -373,6 +382,41 @@ pub fn reap_child(pid: i32) -> std::io::Result<i32> {
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn reap_exited_children() -> Vec<(i32, i32)> {
     imp::reap_exited_children()
+}
+
+/// End this process with `SIGALRM` once `after` has passed, if it has not exited
+/// by then: a forked renderer's bound on itself. A page that loops layout or
+/// raster forever would otherwise hold its parent in a relay that never ends,
+/// and the parent has no business being able to `kill` anything. Resets
+/// `SIGALRM` to its default action (terminate) so nothing inherited can catch it.
+/// Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
+    imp::arm_deadline(after)
+}
+
+/// Cancel a deadline from [`arm_deadline`]: the bounded work finished. A
+/// resident renderer arms one per request and disarms it after. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn disarm_deadline() {
+    imp::disarm_deadline();
+}
+
+/// Parent-side confinement for a child this process did not spawn itself but
+/// knows by pid - a renderer the fork server forked and announced: the same
+/// best-effort cgroup memory and task bounds [`confine_spawned_child`]
+/// applies, so it does not share its parent's leaf. A no-op outside Linux.
+#[cfg(feature = "multi-process")]
+pub fn confine_child_pid(pid: u32, data_limit: u64, max_tasks: u32) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        imp::confine_spawned_child(pid, data_limit, max_tasks)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, data_limit, max_tasks);
+        Ok(())
+    }
 }
 
 /// Exit immediately without running destructors or `atexit` handlers - the only

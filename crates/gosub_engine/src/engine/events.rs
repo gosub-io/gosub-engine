@@ -122,10 +122,17 @@ impl Display for Modifiers {
 pub enum IoCommand {
     Fetch {
         zone_id: ZoneId,
+        tab_id: Option<TabId>,
         req: FetchRequest,
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
+    /// The tab now shows `url`: requests it makes from here on belong to that
+    /// document. Sent through the same queue as the tab's fetches, so a request
+    /// queued before a navigation keeps the old document's cookie context and one
+    /// queued after it gets the new one - the registry is only ever read in that
+    /// order (see `net::tab_identity`).
+    SetTopLevel { tab_id: TabId, url: url::Url },
     /// Return a decision on a pending request. Tokens are process-wide unique,
     /// so no zone id is needed to route them.
     Decision { token: DecisionToken, action: Action },
@@ -838,6 +845,17 @@ pub enum EngineEvent {
     TabCrashed {
         tab_id: TabId,
         zone_id: ZoneId,
+        error: String,
+    },
+    /// A renderer process could not render a tab's page. Page content is
+    /// never rendered in-process once isolation is on, so the tab stays
+    /// blank until a render succeeds again; an embedder may want to show
+    /// something meanwhile.
+    RendererCrashed {
+        zone_id: ZoneId,
+        /// The (scheme + eTLD+1) site the process served.
+        site: String,
+        tabs: Vec<TabId>,
         error: String,
     },
     // Uncategorized / generic
