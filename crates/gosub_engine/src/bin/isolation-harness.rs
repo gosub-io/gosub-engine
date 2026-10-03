@@ -3866,6 +3866,13 @@ fn engine_stress<F: FontSystem + Default>() -> i32 {
                 return 1;
             };
             tokio::spawn(run);
+            // Every component this run is meant to stress must be there: the
+            // engine falls back in-process when one cannot start, and a run
+            // that passed without the network process would prove nothing.
+            if engine.audit_net_process().await.is_none() {
+                eprintln!("network isolation did not start");
+                return 1;
+            }
             let Some(pool) = engine.renderer_pool().cloned() else {
                 eprintln!("renderer isolation did not start");
                 return 1;
