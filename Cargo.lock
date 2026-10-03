@@ -400,7 +400,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "x11rb",
 ]
 
@@ -3097,9 +3097,9 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.7.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41736cf18a0dabae8a606df004cbcbe0d0f1d0337d0d20bbf5745a3741a868bb"
+checksum = "dbec1e80f4a6dae465e34e29fa8a96b49cc1688a29ca6a4a2eccb77c6f3f55e5"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5988,7 +5988,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6536,7 +6536,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
