@@ -3679,14 +3679,27 @@ fn escape_audit<F: FontSystem + Default>() -> i32 {
                     }
                 }
             }
-            // Touch storage so its service is spawned (it starts lazily).
+            // Touch storage so its service is spawned (it starts lazily). The
+            // call is round-tripped, so the service is up when it returns.
             let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map(|u| u.origin());
             if let Ok(origin) = origin {
                 if let Ok(area) = storage.local_for(zone.id, &gosub_engine::storage::PartitionKey::None, &origin) {
                     let _ = area.set_item("audit", "1");
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            // `Finished` is the document; the remote render that puts a
+            // resident renderer in the pool may still be in flight, and the
+            // audit below has to find it.
+            if let Some(pool) = engine.renderer_pool() {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+                while pool.snapshot().is_empty() {
+                    if tokio::time::Instant::now() >= deadline {
+                        eprintln!("no resident renderer appeared for the page");
+                        return 1;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
 
             let mut reports: Vec<(String, Option<AuditReport>)> = Vec::new();
             reports.push(("net".into(), engine.audit_net_process().await));
