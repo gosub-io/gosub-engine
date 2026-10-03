@@ -82,8 +82,8 @@ const EXCHANGE_DEADLINE: Duration = Duration::from_secs(600);
 /// Longest title kept; `link`/`image`/favicon URLs are bounded by
 /// [`MAX_HIT_TEXT`] and dropped whole past it.
 const MAX_TITLE: usize = 1024;
-/// A form body an input pass may hand over; a longer one is cut, and the
-/// broker refuses a submission that was cut (see the tab worker).
+/// A form body an input pass may hand over. A longer one drops the whole
+/// submission: cut, it would be a different form.
 const MAX_FORM_BODY: usize = 1024 * 1024;
 /// Text a page may put on the clipboard in one go.
 const MAX_CLIPBOARD_TEXT: usize = 1024 * 1024;
@@ -557,10 +557,13 @@ fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
             Effect::Navigate { url, body, .. } => {
                 let mut candidate = Some(std::mem::take(url));
                 drop_long_url(&mut candidate);
-                *url = candidate.unwrap_or_default();
-                if let Some(body) = body {
-                    bound_text(body, MAX_FORM_BODY);
+                // A body past the bound is not cut: the whole navigation goes,
+                // like a URL past its bound, by emptying what the retain below
+                // checks.
+                if body.as_ref().is_some_and(|b| b.len() > MAX_FORM_BODY) {
+                    candidate = None;
                 }
+                *url = candidate.unwrap_or_default();
             }
             Effect::Picker {
                 value, min, max, step, ..
@@ -574,7 +577,7 @@ fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
             Effect::Focus { .. } | Effect::Cursor { .. } | Effect::PasteRequested | Effect::Capture { .. } => {}
         }
     }
-    // A navigation whose URL was dropped for its length is no navigation.
+    // A navigation whose URL or body was dropped for its length is no navigation.
     effects.retain(|effect| !matches!(effect, Effect::Navigate { url, .. } if url.is_empty()));
     Ok(())
 }
@@ -1385,6 +1388,82 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What an input pass may ask for is bounded like a hit region: over the cap
+    /// is a crash, a long URL or an oversized body drops the navigation whole,
+    /// a non-finite rectangle drops its effect, display strings are cut.
+    #[test]
+    fn effects_are_bounded_before_the_broker_sees_them() {
+        use crate::fork_server::protocol::{Effect, HitCursor, WireRect, MAX_EFFECTS};
+
+        let mut too_many: Vec<Effect> = (0..=MAX_EFFECTS).map(|_| Effect::PasteRequested).collect();
+        assert!(
+            bound_effects(&mut too_many).is_err(),
+            "over the cap is a renderer gone wrong"
+        );
+
+        let rect = WireRect {
+            x: 1.0,
+            y: 2.0,
+            width: 3.0,
+            height: 4.0,
+        };
+        let mut effects = vec![
+            Effect::Navigate {
+                url: "https://a.test/ok".into(),
+                post: true,
+                body: Some("a=1".into()),
+            },
+            Effect::Navigate {
+                url: format!("https://a.test/{}", "x".repeat(MAX_HIT_TEXT)),
+                post: false,
+                body: None,
+            },
+            Effect::Navigate {
+                url: "https://a.test/big".into(),
+                post: true,
+                body: Some("b".repeat(MAX_FORM_BODY + 1)),
+            },
+            Effect::Focus {
+                focused: true,
+                editable: true,
+                bounds: Some(WireRect { x: f64::NAN, ..rect }),
+            },
+            Effect::Picker {
+                kind: crate::engine::events::PickerKind::Date,
+                bounds: rect,
+                value: "v".repeat(MAX_HIT_TEXT + 5),
+                min: None,
+                max: None,
+                step: None,
+            },
+            Effect::Cursor {
+                cursor: HitCursor::Text,
+            },
+        ];
+        bound_effects(&mut effects).expect("a bounded list passes");
+        let kept: Vec<String> = effects
+            .iter()
+            .map(|e| match e {
+                Effect::Navigate { url, body, .. } => {
+                    format!("nav {url} body={}", body.as_ref().map_or(0, String::len))
+                }
+                Effect::Focus { .. } => "focus".into(),
+                Effect::Picker { value, .. } => format!("picker {}", value.len()),
+                Effect::Cursor { .. } => "cursor".into(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            vec![
+                "nav https://a.test/ok body=3".to_string(),
+                format!("picker {MAX_HIT_TEXT}"),
+                "cursor".to_string(),
+            ],
+            "the long URL, the oversized body and the NaN focus rectangle are gone; the rest is cut, not dropped"
+        );
+    }
     use crate::fork_server::protocol::{HitCursor, TileHeader, TileWireAnchor, TileWireFormat, MAX_HIT_TEXT_TOTAL};
 
     fn region(link: Option<String>) -> HitRegion {
