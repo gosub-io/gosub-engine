@@ -232,6 +232,22 @@ const MAX_COOKIES_PER_ORIGIN: usize = 180;
 /// so the per-origin cap alone bounded nothing; in the vault every change
 /// ships the whole jar, and past the link's frame cap nothing persists.
 const MAX_COOKIES_TOTAL: usize = 3000;
+/// ...and at most this many bytes of them. A count alone does not bound the
+/// jar's serialized size: a `Set-Cookie` line is up to 4 KiB and the default
+/// path, taken from the URL, is outside that line's limit, so 3000 cookies
+/// could outgrow the 16 MiB frame the vault's snapshot travels in. Half of
+/// it, with the rest for the framing.
+const MAX_JAR_BYTES: usize = 8 * 1024 * 1024;
+
+/// What a cookie costs in the jar's serialized form, near enough: its
+/// strings plus a fixed share for the flags and times.
+fn cookie_bytes(cookie: &Cookie) -> usize {
+    cookie.name.len()
+        + cookie.value.len()
+        + cookie.path.as_deref().map_or(0, str::len)
+        + cookie.domain.as_deref().map_or(0, str::len)
+        + 64
+}
 
 /// Default cookie jar which holds cookies for a single zone.
 ///
@@ -293,14 +309,20 @@ impl DefaultCookieJar {
     /// Past [`MAX_COOKIES_TOTAL`], expired cookies go first, then the oldest
     /// live ones anywhere in the jar, as browsers evict.
     fn enforce_total_cap(&mut self, now: i64) {
-        let total = |entries: &HashMap<String, Vec<Cookie>>| entries.values().map(Vec::len).sum::<usize>();
-        if total(&self.entries) <= MAX_COOKIES_TOTAL {
+        let over = |entries: &HashMap<String, Vec<Cookie>>| {
+            let (count, bytes) = entries
+                .values()
+                .flatten()
+                .fold((0usize, 0usize), |(n, b), c| (n + 1, b + cookie_bytes(c)));
+            count > MAX_COOKIES_TOTAL || bytes > MAX_JAR_BYTES
+        };
+        if !over(&self.entries) {
             return;
         }
         for bucket in self.entries.values_mut() {
             bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
         }
-        while total(&self.entries) > MAX_COOKIES_TOTAL {
+        while over(&self.entries) {
             let Some((origin, index)) = self
                 .entries
                 .iter()
@@ -1215,6 +1237,53 @@ mod tests {
                 .as_deref(),
             Some("t=1"),
             "Max-Age must override a past Expires date"
+        );
+    }
+
+    /// A count is not a size: big cookies hit the byte budget first, and the
+    /// jar stays well inside the frame its snapshot travels in.
+    #[test]
+    fn the_jar_is_bounded_in_bytes_too() {
+        let mut jar = DefaultCookieJar::new();
+        let value = "v".repeat(4000);
+        for i in 0..MAX_COOKIES_TOTAL {
+            let req = url(&format!("https://o{i}.test/"));
+            jar.store_response_cookies(&req, &headers(&[&format!("c={value}; Path=/")]), None);
+        }
+        let bytes: usize = jar.entries.values().flatten().map(cookie_bytes).sum();
+        let count: usize = jar.entries.values().map(Vec::len).sum();
+        assert!(bytes <= MAX_JAR_BYTES, "{bytes} bytes kept");
+        assert!(count < MAX_COOKIES_TOTAL, "the byte budget bit first: {count} kept");
+        assert!(count > 1000, "and still holds a jar's worth: {count}");
+    }
+
+    /// A restored origin already past the per-origin limit comes down to it
+    /// on the next store, not down by one.
+    #[test]
+    fn an_over_full_origin_shrinks_to_the_limit() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        let bucket = jar.entries.entry(req.origin().ascii_serialization()).or_default();
+        for i in 0..MAX_COOKIES_PER_ORIGIN + 40 {
+            bucket.push(crate::engine::cookies::Cookie {
+                name: format!("old{i}"),
+                value: "1".into(),
+                path: Some("/".into()),
+                domain: None,
+                secure: false,
+                expires: None,
+                same_site: None,
+                http_only: false,
+                created_at: i as i64,
+            });
+        }
+        jar.store_response_cookies(&req, &headers(&["fresh=1; Path=/"]), None);
+        let bucket = &jar.entries[&req.origin().ascii_serialization()];
+        assert_eq!(bucket.len(), MAX_COOKIES_PER_ORIGIN);
+        assert!(bucket.iter().any(|c| c.name == "fresh"));
+        assert!(
+            bucket.iter().all(|c| c.name == "fresh" || c.created_at >= 41),
+            "the oldest went"
         );
     }
 
