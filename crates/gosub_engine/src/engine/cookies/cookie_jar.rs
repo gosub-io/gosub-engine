@@ -535,15 +535,18 @@ impl CookieJar for DefaultCookieJar {
                 if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
                     bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
                 }
-                if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
-                    if let Some(oldest) = bucket
+                // Until there is room, not once: a restored jar may hold more
+                // than the limit already.
+                while bucket.len() >= MAX_COOKIES_PER_ORIGIN {
+                    let Some(oldest) = bucket
                         .iter()
                         .enumerate()
                         .min_by_key(|(_, c)| c.created_at)
                         .map(|(i, _)| i)
-                    {
-                        bucket.remove(oldest);
-                    }
+                    else {
+                        break;
+                    };
+                    bucket.remove(oldest);
                 }
                 cookie.created_at = Utc::now().timestamp_millis();
                 bucket.push(cookie);
