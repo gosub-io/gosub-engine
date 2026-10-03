@@ -429,6 +429,11 @@ impl CookieVault {
             return;
         }
         self.ensure_alive();
+        // The credit goes in before the send: the reader thread may hold the
+        // vault's snapshot before `send` has even returned, and would drop it
+        // as unasked-for. A send that fails takes the credit back, since one
+        // left over would admit an unasked-for snapshot later.
+        self.expect_snapshot(zone);
         let sent = self.tx.lock().send(&ToVault::Store {
             tag: 0,
             scope: CookieScope {
@@ -441,11 +446,9 @@ impl CookieVault {
             url: url.to_string(),
             set_cookie,
         });
-        // A credit only for a mutation that reached the vault: one left over
-        // from a failed send would admit an unasked-for snapshot later.
-        match sent {
-            Ok(()) => self.expect_snapshot(zone),
-            Err(e) => log::warn!("cookie store for zone {zone} did not reach the vault: {e}"),
+        if let Err(e) = sent {
+            self.withdraw_snapshot(zone);
+            log::warn!("cookie store for zone {zone} did not reach the vault: {e}");
         }
     }
 
@@ -476,9 +479,18 @@ impl CookieVault {
         let _ = self.tx.lock().send(&ToVault::Revoke { ticket: scope.ticket });
     }
 
-    /// A mutation sent from this side is answered by one snapshot.
+    /// A mutation sent from this side is answered by one snapshot. Credited
+    /// before the send, never after: the reader thread persists the answer
+    /// the moment it arrives, and checks the credit then.
     fn expect_snapshot(&self, zone: &str) {
         self.activity.lock().entry(zone.to_string()).or_default().credits += 1;
+    }
+
+    /// The mutation never left, so its snapshot is not coming.
+    fn withdraw_snapshot(&self, zone: &str) {
+        if let Some(zone) = self.activity.lock().get_mut(zone) {
+            zone.credits = zone.credits.saturating_sub(1);
+        }
     }
 
     fn get_all(&self, zone: &str) -> Vec<(String, String)> {
@@ -500,9 +512,10 @@ impl CookieVault {
         | ToVault::PurgeExpired { zone } = &msg
         {
             let zone = zone.clone();
-            match self.tx.lock().send(&msg) {
-                Ok(()) => self.expect_snapshot(&zone),
-                Err(e) => log::warn!("cookie mutation for zone {zone} did not reach the vault: {e}"),
+            self.expect_snapshot(&zone);
+            if let Err(e) = self.tx.lock().send(&msg) {
+                self.withdraw_snapshot(&zone);
+                log::warn!("cookie mutation for zone {zone} did not reach the vault: {e}");
             }
             return;
         }
