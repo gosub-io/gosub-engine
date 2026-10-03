@@ -41,9 +41,12 @@ commit's subject on this branch.
   cross-site form reaches it with the server's name as `Host`.
 - **A page could log the user out of every other site in the zone** (medium).
   The jar-wide cookie cap evicted the oldest cookie anywhere; a page naming
-  3000 of its own subdomains was the newest. Eviction now takes from the origin
-  being written, then the registrable domain holding the most cookies, then
-  the oldest anywhere (RFC 6265 §5.3 step 12).
+  3000 of its own subdomains was the newest. Eviction now takes from the
+  registrable domain holding the most cookies: the origin being written when
+  it sits in that domain (RFC 6265 §5.3 step 12), else that domain's oldest.
+  Never the writer's domain merely because it wrote; at a cap a flooder
+  filled, a victim's own write would otherwise evict the victim's session.
+  The jar is also bounded in bytes, every string a cookie carries counted.
 - **A local page could have the broker read a device file without end**
   (high, DoS; also on the in-process path). `<img src="file:///dev/zero">`
   from any local HTML file. The file loader serves regular files only, up to
