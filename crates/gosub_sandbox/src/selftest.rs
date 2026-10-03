@@ -1076,7 +1076,7 @@ fn run_platform_probe(probe: &str) {
         let control_ok = std::fs::write(&outside, b"pre").is_ok();
         let _ = std::fs::remove_file(&outside);
 
-        crate::lock_down_broker();
+        crate::lock_down_broker(&[]);
 
         let inside_ok = std::fs::write(&inside, b"x").is_ok();
         let _ = std::fs::remove_file(&inside);
@@ -1104,7 +1104,7 @@ fn run_platform_probe(probe: &str) {
     // succeed, so surviving the call means the deny-list did not bind. The
     // positive case is the multi-process demo itself (spawns, execs, opens).
     if probe == "broker-seccomp" {
-        crate::lock_down_broker();
+        crate::lock_down_broker(&[]);
         // SAFETY: a plain ptrace request; the point is that the syscall is trapped
         // before it returns, not what it would have done.
         unsafe { libc::ptrace(libc::PTRACE_TRACEME, 0, 0, 0) };
@@ -1118,7 +1118,7 @@ fn run_platform_probe(probe: &str) {
     // so a raw call to it is a fatal `SIGSYS`; reaching the line past it means the
     // new mount API was left open, and we exit non-zero to say so.
     if probe == "broker-seccomp-mount" {
-        crate::lock_down_broker();
+        crate::lock_down_broker(&[]);
         // SAFETY: a raw `fsopen` with a dummy fs name; the point is that the
         // syscall traps before it returns, not what it would have opened.
         let name = b"tmpfs\0";
@@ -1133,7 +1133,7 @@ fn run_platform_probe(probe: &str) {
     // deny-list closes its setup call: a raw `io_uring_setup` is a fatal
     // `SIGSYS`, and reaching the line past it means the ring could be built.
     if probe == "broker-seccomp-io-uring" {
-        crate::lock_down_broker();
+        crate::lock_down_broker(&[]);
         // SAFETY: a raw `io_uring_setup` with a null params pointer; the point
         // is that the syscall traps before it returns.
         unsafe { libc::syscall(libc::SYS_io_uring_setup, 1u32, std::ptr::null_mut::<libc::c_void>()) };

@@ -1,18 +1,17 @@
-//! A **cookie jar** holds all cookies belonging to a single zone; the engine passes
-//! request/response metadata to the jar so it can update and query cookies.
+//! A cookie jar holds all cookies belonging to a single zone.
 //!
 //! [`CookieJar`] is the trait; [`DefaultCookieJar`] is the reference implementation,
-//! which stores cookies **in memory only** (no persistence) and parses a subset of
-//! RFC 6265 `Set-Cookie` semantics.
+//! which stores cookies in memory only and parses a subset of RFC 6265 `Set-Cookie`
+//! semantics.
 //!
-//! ## Notes & limitations
-//! - The attributes `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`,
-//!   `HttpOnly`, and `SameSite` are parsed and enforced; expired cookies are
-//!   filtered on read and can be removed via [`CookieJar::purge_expired`].
-//!   Priorities, size limits, and eviction policies are not (yet) implemented.
-//! - Cookies are bucketed by **origin** (`url.origin().ascii_serialization()`).
-//!   Within a bucket, simple host/subdomain and path prefix checks are applied.
-//! - This module is **not** internally synchronized. Use it via a
+//! ## Limitations
+//! - `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`, `HttpOnly`, and `SameSite`
+//!   are parsed and enforced; expired cookies are filtered on read and removed via
+//!   [`CookieJar::purge_expired`]. A `Set-Cookie` line over 4096 bytes is
+//!   ignored, and an origin keeps at most 180 cookies: expired ones make room
+//!   first, then the oldest. Priorities are not implemented.
+//! - Cookies are bucketed by origin (`url.origin().ascii_serialization()`).
+//! - This module is not internally synchronized. Use it via a
 //!   `CookieJarHandle = Arc<RwLock<dyn CookieJar + Send + Sync>>`.
 //!
 //! See also: RFC 6265bis (HTTP State Management Mechanism).
@@ -161,18 +160,10 @@ pub enum SameSiteContext {
 
 /// A cookie jar keeps the cookies for one single zone.
 ///
-/// Types implementing this trait should encapsulate storage, retrieval, and
-/// mutation of cookies according to the URL/headers they receive.
-///
-/// ### Third-party context
-/// Both `store_response_cookies` and `get_request_cookies` accept an optional
-/// `top_level` URL representing the page that initiated the request. When present,
-/// implementations can use it to distinguish first-party from third-party requests
-/// and apply the appropriate cookie policy.
-///
-/// ### Type erasure
-/// `as_any` / `as_any_mut` enable downcasting when callers need access to
-/// concrete implementations (e.g., for snapshotting/persistence).
+/// The optional `top_level` URL on `store_response_cookies` / `get_request_cookies`
+/// is the page that initiated the request; implementations use it to apply
+/// third-party cookie policy. `as_any` / `as_any_mut` enable downcasting to
+/// concrete implementations (e.g. for snapshotting/persistence).
 pub trait CookieJar: Send + Sync {
     /// Returns a type-erased reference to the jar.
     fn as_any(&self) -> &dyn Any;
@@ -180,34 +171,19 @@ pub trait CookieJar: Send + Sync {
     /// Returns a mutable type-erased reference to the jar.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Stores cookies found in response `headers` for the given `url`.
-    ///
-    /// `top_level` is the URL of the page that triggered the request (tab's current
-    /// URL). When `Some`, implementations may enforce third-party cookie policy
-    /// (e.g., block storage when the request is cross-site).
-    ///
-    /// Implementations typically parse all `Set-Cookie` headers and update
-    /// existing entries using "last write wins" semantics when names collide.
+    /// Stores cookies found in response `headers` for the given `url`; name
+    /// collisions are last-write-wins.
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap, top_level: Option<&Url>);
 
-    /// Returns the `Cookie` request header value to send for `url`, if any.
-    ///
-    /// `top_level` is the URL of the page that triggered the request (tab's current
-    /// URL). When `Some`, implementations should enforce third-party cookie policy.
-    ///
-    /// `samesite` encodes the request's cross-site context and drives enforcement of
-    /// the `SameSite` cookie attribute per RFC 6265bis.
-    ///
-    /// Implementations should also filter by domain, path, and the `Secure` flag.
-    /// Returns `None` when no cookies match the request.
+    /// Returns the `Cookie` request header value to send for `url`, or `None` when
+    /// no cookies match. `samesite` encodes the request's cross-site context for
+    /// `SameSite` attribute enforcement per RFC 6265bis.
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String>;
 
     /// Removes all cookies from the jar.
     fn clear(&mut self);
 
-    /// Retrieves all cookies grouped by origin, formatted as `"name=value"` pairs.
-    ///
-    /// This is primarily intended for diagnostics/inspection.
+    /// All cookies grouped by origin as `"name=value"` pairs; for diagnostics/inspection.
     fn get_all_cookies(&self) -> Vec<(Url, String)>;
 
     /// Removes a single cookie with `cookie_name` associated with `url`.
@@ -216,41 +192,45 @@ pub trait CookieJar: Send + Sync {
     /// Removes all cookies associated with `url` (bucketed by its origin).
     fn remove_cookies_for_url(&mut self, url: &Url);
 
-    /// Removes all cookies whose expiry timestamp is in the past.
-    ///
-    /// Session cookies (`expires == None`) are never removed by this call.
-    /// Useful on jar load and for periodic cleanup to bound memory growth.
+    /// Removes all cookies whose expiry timestamp is in the past. Session cookies
+    /// (`expires == None`) are never removed.
     fn purge_expired(&mut self);
 }
 
-/// Default cookie jar which holds cookies for a single zone.
-///
-/// This implementation is **in-memory only** and performs **no persistence**.
-/// Cookies are stored per **origin** (`scheme://host:port`) and matched to
-/// requests via basic domain/path rules.
-///
-/// ### Third-party policy
-/// When `top_level` is provided to `get_request_cookies` or `store_response_cookies`,
-/// the `third_party_policy` field controls cross-site behavior:
-/// - `Allow` - legacy behavior, all cookies pass through.
-/// - `Block` - no cookies are sent or stored for third-party requests.
-/// - `SameSiteNoneOnly` - only `SameSite=None; Secure` cookies are allowed in
-///   third-party context.
-///
-/// ### Parsing behavior
-/// - Accepts multiple `Set-Cookie` headers.
-/// - Attributes handled: `Path`, `Domain` (leading dot stripped), `Expires`
-///   (parsed into a unix timestamp), `SameSite` (`Strict`/`Lax`/`None`, case-insensitive),
-///   `Secure`, `HttpOnly`.
-/// - If `Path` is absent, a default path is derived from the request URL.
-/// - Expired cookies are filtered out on read; [`Self::purge_expired`] removes them
-///   from the jar.
+/// RFC 6265bis limits: a cookie line over this is ignored, an origin keeps
+/// at most this many.
+const MAX_COOKIE_BYTES: usize = 4096;
+const MAX_COOKIES_PER_ORIGIN: usize = 180;
+/// A jar keeps at most this many cookies over all origins (the order
+/// browsers use). Origins are unbounded - a page can name one per `<img>` -
+/// so the per-origin cap alone bounded nothing; in the vault every change
+/// ships the whole jar, and past the link's frame cap nothing persists.
+const MAX_COOKIES_TOTAL: usize = 3000;
+/// ...and at most this many bytes of them. A count alone does not bound the
+/// jar's serialized size: a `Set-Cookie` line is up to 4 KiB and the default
+/// path, taken from the URL, is outside that line's limit, so 3000 cookies
+/// could outgrow the 16 MiB frame the vault's snapshot travels in. Half of
+/// it, with the rest for the framing.
+const MAX_JAR_BYTES: usize = 8 * 1024 * 1024;
+
+/// What a cookie costs in the jar's serialized form, near enough: its
+/// strings plus a fixed share for the flags and times.
+fn cookie_bytes(cookie: &Cookie) -> usize {
+    cookie.name.len()
+        + cookie.value.len()
+        + cookie.path.as_deref().map_or(0, str::len)
+        + cookie.domain.as_deref().map_or(0, str::len)
+        + cookie.same_site.as_deref().map_or(0, str::len)
+        + 64
+}
+
+/// Default cookie jar: in-memory only, no persistence. Cookies are stored per
+/// origin (`scheme://host:port`) and matched to requests via basic domain/path
+/// rules; `third_party_policy` governs cross-site behavior when `top_level` is
+/// supplied. If `Path` is absent, a default path is derived from the request URL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultCookieJar {
-    /// Simple hashmap of cookies, bucketed by **origin**.
-    ///
-    /// Key: origin string from `Url::origin().ascii_serialization()`.
-    /// Value: vector of cookie records for that origin.
+    /// Cookie records keyed by origin (`Url::origin().ascii_serialization()`).
     pub entries: HashMap<String, Vec<Cookie>>,
 
     /// Policy applied when a cross-site `top_level` URL is detected.
@@ -276,6 +256,90 @@ impl DefaultCookieJar {
     pub fn with_policy(mut self, policy: ThirdPartyCookiePolicy) -> Self {
         self.third_party_policy = policy;
         self
+    }
+}
+
+impl DefaultCookieJar {
+    /// Past [`MAX_COOKIES_TOTAL`]: expired cookies go first; then the origin
+    /// that was just written gives up its oldest, then the registrable domain
+    /// holding the most cookies does, and only then the jar's oldest anywhere
+    /// (RFC 6265 §5.3 step 12's order). A page naming thousands of its own
+    /// subdomains therefore evicts itself, not every other site's session.
+    fn enforce_total_cap(&mut self, now: i64, written: &str) {
+        let over = |entries: &HashMap<String, Vec<Cookie>>| {
+            let (count, bytes) = entries
+                .values()
+                .flatten()
+                .fold((0usize, 0usize), |(n, b), c| (n + 1, b + cookie_bytes(c)));
+            count > MAX_COOKIES_TOTAL || bytes > MAX_JAR_BYTES
+        };
+        if !over(&self.entries) {
+            return;
+        }
+        for bucket in self.entries.values_mut() {
+            bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
+        }
+        let site_of = |origin: &str| -> String {
+            use psl::Psl as _;
+            let Ok(url) = Url::parse(origin) else {
+                return origin.to_string();
+            };
+            match url.host() {
+                Some(url::Host::Domain(name)) => psl::List
+                    .domain(name.as_bytes())
+                    .and_then(|d| std::str::from_utf8(d.as_bytes()).ok())
+                    .unwrap_or(name)
+                    .to_string(),
+                _ => url.host_str().unwrap_or(origin).to_string(),
+            }
+        };
+        while over(&self.entries) {
+            // The registrable domain holding the most cookies gives first;
+            // within it, the origin being written if that is where it sits
+            // (RFC 6265 §5.3 step 12), else the domain's oldest. Never the
+            // writer's domain merely because it wrote: at a cap a flooder
+            // filled, every write by a victim site would otherwise evict the
+            // victim's own session while the flood sat untouched.
+            let mut per_site: HashMap<String, usize> = HashMap::new();
+            for (origin, bucket) in &self.entries {
+                *per_site.entry(site_of(origin)).or_default() += bucket.len();
+            }
+            let Some(largest) = per_site
+                .into_iter()
+                .max_by_key(|(site, n)| (*n, site.clone()))
+                .map(|(s, _)| s)
+            else {
+                break;
+            };
+            let written_is_largest =
+                site_of(written) == largest && self.entries.get(written).is_some_and(|b| b.len() > 1);
+            let from = if written_is_largest {
+                Some(written.to_string())
+            } else {
+                self.entries
+                    .iter()
+                    .filter(|(origin, bucket)| !bucket.is_empty() && site_of(origin) == largest)
+                    .flat_map(|(origin, bucket)| bucket.iter().map(move |c| (c.created_at, origin.clone())))
+                    .min_by_key(|(created_at, origin)| (*created_at, origin.clone()))
+                    .map(|(_, origin)| origin)
+            };
+            let Some(origin) = from else {
+                break;
+            };
+            let Some(bucket) = self.entries.get_mut(&origin) else {
+                break;
+            };
+            let Some(oldest) = bucket
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, c)| c.created_at)
+                .map(|(i, _)| i)
+            else {
+                break;
+            };
+            bucket.remove(oldest);
+        }
+        self.entries.retain(|_, bucket| !bucket.is_empty());
     }
 }
 
@@ -306,7 +370,7 @@ impl CookieJar for DefaultCookieJar {
             .rsplit_once('/')
             .map_or("/", |(a, _)| if a.is_empty() { "/" } else { a });
 
-        let bucket = self.entries.entry(origin).or_default();
+        let bucket = self.entries.entry(origin.clone()).or_default();
 
         for header in headers.get_all("set-cookie") {
             // Use from_utf8 (not to_str) so that non-ASCII cookie values (e.g.
@@ -314,6 +378,10 @@ impl CookieJar for DefaultCookieJar {
             let Ok(header_str) = std::str::from_utf8(header.as_bytes()) else {
                 continue;
             };
+            // RFC 6265bis §5.6: a cookie past 4 KiB is ignored, not truncated.
+            if header_str.len() > MAX_COOKIE_BYTES {
+                continue;
+            }
             let Some((name, rest)) = header_str.split_once('=') else {
                 continue;
             };
@@ -465,10 +533,29 @@ impl CookieJar for DefaultCookieJar {
                 *existing = cookie;
                 existing.created_at = original_created_at;
             } else {
+                // Per-origin cap: expired cookies go first (they are never sent
+                // again), then the oldest live one makes room, as browsers do.
+                if bucket.len() >= MAX_COOKIES_PER_ORIGIN {
+                    bucket.retain(|c| c.expires.is_none_or(|exp| exp > now));
+                }
+                // Until there is room, not once: a restored jar may hold more
+                // than the limit already.
+                while bucket.len() >= MAX_COOKIES_PER_ORIGIN {
+                    let Some(oldest) = bucket
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, c)| c.created_at)
+                        .map(|(i, _)| i)
+                    else {
+                        break;
+                    };
+                    bucket.remove(oldest);
+                }
                 cookie.created_at = Utc::now().timestamp_millis();
                 bucket.push(cookie);
             }
         }
+        self.enforce_total_cap(Utc::now().timestamp(), &origin);
     }
 
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
@@ -1157,6 +1244,153 @@ mod tests {
             Some("t=1"),
             "Max-Age must override a past Expires date"
         );
+    }
+
+    /// A count is not a size: big cookies hit the byte budget first, and the
+    /// jar stays well inside the frame its snapshot travels in.
+    #[test]
+    fn the_jar_is_bounded_in_bytes_too() {
+        let mut jar = DefaultCookieJar::new();
+        // The bulk sits in an unrecognised SameSite value, which is kept
+        // verbatim, so every string the snapshot carries has to count.
+        let value = "v".repeat(2000);
+        for i in 0..MAX_COOKIES_TOTAL {
+            let req = url(&format!("https://o{i}.test/"));
+            let header = format!("c={value}; Path=/; SameSite={value}");
+            jar.store_response_cookies(&req, &headers(&[&header]), None);
+        }
+        let strings: usize = jar
+            .entries
+            .values()
+            .flatten()
+            .map(|c| {
+                c.name.len()
+                    + c.value.len()
+                    + c.path.as_deref().map_or(0, str::len)
+                    + c.domain.as_deref().map_or(0, str::len)
+                    + c.same_site.as_deref().map_or(0, str::len)
+            })
+            .sum();
+        let bytes: usize = jar.entries.values().flatten().map(cookie_bytes).sum();
+        let count: usize = jar.entries.values().map(Vec::len).sum();
+        assert!(bytes <= MAX_JAR_BYTES, "{bytes} bytes kept");
+        assert!(strings <= MAX_JAR_BYTES, "{strings} bytes of strings kept");
+        assert!(count < MAX_COOKIES_TOTAL, "the byte budget bit first: {count} kept");
+        assert!(count > 1000, "and still holds a jar's worth: {count}");
+    }
+
+    /// A restored origin already past the per-origin limit comes down to it
+    /// on the next store, not down by one.
+    #[test]
+    fn an_over_full_origin_shrinks_to_the_limit() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        let bucket = jar.entries.entry(req.origin().ascii_serialization()).or_default();
+        for i in 0..MAX_COOKIES_PER_ORIGIN + 40 {
+            bucket.push(crate::engine::cookies::Cookie {
+                name: format!("old{i}"),
+                value: "1".into(),
+                path: Some("/".into()),
+                domain: None,
+                secure: false,
+                expires: None,
+                same_site: None,
+                http_only: false,
+                created_at: i as i64,
+            });
+        }
+        jar.store_response_cookies(&req, &headers(&["fresh=1; Path=/"]), None);
+        let bucket = &jar.entries[&req.origin().ascii_serialization()];
+        assert_eq!(bucket.len(), MAX_COOKIES_PER_ORIGIN);
+        assert!(bucket.iter().any(|c| c.name == "fresh"));
+        assert!(
+            bucket.iter().all(|c| c.name == "fresh" || c.created_at >= 41),
+            "the oldest went"
+        );
+    }
+
+    /// Origins are unbounded, so the jar is capped as a whole: past the cap
+    /// the oldest cookie anywhere goes, whichever origin it belongs to.
+    /// Origins are unbounded, so the jar is capped as a whole - and a page
+    /// naming thousands of its own subdomains evicts its own cookies, not
+    /// every other site's session.
+    #[test]
+    fn the_jar_is_capped_over_all_origins_and_a_flooder_evicts_itself() {
+        let mut jar = DefaultCookieJar::new();
+        let bank = url("https://bank.test/");
+        jar.store_response_cookies(&bank, &headers(&["session=1; Path=/"]), None);
+        // Creation times are milliseconds: let the session be strictly older.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        for i in 0..MAX_COOKIES_TOTAL + 20 {
+            let req = url(&format!("https://s{i}.flood.test/"));
+            jar.store_response_cookies(&req, &headers(&["c=1; Path=/"]), None);
+        }
+        let total: usize = jar.entries.values().map(Vec::len).sum();
+        assert_eq!(total, MAX_COOKIES_TOTAL, "the jar holds at most the cap");
+        assert_eq!(
+            jar.get_request_cookies(&bank, None, SameSiteContext::SameSite)
+                .as_deref(),
+            Some("session=1"),
+            "the older session of another site survived the flood"
+        );
+        let last = url(&format!("https://s{}.flood.test/", MAX_COOKIES_TOTAL + 19));
+        assert_eq!(
+            jar.get_request_cookies(&last, None, SameSiteContext::SameSite)
+                .as_deref(),
+            Some("c=1"),
+            "the flooder keeps its newest"
+        );
+
+        // The victim keeps writing at the cap: its own cookies stay, the
+        // flood pays for each one.
+        jar.store_response_cookies(&bank, &headers(&["pref=dark; Path=/", "lang=nl; Path=/"]), None);
+        let banks = jar
+            .get_request_cookies(&bank, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        for name in ["session=1", "pref=dark", "lang=nl"] {
+            assert!(
+                banks.contains(name),
+                "{name} missing from {banks:?} after writing at the cap"
+            );
+        }
+        let total: usize = jar.entries.values().map(Vec::len).sum();
+        assert_eq!(total, MAX_COOKIES_TOTAL);
+    }
+
+    /// A full origin makes room from its expired cookies before it evicts a
+    /// live one.
+    #[test]
+    fn a_full_origin_drops_expired_cookies_before_live_ones() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        for i in 0..MAX_COOKIES_PER_ORIGIN - 1 {
+            jar.store_response_cookies(&req, &headers(&[&format!("live{i}=1; Path=/")]), None);
+        }
+        // The newest cookie, and already expired.
+        jar.entries
+            .entry(req.origin().ascii_serialization())
+            .or_default()
+            .push(crate::engine::cookies::Cookie {
+                name: "stale".into(),
+                value: "old".into(),
+                path: Some("/".into()),
+                domain: None,
+                secure: false,
+                expires: Some(1),
+                same_site: None,
+                http_only: false,
+                created_at: i64::MAX,
+            });
+        jar.store_response_cookies(&req, &headers(&["fresh=1; Path=/"]), None);
+
+        let cookies = jar
+            .get_request_cookies(&req, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        assert!(
+            cookies.contains("live0=1"),
+            "a live cookie was evicted while an expired one stayed"
+        );
+        assert!(cookies.contains("fresh=1"));
     }
 
     #[test]

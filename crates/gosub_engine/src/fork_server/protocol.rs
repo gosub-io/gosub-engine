@@ -85,6 +85,10 @@ pub enum ToForkServer {
     /// process's children, so only it can reap them). The broker sends this
     /// after it observed a renderer's link close.
     ReapExited,
+    /// Run the escape audit in the fork server itself.
+    Audit,
+    /// Fork a renderer that runs the escape audit and reports it.
+    AuditRenderer,
     /// Exit cleanly.
     Shutdown,
     /// The broker's answer to [`FromForkServer::NeedResource`], relayed on to
@@ -139,6 +143,8 @@ pub enum ToRenderer {
     /// of the broker's recovery; a renderer that obeys it was going to be
     /// trusted with nothing anyway.
     CrashForTest,
+    /// Run the escape audit in this process and report it.
+    Audit,
     /// Exit cleanly. The broker sends this when the renderer's last tab
     /// closes; a closed link means the same.
     Shutdown,
@@ -178,6 +184,11 @@ pub enum FromForkServer {
     /// immediately as a file descriptor. `pid` is the number the fork
     /// server's own namespace - and so the broker's - sees.
     RendererSpawned { pid: i32 },
+    /// Answer to [`ToForkServer::Audit`] and [`ToForkServer::AuditRenderer`].
+    /// Only with the sandbox compiled in: the rest of this protocol is plain
+    /// data that builds everywhere.
+    #[cfg(feature = "process-isolation")]
+    Audit(gosub_sandbox::audit::AuditReport),
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
@@ -459,6 +470,9 @@ pub enum FromRenderer {
     /// drops them; scrolling back there ships them afresh. Only a resident
     /// renderer sends this.
     Evict { hashes: Vec<u64> },
+    /// Answer to [`ToRenderer::Audit`]. Only with the sandbox compiled in.
+    #[cfg(feature = "process-isolation")]
+    Audit(gosub_sandbox::audit::AuditReport),
     /// The final message: the render is complete, with the page's hit-test
     /// geometry.
     Rendered {

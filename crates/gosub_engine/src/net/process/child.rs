@@ -1,8 +1,8 @@
 //! The network process: the only part of the engine that may open a socket.
 //!
-//! What only Linux can do - pass a ring fd for a streamed body - lives in
-//! `platform`; the same API elsewhere declines, so this file has no platform
-//! branches of its own.
+//! What only Linux can do - pass a ring fd for a streamed body, hold a direct
+//! line to the cookie vault - lives in `platform`; the same API elsewhere
+//! declines, so this file has no platform branches of its own.
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
@@ -25,7 +25,7 @@ mod platform;
 #[path = "child/portable.rs"]
 mod platform;
 
-use platform::Streamed;
+use platform::{Streamed, VaultLink};
 
 /// How long a shutdown drain waits for in-flight requests before giving up.
 /// Shorter than the broker's `SHUTDOWN_GRACE`, so a draining child exits on
@@ -33,7 +33,10 @@ use platform::Streamed;
 const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run as the network process until the broker disconnects or says to stop.
-pub fn serve(link: Endpoint) -> i32 {
+pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
+    // A vault that stops answering must cost one request its cookies, not
+    // wedge every request behind the mutex.
+    let vault: Arc<Mutex<Option<VaultLink>>> = Arc::new(Mutex::new(vault.map(VaultLink::new)));
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
 
@@ -125,6 +128,17 @@ pub fn serve(link: Endpoint) -> i32 {
                     token.cancel();
                 }
             }
+            ToNet::Audit { tag } => {
+                let report = platform::escape_audit();
+                if link_tx.lock().send(&FromNet::Audit { tag, report }).is_err() {
+                    break;
+                }
+            }
+            // The vault was respawned: its new line follows on the link.
+            ToNet::VaultLine => match platform::adopt_vault_line(&mut link_rx) {
+                Ok(line) => *vault.lock() = Some(line),
+                Err(e) => eprintln!("[net] the new vault line did not arrive: {e}"),
+            },
             ToNet::Fetch(fetch) => {
                 let tag = fetch.tag;
                 let token = CancellationToken::new();
@@ -136,8 +150,9 @@ pub fn serve(link: Endpoint) -> i32 {
                 };
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
+                let vault = vault.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token).await;
+                    let performed = perform(&fetcher, fetch, token, &vault).await;
                     cancels.lock().remove(&tag);
                     match performed {
                         Performed::Done(outcome) => {
@@ -222,9 +237,21 @@ enum Performed {
 }
 
 /// Perform one request and flatten the result to something that can travel.
-async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> Performed {
+async fn perform(
+    fetcher: &Arc<Fetcher>,
+    fetch: NetFetch,
+    cancel: CancellationToken,
+    vault: &Mutex<Option<VaultLink>>,
+) -> Performed {
     let streaming = fetch.streaming && platform::STREAMING;
     let done = Performed::Done;
+    // Cookies come from the vault, never from the broker, when this process
+    // has its own line to it. The scope is the broker's word on whose they are.
+    let scope = fetch.cookies.clone();
+    let cookie_header = match &scope {
+        Some(scope) => tokio::task::block_in_place(|| platform::vault_cookies(vault, scope, &fetch.url)),
+        None => None,
+    };
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
         Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
@@ -234,8 +261,19 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
         Err(e) => return done(FetchOutcome::Error(format!("bad method {}: {e}", fetch.method))),
     };
 
+    let mut headers = rebuild_headers(&fetch.headers);
+    // Under a vault scope the broker's `Cookie` never counts: the vault's
+    // answer for this request does, or none at all. Without one, the broker
+    // attached the cookies itself and they go as sent.
+    if scope.is_some() {
+        headers.remove(http::header::COOKIE);
+        if let Some(value) = cookie_header.as_deref().and_then(|v| v.parse().ok()) {
+            headers.insert(http::header::COOKIE, value);
+        }
+    }
+
     let mut builder = FetchRequest::builder(method, url)
-        .with_headers(rebuild_headers(&fetch.headers))
+        .with_headers(headers)
         .with_streaming(streaming)
         .with_auto_decode(true);
     if let Some(body) = fetch.body {
@@ -251,6 +289,10 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
         _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
+    // `Set-Cookie` goes to the vault from here; the broker never sees it.
+    if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
+        tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta));
+    }
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
             status: meta.status,

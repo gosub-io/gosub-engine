@@ -43,6 +43,11 @@ pub trait Places: Send + Sync + std::fmt::Debug {
 
     /// Record one visit of `url` (called by the engine on committed navigations).
     fn record_visit(&self, url: &str, title: &str);
+    /// Set the title of an already recorded visit without counting another:
+    /// a remotely rendered page's title arrives after the commit that recorded
+    /// it. An empty title changes nothing. The default does nothing, so a
+    /// store without it keeps the title it had at the commit.
+    fn set_visit_title(&self, _url: &str, _title: &str) {}
     /// Visited pages whose URL or title contains `query` (case-insensitive), most
     /// visited first, then most recent. An empty query returns the most visited pages.
     fn query_visited(&self, query: &str, limit: usize) -> Vec<VisitedPage>;
@@ -120,6 +125,15 @@ impl Places for MemoryPlaces {
             visit_count: 1,
             last_visit: now_secs(),
         });
+    }
+
+    fn set_visit_title(&self, url: &str, title: &str) {
+        if title.is_empty() {
+            return;
+        }
+        if let Some(existing) = self.inner.lock().visits.iter_mut().find(|v| v.url == url) {
+            existing.title = title.to_string();
+        }
     }
 
     fn query_visited(&self, query: &str, limit: usize) -> Vec<VisitedPage> {
@@ -270,6 +284,16 @@ mod sqlite {
                 .map_err(|e| log::warn!("places: record_visit failed: {e}"));
         }
 
+        fn set_visit_title(&self, url: &str, title: &str) {
+            if title.is_empty() {
+                return;
+            }
+            let Ok(conn) = self.pool.get() else { return };
+            let _ = conn
+                .execute("UPDATE visits SET title = ?2 WHERE url = ?1", params![url, title])
+                .map_err(|e| log::warn!("places: set_visit_title failed: {e}"));
+        }
+
         fn query_visited(&self, query: &str, limit: usize) -> Vec<VisitedPage> {
             let Ok(conn) = self.pool.get() else { return Vec::new() };
             let pattern = Self::like_pattern(query);
@@ -359,6 +383,21 @@ mod tests {
 
             store.clear_history();
             assert_eq!(store.query_visited("", 10).len(), 0, "{name}");
+        }
+    }
+
+    /// A title that arrives after the visit names it without counting a visit.
+    #[test]
+    fn a_late_title_is_not_another_visit() {
+        for (name, store) in stores() {
+            store.record_visit("https://late.example/", "");
+            store.set_visit_title("https://late.example/", "Late");
+            store.set_visit_title("https://late.example/", "");
+            store.set_visit_title("https://never.example/", "Never");
+            let all = store.query_visited("", 10);
+            assert_eq!(all.len(), 1, "{name}: no visit for a URL never visited");
+            assert_eq!(all[0].title, "Late", "{name}");
+            assert_eq!(all[0].visit_count, 1, "{name}");
         }
     }
 }

@@ -4,6 +4,26 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
+/// Whether `fd` is a `SOCK_STREAM` socket - what a link handed over by a
+/// child must be before anything is written into it. A datagram socket, or
+/// no socket at all, is refused rather than written to.
+pub fn is_stream_socket(fd: RawFd) -> bool {
+    let mut ty: libc::c_int = 0;
+    let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: getsockopt into a correctly sized out-value; a non-socket fd
+    // answers ENOTSOCK, which is `false` here.
+    let r = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_TYPE,
+            std::ptr::addr_of_mut!(ty).cast(),
+            &mut len,
+        )
+    };
+    r == 0 && ty == libc::SOCK_STREAM
+}
+
 /// One end of a connected duplex link.
 pub struct Channel(UnixStream);
 

@@ -9,8 +9,8 @@
 //! per-anchor transform, driven by the painter's `PaintCommand::PushLayer`/`PopLayer` markers - not
 //! by a separate tile compositor.
 //!
-//! (Opt-in `GOSUB_VELLO_GPU_TILES=1` instead routes Vello through the shared GPU tile compositor
-//! like Skia-GPU; that path *does* tile.)
+//! Opt-in `GOSUB_VELLO_GPU_TILES=1` instead routes Vello through the shared GPU tile compositor
+//! like Skia-GPU; that path does tile.
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;

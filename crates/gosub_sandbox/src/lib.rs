@@ -324,16 +324,20 @@ pub fn landlock_available() -> bool {
 /// gets a Landlock ruleset limiting writes to the temp dir (read/exec stay
 /// open) plus a deny-list seccomp filter removing escalation syscalls
 /// (`ptrace`, kernel-module/`kexec`/`bpf`, keyring, `mount`/`setns`, …).
-/// Call on the main thread before the engine starts so every thread and child
-/// inherits both. Linux only (a macOS Seatbelt broker profile is not built
-/// yet). Best-effort: a kernel missing either mechanism leaves that layer off.
+/// `writable` names what the embedder itself writes beyond the temp dir: its
+/// profile directory (cookie store, localStorage, places), downloads, logs.
+/// Call on the main thread before the engine starts - before any thread, the
+/// logger and the runtime included, since Landlock binds the calling thread
+/// and the threads created after it - so every thread and child inherits
+/// both. Linux only (a macOS Seatbelt broker profile is not built yet).
+/// Best-effort: a kernel missing either mechanism leaves that layer off.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-pub fn lock_down_broker() {
-    imp::lock_down_broker();
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
+    imp::lock_down_broker(writable);
 }
 
 #[cfg(all(feature = "multi-process", not(target_os = "linux")))]
-pub fn lock_down_broker() {}
+pub fn lock_down_broker(_writable: &[&std::path::Path]) {}
 
 /// Cap the fork server (Linux only - it is the one platform with a zygote).
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
@@ -393,6 +397,20 @@ pub fn reap_exited_children() -> Vec<(i32, i32)> {
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     imp::arm_deadline(after)
+}
+
+/// A pidfd for a process a child announced as its own child - verified
+/// against `/proc`, never taken on the child's word - so the caller can end
+/// it later with [`pidfd_kill`] whatever the pid has become since. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn open_child_pidfd(pid: u32, parent: u32) -> std::io::Result<std::os::fd::OwnedFd> {
+    imp::open_child_pidfd(pid, parent)
+}
+
+/// `SIGKILL` the process behind a pidfd from [`open_child_pidfd`]. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn pidfd_kill(fd: &std::os::fd::OwnedFd) -> std::io::Result<()> {
+    imp::pidfd_kill(fd)
 }
 
 /// Cancel a deadline from [`arm_deadline`]: the bounded work finished. A

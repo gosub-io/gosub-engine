@@ -34,6 +34,24 @@ pub trait StorageArea: Send + Sync {
 pub trait LocalStore: Send + Sync {
     /// Retrieves a storage area for the given zone, partition, and origin.
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>>;
+
+    /// The directory a sandboxed storage service could serve this store's
+    /// files from, for stores whose format allows it (see `FileLocalStore`).
+    /// `None` keeps the store in-process.
+    fn service_directory(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// The pid of the process serving the areas, when there is one.
+    fn service_pid(&self) -> Option<u32> {
+        None
+    }
+
+    /// The escape audit run inside the serving process, when there is one.
+    #[cfg(feature = "process-isolation")]
+    fn escape_audit(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        None
+    }
 }
 
 /// Store for sessionStorage-like areas (isolated per (zone, tab, partition, origin)).

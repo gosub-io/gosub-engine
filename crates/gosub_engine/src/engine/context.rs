@@ -297,6 +297,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     document_source: Option<std::sync::Arc<str>>,
     /// The current document's URL, whether or not this process parsed it.
     document_url: Option<Url>,
+    /// Title and icon URL the renderer reported for the current document,
+    /// not yet handed to the tab.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_document_meta: Option<(Option<String>, Option<String>)>,
     /// Tiles from the last remote render, keyed by content hash; offered to the
     /// next render so unchanged tiles are neither rasterized nor shipped again.
     /// Remote counterpart of `tile_pixel_cache`.
@@ -454,6 +458,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_source: None,
             document_url: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_document_meta: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_renderer: None,
@@ -492,6 +498,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // must find its page gone (see `RendererPool::renderer_for_live`).
             self.supersede_remote_passes();
             pool.release(tab);
+        }
+    }
+
+    /// Whether this tab renders in a renderer process at all: a remote mode
+    /// was installed for it (none for a backend that presents a GPU texture,
+    /// or a font system that cannot be confined).
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    pub fn has_remote_renderer(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            return self.remote_renderer.is_some();
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            return false;
         }
     }
 
@@ -551,6 +572,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.storage.as_ref().map(|s| s.session.clone())
     }
 
+    /// `source` is the text the document was parsed from, kept when an
+    /// out-of-process renderer will need to re-parse it.
     /// Say on the firehose why a full render is about to happen.
     fn note_invalidate(&self, reason: &str) {
         if !crate::telemetry::enabled() {
@@ -563,8 +586,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         crate::telemetry::emit("tab.invalidate", serde_json::json!({ "tab": tab, "reason": reason }));
     }
 
-    /// Sets the parsed DOM document for the given tab. `source` is the text it
-    /// was parsed from, kept when an out-of-process renderer will re-parse it.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
         let url = {
             use gosub_interface::document::Document as _;
@@ -573,8 +594,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.replace_document(Some(doc), url, source);
     }
 
+    /// A document this process did not parse: the renderer process will, from
+    /// `source`. Nothing here holds a DOM for it.
+    pub fn set_document_source(&mut self, url: Url, source: std::sync::Arc<str>) {
+        self.replace_document(None, Some(url), Some(source));
+    }
+
     pub fn document_url(&self) -> Option<&Url> {
         self.document_url.as_ref()
+    }
+
+    /// Title and icon URL the renderer reported since the last call.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
+        self.remote_document_meta.take()
     }
 
     fn replace_document(
@@ -587,6 +620,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         {
             self.supersede_remote_passes();
             self.remote_media.clear();
+            self.remote_document_meta = None;
         }
         self.note_invalidate("document");
         self.document = doc;
@@ -1127,6 +1161,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Whether the current document is one of the engine's own pages.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub(crate) fn is_internal_page(&self) -> bool {
         self.document_url
             .as_ref()
@@ -1268,6 +1303,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.remote_tile_memory
             .replace_with(page.tiles.into_iter().map(kept_tile));
         self.remote_layer_order = page.summary.layer_order.clone();
+        self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
         let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
         let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
         self.pipeline_cache = Some(PipelineCache {
@@ -1849,7 +1885,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if let Some(regions) = self.remote_hit_regions() {
             if let Some(region) = hit_region_at(regions, vp_x, vp_y, self.scroll_x, self.scroll_y) {
                 out.link_url = region.link.clone();
-                out.image_url = region.image.clone();
+                // The renderer's word, handed to the embedder's "open image"
+                // and "save image" menus: only a URL the embedder may act on.
+                out.image_url = region.image.clone().filter(|image| {
+                    Url::parse(image).is_ok_and(|u| {
+                        matches!(u.scheme(), "http" | "https")
+                            || (u.scheme() == "file" && base.is_some_and(|b| b.scheme() == "file"))
+                    })
+                });
                 out.is_editable = region.editable;
             }
             return out;
@@ -3543,6 +3586,51 @@ mod tests {
             let y = ctx.fragment_target_y("legacy%20anchor").expect("name target");
             assert!((y - 1520.0).abs() < 1.0, "expected ~1520, got {y}");
             assert_eq!(ctx.fragment_target_y("nope"), None);
+        }
+
+        /// A remotely rendered page has no document to hit-test for the cursor;
+        /// the renderer's hit regions say what is under the pointer.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        #[test]
+        fn a_remote_page_reports_the_cursor_its_hit_regions_name() {
+            use crate::engine::events::CursorShape;
+            use crate::fork_server::protocol::{HitCursor, HitRegion, TileWireAnchor};
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let region = |x: f64, cursor: HitCursor, link: Option<&str>| HitRegion {
+                x,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+                node_id: x as u64 + 1,
+                anchor: TileWireAnchor::Scroll,
+                link: link.map(str::to_string),
+                image: None,
+                cursor,
+                editable: false,
+            };
+            ctx.adopt_remote_page(crate::fork_server::client::RenderedPage {
+                summary: Default::default(),
+                tiles: Vec::new(),
+                hit_regions: vec![
+                    region(0.0, HitCursor::Pointer, Some("https://example.test/")),
+                    region(100.0, HitCursor::Text, None),
+                ],
+                evicted: Default::default(),
+            });
+            assert!(ctx.document.is_none(), "a remote page keeps no document");
+
+            ctx.update_hover(50.0, 50.0);
+            assert_eq!(ctx.cursor_at(50.0, 50.0), CursorShape::Pointer, "over the link");
+            ctx.update_hover(150.0, 50.0);
+            assert_eq!(ctx.cursor_at(150.0, 50.0), CursorShape::Text, "over the text");
+            ctx.update_hover(350.0, 250.0);
+            assert_eq!(ctx.cursor_at(350.0, 250.0), CursorShape::Default, "over nothing");
         }
 
         /// A local page resolves every target: the payload cap is the

@@ -58,6 +58,125 @@ fn an_oversized_body_is_refused_without_stalling_the_link() {
     );
 }
 
+/// A zone whose local store is a `FileLocalStore` is routed through the
+/// storage process by default.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_zones_file_local_store_is_routed_through_the_storage_service() {
+    let out = run("engine-storage-service");
+    assert!(
+        out.status.success(),
+        "engine storage service scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn local_storage_is_served_by_the_storage_service() {
+    let out = run("storage");
+    assert!(
+        out.status.success(),
+        "storage scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The cookie vault on its own: jar that forwards, HttpOnly split, zone
+/// partitioning, persistence brokered through a real SQLite store.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_cookie_vault_holds_partitioned_jars_and_persists_through_the_broker() {
+    let out = run("vault");
+    assert!(
+        out.status.success(),
+        "vault scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The escape audit inside every process of a running engine: nothing a
+/// compromised child would try - files, sockets, fork, exec, signals, the
+/// broker's memory - comes out other than the role's design says.
+#[cfg(target_os = "linux")]
+#[test]
+fn no_process_finds_a_way_out_of_its_sandbox() {
+    let out = run_with_backend("escape-audit", "parley");
+    assert!(
+        out.status.success(),
+        "escape audit failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A vault that dies is respawned on the next use: the zone comes back from
+/// its store and the network process gets a new line, so the cookie still
+/// reaches the next request.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dead_cookie_vault_is_respawned_with_its_zones() {
+    for mode in [
+        &["engine-cookie-vault", "respawn"][..],
+        &["engine-cookie-vault", "respawn", "in-process"][..],
+    ] {
+        let out = Command::new(harness())
+            .args(mode)
+            .output()
+            .expect("spawn isolation-harness");
+        assert!(
+            out.status.success(),
+            "{mode:?} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// With the vault and the network process on, a cookie a page sets reaches the
+/// page's next request without the engine process ever attaching it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cookie_flows_from_the_vault_through_the_network_process() {
+    let out = run("engine-cookie-vault");
+    assert!(
+        out.status.success(),
+        "engine cookie vault scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Without the vault the broker attaches the cookies; the network process
+/// must send them as they came.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_broker_attached_cookie_crosses_the_network_process() {
+    let out = run_with_backend("engine-cookie-vault", "no-vault");
+    assert!(
+        out.status.success(),
+        "engine cookie (no vault) scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The same with in-process fetching: the broker's forwarding jar asks the vault.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cookie_flows_from_the_vault_with_in_process_fetching() {
+    let out = run_with_backend("engine-cookie-vault", "in-process");
+    assert!(
+        out.status.success(),
+        "engine cookie vault (in-process) scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A streamed body crosses the network-process boundary through a
 /// shared-memory ring: head in-band, ring fd right behind it, bytes intact.
 #[cfg(target_os = "linux")]
@@ -84,6 +203,36 @@ fn the_network_process_survives_hostname_resolution() {
         out.status.success(),
         "hostname resolution scenario failed:\n{}\n{}",
         String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A *spawned* child must run under the restricted token, not fall back to
+/// the inherited one: `gosub_sandbox::spawn` reports the fallback on stderr,
+/// which the harness (spawning the network process) inherits.
+#[cfg(target_os = "windows")]
+#[test]
+fn spawned_children_get_a_restricted_token() {
+    let out = run("direct");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "the direct scenario failed before it could prove anything about the token:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("using inherited token"),
+        "a child fell back to the inherited token - restricted_token() failed:\n{stderr}"
+    );
+}
+
+/// The wiring: an ordinary navigation with `security.network_process` on resolves
+/// through the child rather than an in-process fetcher.
+#[test]
+fn a_navigation_resolves_with_process_isolation_enabled() {
+    let out = run("engine");
+    assert!(
+        out.status.success(),
+        "navigation under process isolation failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }
@@ -358,6 +507,42 @@ fn a_renderer_crash_is_announced_and_the_tab_recovers() {
 
 /// A remote render never waits for an image download: the page paints without
 /// it and paints again once it has arrived.
+/// A tab whose backend presents a GPU texture renders in-process, so it
+/// parses its documents itself even with the renderer process on.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_gpu_texture_tab_parses_its_own_documents() {
+    let out = run("engine-gpu-backend-parses");
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "GPU-texture tab parsing failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A remotely rendered page's history entry is titled by the renderer and
+/// published, also when its title equals the last page's.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_page_titles_its_history_entry() {
+    let out = run("engine-remote-title");
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "remote history title failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_remote_render_does_not_wait_for_images() {
@@ -452,18 +637,6 @@ fn an_exec_fresh_renderer_renders_one_page_confined() {
     assert!(
         out.status.success(),
         "the exec'd renderer roundtrip failed:\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-/// The wiring: an ordinary navigation with `security.network_process` on resolves
-/// through the child rather than an in-process fetcher.
-#[test]
-fn a_navigation_resolves_with_process_isolation_enabled() {
-    let out = run("engine");
-    assert!(
-        out.status.success(),
-        "navigation under process isolation failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }

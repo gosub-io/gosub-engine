@@ -5,7 +5,6 @@
 use crate::engine::resource_pipeline::css::{CssPipeline, CssPipelineImpl};
 use crate::engine::resource_pipeline::font::{FontPipeline, FontPipelineImpl};
 use crate::engine::resource_pipeline::html::{HtmlPipeline, HtmlPipelineImpl};
-use crate::engine::resource_pipeline::image::{ImagePipeline, ImagePipelineImpl};
 use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
@@ -23,8 +22,6 @@ pub mod font;
 #[allow(clippy::double_must_use)]
 pub mod html;
 #[allow(clippy::double_must_use)]
-pub mod image;
-#[allow(clippy::double_must_use)]
 pub mod js;
 /// `@font-face` web fonts, loaded as a stage of the document parse.
 pub mod webfonts;
@@ -34,7 +31,6 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     pub html: Box<dyn HtmlPipeline<C> + Send>,
     pub css: Box<dyn CssPipeline + Send>,
     pub js: Box<dyn JsPipeline + Send>,
-    pub images: Box<dyn ImagePipeline + Send>,
     pub fonts: Box<dyn FontPipeline + Send>,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
@@ -42,6 +38,7 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
+    #[allow(clippy::too_many_arguments)] // one per pipeline setting, all set per navigation
     pub fn new(
         zone_id: ZoneId,
         tab_id: TabId,
@@ -50,20 +47,27 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         max_document_bytes: usize,
         font_system: Arc<Mutex<C::FontSystem>>,
         capture_source: bool,
+        source_only: bool,
     ) -> Self {
+        // A renderer process that will re-parse the document is also the only
+        // process that should parse it: keep just the source here. Not for the
+        // engine's own pages (`source_only` false), which may still render
+        // in-process when the renderer cannot, and need a document for that.
         Self {
-            html: Box::new(HtmlPipelineImpl::new(
-                zone_id,
-                tab_id,
-                io_tx,
-                accept_language,
-                max_document_bytes,
-                font_system,
-                capture_source,
-            )),
+            html: Box::new(
+                HtmlPipelineImpl::new(
+                    zone_id,
+                    tab_id,
+                    io_tx,
+                    accept_language,
+                    max_document_bytes,
+                    font_system,
+                    capture_source,
+                )
+                .source_only(source_only),
+            ),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),
-            images: Box::new(ImagePipelineImpl {}),
             fonts: Box::new(FontPipelineImpl {}),
         }
     }

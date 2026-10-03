@@ -4,7 +4,7 @@ use gosub_shared::geo::Point;
 pub enum InputEvent {
     /// The mouse moved to a new position
     MouseMove(Point),
-    /// The mouse wheel was scrolled with the given delta
+    /// Scroll delta, not a position.
     MouseScroll(Point),
     /// A mouse button was pressed
     MouseDown(MouseButton),

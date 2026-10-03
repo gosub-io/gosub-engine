@@ -18,18 +18,6 @@ pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
 /// rasterizes sequentially, so this is the fork-bomb bound, not a budget.
 pub const RENDERER_MAX_TASKS: u32 = 256;
 
-/// Whether `fd` is a socket - what a link must be before this side writes a
-/// page into it.
-fn is_stream_socket(fd: &std::os::fd::OwnedFd) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    let Ok(dup) = fd.try_clone() else {
-        return false;
-    };
-    std::fs::File::from(dup)
-        .metadata()
-        .is_ok_and(|m| m.file_type().is_socket())
-}
-
 /// The user's media preferences as last set by [`set_media_prefs`]. The
 /// in-process pipeline treats them as process-wide (one colour scheme per
 /// engine, like the device-pixel ratio); every render request carries them to
@@ -333,6 +321,7 @@ impl RenderStream for FromRenderer {
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
             FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
+            FromRenderer::Audit(_) => anyhow::bail!("an audit report in the middle of a render"),
         })
     }
 
@@ -460,6 +449,24 @@ fn bound_text(text: &mut String, max: usize) {
     }
 }
 
+/// A string that will be shown by the embedder (the window title): control
+/// characters and the bidi overrides go, so a page cannot reorder or hide
+/// what the embedder displays next to it. Whitespace is kept.
+fn displayable(text: &mut String) {
+    const BIDI: [char; 9] = [
+        '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    if text
+        .chars()
+        .any(|c| (c.is_control() && !c.is_whitespace()) || BIDI.contains(&c))
+    {
+        *text = text
+            .chars()
+            .filter(|c| !((c.is_control() && !c.is_whitespace()) || BIDI.contains(c)))
+            .collect();
+    }
+}
+
 /// A renderer-supplied URL past [`MAX_HIT_TEXT`] is dropped whole: cut, it
 /// would be navigated to or fetched as a different URL.
 fn drop_long_url(url: &mut Option<String>) {
@@ -472,6 +479,7 @@ fn drop_long_url(url: &mut Option<String>) {
 fn bound_summary(summary: &mut crate::fork_server::protocol::PageSummary) {
     if let Some(title) = summary.title.as_mut() {
         bound_text(title, MAX_TITLE);
+        displayable(title);
     }
     drop_long_url(&mut summary.favicon);
     summary.layer_order.truncate(MAX_LAYER_ORDER);
@@ -664,8 +672,15 @@ pub const MAX_TAB_TILES: usize = 20_000;
 #[derive(Debug, Default)]
 pub struct TileMemory {
     tiles: std::collections::HashMap<u64, KeptTile>,
-    /// Arrival order, oldest first, for what goes when the budget is passed.
-    order: std::collections::VecDeque<u64>,
+    /// Arrival order, oldest first, for what goes when the budget is passed:
+    /// (sequence, hash). A removed tile's entry stays and is skipped when it
+    /// surfaces, so a pass evicting tens of thousands of hashes costs a map
+    /// lookup each, not a scan of this deque each.
+    order: std::collections::VecDeque<(u64, u64)>,
+    /// The sequence number each kept hash arrived with; a stale deque entry
+    /// has another.
+    arrived: std::collections::HashMap<u64, u64>,
+    next_seq: u64,
     bytes: usize,
 }
 
@@ -690,6 +705,7 @@ impl TileMemory {
     pub fn replace_with(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
         self.tiles.clear();
         self.order.clear();
+        self.arrived.clear();
         self.bytes = 0;
         self.extend(tiles);
     }
@@ -709,23 +725,32 @@ impl TileMemory {
         for (hash, tile) in tiles {
             self.remove(hash);
             self.bytes += tile.pixels.len();
-            self.order.push_back(hash);
+            let seq = self.next_seq;
+            self.next_seq += 1;
+            self.order.push_back((seq, hash));
+            self.arrived.insert(hash, seq);
             self.tiles.insert(hash, tile);
         }
         while self.bytes > MAX_TAB_TILE_BYTES || self.tiles.len() > MAX_TAB_TILES {
-            let Some(oldest) = self.order.pop_front() else {
+            let Some((seq, oldest)) = self.order.pop_front() else {
                 break;
             };
-            if let Some(tile) = self.tiles.remove(&oldest) {
-                self.bytes -= tile.pixels.len();
+            if self.arrived.get(&oldest) != Some(&seq) {
+                continue; // removed or re-added since: a stale entry
             }
+            self.remove(oldest);
+        }
+        // Stale entries would otherwise outnumber live ones without bound.
+        if self.order.len() > 2 * self.tiles.len() + 64 {
+            let arrived = &self.arrived;
+            self.order.retain(|(seq, hash)| arrived.get(hash) == Some(seq));
         }
     }
 
     fn remove(&mut self, hash: u64) {
         if let Some(tile) = self.tiles.remove(&hash) {
             self.bytes -= tile.pixels.len();
-            self.order.retain(|h| *h != hash);
+            self.arrived.remove(&hash);
         }
     }
 
@@ -844,6 +869,40 @@ impl ForkServer {
         }
     }
 
+    /// The escape audit, run in the fork server itself.
+    pub fn audit(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.audit_exchange(ToForkServer::Audit)
+    }
+
+    /// The escape audit, run in a renderer forked for it.
+    pub fn audit_forked_renderer(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.audit_exchange(ToForkServer::AuditRenderer)
+    }
+
+    /// One audit request, kept to the same rules as a render: a fork server
+    /// that is gone is replaced first, and one whose exchange failed is
+    /// stopped - a late reply would otherwise answer the next request.
+    fn audit_exchange(&mut self, ask: ToForkServer) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.ensure_running()?;
+        let answer = self
+            .link
+            .send(&ask)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| self.link.recv::<FromForkServer>().map_err(anyhow::Error::from));
+        match answer {
+            Ok(FromForkServer::Audit(report)) => Ok(report),
+            Ok(FromForkServer::Refused(reason)) => anyhow::bail!("{reason}"),
+            Ok(other) => {
+                self.stop();
+                anyhow::bail!("unexpected reply to an audit: {other:?}")
+            }
+            Err(e) => {
+                self.stop();
+                Err(e)
+            }
+        }
+    }
+
     /// Fork a renderer and run the pipeline over `html` in it - parse, style,
     /// layout, layering, tiling, paint, and (when the configuration has a
     /// forked rasterizer) rasterize - under its tier sandbox, with the
@@ -931,13 +990,25 @@ impl ForkServer {
             other => anyhow::bail!("unexpected reply to SpawnRenderer: {other:?}"),
         };
         let fd = self.link.rx.recv_fd()?;
-        // A claim from a child: the link must be a socket before anything is
-        // written to it, and the renderer gets its own memory and task
-        // bounds - forked, it inherited the fork server's cgroup, where one
-        // site's renderer could trip a cap shared with every other's.
-        if !is_stream_socket(&fd) {
-            anyhow::bail!("the fork server handed over something that is not a socket");
+        // Claims from a child. The link must be a stream socket before
+        // anything is written to it. The pid must be the fork server's own
+        // child, by /proc's word: it is placed in its own cgroup (forked, it
+        // inherited the fork server's, where one site's renderer could trip a
+        // cap shared with every other's) and killed through its pidfd when the
+        // broker gives up on it - naming the broker's pid, or any other
+        // process's, would have the broker do that to the wrong one. A wrong
+        // claim is a hostile fork server, and the caller stops it.
+        {
+            use std::os::fd::AsRawFd as _;
+            if !gosub_ipc::channel::is_stream_socket(fd.as_raw_fd()) {
+                anyhow::bail!("the fork server handed over something that is not a stream socket");
+            }
         }
+        let Some(fork_server) = self.child.as_ref().map(|c| c.id()) else {
+            anyhow::bail!("no fork server to have spawned renderer {pid}");
+        };
+        let pidfd = gosub_sandbox::open_child_pidfd(pid as u32, fork_server)
+            .map_err(|e| anyhow::anyhow!("the fork server announced a renderer it did not spawn: {e}"))?;
         if let Err(e) = gosub_sandbox::confine_child_pid(pid as u32, RENDERER_DATA_LIMIT, RENDERER_MAX_TASKS) {
             log::warn!("could not apply parent-side confinement to renderer {pid}: {e}");
         }
@@ -948,6 +1019,7 @@ impl ForkServer {
         Ok(ResidentRenderer {
             link,
             pid,
+            pidfd: Some(pidfd),
             dead: Default::default(),
         })
     }
@@ -1027,6 +1099,11 @@ const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 pub struct ResidentRenderer {
     link: Endpoint,
     pid: i32,
+    /// The process itself, verified at spawn: what the broker kills once it
+    /// gives up on the renderer. Asking nicely is for a renderer that still
+    /// listens; a hostile one that disarmed its own deadline and spins only
+    /// ends this way (`None` in tests that build a handle without a process).
+    pidfd: Option<std::os::fd::OwnedFd>,
     /// Set once the link failed: nothing sent afterwards can be trusted to
     /// arrive, and the pool replaces the process on the next request.
     /// Shared and atomic so the pool can read it without taking the lock a
@@ -1061,8 +1138,15 @@ impl ResidentRenderer {
         std::sync::Arc::clone(&self.dead)
     }
 
+    /// Dead to the broker is dead: whatever the process is doing - wedged,
+    /// spinning, hostile - it ends now, through the pidfd, so a renderer the
+    /// broker gave up on never keeps a core or its memory. Idempotent.
     fn mark_dead(&self) {
-        self.dead.store(true, std::sync::atomic::Ordering::Release);
+        if !self.dead.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            if let Some(pidfd) = &self.pidfd {
+                let _ = gosub_sandbox::pidfd_kill(pidfd);
+            }
+        }
     }
 
     fn send(&mut self, msg: &ToRenderer) -> anyhow::Result<()> {
@@ -1153,6 +1237,23 @@ impl ResidentRenderer {
             self.mark_dead();
         }
         result
+    }
+
+    /// The escape audit, run inside this resident renderer.
+    pub fn audit(&mut self) -> anyhow::Result<gosub_sandbox::audit::AuditReport> {
+        self.send(&ToRenderer::Audit)?;
+        match self.link.recv::<FromRenderer>() {
+            Ok(FromRenderer::Audit(report)) => Ok(report),
+            // The link is out of step; nothing read from it later can be trusted.
+            Ok(other) => {
+                self.mark_dead();
+                anyhow::bail!("unexpected reply to Audit: {other:?}")
+            }
+            Err(e) => {
+                self.mark_dead();
+                anyhow::bail!("renderer link failed: {e}")
+            }
+        }
     }
 
     /// Whether the process is still there, without sending anything: a closed
@@ -1251,6 +1352,39 @@ mod tests {
         memory.apply_pass(&[10, 11], []);
         assert_eq!(memory.bytes(), 2 * tile);
         assert_eq!(memory.hashes().len(), 2);
+    }
+
+    /// A title reaches the embedder's window: no control or bidi characters.
+    #[test]
+    fn a_title_is_displayable() {
+        let mut summary = crate::fork_server::protocol::PageSummary {
+            title: Some("Pay \u{202E}evil\u{202C} bank\x1b[0m\u{7f} ok\n".into()),
+            ..Default::default()
+        };
+        bound_summary(&mut summary);
+        assert_eq!(summary.title.as_deref(), Some("Pay evil bank[0m ok\n"));
+    }
+
+    /// Thousands of evictions in one pass cost a lookup each, and the
+    /// arrival order still decides what goes past the budget.
+    #[test]
+    fn tile_memory_evictions_are_cheap_and_order_survives() {
+        let mut memory = TileMemory::default();
+        memory.replace_with((0..20_000u64).map(|h| (h, kept(16))));
+        let evicted: Vec<u64> = (0..19_990).collect();
+        let started = std::time::Instant::now();
+        memory.apply_pass(&evicted, [(50_000, kept(16))]);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "evictions scanned the deque"
+        );
+        assert_eq!(memory.hashes().len(), 11);
+        // Past the count budget, what arrived first goes first: the survivors
+        // 19_990..19_999, then 50_000.
+        memory.apply_pass(&[], (60_000..60_000 + MAX_TAB_TILES as u64).map(|h| (h, kept(16))));
+        assert!(memory.get(19_990).is_none() && memory.get(50_000).is_none());
+        assert!(memory.get(60_000 + MAX_TAB_TILES as u64 - 1).is_some());
+        assert_eq!(memory.hashes().len(), MAX_TAB_TILES);
     }
 
     /// A URL past the bound is dropped whole: cut, it would be navigated to.

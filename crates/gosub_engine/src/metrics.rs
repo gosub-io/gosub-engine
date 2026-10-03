@@ -46,11 +46,68 @@ async fn serve(port: u16, context: Arc<EngineContext>) -> std::io::Result<()> {
     }
 }
 
+/// The value of header `name` in `req`, if present.
+fn header<'a>(req: &'a str, name: &str) -> Option<&'a str> {
+    req.lines()
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case(name)))
+        .map(|(_, v)| v.trim())
+}
+
+/// Whether `host` (`host` or `host:port`, IPv6 in brackets) is a loopback name.
+fn is_loopback_host(host: &str) -> bool {
+    let name = if let Some(rest) = host.strip_prefix('[') {
+        rest.split_once(']').map(|(n, _)| n).unwrap_or(rest)
+    } else {
+        host.rsplit_once(':').map_or(host, |(n, _)| n)
+    };
+    ["127.0.0.1", "localhost", "::1"]
+        .iter()
+        .any(|local| name.eq_ignore_ascii_case(local))
+}
+
+/// Whether the request's `Host` names this server as a local address. The
+/// listener is on 127.0.0.1, which keeps the network out but not a web page:
+/// a page on `attacker.example` whose DNS answer is switched to 127.0.0.1
+/// after it loaded reaches this port same-origin and reads the firehose -
+/// every URL the browser fetches. The `Host` it sends is its own name;
+/// refusing anything but the loopback names closes that read. It does not
+/// close a cross-site *write*: a form on any page may POST here, and the
+/// browser then sends this server's own name as `Host` - see
+/// [`origin_is_local`] for the mutation.
+fn host_is_local(req: &str) -> bool {
+    header(req, "host").is_some_and(is_loopback_host)
+}
+
+/// Whether a mutation may run: its `Origin`, when there is one, must be this
+/// server's own (the viewer at `/`). A browser sends `Origin` on every POST,
+/// a cross-site form's being the other page's, or `null`; a request without
+/// one did not come from a browser (`examples/metrics_cli.rs`, curl).
+fn origin_is_local(req: &str) -> bool {
+    match header(req, "origin") {
+        None => true,
+        Some(origin) => origin
+            .strip_prefix("http://")
+            .is_some_and(|rest| is_loopback_host(rest.trim_end_matches('/'))),
+    }
+}
+
 async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
     let mut buf = vec![0u8; 2048];
     let n = stream.read(&mut buf).await.unwrap_or(0);
     let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
     let first_line = req.lines().next().unwrap_or("");
+
+    if !host_is_local(req) {
+        let body = r#"{"error":"this server answers only to its loopback name"}"#;
+        let response = format!(
+            "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+        return;
+    }
 
     if first_line.starts_with("GET /events") {
         stream_events(stream).await;
@@ -58,10 +115,20 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
     }
 
     const JSON: &str = "application/json";
-    // A mutation on a GET is a `<img>` tag away; POST only.
+    // A mutation on a GET is a `<img>` tag away, so POST only - and a POST
+    // is a cross-site form away, so its `Origin` must be ours.
     let (code, phrase, content_type, body) = if first_line.starts_with("POST /metrics/reset") {
-        gosub_shared::timing::reset_stats();
-        (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
+        if origin_is_local(req) {
+            gosub_shared::timing::reset_stats();
+            (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
+        } else {
+            (
+                403,
+                "Forbidden",
+                JSON,
+                r#"{"error":"a reset must come from this server's own page"}"#.to_string(),
+            )
+        }
     } else if first_line.starts_with("GET / ") || first_line.starts_with("HEAD / ") {
         (200, "OK", "text/html; charset=utf-8", VIEWER.to_string())
     } else if first_line.starts_with("GET /metrics") || first_line.starts_with("HEAD /metrics") {
@@ -213,6 +280,11 @@ mod tests {
 
     /// One `/events` stream with a short heartbeat, and a client already past
     /// the response head.
+    /// The telemetry bus is process-wide: `telemetry::enabled()` is true while
+    /// any test's stream holds a subscription, so the tests that assert on it
+    /// run one at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     async fn one_stream() -> (TcpStream, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -243,7 +315,10 @@ mod tests {
             handle(stream, context).await;
         });
         let mut client = TcpStream::connect(addr).await.unwrap();
-        client.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n\r\n")
+            .await
+            .unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).await.unwrap();
         let response = String::from_utf8_lossy(&response);
@@ -252,10 +327,101 @@ mod tests {
         assert!(response.contains("<title>Gosub telemetry</title>"), "not the viewer");
     }
 
+    /// A request under any other name is a page that reached 127.0.0.1 by
+    /// DNS rebinding (its `Host` is its own name), or a proxy: refused.
+    #[tokio::test]
+    async fn a_request_for_another_host_name_is_refused() {
+        for (host, allowed) in [
+            ("attacker.example:9090", false),
+            ("attacker.example", false),
+            ("127.0.0.1.attacker.example", false),
+            ("127.0.0.1:9090", true),
+            ("localhost:9090", true),
+            ("LOCALHOST", true),
+            ("[::1]:9090", true),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+                let context = Arc::new(EngineContext {
+                    event_tx,
+                    ..Default::default()
+                });
+                handle(stream, context).await;
+            });
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            client
+                .write_all(format!("GET /health HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).await.unwrap();
+            let response = String::from_utf8_lossy(&response);
+            let expected = if allowed {
+                "HTTP/1.1 200 OK"
+            } else {
+                "HTTP/1.1 403 Forbidden"
+            };
+            assert!(response.starts_with(expected), "Host {host}: {response:.60}");
+        }
+        // No Host at all is not local either.
+        assert!(!host_is_local("GET /health HTTP/1.1\r\n\r\n"));
+    }
+
+    /// A cross-site form POSTs with this server's name as `Host` and its own
+    /// page as `Origin`: refused. The viewer's own origin, or no `Origin` at
+    /// all (not a browser), may reset.
+    #[tokio::test]
+    async fn a_reset_from_another_origin_is_refused() {
+        for (origin, allowed) in [
+            (Some("https://attacker.example"), false),
+            (Some("null"), false),
+            (Some("http://127.0.0.1.attacker.example"), false),
+            (Some("http://127.0.0.1:9090"), true),
+            (Some("http://localhost:9090"), true),
+            (None, true),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+                let context = Arc::new(EngineContext {
+                    event_tx,
+                    ..Default::default()
+                });
+                handle(stream, context).await;
+            });
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            let origin_line = origin.map_or(String::new(), |o| format!("Origin: {o}\r\n"));
+            client
+                .write_all(
+                    format!(
+                        "POST /metrics/reset HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n{origin_line}Content-Length: 0\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).await.unwrap();
+            let response = String::from_utf8_lossy(&response);
+            let expected = if allowed {
+                "HTTP/1.1 200 OK"
+            } else {
+                "HTTP/1.1 403 Forbidden"
+            };
+            assert!(response.starts_with(expected), "Origin {origin:?}: {response:.60}");
+        }
+    }
+
     /// An `/events` client that leaves while no events flow ends its stream,
     /// and with it the subscription that keeps telemetry emission on.
     #[tokio::test]
     async fn an_idle_events_client_that_hangs_up_ends_its_stream() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (client, server) = one_stream().await;
         drop(client);
 
@@ -270,6 +436,7 @@ mod tests {
     /// stream goes on, and the next event reaches it.
     #[tokio::test]
     async fn a_client_that_only_stops_sending_still_gets_events() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (mut client, server) = one_stream().await;
         client.shutdown().await.unwrap();
         // Long enough for the server to read the EOF, and for heartbeats.

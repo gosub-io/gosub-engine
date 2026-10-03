@@ -395,6 +395,53 @@ pub fn arm_deadline(after: std::time::Duration) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A pidfd for `pid`, which must be a child of `parent`: opened first, so a
+/// pid reused after the check is pinned to the dead process (a signal through
+/// the fd then finds nothing) rather than to whatever took the number. The
+/// pid is a child's claim; `/proc/<pid>/status` is the kernel's word on whose
+/// child it is. Refuses pid 0/1 and this process, which a hostile claimant
+/// would name to have the caller act on itself.
+#[cfg(feature = "multi-process")]
+pub fn open_child_pidfd(pid: u32, parent: u32) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd as _;
+    // SAFETY: getpid has no preconditions.
+    if pid <= 1 || pid == unsafe { libc::getpid() } as u32 {
+        return Err(std::io::Error::other(format!("pid {pid} cannot be a child")));
+    }
+    // SAFETY: pidfd_open takes a pid and flags; the result is a new fd we own.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0u32) };
+    if raw < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a descriptor pidfd_open just returned.
+    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as libc::c_int) };
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status"))?;
+    let ppid = status
+        .lines()
+        .find_map(|l| l.strip_prefix("PPid:"))
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    match ppid {
+        Some(p) if p == parent => Ok(fd),
+        Some(p) => Err(std::io::Error::other(format!(
+            "pid {pid} is a child of {p}, not of {parent}"
+        ))),
+        None => Err(std::io::Error::other(format!("no parent recorded for pid {pid}"))),
+    }
+}
+
+/// `SIGKILL` through a pidfd: exactly the process the fd was opened on, or
+/// nothing if it is gone (never a reused pid).
+#[cfg(feature = "multi-process")]
+pub fn pidfd_kill(fd: &std::os::fd::OwnedFd) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    // SAFETY: a signal to a pidfd we own, no siginfo, no flags.
+    let r = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, 0usize, 0u32) };
+    if r < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Cancel the deadline [`arm_deadline`] set: the request finished in time.
 #[cfg(feature = "multi-process")]
 pub fn disarm_deadline() {
@@ -881,10 +928,13 @@ const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_statx,
 ];
 
-/// What a service that *writes* needs on top: replacing a file atomically.
+/// What a service that *writes* needs on top: replacing a file atomically, and
+/// making the new file and its directory entry durable before saying so.
 /// Landlock still decides where; with a read-only grant these fail with EACCES.
 #[cfg(feature = "multi-process")]
 const FS_WRITE_EXTRA: &[libc::c_long] = &[
+    libc::SYS_fsync,
+    libc::SYS_fdatasync,
     libc::SYS_renameat,
     libc::SYS_renameat2,
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -1110,7 +1160,7 @@ mod landlock {
     /// engine code calls [`super::lock_down_broker`] yet; whoever wires it in
     /// must add the paths the broker still writes after lockdown (the profile
     /// directory, anything else it persists), or those writes fail with EACCES.
-    pub fn restrict_broker(temp: &Path, cgroup: Option<&Path>) -> std::io::Result<bool> {
+    pub fn restrict_broker(temp: &Path, cgroup: Option<&Path>, writable: &[&Path]) -> std::io::Result<bool> {
         // Read + traverse + execute everything, so the loader can `execve` the
         // child binary and mmap its shared libraries PROT_EXEC wherever they are.
         let root = READ_FILE | READ_DIR | EXECUTE;
@@ -1132,6 +1182,11 @@ mod landlock {
         if let Some(cg) = cgroup {
             let cg_rw = READ_FILE | READ_DIR | WRITE_FILE | MAKE_DIR | REMOVE_DIR;
             rules.push((cg, cg_rw));
+        }
+        // What the embedder writes: its profile directory (cookie store,
+        // localStorage files, places), downloads, logs - its to name.
+        for dir in writable {
+            rules.push((dir, temp_rw));
         }
         apply(&rules)
     }
@@ -1403,7 +1458,7 @@ const BROKER_DENY: &[libc::c_long] = &[
 /// temp dir - see [`landlock::restrict_broker`]) and a deny-list seccomp
 /// filter (allow by default, `Trap` the [`BROKER_DENY`] escalation syscalls).
 #[cfg(feature = "multi-process")]
-pub fn lock_down_broker() {
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
     // cgroup memory bounding first (best-effort): it moves the broker into a
     // leader cgroup and writes to `/sys/fs/cgroup`, so it must run *before*
     // Landlock/seccomp go on. The `workers` path it returns, if any, is handed to
@@ -1422,9 +1477,28 @@ pub fn lock_down_broker() {
     }
 
     let temp = std::env::temp_dir();
-    match landlock::restrict_broker(&temp, workers.as_deref()) {
+    // A path that does not exist cannot be anchored in the ruleset, and one
+    // that cannot would otherwise fail the ruleset whole, leaving the
+    // filesystem unconfined for the sake of a downloads directory made
+    // later. Such a path is named and left out; the embedder creates what
+    // it writes to before it locks down.
+    let (writable, missing): (Vec<&std::path::Path>, Vec<&std::path::Path>) =
+        writable.iter().copied().partition(|p| p.is_dir());
+    for path in &missing {
+        eprintln!(
+            "[broker] writable path {} does not exist and is not granted; create it before lock_down_broker",
+            path.display()
+        );
+    }
+    match landlock::restrict_broker(&temp, workers.as_deref(), &writable) {
         Ok(true) => {
-            eprintln!("[broker] landlock active (writes confined to {})", temp.display())
+            let named: Vec<String> = writable.iter().map(|p| p.display().to_string()).collect();
+            eprintln!(
+                "[broker] landlock active (writes confined to {}{}{})",
+                temp.display(),
+                if named.is_empty() { "" } else { ", " },
+                named.join(", ")
+            )
         }
         Ok(false) => {
             eprintln!("[broker] landlock unavailable on this kernel; broker filesystem unconfined")
@@ -2521,4 +2595,40 @@ fn set_rlimit(resource: RlimitResource, limit: libc::rlim_t) -> std::io::Result<
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "multi-process"))]
+mod pidfd_tests {
+    /// Only a process that /proc says is `parent`'s child gets a pidfd: not
+    /// pid 1, not the caller, not a child of someone else.
+    #[test]
+    fn a_pidfd_is_opened_only_for_a_verified_child() {
+        use std::os::fd::AsRawFd as _;
+        // SAFETY: the child only sleeps and exits; the parent reaps it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0);
+        if child == 0 {
+            // SAFETY: a plain sleep then _exit in the child.
+            unsafe {
+                libc::sleep(30);
+                libc::_exit(0);
+            }
+        }
+        let me = std::process::id();
+        let fd = super::open_child_pidfd(child as u32, me).expect("our own child");
+        assert!(fd.as_raw_fd() >= 0);
+        assert!(super::open_child_pidfd(1, me).is_err(), "pid 1 is nobody's child here");
+        assert!(super::open_child_pidfd(me, me).is_err(), "the caller itself");
+        assert!(
+            super::open_child_pidfd(child as u32, me + 1_000_000).is_err(),
+            "a child of someone else"
+        );
+        super::pidfd_kill(&fd).expect("kill through the pidfd");
+        let mut status = 0;
+        // SAFETY: reaping the child we forked.
+        assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+        // After the process is gone the fd still names it: a signal finds nothing.
+        assert!(super::pidfd_kill(&fd).is_err());
+    }
 }

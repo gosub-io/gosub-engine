@@ -137,12 +137,48 @@ async fn load(url: &Url) -> std::io::Result<(&'static str, Bytes)> {
     let meta = tokio::fs::metadata(&path).await?;
     if meta.is_dir() {
         let listing = directory_listing(&path).await?;
-        Ok(("text/html; charset=utf-8", Bytes::from(listing)))
-    } else {
-        let body = tokio::fs::read(&path).await?;
-        Ok((content_type_for(&path), Bytes::from(body)))
+        return Ok(("text/html; charset=utf-8", Bytes::from(listing)));
     }
+    // Regular files only: a page naming `/dev/zero` or `/proc/kcore` would
+    // otherwise have this process read without end, and a FIFO would hold the
+    // reading thread until its timeout. And only up to a bound, so a file
+    // bigger than the engine would hold in memory is refused before a byte
+    // of it is read.
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "{} bytes, more than the {MAX_FILE_BYTES}-byte cap on local files",
+                meta.len()
+            ),
+        ));
+    }
+    use tokio::io::AsyncReadExt as _;
+    let mut body = Vec::new();
+    // The size was a moment ago. Read one byte past the cap: a file that
+    // grew meanwhile is refused whole, never served cut as if complete.
+    tokio::fs::File::open(&path)
+        .await?
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut body)
+        .await?;
+    if body.len() as u64 > MAX_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("grew past the {MAX_FILE_BYTES}-byte cap on local files while being read"),
+        ));
+    }
+    Ok((content_type_for(&path), Bytes::from(body)))
 }
+
+/// Most bytes of one local file served into the engine.
+pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// `Content-Type` by file extension. `application/octet-stream` for anything unknown,
 /// which routes into the download offer like a server would trigger it.

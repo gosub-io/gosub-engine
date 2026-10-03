@@ -29,6 +29,10 @@ descriptions say what they should cover so we can decide what to write next.
   `GosubDocumentAdapter` seam that joins them. Read this before diving into either.
 - [Module configuration](moduleconfig.md) — the embedder's view of the same thing: what
   `DefaultRenderConfig` picks for you, and how to name every component yourself.
+- [Process isolation](process-isolation.md) - the multi-process architecture: broker, network
+  and decoder processes, the fork server and resident renderers, the embedder contract
+  (`dispatch_with` first in `main`), sealed-shm tiles, crash handling, and the test tools.
+- [Security assessment](security-assessment.md) - the process-isolation design read as an attacker would: positions, assets, what was fixed, what is accepted and why
 - [Interface trait families](interface.md) — `gosub_interface` as the dependency-inversion
   crate: `ModuleConfiguration` and the `Has*` view traits, the per-component contracts,
   and the deliberate type-erasure escape hatches.
@@ -62,8 +66,7 @@ descriptions say what they should cover so we can decide what to write next.
 - [Zones and tabs](zones-and-tabs.md) — the engine's runtime model: zones as isolated
   profiles, tabs as independent worker tasks, and the command/event flow between them.
 - [Resource pipelines](resource-pipeline.md) — how fetched bytes become typed assets
-  (HTML/CSS/JS/images/fonts), including parser-driven sub-resource discovery and
-  hierarchical fetch cancellation.
+  (HTML/CSS/JS/fonts), who fetches sub-resources, and hierarchical fetch cancellation.
 - [Cookies](cookies.md) — the cookie subsystem inside `gosub_engine`.
 - [Storage](datastores.md) — localStorage / sessionStorage architecture.
 

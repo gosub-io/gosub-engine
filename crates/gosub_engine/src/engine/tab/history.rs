@@ -125,6 +125,13 @@ impl History {
         }
     }
 
+    /// Update one entry's title, wherever the cursor is.
+    pub fn set_entry_title(&mut self, id: HistoryEntryId, title: Option<String>) {
+        if let Some(entry) = self.entries.get_mut(id.0) {
+            entry.title = title;
+        }
+    }
+
     /// Remember the scroll offset of the current entry (call before leaving it).
     pub fn set_current_scroll(&mut self, x: i32, y: i32) {
         if let Some(cur) = self.current {

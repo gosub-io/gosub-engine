@@ -141,6 +141,11 @@ pub enum IoCommand {
         zone_id: ZoneId,
         reply_tx: oneshot::Sender<()>,
     },
+    /// Run the escape audit in the network process, when there is one.
+    #[cfg(feature = "process-isolation")]
+    AuditNet {
+        reply_tx: oneshot::Sender<Option<gosub_sandbox::audit::AuditReport>>,
+    },
 }
 
 /// Which picker an input opens; the `type` attribute, for the six types the engine does not
@@ -441,7 +446,7 @@ pub enum FailureKind {
 /// resources. @TODO: how do we see this?
 ///
 /// Every variant carries the `request_id` of the load (@TODO: what if it contains multiple
-/// redirects?) and its `reference` — what the resource belongs to (navigation id, document id,
+/// redirects?) and its `reference` - what the resource belongs to (navigation id, document id,
 /// background task id etc.).
 #[derive(Debug, Clone)]
 pub enum ResourceEvent {
@@ -847,10 +852,12 @@ pub enum EngineEvent {
         zone_id: ZoneId,
         error: String,
     },
-    /// A renderer process could not render a tab's page. Page content is
-    /// never rendered in-process once isolation is on, so the tab stays
-    /// blank until a render succeeds again; an embedder may want to show
-    /// something meanwhile.
+    /// A renderer process died (or could not be started). `tabs` are the
+    /// tabs it hosted; the engine replaces the process on their next render,
+    /// so most recover on their own - an embedder may still want to show
+    /// something meanwhile. When `tabs` has one entry and the error names
+    /// the fork server, that tab could not be rendered at all: page content
+    /// is never rendered in-process once isolation is on.
     RendererCrashed {
         zone_id: ZoneId,
         /// The (scheme + eTLD+1) site the process served.

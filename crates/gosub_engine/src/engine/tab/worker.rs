@@ -35,6 +35,9 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// An icon larger than this is not an icon.
+const MAX_FAVICON_BYTES: usize = 512 * 1024;
+
 /// Filename to suggest for downloading `meta`'s resource: the `Content-Disposition`
 /// `filename` parameter when present, else the final URL's last path segment, else
 /// "download". Path separators are stripped so a hostile header cannot escape the
@@ -64,8 +67,15 @@ fn suggested_filename(meta: &FetchResultMeta) -> String {
             })
     });
     let name = name.unwrap_or_default();
-    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
-    if name.is_empty() {
+    let name: String = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let name = name.trim().to_string();
+    if name.is_empty() || name == "." || name == ".." {
         "download".to_string()
     } else {
         name
@@ -155,7 +165,8 @@ pub enum NavigationResult<C: RenderConfiguration> {
         nav_id: NavigationId,
         final_url: Url,
         title: Option<String>,
-        doc: Arc<crate::html::EngineDocument<C>>,
+        /// `None` when a renderer process parses the document instead.
+        doc: Option<Arc<crate::html::EngineDocument<C>>>,
         /// The document's source text, captured when this engine renders
         /// out-of-process (the renderer re-parses it there).
         source: Option<Arc<str>>,
@@ -272,6 +283,14 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
+    /// The icon last fetched for the document a renderer process reported, so
+    /// the renders that follow do not fetch it again. Cleared when a navigation
+    /// commits a new document.
+    remote_favicon: Option<Url>,
+    /// The history entry the shown document was committed to. A traversal
+    /// moves the cursor before its load commits, and a title the renderer
+    /// reports meanwhile is still this document's, not the cursor's.
+    document_entry: Option<HistoryEntryId>,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -377,6 +396,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             history: History::default(),
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
+            remote_favicon: None,
+            document_entry: None,
         }
     }
 
@@ -459,7 +480,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.wire_media_source();
 
         // Publish this tab's jar to the I/O side, which attaches cookies on its
-        // behalf from now on — the tab itself never handles a cookie value.
+        // behalf from now on - the tab itself never handles a cookie value.
         self.zone_context
             .tab_identities
             .register(self.tab_id, self.services.cookie_jar.clone());
@@ -548,10 +569,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Fetch the document's icon through the zone fetcher (so it carries the UA, cookies and
     /// shows up in resource events) and emit `FavIconChanged` with its bytes on success.
     /// Fire-and-forget: runs on its own task, cancelled with the navigation.
-    fn fetch_favicon(&self, doc: &C::Document, base_url: &Url, nav_cancel: &CancellationToken) {
-        let Some(icon_url) = crate::html::favicon_url::<C>(doc, base_url) else {
+    fn fetch_favicon(&self, icon_url: Url, nav_cancel: &CancellationToken) {
+        let Some(base_url) = self.context.document_url().cloned() else {
             return;
         };
+        // The icon URL is the page's (via the renderer): web schemes only,
+        // plus a file page's own files.
+        let allowed = matches!(icon_url.scheme(), "http" | "https")
+            || (icon_url.scheme() == "file" && base_url.scheme() == "file");
+        if !allowed {
+            log::debug!("favicon {icon_url}: scheme not allowed, ignored");
+            return;
+        }
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::Other);
         let mut headers = HeaderMap::new();
@@ -590,12 +619,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let Ok(FetchResult::Buffered { meta, body }) = result else {
                 return;
             };
-            if meta.status != 200 || body.is_empty() {
+            if meta.status != 200 || body.is_empty() || body.len() > MAX_FAVICON_BYTES {
                 log::debug!(
                     "favicon {icon_url}: status {} ({} bytes), ignored",
                     meta.status,
                     body.len()
                 );
+                return;
+            }
+            // The embedder will hand these bytes to an image decoder in its
+            // own process: at least require the response to say it is an image.
+            // A missing or unreadable type says nothing of the kind.
+            let is_image = meta
+                .headers
+                .get(http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|ct| {
+                    // Media types are case-insensitive: `Image/PNG` is an image.
+                    ct.trim_start()
+                        .get(..6)
+                        .is_some_and(|t| t.eq_ignore_ascii_case("image/"))
+                });
+            if !is_image {
+                log::debug!("favicon {icon_url}: not an image content type, ignored");
                 return;
             }
             let _ = event_tx.send(EngineEvent::FavIconChanged {
@@ -608,28 +654,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Whether this tab's full renders go out-of-process (fork server or
     /// exec-per-render). Decides both the routing and whether navigation
     /// captures the document source (the renderer re-parses it there).
-    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     fn remote_render_available(&self) -> bool {
-        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        {
-            return self.context.remote_render_active() || {
-                // Before a document exists `remote_render_active` is false;
-                // what navigation needs to know is whether a mode is
-                // *installed*, which set_remote_renderer decided in `new`.
-                use gosub_interface::font_system::{Confinement, FontSystem as _};
-                match C::FontSystem::confinement() {
-                    Confinement::Full => self.zone_context.engine_context.renderer_process.get().is_some(),
-                    Confinement::FontPathsReadable => {
-                        self.zone_context.config_store.get_bool("security.renderer_process")
-                    }
-                    Confinement::Unsupported(_) => false,
-                }
-            };
-        }
-        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-        {
-            return false;
-        }
+        // What `new` installed for this tab, not what the engine could offer:
+        // a backend that presents a GPU texture gets no renderer although the
+        // engine has one, and a tab without one must parse its documents here.
+        self.context.has_remote_renderer()
     }
 
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
@@ -641,6 +670,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
                 source,
             } => {
+                // A new document: whatever icon the last one had is not this one's.
+                self.remote_favicon = None;
                 // Everything the pipeline records from here belongs to this navigation.
                 // Set before the document so the first rebuild is already attributed.
                 let scope = gosub_shared::timing::ScopeId(nav_id.0);
@@ -657,17 +688,34 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     Some(final_url.clone()),
                     crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
                 );
-                self.context.set_document(Arc::clone(&doc), source);
-
-                if let Some(cancel) = self
+                let nav_cancel = self
                     .active_nav
                     .as_ref()
                     .filter(|a| a.nav_id == nav_id)
-                    .map(|a| a.cancel.clone())
-                {
-                    self.fetch_favicon(&doc, &final_url, &cancel);
+                    .map(|a| a.cancel.clone());
+                match (doc, source) {
+                    (Some(doc), source) => {
+                        self.context.set_document(Arc::clone(&doc), source);
+                        if let Some(cancel) = &nav_cancel {
+                            if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
+                                self.fetch_favicon(icon, cancel);
+                            }
+                        }
+                    }
+                    // The renderer process parses; title and icon arrive with
+                    // its first render (see `apply_remote_document_meta`).
+                    (None, Some(source)) => self.context.set_document_source(final_url.clone(), source),
+                    (None, None) => {
+                        log::error!(
+                            "Tab[{:?}] navigation produced neither a document nor its source",
+                            self.tab_id
+                        );
+                    }
                 }
                 self.current_url = Some(final_url.clone());
+                // The document's own title, if it has one yet: `self.title` may
+                // still be the last page's (a remote page's comes later).
+                let visit_title = title.clone().unwrap_or_default();
                 if let Some(t) = title.clone() {
                     self.title = t;
                 }
@@ -700,6 +748,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.history.entry(entry).map(|e| e.scroll)
                     }
                 };
+                self.document_entry = self.history.current();
                 // Where to land once layout exists: a saved offset wins (returning to an entry
                 // the user scrolled), otherwise the URL's fragment, otherwise the top.
                 self.pending_scroll = match restore_scroll {
@@ -714,7 +763,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // web pages: internal pages and LoadHtml stand-ins are not "places".
                 if let Some(places) = &self.services.places {
                     if matches!(final_url.scheme(), "http" | "https") {
-                        places.record_visit(final_url.as_str(), &self.title);
+                        places.record_visit(final_url.as_str(), &visit_title);
                     }
                 }
 
@@ -777,6 +826,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Handle a key press. Keys act on the page (focus traversal, link activation,
     /// scrolling); the shell has already consumed its own shortcuts before forwarding.
     /// Text editing is not here yet - that arrives with the editing slice of M1.
+    /// Where a page's link may take the tab, clicked or activated from the
+    /// keyboard alike: to the web, or from a file page to another file - never
+    /// to an internal page. `None` when it may not, or `href` does not resolve.
+    fn page_link_target(&self, href: &str) -> Option<Url> {
+        let current = self.current_url.as_ref()?;
+        let url = current.join(href).ok()?;
+        let allowed =
+            matches!(url.scheme(), "http" | "https") || (url.scheme() == "file" && current.scheme() == "file");
+        if !allowed {
+            log::debug!("link to {href} not followed: scheme not allowed from a page");
+            return None;
+        }
+        Some(url)
+    }
+
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
         // The focused control gets non-Tab keys first (typing; more editing follows).
         if key != "Tab" {
@@ -813,14 +877,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             // Activate a focused link.
             "Enter" => {
-                if let Some(href) = self.context.focused_link() {
-                    let resolved = self
-                        .current_url
-                        .as_ref()
-                        .and_then(|base| base.join(&href).ok())
-                        .map(|u| u.to_string())
-                        .unwrap_or(href);
-                    self.navigate_to(resolved, false, HistoryIntent::Push);
+                if let Some(url) = self
+                    .context
+                    .focused_link()
+                    .and_then(|href| self.page_link_target(&href))
+                {
+                    self.navigate_to(url.to_string(), false, HistoryIntent::Push);
                 }
                 ControlFlow::Continue
             }
@@ -1139,13 +1201,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
-                        let resolved = self
-                            .current_url
-                            .as_ref()
-                            .and_then(|base| base.join(&href).ok())
-                            .map(|u| u.to_string())
-                            .unwrap_or(href);
-                        self.navigate_to(resolved, false, HistoryIntent::Push);
+                        if let Some(url) = self.page_link_target(&href) {
+                            self.navigate_to(url.to_string(), false, HistoryIntent::Push);
+                        }
                         return ControlFlow::Continue;
                     }
                     // Activation (checkbox/radio toggles) lands in the same render as the focus.
@@ -1627,8 +1685,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 max_document_bytes,
                 font_system.clone(),
                 capture_source,
+                capture_source,
             );
 
+            // The URL a source-only document lands on: the response's, after redirects.
+            let document_final_url = fetch_result
+                .meta()
+                .map(|meta| meta.final_url.clone())
+                .unwrap_or_else(about_blank);
             let outcome = route_response_for(
                 RequestDestination::Document,
                 handle,
@@ -1642,8 +1706,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             match outcome {
                 Ok(RoutedOutcome::MainDocument { doc, source }) => {
                     use gosub_interface::document::Document as _;
-                    let final_url = doc.url().unwrap_or_else(about_blank);
-                    let title = crate::html::document_title(&doc);
+                    let final_url = doc
+                        .as_ref()
+                        .and_then(|doc| doc.url())
+                        .unwrap_or_else(|| document_final_url.clone());
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
@@ -1663,12 +1730,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 // Subresource outcomes need no main-frame navigation handling.
-                Ok(
-                    RoutedOutcome::CssLoaded(_)
-                    | RoutedOutcome::ScriptExecuted(_)
-                    | RoutedOutcome::ImageDecoded(_)
-                    | RoutedOutcome::FontLoaded(_),
-                ) => {
+                Ok(RoutedOutcome::CssLoaded(_) | RoutedOutcome::ScriptExecuted(_) | RoutedOutcome::FontLoaded(_)) => {
                     log::trace!("Tab[{:?}] subresource outcome; nothing to do for navigation", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {
@@ -1825,6 +1887,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let font_system = self.zone_context.font_system.clone();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
+        // The engine's own pages are parsed here too: they are the ones allowed to
+        // fall back to in-process rendering, which needs a document. `LoadHtml`
+        // content is the embedder's page and goes to the renderer like any other.
+        let source_only = capture_source && !matches!(url.scheme(), "gosub" | "about");
 
         let span = tracing::info_span!(
             "tab_load_html",
@@ -1860,15 +1926,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 max_document_bytes,
                 font_system.clone(),
                 capture_source,
+                source_only,
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
                 Ok(parsed) => {
                     use gosub_interface::document::Document as _;
                     let (doc, source) = parsed.into_parts();
-                    let doc = Arc::new(doc);
-                    let final_url = doc.url().unwrap_or(url);
-                    let title = crate::html::document_title(&doc);
+                    let doc = doc.map(Arc::new);
+                    let final_url = doc.as_ref().and_then(|doc| doc.url()).unwrap_or(url);
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
@@ -1892,9 +1959,57 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// Title and icon of a document the renderer process parsed, once its
+    /// first render reports them.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_document_meta(&mut self) {
+        let Some((title, favicon)) = self.context.take_remote_document_meta() else {
+            return;
+        };
+        if let Some(title) = title {
+            // The history entry was committed before anything was parsed, so it
+            // learns its title here - also when the tab's title does not change
+            // (the last page may have had the same one) - and the embedder gets
+            // the snapshot that has it. The document's entry, not the cursor's:
+            // a traversal moves the cursor before its own load commits.
+            let untitled = self.document_entry.filter(|id| {
+                self.history
+                    .entry(*id)
+                    .is_some_and(|e| e.title.as_deref() != Some(title.as_str()))
+            });
+            if let Some(id) = untitled {
+                self.history.set_entry_title(id, Some(title.clone()));
+                // The visit was counted at the commit; only its title is new.
+                if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
+                    if matches!(url.scheme(), "http" | "https") {
+                        places.set_visit_title(url.as_str(), &title);
+                    }
+                }
+                self.emit_history_changed();
+            }
+            if title != self.title {
+                self.title = title.clone();
+                self.send_event(EngineEvent::TitleChanged {
+                    tab_id: self.tab_id,
+                    title,
+                });
+            }
+        }
+        // Every full remote render reports the icon again; only a new one is fetched.
+        if let Some(icon) = favicon.and_then(|f| Url::parse(&f).ok()) {
+            if self.remote_favicon.as_ref() != Some(&icon) {
+                self.remote_favicon = Some(icon.clone());
+                let cancel = self.active_nav.as_ref().map(|a| a.cancel.clone()).unwrap_or_default();
+                self.fetch_favicon(icon, &cancel);
+            }
+        }
+    }
+
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.apply_remote_document_meta();
         // Deferred scroll for a freshly committed document (history restore or URL fragment),
         // once it has laid out: page height and element positions are only known then. The
         // first dirty tick after `set_document` runs layout; this applies on the tick after

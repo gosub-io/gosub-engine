@@ -113,10 +113,29 @@ fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String
 }
 
 /// Whether this process was started as a child role.
+/// Confine this, the embedder's own process, after [`dispatch_with`] and
+/// before anything else: a Landlock ruleset that limits its filesystem
+/// writes to the temp dir plus `writable` (the embedder's profile directory,
+/// downloads, logs - whatever it writes itself), and a seccomp deny-list
+/// removing the escalation syscalls (`ptrace`, `mount`, `bpf`, kernel
+/// modules, keyrings, ...). The children's sandboxes are the boundary against
+/// page content; this is the one against a bug in the broker reaching the
+/// rest of the account. Call it on the main thread before the logger, the
+/// runtime or the engine exist - Landlock binds the calling thread and the
+/// threads created after it, and nothing undoes it. Best-effort on a kernel
+/// without either mechanism; a no-op where process isolation is not built.
+pub fn lock_down_broker(writable: &[&std::path::Path]) {
+    #[cfg(feature = "process-isolation")]
+    gosub_sandbox::lock_down_broker(writable);
+    #[cfg(not(feature = "process-isolation"))]
+    let _ = writable;
+}
+
 pub fn is_child_process() -> bool {
     std::env::args().any(|a| a == ROLE_FLAG)
 }
 
+#[cfg(feature = "process-isolation")]
 fn run_role(role: &str, args: &[String]) -> i32 {
     use crate::net::process::client::NET_ROLE;
 
@@ -133,7 +152,23 @@ fn run_role(role: &str, args: &[String]) -> i32 {
             Err(code) => code,
         },
         NET_ROLE => match adopt_link(role, args) {
-            Ok(endpoint) => crate::net::process::child::serve(endpoint),
+            Ok(endpoint) => crate::net::process::child::serve(endpoint, adopt_extra(role, args)),
+            Err(code) => code,
+        },
+        #[cfg(target_os = "linux")]
+        crate::cookie_vault::protocol::VAULT_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::cookie_vault::child::serve(endpoint, adopt_extra(role, args)),
+            Err(code) => code,
+        },
+        #[cfg(target_os = "linux")]
+        crate::storage_service::protocol::STORAGE_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => match args.first().filter(|_| args.len() >= 2) {
+                Some(dir) => crate::storage_service::child::serve(endpoint, std::path::PathBuf::from(dir)),
+                None => {
+                    eprintln!("[gosub] the storage role needs its directory argument");
+                    2
+                }
+            },
             Err(code) => code,
         },
         other => {
@@ -143,7 +178,33 @@ fn run_role(role: &str, args: &[String]) -> i32 {
     }
 }
 
+#[cfg(not(feature = "process-isolation"))]
+fn run_role(role: &str, _args: &[String]) -> i32 {
+    // Reachable only if a broker built *with* isolation spawned a child built
+    // without it, which cannot happen through re-exec of one binary. Refuse
+    // loudly rather than silently continuing into the embedder's `main`.
+    eprintln!("[gosub] child role '{role}' requested, but this build has no process isolation");
+    2
+}
+
+/// The second inherited channel, when the spawner named one before the
+/// primary link. Failing to adopt it is reported and treated as absent.
+#[cfg(feature = "process-isolation")]
+fn adopt_extra(role: &str, args: &[String]) -> Option<gosub_ipc::Endpoint> {
+    if args.len() < 2 {
+        return None;
+    }
+    match gosub_ipc::Endpoint::adopt_inherited(&args[0]) {
+        Ok(endpoint) => Some(endpoint),
+        Err(e) => {
+            eprintln!("[gosub] child role '{role}' could not adopt its second link: {e}");
+            None
+        }
+    }
+}
+
 /// Take over the link this child inherited, or report why it could not.
+#[cfg(feature = "process-isolation")]
 fn adopt_link(role: &str, args: &[String]) -> Result<gosub_ipc::Endpoint, i32> {
     // `spawn` appends the primary link last; anything before it is a further
     // inherited channel the role knows what to do with.

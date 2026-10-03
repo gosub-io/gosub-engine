@@ -242,7 +242,9 @@ run-%:
 	if [ -f "examples/$$name/Cargo.toml" ]; then \
 		set -- $(CARGO) run $$relflag -p "example-$$name" -- $(URL) $(ARGS) ;\
 	elif $(discover_examples) | grep -qx "$$name"; then \
-		set -- $(CARGO) run $$relflag --example "$$name" -- $(URL) $(ARGS) ;\
+		feat='' ;\
+		[ "$$name" = multi-process ] && feat='--features gosub_engine/cairo-tiles' ;\
+		set -- $(CARGO) run $$relflag --example "$$name" $$feat -- $(URL) $(ARGS) ;\
 	else \
 		printf '\033[31mUnknown example: %s\033[0m\n\n' "$$name" >&2 ;\
 		$(MAKE) --no-print-directory examples >&2 ;\

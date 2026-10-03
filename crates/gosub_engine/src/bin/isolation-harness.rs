@@ -19,32 +19,36 @@ style=\"display:block;width:400px;height:200px\">a link to hover</a></body></htm
 /// The harness's render configuration: null backend and compositor (nothing
 /// composites here), the scenario-selected font system - and, behind the
 /// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
-struct TileConfig<F>(std::marker::PhantomData<F>);
+struct TileConfig<F, B = gosub_render_pipeline::render::backends::null::NullBackend>(std::marker::PhantomData<(F, B)>);
 
-impl<F> Clone for TileConfig<F> {
+impl<F, B> Clone for TileConfig<F, B> {
     fn clone(&self) -> Self {
         Self(std::marker::PhantomData)
     }
 }
-impl<F> std::fmt::Debug for TileConfig<F> {
+impl<F, B> std::fmt::Debug for TileConfig<F, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("TileConfig")
     }
 }
-impl<F> PartialEq for TileConfig<F> {
+impl<F, B> PartialEq for TileConfig<F, B> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<F: FontSystem + Default> gosub_interface::config::ModuleConfiguration for TileConfig<F> {
+impl<F: FontSystem + Default, B: HarnessBackend> gosub_interface::config::ModuleConfiguration for TileConfig<F, B> {
     type CssSystem = gosub_css3::system::Css3System;
     type Document = gosub_html5::document::document_impl::DocumentImpl<Self>;
     type HtmlParser = gosub_html5::parser::Html5Parser<'static, Self>;
 }
 
-impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileConfig<F> {
-    type RenderBackend = gosub_render_pipeline::render::backends::null::NullBackend;
+/// A backend a harness configuration can carry.
+trait HarnessBackend: gosub_render_pipeline::render::backend::RenderBackend + Send + Sync + 'static {}
+impl<T> HarnessBackend for T where T: gosub_render_pipeline::render::backend::RenderBackend + Send + Sync + 'static {}
+
+impl<F: FontSystem + Default, B: HarnessBackend> gosub_engine::html::RenderConfiguration for TileConfig<F, B> {
+    type RenderBackend = B;
     type CompositorSink = gosub_render_pipeline::render::DefaultCompositor;
     type FontSystem = F;
 
@@ -62,6 +66,47 @@ impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileCo
             let _ = font_system;
             None
         }
+    }
+}
+
+/// The null backend, saying it presents a GPU texture as Vello does: a tab
+/// on such a backend renders in-process whether or not there is a renderer
+/// process.
+struct GpuTextureNull(gosub_render_pipeline::render::backends::null::NullBackend);
+
+impl gosub_render_pipeline::render::backend::RenderBackend for GpuTextureNull {
+    fn name(&self) -> &'static str {
+        "GpuTextureNull"
+    }
+    fn create_surface(
+        &self,
+        size: gosub_render_pipeline::render::backend::SurfaceSize,
+        present: gosub_render_pipeline::render::backend::PresentMode,
+    ) -> anyhow::Result<Box<dyn gosub_render_pipeline::render::backend::ErasedSurface + Send>> {
+        self.0.create_surface(size, present)
+    }
+    fn render(
+        &self,
+        context: &mut dyn gosub_render_pipeline::render::render_context::RenderContext,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+    ) -> anyhow::Result<()> {
+        self.0.render(context, surface)
+    }
+    fn snapshot(
+        &self,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+        max_dim: u32,
+    ) -> anyhow::Result<gosub_render_pipeline::render::backend::RgbaImage> {
+        self.0.snapshot(surface, max_dim)
+    }
+    fn external_handle(
+        &self,
+        surface: &mut dyn gosub_render_pipeline::render::backend::ErasedSurface,
+    ) -> anyhow::Result<gosub_render_pipeline::render::backend::ExternalHandle> {
+        self.0.external_handle(surface)
+    }
+    fn renders_to_gpu_texture(&self) -> bool {
+        true
     }
 }
 
@@ -113,6 +158,12 @@ fn main() {
         }
     }
 
+    // The engine scenarios run as an embedder would: the broker confined,
+    // here before any thread. Writes go to the temp dir, which is where every
+    // scenario puts what it writes.
+    if std::env::args().nth(1).is_some_and(|s| s.starts_with("engine-")) {
+        gosub_engine::child_process::lock_down_broker(&[]);
+    }
     let scenario = std::env::args().nth(1).unwrap_or_default();
     let code = match scenario.as_str() {
         "direct" => direct(),
@@ -137,8 +188,16 @@ fn main() {
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
+        "engine-remote-title" => with_font_backend!(engine_remote_title),
+        "engine-gpu-backend-parses" => with_font_backend!(engine_gpu_backend_parses),
         "renderer-soak" => with_font_backend!(renderer_soak),
         "engine-soak" => with_font_backend!(engine_soak),
+        "escape-audit" => with_font_backend!(escape_audit),
+        "engine-stress" => with_font_backend!(engine_stress),
+        "storage" => storage(),
+        "engine-storage-service" => engine_storage_service(),
+        "vault" => vault(),
+        "engine-cookie-vault" => engine_cookie_vault(),
         "stream" => stream(),
         "engine" => engine(),
         "guard" => guard(),
@@ -150,6 +209,9 @@ fn main() {
     std::process::exit(code);
 }
 
+/// An embedder that never dispatched: re-exec landed here, in `main`, rather
+/// than in a component role. Spawning from this state would repeat the mistake
+/// for every generation, so it must be refused.
 fn guard() -> i32 {
     use gosub_engine::net::process::client::NetProcess;
 
@@ -158,7 +220,7 @@ fn guard() -> i32 {
         return 2;
     }
 
-    match NetProcess::spawn() {
+    match NetProcess::spawn(None) {
         Ok(_) => {
             eprintln!("spawning should have been refused: an undispatched child must not spawn more");
             1
@@ -176,6 +238,7 @@ fn guard() -> i32 {
     }
 }
 
+/// A one-shot HTTP server on an ephemeral port, serving [`BODY`].
 fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
     serve_once_with(BODY)
 }
@@ -213,6 +276,14 @@ fn serve_once_bytes(body: Vec<u8>, content_type: &'static str) -> std::io::Resul
     Ok((port, handle))
 }
 
+/// Real hostname resolution inside the sandboxed network process. `127.0.0.1`
+/// never reaches NSS, which is how two syscall denials (`mmap(PROT_EXEC)` from
+/// `dlopen`ing NSS modules, `sendmmsg` from the resolver) survived every test
+/// until an example hit a live URL. A reserved `.invalid` name exercises the
+/// whole resolver path without needing the network: the fetch must fail, and
+/// the process must *survive* it and still serve. The strict fetcher (a
+/// subresource of a public page) must then refuse the loopback test server,
+/// and the permissive one must still reach it.
 fn resolve() -> i32 {
     use gosub_engine::net::process::client::NetProcess;
     use gosub_engine::net::process::protocol::FetchOutcome;
@@ -221,7 +292,7 @@ fn resolve() -> i32 {
         eprintln!("could not start the test server");
         return 1;
     };
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
@@ -1400,6 +1471,32 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 }
             }
         }
+        // An audit after the fork server died goes to a fresh one, as a
+        // render would, rather than to the dead link.
+        let Some(pid) = server.pid() else {
+            eprintln!("the fork server has no pid");
+            return 1;
+        };
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        match server.audit() {
+            Ok(_) if server.pid().is_some_and(|new| new != pid) => {
+                println!("an audit after the fork server died ran in a fresh one");
+            }
+            Ok(_) => {
+                eprintln!(
+                    "the audit answered, but from no new fork server (pid {pid} -> {:?})",
+                    server.pid()
+                );
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("an audit after the fork server died failed: {e}");
+                return 1;
+            }
+        }
         server.shutdown();
         0
     }
@@ -2447,6 +2544,308 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
 /// A render never waits for an image: a page whose image the server holds
 /// back for seconds must still paint promptly, and paint again - without a
 /// new navigation - once the image has arrived.
+/// A tab on a GPU-texture backend gets no renderer process, so it must parse
+/// its document itself even with the renderer process on: the commit then
+/// carries the page's title. Parsed source-only, it would have neither a
+/// document nor - with no renderer to report one - a title.
+fn engine_gpu_backend_parses<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let page = "<html><head><title>Parsed here</title></head><body><p>text</p></body></html>";
+        let Ok(port) = serve_routes(vec![(
+            "/",
+            "text/html",
+            page.as_bytes().to_vec(),
+            std::time::Duration::ZERO,
+        )]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let mut engine: GosubEngine<TileConfig<F, GpuTextureNull>> = GosubEngine::new(
+                None,
+                Arc::new(GpuTextureNull(NullBackend::new())),
+                Arc::new(DefaultCompositor::default()),
+            );
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if engine.renderer_pool().is_none() && engine.renderer_process().is_none() {
+                eprintln!("no renderer process to decline (needs a Full-tier font system and `cairo-tiles`)");
+                return 2;
+            }
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            // The snapshot the commit publishes.
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            let entry = loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::HistoryChanged { history },
+                        ..
+                    })) => break history.current.and_then(|id| history.entries.get(id.0)).cloned(),
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => {
+                        eprintln!("navigation failed: {error}");
+                        return 1;
+                    }
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    _ => {
+                        eprintln!("no history snapshot for the navigation");
+                        return 1;
+                    }
+                }
+            };
+            if entry.as_ref().and_then(|e| e.title.as_deref()) != Some("Parsed here") {
+                eprintln!("the commit carried no parsed title, so the tab has no document: {entry:?}");
+                return 1;
+            }
+            println!("a GPU-texture tab parsed its document in-process");
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
+/// Two remotely rendered pages with the same title, one after the other. The
+/// broker parses neither, so each history entry is committed untitled and must
+/// learn its title from the renderer - the second one too, although the tab's
+/// title does not change - in a snapshot the embedder receives.
+fn engine_remote_title<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_interface::font_system::Confinement;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-remote-title needs a Full-tier font system");
+            return 2;
+        }
+        let page = "<html><head><title>Same</title></head><body><p>text</p></body></html>";
+        let titled = |t: &str| format!("<html><head><title>{t}</title></head><body><p>text</p></body></html>");
+        const SLOW: std::time::Duration = std::time::Duration::from_secs(3);
+        let Ok(port) = serve_routes(vec![
+            ("/a", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/b", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/c", "text/html", titled("C").into_bytes(), SLOW),
+            ("/d", "text/html", titled("D").into_bytes(), std::time::Duration::ZERO),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if engine.renderer_pool().is_none() && !cfg!(feature = "cairo-tiles") {
+                eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
+                return 2;
+            }
+            let places = Arc::new(gosub_engine::places::MemoryPlaces::default());
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: Some(places.clone()),
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            for (path, title) in [("/a", "Same"), ("/b", "Same"), ("/c", "C"), ("/d", "D")] {
+                if tab.navigate(format!("http://127.0.0.1:{port}{path}")).await.is_err() {
+                    eprintln!("navigate to {path} failed");
+                    return 1;
+                }
+                // Until a published snapshot has this page's entry titled.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                let mut last = None;
+                loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::HistoryChanged { history },
+                            ..
+                        })) => {
+                            let current = history.current.and_then(|id| history.entries.get(id.0)).cloned();
+                            let done = current
+                                .as_ref()
+                                .is_some_and(|e| e.url.path() == path && e.title.as_deref() == Some(title));
+                            last = current;
+                            if done {
+                                break;
+                            }
+                        }
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        })) => {
+                            eprintln!("navigation to {path} failed: {error}");
+                            return 1;
+                        }
+                        Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                        _ => {
+                            eprintln!("no published history entry for {path} with its title; last: {last:?}");
+                            return 1;
+                        }
+                    }
+                }
+                println!("history entry for {path} titled from the renderer");
+            }
+            // Each page visited once, under its own title: the late title is
+            // not a second visit.
+            use gosub_engine::places::Places as _;
+            let visits = places.query_visited("", 10);
+            let once = |path: &str| {
+                visits
+                    .iter()
+                    .any(|v| v.url.ends_with(path) && v.visit_count == 1 && v.title == "Same")
+            };
+            if !once("/a") || !once("/b") {
+                eprintln!("expected /a and /b visited once each, titled: {visits:?}");
+                return 1;
+            }
+            println!("each page counted as one visit, with its title");
+
+            // Back to /c, whose load takes a while: the cursor is on /c's entry
+            // at once, and /d is still the document shown. A full render of /d
+            // meanwhile (a new viewport) reports "D" again, which belongs to
+            // /d's entry and must not land on /c's.
+            let _ = tab.send(TabCommand::GoBack).await;
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1024,
+                    height: 600,
+                })
+                .await;
+            let watch = tokio::time::Instant::now() + SLOW - std::time::Duration::from_millis(500);
+            loop {
+                let remaining = watch.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::HistoryChanged { history },
+                        ..
+                    })) => {
+                        if let Some(c) = history.entries.iter().find(|e| e.url.path() == "/c") {
+                            if c.title.as_deref() == Some("D") {
+                                eprintln!("the shown page's title landed on the entry being traversed to: {c:?}");
+                                return 1;
+                            }
+                        }
+                    }
+                    Ok(Ok(_)) | Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                    _ => break,
+                }
+            }
+            println!("a title reported during a traversal stays with its own entry");
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
     #[cfg(target_os = "linux")]
@@ -2893,6 +3292,11 @@ fn same_page(reported: Option<&str>, asked: &str) -> bool {
     }
 }
 
+/// Not a test - a tool: the whole engine with every isolation setting on,
+/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
+/// in turn, reporting per site what it cost and what it took to render, and
+/// at the end what the renderer processes hold. Exit 1 only if a renderer
+/// crashed or a page could not be rendered out of process.
 fn engine_soak<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
     #[cfg(target_os = "linux")]
@@ -3186,6 +3590,577 @@ fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
 /// One route of [`serve_routes`]: path → (content type, body, delay before answering).
 type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
 
+/// The escape audit in every process of a running engine: what an attacker
+/// holding each child could still reach, measured from inside it after the
+/// real spawn and lockdown. Exit 1 on any expectation violated or any role
+/// that gave no report.
+fn escape_audit<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::decoder_process::client::ProcessImageDecoder;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{FileLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+        use gosub_sandbox::audit::AuditReport;
+        use parking_lot::Mutex;
+
+        let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
+        let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let dir = std::env::temp_dir().join(format!("gosub-escape-audit-{}", std::process::id()));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("no temp dir: {e}");
+            return 1;
+        }
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let store_dir = dir.clone();
+        let code = runtime.block_on(async move {
+            let dir = store_dir;
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in [
+                "security.network_process",
+                "security.image_decoder_process",
+                "security.renderer_process",
+                "security.cookie_vault",
+                "security.storage_service",
+            ] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let mut events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+
+            let storage = Arc::new(StorageService::new(
+                Arc::new(FileLocalStore::attach(&dir)),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            // A page, so a resident renderer exists and the storage service ran.
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("the page never finished loading");
+                        return 1;
+                    }
+                }
+            }
+            // Touch storage so its service is spawned (it starts lazily). The
+            // call is round-tripped, so the service is up when it returns.
+            let origin = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map(|u| u.origin());
+            if let Ok(origin) = origin {
+                if let Ok(area) = storage.local_for(zone.id, &gosub_engine::storage::PartitionKey::None, &origin) {
+                    let _ = area.set_item("audit", "1");
+                }
+            }
+            // `Finished` is the document; the remote render that puts a
+            // resident renderer in the pool may still be in flight, and the
+            // audit below has to find it.
+            if let Some(pool) = engine.renderer_pool() {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+                while pool.snapshot().is_empty() {
+                    if tokio::time::Instant::now() >= deadline {
+                        eprintln!("no resident renderer appeared for the page");
+                        return 1;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+
+            let mut reports: Vec<(String, Option<AuditReport>)> = Vec::new();
+            reports.push(("net".into(), engine.audit_net_process().await));
+            reports.push(("decoder".into(), ProcessImageDecoder.audit().ok().flatten()));
+            reports.push(("vault".into(), engine.cookie_vault().and_then(|v| v.audit())));
+            reports.push(("storage".into(), storage.local_store().escape_audit()));
+            // Without a forked rasterizer compiled in (`cairo-tiles`) the engine refuses the
+            // renderer tier by design, so there is no fork server or resident renderer to audit.
+            let renderers_expected = cfg!(feature = "cairo-tiles");
+            match engine.renderer_pool() {
+                Some(pool) => {
+                    for (label, report) in pool.audit() {
+                        match report {
+                            Ok(report) => reports.push((label, Some(report))),
+                            Err(e) => {
+                                eprintln!("{label}: no report ({e})");
+                                reports.push((label, None));
+                            }
+                        }
+                    }
+                }
+                None if renderers_expected => reports.push(("fork-server".into(), None)),
+                None => println!("== fork-server: not running (built without cairo-tiles, so no renderer tier)"),
+            }
+
+            let mut failed = false;
+            let mut resident = 0;
+            for (label, report) in &reports {
+                match report {
+                    Some(report) => {
+                        if label.starts_with("renderer ") {
+                            resident += 1;
+                        }
+                        let violations = report.violations().len();
+                        println!("== {label}: {} check(s), {violations} violation(s)", report.items.len());
+                        print!("{}", report.render());
+                        if violations > 0 {
+                            failed = true;
+                        }
+                    }
+                    None => {
+                        println!("== {label}: NO REPORT");
+                        failed = true;
+                    }
+                }
+            }
+            if resident == 0 && renderers_expected {
+                println!("no resident renderer was audited");
+                failed = true;
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(failed)
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the escape audit is Linux-only");
+        2
+    }
+}
+
+/// Not a test - a tool: several tabs at once over real sites (the same site in
+/// more than one tab on purpose), continuously navigating, scrolling, hovering,
+/// closing and reopening for `argv[3]` seconds (default 120), logging every
+/// action and every engine event as it happens, with a status line every few
+/// seconds. `argv[4..]` replaces the built-in site list. Exit 1 on crashes.
+fn engine_stress<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::decoder_process::client::ProcessImageDecoder;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::tab::{TabHandle, TabId};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+        use std::collections::HashMap;
+
+        let seconds: u64 = std::env::args().nth(3).and_then(|a| a.parse().ok()).unwrap_or(120);
+        let mut sites: Vec<String> = std::env::args().skip(4).collect();
+        if sites.is_empty() {
+            sites = [
+                "https://en.wikipedia.org/wiki/Main_Page",
+                "https://www.bbc.com/news",
+                "https://www.theverge.com",
+                "https://www.nasa.gov",
+                "https://commons.wikimedia.org/wiki/Main_Page",
+                "https://news.ycombinator.com",
+                "https://en.wikipedia.org/wiki/Cat",
+                "https://www.bbc.com/sport",
+                "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+                "https://www.rust-lang.org",
+                "https://developer.mozilla.org/en-US/",
+                "https://archive.org",
+                "https://www.openstreetmap.org/about",
+                "https://www.gnu.org",
+                "https://lwn.net",
+                "https://www.kernel.org",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        }
+        // Knobs beyond the positional args: how many tabs at once, and how
+        // fast actions fire (the base of the 1x-3.4x random pause).
+        let tabs_wanted: usize = std::env::var("GOSUB_STRESS_TABS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6)
+            .max(1);
+        let pace_ms: u64 = std::env::var("GOSUB_STRESS_PACE_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(250)
+            .max(10);
+
+        // Deterministic per run, seedable; no need for a crate. Not zero: xorshift
+        // never leaves it, and every action would scroll the first tab.
+        let mut rng_state: u64 = std::env::var("GOSUB_STRESS_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|&seed: &u64| {
+                if seed == 0 {
+                    eprintln!("GOSUB_STRESS_SEED=0 cannot drive xorshift; using the default seed");
+                }
+                seed != 0
+            })
+            .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        let mut rng = move || {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 7;
+            rng_state ^= rng_state << 17;
+            rng_state
+        };
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let started = tokio::time::Instant::now();
+            let stamp = move || format!("[{:>7.2}s]", started.elapsed().as_secs_f64());
+
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in ["security.network_process", "security.image_decoder_process", "security.renderer_process"] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            // Every component this run is meant to stress must be there: the
+            // engine falls back in-process when one cannot start, and a run
+            // that passed without the network process would prove nothing.
+            if engine.audit_net_process().await.is_none() {
+                eprintln!("network isolation did not start");
+                return 1;
+            }
+            let Some(pool) = engine.renderer_pool().cloned() else {
+                eprintln!("renderer isolation did not start");
+                return 1;
+            };
+            // The decoder is spawned per image and a failed decode is not a
+            // failed run, so prove one can start and lock down before the run.
+            if ProcessImageDecoder.audit().ok().flatten().is_none() {
+                eprintln!("decoder isolation did not start");
+                return 1;
+            }
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let mut events = engine.subscribe_events();
+            println!(
+                "{} engine up: {tabs_wanted} tabs over {} sites for {seconds}s (pace {pace_ms} ms; GOSUB_STRESS_TABS / GOSUB_STRESS_PACE_MS / GOSUB_STRESS_SEED to change); viewer: http://127.0.0.1:9090",
+                stamp(),
+                sites.len()
+            );
+
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+
+            // Tabs by slot number, so the log can say "tab 3" rather than a uuid.
+            let mut tabs: Vec<(usize, TabHandle)> = Vec::new();
+            let mut names: HashMap<TabId, usize> = HashMap::new();
+            let mut next_slot = 1usize;
+            for _ in 0..tabs_wanted {
+                let Ok(handle) = zone.create_tab(Default::default(), None).await else {
+                    eprintln!("could not create a tab");
+                    return 1;
+                };
+                let slot = next_slot;
+                next_slot += 1;
+                let _ = handle
+                    .send(TabCommand::SetViewport {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 720,
+                    })
+                    .await;
+                let _ = handle.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                let site = sites[(rng() as usize) % sites.len()].clone();
+                println!("{} tab {slot}: navigate {site}", stamp());
+                let _ = handle.navigate(site).await;
+                names.insert(handle.tab_id, slot);
+                tabs.push((slot, handle));
+            }
+
+            let mut crashes = 0usize;
+            let mut nav_ok = 0usize;
+            let mut nav_failed = 0usize;
+            let (mut loads, mut bytes, mut passes) = (0usize, 0usize, 0usize);
+            let mut last_status = tokio::time::Instant::now();
+            let deadline = started + std::time::Duration::from_secs(seconds);
+
+            let mut lost_all_tabs = false;
+            // Engine events this run never saw (the receiver fell behind): a
+            // crash among them would go uncounted, so the run cannot pass.
+            let mut events_lost = false;
+            while tokio::time::Instant::now() < deadline {
+                // Closing a tab reopens one; if that failed on the last tab there is
+                // nothing left to drive, and the run is a failure, not a pass.
+                if tabs.is_empty() {
+                    println!("{} !!! no tabs left: reopening a closed tab failed", stamp());
+                    lost_all_tabs = true;
+                    break;
+                }
+                // One action on a random tab.
+                let pick = (rng() as usize) % tabs.len();
+                let (slot, handle) = (tabs[pick].0, tabs[pick].1.clone());
+                let action = rng() % 100;
+                match action {
+                    0..=49 => {
+                        let dy = ((rng() % 1200) as f32) - 300.0;
+                        println!("{} tab {slot}: scroll {dy:+.0}", stamp());
+                        let _ = handle.send(TabCommand::MouseScroll { delta_x: 0.0, delta_y: dy }).await;
+                    }
+                    50..=74 => {
+                        let (x, y) = ((rng() % 1280) as f32, (rng() % 720) as f32);
+                        println!("{} tab {slot}: hover ({x:.0},{y:.0})", stamp());
+                        let _ = handle.send(TabCommand::MouseMove { x, y }).await;
+                    }
+                    75..=89 => {
+                        let site = sites[(rng() as usize) % sites.len()].clone();
+                        println!("{} tab {slot}: navigate {site}", stamp());
+                        let _ = handle.navigate(site).await;
+                    }
+                    90..=94 => {
+                        println!("{} tab {slot}: reload", stamp());
+                        let _ = handle.send(TabCommand::Reload { ignore_cache: false }).await;
+                    }
+                    _ => {
+                        println!("{} tab {slot}: close", stamp());
+                        let id = handle.tab_id;
+                        zone.close_tab(id).await;
+                        names.remove(&id);
+                        tabs.remove(pick);
+                        if let Ok(handle) = zone.create_tab(Default::default(), None).await {
+                            let slot = next_slot;
+                            next_slot += 1;
+                            let _ = handle
+                                .send(TabCommand::SetViewport {
+                                    x: 0,
+                                    y: 0,
+                                    width: 1280,
+                                    height: 720,
+                                })
+                                .await;
+                            let _ = handle.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                            let site = sites[(rng() as usize) % sites.len()].clone();
+                            println!("{} tab {slot}: open + navigate {site}", stamp());
+                            let _ = handle.navigate(site).await;
+                            names.insert(handle.tab_id, slot);
+                            tabs.push((slot, handle));
+                        }
+                    }
+                }
+
+                // Let things happen, draining what the engine and the firehose say.
+                let pause = std::time::Duration::from_millis(pace_ms + rng() % (pace_ms.saturating_mul(12) / 5).max(1));
+                let until = tokio::time::Instant::now() + pause;
+                loop {
+                    let remaining = until.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    tokio::select! {
+                        event = events.recv() => match event {
+                            Ok(EngineEvent::Navigation { tab_id, event: NavigationEvent::Finished { .. } }) => {
+                                nav_ok += 1;
+                                println!("{} tab {}: navigation finished", stamp(), names.get(&tab_id).copied().unwrap_or(0));
+                            }
+                            Ok(EngineEvent::Navigation { tab_id, event: NavigationEvent::Failed { error, .. } }) => {
+                                nav_failed += 1;
+                                println!("{} tab {}: navigation FAILED: {error}", stamp(), names.get(&tab_id).copied().unwrap_or(0));
+                            }
+                            Ok(EngineEvent::RendererCrashed { site, tabs: affected, error, .. }) => {
+                                crashes += 1;
+                                let slots: Vec<usize> = affected.iter().filter_map(|t| names.get(t).copied()).collect();
+                                println!("{} !!! RENDERER CRASHED for {site} (tabs {slots:?}): {error}", stamp());
+                            }
+                            Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                events_lost = true;
+                                println!("{} !!! {n} engine events lost: crashes among them would go uncounted", stamp());
+                            }
+                            Err(_) => {}
+                        },
+                        event = firehose.recv() => if let Ok(event) = event {
+                            match event.kind.as_str() {
+                                "net.load" => {
+                                    loads += 1;
+                                    bytes += event.data["bytes"].as_u64().unwrap_or(0) as usize;
+                                    let outcome = event.data["outcome"].as_str().unwrap_or("");
+                                    let ms = event.data["duration_us"].as_u64().unwrap_or(0) / 1000;
+                                    if outcome != "ok" || ms > 2000 {
+                                        println!(
+                                            "{}   load {} ms {}: {} {}",
+                                            stamp(),
+                                            ms,
+                                            event.data["url"].as_str().unwrap_or(""),
+                                            outcome,
+                                            event.data["error"].as_str().unwrap_or("")
+                                        );
+                                    }
+                                }
+                                "remote.navigate" | "remote.scroll" | "remote.hover" => {
+                                    passes += 1;
+                                    let ms = event.data["exchange_us"].as_u64().unwrap_or(0) / 1000;
+                                    if ms > 1000 {
+                                        let stages = event.data["renderer_us"]
+                                            .as_object()
+                                            .map(|m| {
+                                                let mut parts: Vec<String> = m
+                                                    .iter()
+                                                    .map(|(k, v)| format!("{k} {}", v.as_u64().unwrap_or(0) / 1000))
+                                                    .collect();
+                                                parts.sort();
+                                                parts.join(", ")
+                                            })
+                                            .unwrap_or_default();
+                                        println!(
+                                            "{}   slow {}: {ms} ms total ({stages}) ms, {} fresh tiles - {}",
+                                            stamp(),
+                                            event.kind,
+                                            event.data["tiles_fresh"],
+                                            event.data["url"].as_str().unwrap_or("")
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        },
+                        _ = tokio::time::sleep(remaining) => break,
+                    }
+                }
+
+                if last_status.elapsed() >= std::time::Duration::from_secs(5) {
+                    last_status = tokio::time::Instant::now();
+                    let renderers = pool.snapshot();
+                    let rss_max = renderers.iter().filter_map(|r| r.rss_kb).max().unwrap_or(0) / 1024;
+                    let rss_sum: u64 = renderers.iter().filter_map(|r| r.rss_kb).sum::<u64>() / 1024;
+                    println!(
+                        "{} === tabs {} | renderers {} (rss max {rss_max} MiB, total {rss_sum} MiB) | navs ok {nav_ok} failed {nav_failed} | loads {loads} ({} MiB) | passes {passes} | crashes {crashes}",
+                        stamp(),
+                        tabs.len(),
+                        renderers.len(),
+                        bytes / (1024 * 1024)
+                    );
+                    for r in &renderers {
+                        println!(
+                            "{}     pid {:>7} {:<38} {} tab(s) rss {} MiB",
+                            stamp(),
+                            r.pid,
+                            r.key.site,
+                            r.tabs,
+                            r.rss_kb.map_or(0, |kb| kb / 1024)
+                        );
+                    }
+                }
+            }
+
+            // What the engine reported after the last pause still counts: a crash
+            // that arrived then must fail the run too. Read before cleanup, which
+            // stops the renderers on purpose.
+            loop {
+                match events.try_recv() {
+                    Ok(EngineEvent::RendererCrashed { site, error, .. }) => {
+                        crashes += 1;
+                        println!("{} !!! RENDERER CRASHED for {site}: {error}", stamp());
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                        events_lost = true;
+                        println!("{} !!! {n} engine events lost: crashes among them would go uncounted", stamp());
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            println!(
+                "{} done: navs ok {nav_ok} failed {nav_failed} | loads {loads} ({} MiB) | passes {passes} | crashes {crashes}",
+                stamp(),
+                bytes / (1024 * 1024)
+            );
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(crashes > 0 || lost_all_tabs || events_lost)
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 /// The follow-up question to the warm-up finding: a page can introduce a font at
 /// any moment with `@font-face`, long after the sandbox is in place. Does that
 /// need a file, and therefore a process that can open one?
@@ -3322,7 +4297,7 @@ fn stream() -> i32 {
         eprintln!("could not start the test server");
         return 1;
     };
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
@@ -3399,6 +4374,841 @@ fn stream() -> i32 {
     }
 }
 
+/// The cookie vault on its own: a jar that forwards, the HttpOnly split, zone
+/// partitioning, and persistence brokered through a real SQLite store - the
+/// vault never opens the file, the broker does, from the snapshots it is sent.
+#[cfg(target_os = "linux")]
+fn line_channel(line: gosub_engine::cookie_vault::client::NetVaultLink) -> gosub_ipc::channel::Channel {
+    line.0
+}
+
+fn vault() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::cookie_vault::client::{CookieVault, VaultCookieJar};
+        use gosub_engine::cookie_vault::protocol::{CookieScope, SameSite};
+        use gosub_engine::cookies::{CookieJar as _, CookieStoreHandle, SameSiteContext, SqliteCookieStore};
+        use gosub_engine::zone::ZoneId;
+
+        let (vault, _) = match CookieVault::spawn(false) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("could not spawn the vault: {e}");
+                return 1;
+            }
+        };
+        let vault = Arc::new(vault);
+        let Ok(url) = url::Url::parse("https://example.test/app") else {
+            eprintln!("bad test url");
+            return 1;
+        };
+        let set_cookie = |values: &[&str]| {
+            let mut headers = http::HeaderMap::new();
+            for value in values {
+                if let Ok(value) = value.parse() {
+                    headers.append(http::header::SET_COOKIE, value);
+                }
+            }
+            headers
+        };
+
+        // A zone with no store: in-memory in the vault.
+        let zone = ZoneId::new();
+        vault.open_zone(zone, None);
+        let mut jar = VaultCookieJar::new(Arc::clone(&vault), zone);
+        let headers = set_cookie(&["sid=abc; HttpOnly; Path=/", "theme=dark; Path=/"]);
+        jar.store_response_cookies(&url, &headers, None);
+
+        let attach = jar
+            .get_request_cookies(&url, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
+        if !(attach.contains("sid=abc") && attach.contains("theme=dark")) {
+            eprintln!("the attachable set should hold both cookies, got {attach:?}");
+            return 1;
+        }
+        let scope = CookieScope {
+            ticket: 0,
+            url: url.to_string(),
+            zone: zone.to_string(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        let visible = vault.get(scope.clone(), &url, true).unwrap_or_default();
+        if visible.contains("sid=") || !visible.contains("theme=dark") {
+            eprintln!("the document.cookie view must hide HttpOnly, got {visible:?}");
+            return 1;
+        }
+        let other = ZoneId::new();
+        vault.open_zone(other, None);
+        let foreign = CookieScope {
+            zone: other.to_string(),
+            ..scope
+        };
+        if vault.get(foreign, &url, false).is_some() {
+            eprintln!("another zone must not see this zone's cookies");
+            return 1;
+        }
+        let listed = jar
+            .get_all_cookies()
+            .into_iter()
+            .map(|(_, cookies)| cookies)
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !(listed.contains("sid=abc") && listed.contains("theme=dark")) {
+            eprintln!("get_all_cookies should list both cookies, got {listed:?}");
+            return 1;
+        }
+        println!("attach/visible/partition views correct");
+
+        // The network process's line answers granted tickets only, and from
+        // the grant's scope - not from what the line claims.
+        let (net_vault, net_line) = match CookieVault::spawn(true) {
+            Ok((v, Some(line))) => (Arc::new(v), line),
+            _ => {
+                eprintln!("could not spawn a vault with a network line");
+                return 1;
+            }
+        };
+        let Ok(mut net_link) = gosub_ipc::Endpoint::from_channel(line_channel(net_line)) else {
+            eprintln!("could not open the network line");
+            return 1;
+        };
+        net_vault.open_zone(zone, None);
+        let mut net_jar = VaultCookieJar::new(Arc::clone(&net_vault), zone);
+        net_jar.store_response_cookies(&url, &set_cookie(&["sid=abc; Path=/"]), None);
+        use gosub_engine::cookie_vault::protocol::{FromVault, ToVault};
+        let ask_at = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, at: &str| -> Option<String> {
+            link.send(&ToVault::Get {
+                tag: 7,
+                scope,
+                url: at.to_string(),
+                visible_only: false,
+            })
+            .ok()?;
+            match link.recv::<FromVault>().ok()? {
+                FromVault::Cookies { header, .. } => header,
+                _ => None,
+            }
+        };
+        let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| ask_at(link, scope, url.as_str());
+        let store_on_line = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, cookie: &str| -> bool {
+            let sent = link.send(&ToVault::Store {
+                tag: 8,
+                scope,
+                url: url.to_string(),
+                set_cookie: vec![cookie.to_string()],
+            });
+            sent.is_ok() && matches!(link.recv::<FromVault>(), Ok(FromVault::Stored { .. }))
+        };
+        let claimed = CookieScope {
+            ticket: 424242,
+            url: url.to_string(),
+            zone: zone.to_string(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        if ask(&mut net_link, claimed.clone()).is_some() {
+            eprintln!("the network line answered a ticket nobody granted");
+            return 1;
+        }
+        if !net_vault.grant(&claimed) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        // Under the grant, the zone the line names is ignored: the grant's counts.
+        let lying = CookieScope {
+            zone: other.to_string(),
+            ..claimed.clone()
+        };
+        let got = ask(&mut net_link, lying).unwrap_or_default();
+        if !got.contains("sid=abc") {
+            eprintln!("a granted ticket should answer from the grant's zone, got {got:?}");
+            return 1;
+        }
+        if ask(&mut net_link, claimed.clone()).is_some() {
+            eprintln!("a ticket read cookies twice");
+            return 1;
+        }
+        net_vault.revoke(&claimed);
+
+        // An unspent ticket is dead once revoked.
+        let revoked = CookieScope {
+            ticket: 515151,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&revoked) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        net_vault.revoke(&revoked);
+        // `Revoke` has no answer; a round trip behind it on the same link
+        // means the vault has acted on it before the line asks.
+        let _ = net_vault.get(
+            CookieScope {
+                ticket: 0,
+                ..claimed.clone()
+            },
+            &url,
+            false,
+        );
+        if ask(&mut net_link, revoked).is_some() {
+            eprintln!("the network line answered a revoked ticket");
+            return 1;
+        }
+
+        // A ticket reads at the URL it was granted for, and stores once.
+        let bound = CookieScope {
+            ticket: 616161,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&bound) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        if ask_at(&mut net_link, bound.clone(), "https://example.test/elsewhere").is_some() {
+            eprintln!("a ticket read cookies for a URL it was not granted for");
+            return 1;
+        }
+        if !ask(&mut net_link, bound.clone()).is_some_and(|got| got.contains("sid=abc")) {
+            eprintln!("a ticket should still read at its own URL after a refused one");
+            return 1;
+        }
+        if !(store_on_line(&mut net_link, bound.clone(), "first=1; Path=/")
+            && store_on_line(&mut net_link, bound.clone(), "second=1; Path=/"))
+        {
+            eprintln!("a store on the network line went unacknowledged");
+            return 1;
+        }
+        net_vault.revoke(&bound);
+        let held = net_vault
+            .get(CookieScope { ticket: 0, ..bound }, &url, false)
+            .unwrap_or_default();
+        if !held.contains("first=1") || held.contains("second=1") {
+            eprintln!("a ticket should store once, the jar holds {held:?}");
+            return 1;
+        }
+        println!("network line honours grants only, one request's worth each");
+
+        // A zone with a SQLite store: the vault's snapshots reach the file
+        // through the broker, and a fresh store on the same file has them.
+        let dir = std::env::temp_dir().join(format!("gosub-vault-{}", std::process::id()));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("no temp dir: {e}");
+            return 1;
+        }
+        let path = dir.join("cookies.db");
+        let store = match SqliteCookieStore::new(path.clone()) {
+            Ok(s) => CookieStoreHandle::from(s),
+            Err(e) => {
+                eprintln!("could not open the sqlite store: {e}");
+                return 1;
+            }
+        };
+        let persisted = ZoneId::new();
+        vault.open_zone(persisted, Some(store.clone()));
+        let mut jar = VaultCookieJar::new(Arc::clone(&vault), persisted);
+        let headers = set_cookie(&["durable=1; Path=/"]);
+        jar.store_response_cookies(&url, &headers, None);
+        // Reading back through the vault orders after the store (same link),
+        // and the snapshot precedes the reply on the broker link.
+        let _ = jar.get_request_cookies(&url, None, SameSiteContext::SameSite);
+        // A store right before the zone closes: its snapshot is still on the
+        // way when `close_zone` runs, and must reach the store all the same.
+        jar.store_response_cookies(&url, &set_cookie(&["late=1; Path=/"]), None);
+        vault.close_zone(persisted);
+        store.persist_all();
+        drop(store);
+        let reopened = match SqliteCookieStore::new(path) {
+            Ok(s) => CookieStoreHandle::from(s),
+            Err(e) => {
+                eprintln!("could not reopen the sqlite store: {e}");
+                return 1;
+            }
+        };
+        let back = reopened
+            .jar_for(persisted)
+            .and_then(|jar| jar.read().get_request_cookies(&url, None, SameSiteContext::SameSite))
+            .unwrap_or_default();
+        vault.shutdown();
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+        if !(back.contains("durable=1") && back.contains("late=1")) {
+            eprintln!("the cookie did not reach the store through the broker, got {back:?}");
+            return 1;
+        }
+        println!("brokered persistence reached sqlite: {back}");
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the cookie vault is Linux-only");
+        2
+    }
+}
+
+/// The whole chain: engine with the vault and the network process on, a page
+/// whose response sets an HttpOnly cookie, and a stylesheet the page loads
+/// next. The second request must carry the cookie - which only the vault and
+/// the network process ever handled - and the first must not.
+fn engine_cookie_vault() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use parking_lot::Mutex;
+
+    let modes: Vec<String> = std::env::args().skip(2).collect();
+    let in_process = modes.iter().any(|m| m == "in-process");
+    // `respawn`: kill the vault after the first flow; the cookie must still
+    // reach the next request, from the store the respawned vault reopens.
+    let respawn = modes.iter().any(|m| m == "respawn");
+    // `no-vault`: the broker's own jar, its cookies attached by the broker
+    // and carried by the network process as sent.
+    let no_vault = modes.iter().any(|m| m == "no-vault");
+    let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
+    let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    let seen_after = Arc::clone(&seen);
+    // Requests recorded from this index on came after the vault was killed.
+    let after_kill = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let after_kill_seen = Arc::clone(&after_kill);
+    let code = runtime.block_on(async move {
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        for (key, on) in [
+            ("security.cookie_vault", !no_vault),
+            ("security.network_process", !in_process),
+            ("security.image_decoder_process", false),
+            ("security.renderer_process", false),
+        ] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
+        }
+        // The engine's event bus refuses to send without a subscriber.
+        let _events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if engine.settings().get_bool("security.cookie_vault") == no_vault {
+            eprintln!("the vault did not start, or started when it should not have");
+            return 1;
+        }
+
+        // A real store when the vault is to be killed: what comes back must
+        // come from disk, not from the process that died.
+        let cookie_store = if respawn {
+            let dir = std::env::temp_dir().join(format!("gosub-vault-respawn-{}", std::process::id()));
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                eprintln!("no temp dir: {e}");
+                return 1;
+            }
+            match gosub_engine::cookies::SqliteCookieStore::new(dir.join("cookies.db")) {
+                Ok(store) => Some(gosub_engine::cookies::CookieStoreHandle::from(store)),
+                Err(e) => {
+                    eprintln!("could not open the sqlite store: {e}");
+                    return 1;
+                }
+            }
+        } else {
+            None
+        };
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let mut zone = match engine.create_zone(None, services, None) {
+            Ok(zone) => zone,
+            Err(e) => {
+                eprintln!("could not create a zone: {e}");
+                return 1;
+            }
+        };
+        let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+        if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+
+        // Two requests: the page, then its stylesheet.
+        let wait_for = |n: usize| {
+            let seen = Arc::clone(&seen);
+            async move {
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+                while seen.lock().len() < n {
+                    if tokio::time::Instant::now() > deadline {
+                        eprintln!("timed out waiting for request {n}; seen {:?}", seen.lock());
+                        return false;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                true
+            }
+        };
+        if !wait_for(2).await {
+            return 1;
+        }
+        // The favicon follows the page; give it time to be *sent* before
+        // shutdown removes the tab's identity, so the request log is stable.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        #[cfg(target_os = "linux")]
+        if respawn {
+            // Let the first navigation's trailing requests (favicon, a
+            // repeated stylesheet) land before counting from here.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            let after_kill_from = seen.lock().len();
+            after_kill_seen.store(after_kill_from, std::sync::atomic::Ordering::Relaxed);
+            let Some(vault) = engine.cookie_vault() else {
+                eprintln!("no vault to kill");
+                return 1;
+            };
+            let Some(pid) = vault.pid() else {
+                eprintln!("the vault has no pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while vault.is_alive() {
+                if tokio::time::Instant::now() > deadline {
+                    eprintln!("the broker never noticed the vault dying");
+                    return 1;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            // Straight to the stylesheet: nothing sets the cookie again, so it
+            // has to come out of the store through the respawned vault.
+            if tab
+                .navigate(format!("http://127.0.0.1:{port}/style.css"))
+                .await
+                .is_err()
+            {
+                eprintln!("second navigate failed");
+                return 1;
+            }
+            if !wait_for(after_kill_from + 1).await {
+                return 1;
+            }
+            let Some(new_pid) = vault.pid() else {
+                eprintln!("no vault after the respawn");
+                return 1;
+            };
+            if new_pid == pid || !vault.is_alive() {
+                eprintln!(
+                    "the vault was not respawned (pid {pid} -> {new_pid}, alive {})",
+                    vault.is_alive()
+                );
+                return 1;
+            }
+            println!("vault respawned: pid {pid} -> {new_pid}");
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = (respawn, &after_kill_seen);
+        let _ = engine.shutdown().await;
+        0
+    });
+    if code != 0 {
+        return code;
+    }
+    let after_kill_from = after_kill.load(std::sync::atomic::Ordering::Relaxed);
+    let seen = seen_after.lock().clone();
+    println!("requests: {seen:?}");
+    let first_clean = seen.first().is_some_and(|(_, cookie)| cookie.is_none());
+    let second_has = seen
+        .get(1)
+        .is_some_and(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")));
+    if !first_clean || !second_has {
+        eprintln!("the stylesheet request must carry the cookie the page set, and the page request must not");
+        return 1;
+    }
+    if respawn {
+        let third_has = seen.get(after_kill_from..).is_some_and(|later| {
+            later
+                .iter()
+                .any(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")))
+        });
+        if !third_has {
+            eprintln!("after the vault died, the next request must still carry the cookie (from the store)");
+            return 1;
+        }
+    }
+    println!(
+        "cookie set by the page reached the next request through {}{}{}",
+        if no_vault { "the broker's jar" } else { "the vault" },
+        if in_process {
+            " (in-process fetch)"
+        } else {
+            " and the network process"
+        },
+        if respawn { ", across a vault respawn" } else { "" }
+    );
+    0
+}
+
+/// Every request a test server saw: its path and `Cookie` header.
+type SeenRequests = Arc<parking_lot::Mutex<Vec<(String, Option<String>)>>>;
+
+/// A server whose page sets an HttpOnly cookie and references a stylesheet;
+/// every request's path and `Cookie` header are recorded in `seen`.
+fn serve_cookie_pages(seen: SeenRequests) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let cookie = request
+                .lines()
+                .find(|l| l.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("cookie:")))
+                .map(|l| l[7..].trim().to_string());
+            seen.lock().push((path.clone(), cookie));
+            let (content_type, extra, body): (&str, &str, &str) = if path == "/style.css" {
+                ("text/css", "", "body { color: rgb(1, 2, 3); }")
+            } else {
+                (
+                    "text/html",
+                    "Set-Cookie: sid=abc; HttpOnly; Path=/\r\n",
+                    "<html><head><link rel=\"stylesheet\" href=\"/style.css\"></head><body>vaulted</body></html>",
+                )
+            };
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    Ok(port)
+}
+
+/// A zone built with a plain `FileLocalStore` gets its local storage served
+/// by the storage process without the embedder asking: the setting's default.
+fn engine_storage_service() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{
+            FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService,
+        };
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let dir = std::env::temp_dir().join(format!("gosub-engine-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let Ok(store) = FileLocalStore::open(&dir) else {
+            eprintln!("could not open the file store");
+            return 1;
+        };
+        let Ok(origin) = url::Url::parse("https://app.test").map(|u| u.origin()) else {
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let other_dir = dir.clone();
+        let code = runtime.block_on(async move {
+            let mut engine: GosubEngine = GosubEngine::new(
+                None,
+                Arc::new(NullBackend::new()),
+                Arc::new(DefaultCompositor::default()),
+            );
+            let _events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let storage = Arc::new(StorageService::new(
+                Arc::new(store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let zone = match engine.create_zone(None, services, None) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a zone: {e}");
+                    return 1;
+                }
+            };
+            // The embedder's own handle sees the routed store.
+            let area = match storage.local_for(zone.id, &PartitionKey::None, &origin) {
+                Ok(area) => area,
+                Err(e) => {
+                    eprintln!("no area: {e}");
+                    return 1;
+                }
+            };
+            if let Err(e) = area.set_item("k", "v") {
+                eprintln!("set failed: {e}");
+                return 1;
+            }
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("get did not round-trip");
+                return 1;
+            }
+            if !has_child_named("gosub-storage") {
+                eprintln!(
+                    "no gosub-storage child process: storage stayed in-process (children: {:?}, routed dir: {:?})",
+                    child_names(),
+                    storage.local_store().service_directory()
+                );
+                return 1;
+            }
+            println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+
+            // Kill it: the next request brings a new one, reading the same files.
+            let Some(pid) = storage.local_store().service_pid() else {
+                eprintln!("the routed store has no service pid");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("the value did not survive the storage service dying");
+                return 1;
+            }
+            let pid = match storage.local_store().service_pid() {
+                Some(new_pid) if new_pid != pid => {
+                    println!("storage service respawned: pid {pid} -> {new_pid}");
+                    new_pid
+                }
+                other => {
+                    eprintln!("the storage service was not respawned (pid {pid} -> {other:?})");
+                    return 1;
+                }
+            };
+
+            // A second zone on the same directory that stays in-process (its
+            // storage handed out an area before the zone existed) holds no
+            // reference to the service, and closing it must not end the
+            // first zone's.
+            let Ok(other_store) = FileLocalStore::open(&other_dir) else {
+                eprintln!("could not open the second file store");
+                return 1;
+            };
+            let other_storage = Arc::new(StorageService::new(
+                Arc::new(other_store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let _ = other_storage.local_for(gosub_engine::zone::ZoneId::new(), &PartitionKey::None, &origin);
+            let other = match engine.create_zone(
+                None,
+                ZoneServices {
+                    storage: other_storage,
+                    cookie_store: None,
+                    cookie_jar: None,
+                    partition_policy: PartitionPolicy::None,
+                    places: None,
+                },
+                None,
+            ) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create the second zone: {e}");
+                    return 1;
+                }
+            };
+            engine.close_zone(other).await;
+            if area.get_item("k").as_deref() != Some("v") || storage.local_store().service_pid() != Some(pid) {
+                eprintln!(
+                    "closing an in-process zone ended another zone's storage service (pid {pid} -> {:?})",
+                    storage.local_store().service_pid()
+                );
+                return 1;
+            }
+            println!("an in-process zone on the same directory leaves the service alone");
+            let _ = engine.shutdown().await;
+            0
+        });
+        let files = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+        let _ = std::fs::remove_dir_all(&dir);
+        if code == 0 && files == 0 {
+            eprintln!("the service wrote nothing to the storage directory");
+            return 1;
+        }
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
+}
+
+/// The `comm` of every direct child of this process.
+#[cfg(target_os = "linux")]
+fn child_names() -> Vec<String> {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let status = std::fs::read_to_string(entry.path().join("status")).ok()?;
+            let mut comm = String::new();
+            let mut ppid = String::new();
+            for line in status.lines() {
+                if let Some(v) = line.strip_prefix("Name:\t") {
+                    comm = v.trim().to_string();
+                } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                    ppid = v.trim().to_string();
+                }
+            }
+            (ppid == me).then_some(comm)
+        })
+        .collect()
+}
+
+/// Whether this process has a direct child whose `comm` is `name`.
+#[cfg(target_os = "linux")]
+fn has_child_named(name: &str) -> bool {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let status = std::fs::read_to_string(entry.path().join("status")).unwrap_or_default();
+        let mut comm = "";
+        let mut ppid = "";
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Name:\t") {
+                comm = v.trim();
+            } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                ppid = v.trim();
+            }
+        }
+        ppid == me && comm == name
+    })
+}
+
+/// Storage service round trip, origin isolation, a refused oversize write,
+/// persistence across a restart of the service.
+fn storage() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{LocalStore as _, PartitionKey, ServiceLocalStore};
+        use gosub_engine::zone::ZoneId;
+
+        let dir = std::env::temp_dir().join(format!("gosub-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let origin = |s: &str| url::Url::parse(s).map(|u| u.origin());
+        let (Ok(a_origin), Ok(b_origin)) = (origin("https://a.test"), origin("https://b.test")) else {
+            eprintln!("bad test origins");
+            return 1;
+        };
+        let zone = ZoneId::new();
+
+        let run = |expect_remote: bool| -> Result<(), String> {
+            let store = ServiceLocalStore::new(&dir).map_err(|e| e.to_string())?;
+            let a = store
+                .area(zone, &PartitionKey::None, &a_origin)
+                .map_err(|e| e.to_string())?;
+            if expect_remote && !store.is_remote() {
+                return Err("the storage service did not start; areas are in-process".into());
+            }
+            if a.get_item("k").is_none() {
+                a.set_item("k", "1").map_err(|e| e.to_string())?;
+                a.set_item("k2", "2").map_err(|e| e.to_string())?;
+                let b = store
+                    .area(zone, &PartitionKey::None, &b_origin)
+                    .map_err(|e| e.to_string())?;
+                if b.get_item("k").is_some() {
+                    return Err("another origin must not see this origin's item".into());
+                }
+                if a.len() != 2 || a.get_item("k2").as_deref() != Some("2") {
+                    return Err(format!("len/get wrong: len {} k2 {:?}", a.len(), a.get_item("k2")));
+                }
+                a.remove_item("k2").map_err(|e| e.to_string())?;
+                if a.keys() != vec!["k".to_string()] {
+                    return Err(format!("keys after remove: {:?}", a.keys()));
+                }
+                let huge = "v".repeat(gosub_engine::storage::file_store::MAX_VALUE_BYTES + 1);
+                if a.set_item("huge", &huge).is_ok() {
+                    return Err("an oversize value must be refused".into());
+                }
+                if a.get_item("k").as_deref() != Some("1") {
+                    return Err("the service must survive a refused write".into());
+                }
+                println!("set/get/keys/remove/quota through the service ok");
+            } else {
+                if a.get_item("k").as_deref() != Some("1") || a.len() != 1 {
+                    return Err(format!("state did not persist across a restart: {:?}", a.keys()));
+                }
+                a.clear().map_err(|e| e.to_string())?;
+                if !a.is_empty() {
+                    return Err("clear must empty the area".into());
+                }
+                println!("state persisted across a service restart");
+            }
+            store.shutdown();
+            Ok(())
+        };
+        let outcome = run(true).and_then(|()| run(true));
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
+}
+
 /// The transport on its own: does a request survive the round trip through a
 /// separate, sandboxed process and come back intact?
 fn direct() -> i32 {
@@ -3410,7 +5220,7 @@ fn direct() -> i32 {
         return 1;
     };
 
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");
@@ -3471,7 +5281,7 @@ fn oversized() -> i32 {
         eprintln!("could not start the test server");
         return 1;
     };
-    let net = match NetProcess::spawn() {
+    let net = match NetProcess::spawn(None) {
         Ok(n) => n,
         Err(e) => {
             eprintln!("could not spawn the network process: {e}");

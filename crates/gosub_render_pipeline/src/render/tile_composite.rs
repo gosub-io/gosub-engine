@@ -6,7 +6,7 @@
 //! visible tile at its scroll/anchor-resolved position and source-over blending it onto a
 //! background - this module is the one shared copy of that loop.
 //!
-//! The compositor works in the canonical premultiplied **ARGB** packing (`0xAARRGGBB`, see
+//! The compositor works in the canonical premultiplied ARGB packing (`0xAARRGGBB`, see
 //! [`PixelFormat::pixel_to_argb_u32`]). Callers fill a `u32` buffer with an opaque background,
 //! composite into a [`TileTarget`] region of it, and then either present the `u32` buffer directly
 //! (softbuffer ignores the high byte) or convert it to RGBA8 for a GPU texture via
@@ -21,7 +21,7 @@ use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premu
 /// device-pixel region at (`origin_x`, `origin_y`); the offset lets a host reserve rows for its own
 /// chrome while still handing over the whole window buffer.
 ///
-/// The caller must fill `buf` with an **opaque** background first - tiles blend on with source-over.
+/// The caller must fill `buf` with an opaque background first - tiles blend on with source-over.
 pub struct TileTarget<'a> {
     pub buf: &'a mut [u32],
     pub stride: usize,

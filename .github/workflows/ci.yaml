@@ -183,12 +183,14 @@ jobs:
   # platform backends break silently when only Linux ever compiles them (two
   # such breaks sat unnoticed on the branch until a cross-check ran).
   #
-  # Scoped to the two isolation crates on purpose. The workspace as a whole
-  # cannot build here - V8 has no prebuilt for these rows and the GUI crates
-  # want GTK - and these are the crates whose behaviour differs per platform.
-  # Native runners, so no cross `cc`; each row runs twice: default features,
-  # and isolation off (`multi-process` disabled - what wasm and any platform
-  # without a sandbox build).
+  # Scoped to the two isolation crates and the engine on purpose. The workspace
+  # as a whole cannot build here - V8 has no prebuilt for these rows and the GUI
+  # crates want GTK - and these are the crates whose behaviour differs per
+  # platform. Native runners, so no cross `cc`; each row runs twice: default
+  # features, and isolation off (`multi-process`/`process-isolation` disabled -
+  # what wasm and any platform without a sandbox build; the engine keeps its
+  # bundled sqlite so the row does not become a test of the runner's system
+  # libraries).
   cross-compile:
     name: check (${{ matrix.target }}, isolation ${{ matrix.isolation }})
     runs-on: ${{ matrix.os }}
@@ -212,14 +214,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check (isolation enabled)
         if: matrix.isolation == 'enabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }}
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }}
       - name: Check (isolation disabled)
         if: matrix.isolation == 'disabled'
-        run: cargo check --locked -p gosub_ipc -p gosub_sandbox --all-targets --target ${{ matrix.target }} --no-default-features
+        run: cargo check --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --all-targets --target ${{ matrix.target }} --no-default-features --features gosub_engine/sqlite_cookie_store
 
   # The platforms whose sandbox backend can be *run*, not only type-checked:
   # the Seatbelt (macOS) and mitigation-policy (Windows) probes in
-  # gosub_sandbox, and gosub_ipc's transport tests.
+  # gosub_sandbox, gosub_ipc's transport tests, and the engine's
+  # network/decoder-process scenarios.
   # Linux is covered by `test`. Also from the proof of concept's CI.
   native-tests:
     name: test (${{ matrix.os }})
@@ -240,7 +243,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@nextest
       - name: Test
-        run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox --no-fail-fast
+        run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --no-fail-fast
 
   fmt:
     runs-on: ubuntu-24.04
