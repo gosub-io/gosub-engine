@@ -6,6 +6,7 @@ use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
+use crate::fork_server::protocol::InputEvent;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
@@ -279,6 +280,12 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
     reported_cursor: CursorShape,
+    /// A resident renderer holds the pointer (a drag, an open dropdown): moves
+    /// and wheel go to it rather than through hover and page scrolling.
+    remote_capture: bool,
+    /// What a resident renderer last said about focus on its page: `Some(editable)`
+    /// while something is focused. Decides which keys scroll the page here.
+    remote_focus: Option<bool>,
     /// Scroll to apply once the just-committed document has laid out (positions and page
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
@@ -395,6 +402,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             first_paint_marked: false,
             history: History::default(),
             reported_cursor: CursorShape::Default,
+            remote_capture: false,
+            remote_focus: None,
             pending_scroll: None,
             remote_favicon: None,
             document_entry: None,
@@ -774,6 +783,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.emit_history_changed();
                 // set_document cleared hover state; the next mouse move re-derives it.
                 self.report_cursor(CursorShape::Default);
+                // A new page: whatever the old one's renderer held or focused is gone.
+                self.remote_capture = false;
+                self.remote_focus = None;
             }
             NavigationResult::Download { nav_id, meta } => {
                 // Not an error and not a page change: the tab stays on its current document
@@ -842,6 +854,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
+        // A page a resident renderer retains gets every key its focus might want:
+        // all of them while something is focused there, and all but the page-scrolling
+        // ones otherwise. Those scroll here, as they would with nothing focused.
+        if self.remote_input_available() {
+            let scrolls = matches!(
+                key,
+                "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "PageDown" | "PageUp" | " " | "Home" | "End"
+            );
+            if self.remote_focus.is_some() || !scrolls {
+                self.forward_input(InputEvent::KeyDown {
+                    key: key.to_string(),
+                    modifiers: modifiers.bits(),
+                });
+                self.runtime.dirty = true;
+                return ControlFlow::Continue;
+            }
+        }
         // The focused control gets non-Tab keys first (typing; more editing follows).
         if key != "Tab" {
             let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
@@ -1158,6 +1187,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::MouseScroll { delta_x, delta_y } => {
+                // A resident renderer holding the pointer (an open dropdown) takes the wheel.
+                if self.remote_capture {
+                    if let Some((px, py)) = self.context.pointer() {
+                        if self.forward_input(InputEvent::Wheel {
+                            x: px,
+                            y: py,
+                            delta_y: delta_y as f64,
+                        }) {
+                            self.runtime.dirty = true;
+                            return ControlFlow::Continue;
+                        }
+                    }
+                }
                 // An open dropdown, or a scrolling textarea, under the pointer takes the wheel.
                 if let Some((px, py)) = self.context.pointer() {
                     if self.context.popup_scroll(px, py, delta_y as f64)
@@ -1178,6 +1220,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         tab_id: self.tab_id,
                         url: link_url,
                     });
+                }
+                // A resident renderer holding the pointer gets the move; the page's own
+                // gestures and popups live there, and it answers with the cursor.
+                if self.remote_capture
+                    && self.forward_input(InputEvent::PointerMove {
+                        x: x as f64,
+                        y: y as f64,
+                    })
+                {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
                 }
                 // Each of these must run: a drag doesn't get to skip a move because hover changed.
                 let popup_dirty = self.context.popup_hover_at(x as f64, y as f64);
@@ -1206,6 +1259,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         }
                         return ControlFlow::Continue;
                     }
+                    // A page a resident renderer retains takes the press there: focus,
+                    // activation and what they ask for come back as effects.
+                    if self.forward_input(InputEvent::PointerDown {
+                        x: x as f64,
+                        y: y as f64,
+                        button,
+                    }) {
+                        self.runtime.dirty = true;
+                        return ControlFlow::Continue;
+                    }
                     // Activation (checkbox/radio toggles) lands in the same render as the focus.
                     let toggled = self.context.activate_at(x as f64, y as f64);
                     if focused || toggled {
@@ -1219,6 +1282,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
             TabCommand::TextInput { text } => {
+                if self.forward_input(InputEvent::Text { text: text.clone() }) {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
+                }
                 if self.context.insert_text(&text) {
                     self.runtime.render_now = true;
                 }
@@ -1226,6 +1293,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::CharInput { ch } => {
+                if self.forward_input(InputEvent::Text { text: ch.to_string() }) {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
+                }
                 if self.context.insert_text(&ch.to_string()) {
                     self.runtime.render_now = true;
                 }
@@ -1233,6 +1304,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::PickerChanged { value } => {
+                if self.forward_input(InputEvent::PickerChanged { value: value.clone() }) {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
+                }
                 if self.context.set_picker_value(&value) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
@@ -1240,10 +1315,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::PickerClosed => {
-                self.context.end_picker();
+                if !self.forward_input(InputEvent::PickerClosed) {
+                    self.context.end_picker();
+                }
                 ControlFlow::Continue
             }
-            TabCommand::MouseUp { .. } => {
+            TabCommand::MouseUp { x, y, button } => {
+                // Ends a gesture on either side; a resident renderer answers with the
+                // capture released.
+                self.forward_input(InputEvent::PointerUp {
+                    x: x as f64,
+                    y: y as f64,
+                    button,
+                });
                 self.context.end_drag();
                 self.runtime.dirty = true;
                 ControlFlow::Continue
@@ -1349,6 +1433,87 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Run a form submission the browsing context queued for the last click/key. Pushes a
     /// history entry like any fresh navigation.
+    /// Whether this tab's input goes to a resident renderer's retained page.
+    fn remote_input_available(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            self.context.remote_input_available()
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            false
+        }
+    }
+
+    /// Send one input event to the resident renderer retaining this tab's page.
+    /// False when there is none, so the caller handles the input in-process.
+    fn forward_input(&mut self, event: InputEvent) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            self.context.remote_input(event)
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            let _ = event;
+            false
+        }
+    }
+
+    /// Act on what input passes asked for, each judged first (see
+    /// [`remote_effects`](crate::engine::tab::remote_effects)).
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_effects(&mut self) {
+        use crate::engine::tab::remote_effects::{action_for, Action};
+        let viewport = (self.desired_viewport.width as f64, self.desired_viewport.height as f64);
+        for (provenance, effect) in self.context.take_remote_effects() {
+            match action_for(effect, provenance, self.current_url.as_ref(), viewport) {
+                Ok(Action::Focus { focused, editable }) => {
+                    self.remote_focus = focused.then_some(editable);
+                    self.send_event(EngineEvent::FocusChanged {
+                        tab_id: self.tab_id,
+                        focused,
+                        editable,
+                    });
+                }
+                Ok(Action::Cursor(cursor)) => self.report_cursor(cursor),
+                Ok(Action::Navigate { url, method, body }) => {
+                    self.navigate_request(
+                        url.to_string(),
+                        method,
+                        body.map(RequestBody::form),
+                        HistoryIntent::Push,
+                    );
+                }
+                Ok(Action::Picker {
+                    kind,
+                    bounds,
+                    value,
+                    min,
+                    max,
+                    step,
+                }) => self.send_event(EngineEvent::PickerRequested {
+                    tab_id: self.tab_id,
+                    kind,
+                    x: bounds.x as f32,
+                    y: bounds.y as f32,
+                    width: bounds.width as f32,
+                    height: bounds.height as f32,
+                    value,
+                    min,
+                    max,
+                    step,
+                }),
+                Ok(Action::ClipboardWrite(text)) => self.send_event(EngineEvent::ClipboardWrite {
+                    tab_id: self.tab_id,
+                    text,
+                }),
+                Ok(Action::PasteRequested) => self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id }),
+                Ok(Action::Capture(pointer)) => self.remote_capture = pointer,
+                Err(why) => log::warn!("the renderer asked for {why}; ignored"),
+            }
+        }
+    }
+
     fn run_pending_submission(&mut self) {
         let Some(sub) = self.context.take_submission() else {
             return;
@@ -2066,6 +2231,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             if self.context.poll_remote_passes() {
                 self.runtime.dirty = true;
             }
+            self.apply_remote_effects();
         }
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {

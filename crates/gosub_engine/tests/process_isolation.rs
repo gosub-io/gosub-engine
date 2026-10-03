@@ -489,6 +489,26 @@ fn a_resident_renderer_takes_input_where_its_dom_is() {
     );
 }
 
+/// Input through the engine: the tab worker forwards a press, text and keys to
+/// the resident renderer retaining the page, and its focus and submission come
+/// back as events; the firehose shows the passes went out of process.
+#[cfg(target_os = "linux")]
+#[test]
+fn input_through_the_engine_reaches_the_resident_renderer() {
+    let out = run("engine-remote-input");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "input through the engine failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A resident renderer that dies is replaced on the next request, and the
 /// tab renders again in the replacement.
 #[cfg(target_os = "linux")]
