@@ -600,6 +600,8 @@ fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
             total_timeout: None,
             // No cap: nothing here holds the body, and the in-process path has none.
             max_size: None,
+            // What the in-process fetcher keeps for a subscriber that attaches late.
+            replay_limit: gosub_sonar::net::shared_body::DEFAULT_REPLAY_LIMIT,
         },
     )
 }
