@@ -1247,6 +1247,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             TabCommand::MouseDown { x, y, button } => {
                 if matches!(button, crate::events::MouseButton::Left) {
+                    // A page a resident renderer retains takes the press there, every
+                    // press: focus and blur, a link under the pointer, activation, and
+                    // what they ask for come back as effects the broker judges. Nothing
+                    // here has a document to focus, and a link followed from here would
+                    // leave the renderer's focus where it was.
+                    if self.forward_input(InputEvent::PointerDown {
+                        x: x as f64,
+                        y: y as f64,
+                        button,
+                    }) {
+                        self.runtime.dirty = true;
+                        return ControlFlow::Continue;
+                    }
                     // Click-to-focus (or blur when the click lands on nothing focusable),
                     // before any link activation.
                     let focused = self.context.focus_at(x as f64, y as f64);
@@ -1257,16 +1270,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         if let Some(url) = self.page_link_target(&href) {
                             self.navigate_to(url.to_string(), false, HistoryIntent::Push);
                         }
-                        return ControlFlow::Continue;
-                    }
-                    // A page a resident renderer retains takes the press there: focus,
-                    // activation and what they ask for come back as effects.
-                    if self.forward_input(InputEvent::PointerDown {
-                        x: x as f64,
-                        y: y as f64,
-                        button,
-                    }) {
-                        self.runtime.dirty = true;
                         return ControlFlow::Continue;
                     }
                     // Activation (checkbox/radio toggles) lands in the same render as the focus.
