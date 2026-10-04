@@ -105,6 +105,20 @@ commit's subject on this branch.
   base) share one renderer.** An embedder showing its own content that way
   shares a process with page-controlled `data:` documents; key such content
   on a base URL with a host.
+- **Input to a remote page is handled by the renderer, and its answers are
+  requests.** Every press, key and text goes to the process that holds the
+  page's DOM; what comes back (focus, cursor, a navigation, a picker, the
+  clipboard, a pointer capture) is judged in the broker before anything
+  happens: a navigation under the rule a link gets, a cursor only from a
+  pointer pass, the clipboard only from the chord that asks for it, bounds
+  clamped to the viewport, strings and counts bounded like hit regions with
+  an over-cap frame treated as a crash. A compromised renderer can still
+  misdirect the page it holds - type into the wrong field, submit a form it
+  composed to an origin the page may reach, show a cursor - which is what
+  holding the page means; it cannot reach the clipboard without the user's
+  chord, navigate to a scheme a page may not, or make the broker act on a
+  frame it did not bound. The effect rules are unit-tested and a harness
+  scenario plays a lying renderer over a socket pair.
 - **The escape audit is the child's own report.** It proves the spawn path
   confines a child; a compromised child reports clean. It is a test, not an
   attestation.
@@ -120,3 +134,9 @@ commit's subject on this branch.
   never read back by a probe.
 - The broker's timing table grows per navigation in any embedder without
   metrics on (pre-existing on main).
+- A renderer that answers an input pass with an over-cap frame is ended by
+  the exchange and replaced by the pool like any crash; that replacement is
+  tested for a crashed renderer, not yet for a lying one at engine level.
+- The 5 s input deadline in the renderer has no test: nothing deterministic
+  makes a pass that slow, and a renderer that never answers only hits the
+  broker's 60 s reply timeout.
