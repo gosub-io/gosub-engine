@@ -316,8 +316,8 @@ request only from +V, a picker's bounds are clamped to the viewport. On the
 way in the client bounds them like hit regions: more than 16 effects in one
 pass ends the exchange as a crash, a URL past the hit-text bound or a form
 body past 1 MiB drops its navigation whole, a rectangle that is not a number
-drops its effect. A pass is held to a 5 s deadline in the renderer, a tenth
-of a render's. The renderer keeps a page's focus and gestures with the page:
+drops its effect. A pass is held to a 5 s deadline in the renderer, against
+the 120 s a render gets. The renderer keeps a page's focus and gestures with the page:
 one it let go of under the retention cap answers input with `no_page`, and
 the broker renders it afresh, unfocused.
 
