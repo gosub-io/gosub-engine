@@ -509,6 +509,84 @@ fn input_through_the_engine_reaches_the_resident_renderer() {
     );
 }
 
+/// Every control through the engine: a text burst, a toggle, a select changed
+/// closed and scrolled open, a date from the picker round trip and a slider
+/// dragged through the broker, proved by one submission; scroll keys with
+/// nothing focused scroll locally.
+#[cfg(target_os = "linux")]
+#[test]
+fn input_through_the_engine_covers_every_control() {
+    let out = run("engine-remote-controls");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "engine-remote-controls failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// An input that lays a tall page out again far down: the window comes back
+/// by hash and the changed tile is evicted, with the exchange completing.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_input_that_lays_a_tall_page_out_again_ships_its_window_by_hash() {
+    let out = run("renderer-input-tall");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "renderer-input-tall failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A page the renderer let go of under its retention cap answers input with
+/// no_page and no effects, and the renderer serves the tabs it still holds.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_page_let_go_of_under_the_retention_cap_answers_input_with_no_page() {
+    let out = run("renderer-input-retained");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "renderer-input-retained failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A renderer that lies: over the effect cap ends the exchange and marks the
+/// handle dead; a long URL and a NaN rectangle are dropped on the way in.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_renderer_that_lies_about_its_effects_is_bounded_or_ended() {
+    let out = run("renderer-input-hostile");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "renderer-input-hostile failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A resident renderer that dies is replaced on the next request, and the
 /// tab renders again in the replacement.
 #[cfg(target_os = "linux")]

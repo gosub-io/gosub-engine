@@ -1191,6 +1191,18 @@ impl std::fmt::Debug for ResidentRenderer {
 }
 
 impl ResidentRenderer {
+    /// A handle around a bare link, for tests that play the renderer on the
+    /// far end themselves: no process, no pid, nothing to kill.
+    #[doc(hidden)]
+    pub fn around_link_for_test(link: Endpoint) -> Self {
+        Self {
+            link,
+            pid: 0,
+            pidfd: None,
+            dead: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
     /// The renderer's pid as this (the broker's) pid namespace numbers it:
     /// `fork` in the fork server returns the number its own namespace sees,
     /// which is the broker's too. Inside the renderers' own namespace the
