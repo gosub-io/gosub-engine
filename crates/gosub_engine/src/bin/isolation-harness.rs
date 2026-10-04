@@ -187,6 +187,11 @@ fn main() {
         "renderer-hover" => with_font_backend!(renderer_hover),
         "renderer-input" => with_font_backend!(renderer_input),
         "engine-remote-input" => with_font_backend!(engine_remote_input),
+        "engine-remote-controls" => with_font_backend!(engine_remote_controls),
+        "renderer-input-tall" => with_font_backend!(renderer_input_tall),
+        "renderer-input-retained" => with_font_backend!(renderer_input_retained),
+        "renderer-input-hostile" => with_font_backend!(renderer_input_hostile),
+        "engine-remote-latency" => with_font_backend!(engine_remote_latency),
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
@@ -2872,6 +2877,1159 @@ fn engine_remote_input<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// Every control through the engine, on a page a resident renderer retains,
+/// proved by one submission at the end: text typed as a burst, a toggled
+/// checkbox, a select changed closed and opened for the wheel, a date from
+/// the picker round trip, a slider dragged through the broker. Scroll keys
+/// with nothing focused scroll here and go nowhere. Each phase counts the
+/// `remote.input` passes on the firehose.
+fn engine_remote_controls<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{
+            EngineEvent, HitTestToken, Modifiers, MouseButton, NavigationEvent, PickerKind, TabCommand,
+        };
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("engine-remote-controls needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-remote-controls needs a Full-tier font system");
+            return 2;
+        }
+        // One control per 100px row, in tab order: field, checkbox, select, date, range, button.
+        let page = br#"<html><head><style>
+            body { margin: 0; } p { height: 100px; margin: 0; }
+        </style></head><body>
+            <p>above</p>
+            <form action="/submit" method="get">
+                <p><input id="name" name="name" type="text"></p>
+                <p><input id="agree" name="agree" type="checkbox"></p>
+                <p><select name="sel"><option value="a">alpha</option><option value="b">beta</option><option value="c">gamma</option></select></p>
+                <p><input name="when" type="date"></p>
+                <p><input name="vol" type="range" min="0" max="100" value="50"></p>
+                <p><button type="submit">Go</button></p>
+            </form>
+            <p>below</p><p>and below that</p><p>and more</p><p>still more</p><p>and the last</p>
+        </body></html>"#
+            .to_vec();
+        let Ok(port) = serve_routes(vec![
+            ("/", "text/html", page, std::time::Duration::ZERO),
+            (
+                "/submit*",
+                "text/html",
+                b"<html><body><p>submitted</p></body></html>".to_vec(),
+                std::time::Duration::ZERO,
+            ),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let mut events = engine.subscribe_events();
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if !matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                eprintln!("the engine did not start a Full-tier renderer fork server");
+                return 1;
+            }
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+            let finished = |e: &EngineEvent| {
+                matches!(
+                    e,
+                    EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }
+                )
+            };
+            if let Err(e) = next_engine_event(&mut events, deadline, "the page to load", finished).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            // A frame from the renderer, and where the viewport is.
+            let frame_scroll = |compositor: &DefaultCompositor| -> Option<f32> {
+                match compositor.frame_for(tab.tab_id) {
+                    Some(ExternalHandle::TileCache { tiles, scroll_y, .. }) if !tiles.is_empty() => Some(scroll_y),
+                    _ => None,
+                }
+            };
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for a remotely rendered frame");
+                    return 1;
+                }
+                if frame_scroll(&compositor).is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+
+            // The firehose, drained per phase: how many input passes each took and
+            // how long the exchanges ran.
+            let mut exchanges: Vec<u64> = Vec::new();
+            let drain = |firehose: &mut tokio::sync::broadcast::Receiver<Arc<gosub_engine::telemetry::Event>>,
+                             exchanges: &mut Vec<u64>|
+             -> usize {
+                let mut passes = 0;
+                loop {
+                    match firehose.try_recv() {
+                        Ok(event) => {
+                            if event.kind == "remote.input" {
+                                passes += 1;
+                                if let Some(us) = event.data["exchange_us"].as_u64() {
+                                    exchanges.push(us);
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                        Err(_) => break,
+                    }
+                }
+                passes
+            };
+            // Wait until at least `n` input passes landed since the last drain.
+            let settle = |firehose: &mut tokio::sync::broadcast::Receiver<Arc<gosub_engine::telemetry::Event>>,
+                          exchanges: &mut Vec<u64>,
+                          n: usize,
+                          what: &str|
+             -> Result<usize, String> {
+                let mut seen = 0;
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while seen < n {
+                    seen += drain(firehose, exchanges);
+                    if seen >= n {
+                        break;
+                    }
+                    if std::time::Instant::now() >= until {
+                        return Err(format!("only {seen} of {n} input passes landed for {what}"));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Ok(seen)
+            };
+            let _ = drain(&mut firehose, &mut exchanges);
+            let key = |key: &str| TabCommand::KeyDown {
+                key: key.to_string(),
+                code: String::new(),
+                modifiers: Modifiers::empty(),
+            };
+            let press = |x: f32, y: f32| {
+                [
+                    TabCommand::MouseMove { x, y },
+                    TabCommand::MouseDown {
+                        x,
+                        y,
+                        button: MouseButton::Left,
+                    },
+                    TabCommand::MouseUp {
+                        x,
+                        y,
+                        button: MouseButton::Left,
+                    },
+                ]
+            };
+            let focus_change = |editable: bool| {
+                move |e: &EngineEvent| {
+                    matches!(e, EngineEvent::FocusChanged { focused: true, editable: ed, .. } if *ed == editable)
+                }
+            };
+
+            // Phase 1: nothing focused, ArrowDown scrolls the page here and sends nothing.
+            let _ = tab.send(key("ArrowDown")).await;
+            let moved = loop {
+                if tokio::time::Instant::now() >= deadline {
+                    break false;
+                }
+                if frame_scroll(&compositor).is_some_and(|y| y > 0.0) {
+                    break true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let passes = drain(&mut firehose, &mut exchanges);
+            if !moved || passes != 0 {
+                eprintln!("ArrowDown with nothing focused should scroll here: moved={moved}, {passes} input pass(es)");
+                return 1;
+            }
+            let _ = tab.send(key("Home")).await;
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out scrolling back to the top");
+                    return 1;
+                }
+                if frame_scroll(&compositor).is_some_and(|y| y == 0.0) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let _ = drain(&mut firehose, &mut exchanges);
+            println!("scroll keys with nothing focused scroll locally");
+
+            // Phase 2: the field, a burst of text, then a key it owns.
+            let (fx, fy) = (79.0f32, 112.0f32);
+            let _ = tab
+                .send(TabCommand::QueryHitTest {
+                    x: fx,
+                    y: fy,
+                    token: HitTestToken(1),
+                })
+                .await;
+            match next_engine_event(&mut events, deadline, "the field's hit test", |e| {
+                matches!(e, EngineEvent::HitTestResult { token: HitTestToken(1), .. })
+            })
+            .await
+            {
+                Ok(EngineEvent::HitTestResult { hit, .. }) if hit.is_editable => {}
+                other => {
+                    eprintln!("the point ({fx}, {fy}) should be the editable field, got {other:?}");
+                    return 1;
+                }
+            }
+            for command in press(fx, fy) {
+                let _ = tab.send(command).await;
+            }
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the field", focus_change(true)).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            let _ = drain(&mut firehose, &mut exchanges);
+            for text in ["a", "b", "c"] {
+                let _ = tab.send(TabCommand::TextInput { text: text.into() }).await;
+            }
+            let passes = match settle(&mut firehose, &mut exchanges, 3, "the text burst") {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if passes > 3 {
+                eprintln!("three text events took {passes} passes");
+                return 1;
+            }
+            let _ = tab.send(key("ArrowDown")).await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 1, "ArrowDown in the field") {
+                eprintln!("{e}");
+                return 1;
+            }
+            if frame_scroll(&compositor).is_some_and(|y| y != 0.0) {
+                eprintln!("ArrowDown in a focused field must not scroll the page");
+                return 1;
+            }
+            println!("the text burst took {passes} pass(es); ArrowDown went to the field");
+
+            // Phase 3: Tab to the checkbox, Space toggles it.
+            let _ = tab.send(key("Tab")).await;
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the checkbox", focus_change(false)).await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            let _ = tab.send(key(" ")).await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 2, "Tab and Space") {
+                eprintln!("{e}");
+                return 1;
+            }
+
+            // Phase 4: the select. Closed, ArrowDown picks the next option; Enter opens
+            // the dropdown, which then holds the pointer, so a wheel notch goes to it and
+            // the page does not scroll; Escape closes it.
+            let _ = tab.send(key("Tab")).await;
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the select", focus_change(false)).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            let _ = tab.send(key("ArrowDown")).await;
+            let _ = tab.send(key("Enter")).await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 3, "Tab, ArrowDown and Enter on the select") {
+                eprintln!("{e}");
+                return 1;
+            }
+            // The capture flag lands with the pass; give the worker a tick to apply it.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let _ = tab
+                .send(TabCommand::MouseScroll {
+                    delta_x: 0.0,
+                    delta_y: 120.0,
+                })
+                .await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 1, "the wheel over the open dropdown") {
+                eprintln!("{e}");
+                return 1;
+            }
+            if frame_scroll(&compositor).is_some_and(|y| y != 0.0) {
+                eprintln!("a wheel notch over an open dropdown must not scroll the page");
+                return 1;
+            }
+            let _ = tab.send(key("Escape")).await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 1, "Escape on the dropdown") {
+                eprintln!("{e}");
+                return 1;
+            }
+            println!("the select took ArrowDown closed and the wheel open");
+
+            // Phase 5: the date picker round trip.
+            let _ = tab.send(key("Tab")).await;
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the date field", |e| {
+                matches!(e, EngineEvent::FocusChanged { focused: true, .. })
+            })
+            .await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            let _ = tab.send(key("Enter")).await;
+            match next_engine_event(&mut events, deadline, "the picker request", |e| {
+                matches!(e, EngineEvent::PickerRequested { .. })
+            })
+            .await
+            {
+                Ok(EngineEvent::PickerRequested {
+                    kind: PickerKind::Date,
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                }) if x >= 0.0 && y >= 0.0 && x + width <= 1280.0 && y + height <= 720.0 && width > 0.0 => {
+                    println!("the date field asked for a picker at ({x}, {y}) {width}x{height}");
+                }
+                other => {
+                    eprintln!("expected a date picker inside the viewport, got {other:?}");
+                    return 1;
+                }
+            }
+            let _ = tab
+                .send(TabCommand::PickerChanged {
+                    value: "2026-10-04".into(),
+                })
+                .await;
+            let _ = tab.send(TabCommand::PickerClosed).await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 2, "the picker answer") {
+                eprintln!("{e}");
+                return 1;
+            }
+
+            // Phase 6: the slider, dragged through the broker: the press takes the
+            // pointer, the moves go out without waiting, the release lets go.
+            let (sx, sy) = (12.0f32, 512.0f32);
+            let _ = tab.send(TabCommand::MouseMove { x: sx, y: sy }).await;
+            let _ = tab
+                .send(TabCommand::MouseDown {
+                    x: sx,
+                    y: sy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            if let Err(e) = settle(&mut firehose, &mut exchanges, 1, "the press on the slider") {
+                eprintln!("{e}");
+                return 1;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let _ = drain(&mut firehose, &mut exchanges);
+            for x in [40.0f32, 70.0, 100.0, 120.0] {
+                let _ = tab.send(TabCommand::MouseMove { x, y: sy }).await;
+            }
+            let _ = tab
+                .send(TabCommand::MouseUp {
+                    x: 120.0,
+                    y: sy,
+                    button: MouseButton::Left,
+                })
+                .await;
+            let passes = match settle(&mut firehose, &mut exchanges, 2, "the slider drag") {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if passes > 5 {
+                eprintln!("four moves and a release took {passes} passes");
+                return 1;
+            }
+            println!("the slider drag took {passes} pass(es) for four moves and a release");
+
+            // Phase 7: back in the field, Enter submits everything.
+            for command in press(fx, fy) {
+                let _ = tab.send(command).await;
+            }
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus back on the field", focus_change(true)).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            let _ = tab.send(key("Enter")).await;
+            let url = match next_engine_event(&mut events, deadline, "the form submission", finished).await {
+                Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { url, .. },
+                    ..
+                }) => url,
+                other => {
+                    eprintln!("expected the submission to finish, got {other:?}");
+                    return 1;
+                }
+            };
+            let query = url.query().unwrap_or("");
+            let has = |pair: &str| query.split('&').any(|p| p == pair);
+            let vol: Option<u32> = query
+                .split('&')
+                .find_map(|p| p.strip_prefix("vol="))
+                .and_then(|v| v.parse().ok());
+            if !(url.path() == "/submit"
+                && has("name=abc")
+                && has("agree=on")
+                && has("sel=b")
+                && has("when=2026-10-04")
+                && vol.is_some_and(|v| v != 50))
+            {
+                eprintln!("the submission should carry every control's value, got {url}");
+                return 1;
+            }
+            println!("Enter submitted every control: {url}");
+
+            exchanges.sort_unstable();
+            if let Some(&median) = exchanges.get(exchanges.len() / 2) {
+                println!(
+                    "{} input passes, exchange median {median} us, max {} us",
+                    exchanges.len(),
+                    exchanges.last().copied().unwrap_or(0)
+                );
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// An input that lays a tall page out again, far down the page: the pass
+/// ships the window by hash, so the tiles the broker holds come back as
+/// unchanged rather than afresh, and the one the toggle changed is evicted.
+/// The exchange completing is the proof: an unchanged tile the broker had
+/// let go of would have ended it.
+fn renderer_input_tall<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile, TileMemory};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::{ConfinementTier, InputEvent};
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-input-tall needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!(
+                "renderer-input-tall needs the Full tier, got {:?}",
+                server.confinement()
+            );
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_engine::net::resource_loader::NoResourceLoader;
+        let mut memory = TileMemory::default();
+        // 120 rows of 100px; the checkbox sits in row 62, at 6200px.
+        let mut html = String::from("<html><head><style>body{margin:0} p{height:100px;margin:0}</style></head><body>");
+        for row in 0..120 {
+            if row == 62 {
+                html.push_str("<p><input type=\"checkbox\"></p>");
+            } else {
+                html.push_str("<p>row</p>");
+            }
+        }
+        html.push_str("</body></html>");
+
+        let renderer = match pool.renderer_for(zone, "https://tall.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        let tab_name = tab.to_string();
+        let page = match renderer.navigate(
+            &html,
+            "https://tall.test/",
+            &tab_name,
+            (1280.0, 720.0),
+            0.0,
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+        };
+        memory.replace_with(page.tiles.iter().map(PageTile::keep));
+        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("scroll failed: {e}");
+                return 1;
+            }
+        };
+        memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep));
+        let held = memory.hashes().len();
+        println!("scrolled to 6000: the broker holds {held} tiles");
+
+        // Tab focuses the checkbox (the page's only focusable), Space toggles it.
+        for (event, what) in [
+            (
+                InputEvent::KeyDown {
+                    key: "Tab".into(),
+                    modifiers: 0,
+                },
+                "Tab",
+            ),
+            (
+                InputEvent::KeyDown {
+                    key: " ".into(),
+                    modifiers: 0,
+                },
+                "Space",
+            ),
+        ] {
+            let page = match renderer.input(&tab_name, 6000.0, event, &loader, &memory) {
+                Ok(page) => page,
+                Err(e) => {
+                    eprintln!("{what} failed: {e}");
+                    return 1;
+                }
+            };
+            let fresh = page
+                .tiles
+                .iter()
+                .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                .count();
+            let reused = page.tiles.len() - fresh;
+            let laid_out = page.summary.timings_us.iter().any(|(name, _)| name == "input.layout");
+            println!(
+                "{what}: fresh {fresh}, unchanged {reused}, evicted {}, laid out {laid_out}",
+                page.evicted.len()
+            );
+            if what == "Space" && (!laid_out || reused == 0 || page.evicted.is_empty()) {
+                eprintln!(
+                    "the toggle should lay out again, reuse the window's tiles by hash and evict the one it changed"
+                );
+                return 1;
+            }
+            memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep));
+        }
+        if memory.hashes().len() > held {
+            eprintln!(
+                "the broker holds more tiles than before the toggle: {} > {held}",
+                memory.hashes().len()
+            );
+            return 1;
+        }
+        println!("after the toggle the broker holds {} tiles", memory.hashes().len());
+
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// A page the renderer let go of under its retention cap answers input with
+/// `no_page` and no effects, and the renderer stays itself for the tabs it
+/// still holds.
+fn renderer_input_retained<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile, TileMemory};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::{ConfinementTier, InputEvent};
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-input-retained needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!(
+                "renderer-input-retained needs the Full tier, got {:?}",
+                server.confinement()
+            );
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let zone = ZoneId::new();
+        let loader = gosub_engine::net::resource_loader::NoResourceLoader;
+        let html = "<html><body><p><input type=\"text\"></p></body></html>";
+        let tabs: Vec<TabId> = (0..4).map(|_| TabId::new()).collect();
+        let mut memories: Vec<TileMemory> = Vec::new();
+        let mut pid = None;
+        for tab in &tabs {
+            let renderer = match pool.renderer_for(zone, "https://retained.test", *tab) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("could not get a renderer: {e}");
+                    return 1;
+                }
+            };
+            let mut renderer = renderer.lock();
+            if pid.is_some_and(|p| p != renderer.pid()) {
+                eprintln!("the four tabs should share one renderer");
+                return 1;
+            }
+            pid = Some(renderer.pid());
+            let mut memory = TileMemory::default();
+            match renderer.navigate(
+                html,
+                "https://retained.test/",
+                &tab.to_string(),
+                (1280.0, 720.0),
+                0.0,
+                &loader,
+                &memory,
+                None,
+            ) {
+                Ok(page) => memory.replace_with(page.tiles.iter().map(PageTile::keep)),
+                Err(e) => {
+                    eprintln!("navigate failed: {e}");
+                    return 1;
+                }
+            }
+            memories.push(memory);
+        }
+        let renderer = match pool.renderer_for(zone, "https://retained.test", tabs[0]) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get the renderer back: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        // The first tab's page is the least recently used of four, one past the cap.
+        match renderer.input(&tabs[0].to_string(), 0.0, InputEvent::Blur, &loader, &memories[0]) {
+            Ok(page) if page.summary.no_page && page.effects.is_empty() => {
+                println!("input for the page let go of answers no_page with no effects");
+            }
+            Ok(page) => {
+                eprintln!("expected no_page for the evicted tab, got {:?}", page.summary);
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("input for the evicted tab failed the exchange: {e}");
+                return 1;
+            }
+        }
+        match renderer.scroll(&tabs[3].to_string(), 0.0, &loader, &memories[3]) {
+            Ok(page) if !page.summary.no_page => println!("the newest tab still scrolls"),
+            Ok(_) => {
+                eprintln!("the newest tab's page should still be retained");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("scrolling the newest tab failed: {e}");
+                return 1;
+            }
+        }
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// A renderer that lies. The harness plays the far end of a renderer link:
+/// a pass answered with more effects than the cap ends the exchange and
+/// marks the handle dead; one answered with a URL past its bound, a
+/// rectangle that is not a number and one honest effect reaches the broker
+/// with the honest one alone.
+fn renderer_input_hostile<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ResidentRenderer, TileMemory};
+        use gosub_engine::fork_server::protocol::{
+            Effect, FromRenderer, HitCursor, InputEvent, PageSummary, ToRenderer, WireRect, MAX_EFFECTS, MAX_HIT_TEXT,
+        };
+        use gosub_ipc::{channel::Channel, Endpoint};
+
+        let loader = gosub_engine::net::resource_loader::NoResourceLoader;
+        let memory = TileMemory::default();
+        let link = |effects: Vec<Effect>| -> Result<ResidentRenderer, String> {
+            let (ours, theirs) = Channel::pair().map_err(|e| e.to_string())?;
+            let mut far = Endpoint::from_channel(theirs).map_err(|e| e.to_string())?;
+            std::thread::spawn(move || {
+                let Ok(request) = far.recv::<ToRenderer>() else {
+                    return;
+                };
+                if !matches!(request, ToRenderer::Input { .. }) {
+                    return;
+                }
+                let _ = far.send(&FromRenderer::Rendered {
+                    summary: PageSummary::default(),
+                    hit_regions: Vec::new(),
+                    effects,
+                });
+            });
+            Ok(ResidentRenderer::around_link_for_test(
+                Endpoint::from_channel(ours).map_err(|e| e.to_string())?,
+            ))
+        };
+
+        // Over the cap: the exchange ends and the handle is dead.
+        let mut renderer = match link(vec![Effect::PasteRequested; MAX_EFFECTS + 1]) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not build a link: {e}");
+                return 1;
+            }
+        };
+        match renderer.input("t", 0.0, InputEvent::Blur, &loader, &memory) {
+            Err(e) if renderer.is_dead() => println!("{} effects ended the exchange: {e}", MAX_EFFECTS + 1),
+            Err(e) => {
+                eprintln!("the exchange ended ({e}) but the handle is not dead");
+                return 1;
+            }
+            Ok(page) => {
+                eprintln!("an over-cap frame was accepted with {} effects", page.effects.len());
+                return 1;
+            }
+        }
+
+        // Bounded: the lies drop, the honest effect stays.
+        let mut renderer = match link(vec![
+            Effect::Navigate {
+                url: format!("https://x.test/{}", "a".repeat(MAX_HIT_TEXT)),
+                post: false,
+                body: None,
+            },
+            Effect::Focus {
+                focused: true,
+                editable: true,
+                bounds: Some(WireRect {
+                    x: f64::NAN,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                }),
+            },
+            Effect::Cursor {
+                cursor: HitCursor::Text,
+            },
+        ]) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not build a link: {e}");
+                return 1;
+            }
+        };
+        match renderer.input("t", 0.0, InputEvent::Blur, &loader, &memory) {
+            Ok(page)
+                if page.effects.len() == 1
+                    && matches!(
+                        page.effects[0],
+                        Effect::Cursor {
+                            cursor: HitCursor::Text
+                        }
+                    ) =>
+            {
+                println!("a long URL and a NaN rectangle were dropped; the cursor came through");
+            }
+            Ok(page) => {
+                eprintln!("expected the cursor alone, got {:?}", page.effects);
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("a bounded frame should pass: {e}");
+                return 1;
+            }
+        }
+        if renderer.is_dead() {
+            eprintln!("a bounded frame must not kill the handle");
+            return 1;
+        }
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Keystroke-to-frame latency, local against remote: the same page, the same
+/// keystrokes into a focused field and the same toggles of a checkbox, timed
+/// from the command to the next composited frame. `engine-remote-latency
+/// <backend> [local|remote] [keystrokes] [toggles]`. A measurement, not a
+/// test: it prints distributions and exits 0 whatever they are.
+fn engine_remote_latency<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(all(target_os = "linux", feature = "cairo-tiles"))]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let remote = std::env::args().nth(3).as_deref() != Some("local");
+        let keystrokes: usize = std::env::args().nth(4).and_then(|a| a.parse().ok()).unwrap_or(60);
+        let toggles: usize = std::env::args().nth(5).and_then(|a| a.parse().ok()).unwrap_or(20);
+        if remote && !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("the remote mode needs a Full-tier font system");
+            return 2;
+        }
+        // A page with some text to lay out, so a re-layout costs what a page costs.
+        let mut page = String::from(
+            r#"<html><head><style>body { margin: 0; } p { height: 100px; margin: 0; }</style></head><body>
+            <p>above</p>
+            <form action="/submit" method="get">
+                <p><input id="name" name="name" type="text"></p>
+                <p><input id="agree" name="agree" type="checkbox"></p>
+            </form>"#,
+        );
+        for i in 0..40 {
+            page.push_str(&format!(
+                "<p>Paragraph {i}: the quick brown fox jumps over the lazy dog, and keeps on running \
+                 until the line wraps a couple of times across the viewport.</p>"
+            ));
+        }
+        page.push_str("</body></html>");
+        let Ok(port) = serve_routes(vec![("/", "text/html", page.into_bytes(), std::time::Duration::ZERO)]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            // Cairo in this process too, the rasterizer the forked renderers use, so
+            // both modes paint the same tiles and a frame is a frame in each.
+            let mut engine: GosubEngine<TileConfig<F, gosub_renderer_cairo::CairoBackend>> = GosubEngine::new(
+                None,
+                Arc::new(gosub_renderer_cairo::CairoBackend::new()),
+                Arc::clone(&compositor),
+            );
+            if let Err(e) = engine
+                .settings()
+                .set("security.renderer_process", Setting::Bool(remote))
+            {
+                eprintln!("could not set the renderer process: {e}");
+                return 1;
+            }
+            let mut events = engine.subscribe_events();
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if remote && !matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                eprintln!("the engine did not start a Full-tier renderer fork server");
+                return 1;
+            }
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            // A fast tick: a remote pass lands on the tick after it finishes, so the
+            // tick is part of what is measured, and 240/s keeps that under 5 ms.
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 240 }).await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+            let finished = |e: &EngineEvent| {
+                matches!(
+                    e,
+                    EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }
+                )
+            };
+            if let Err(e) = next_engine_event(&mut events, deadline, "the page to load", finished).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            // A frame's identity: the tile list it carries.
+            let frame_id = |compositor: &DefaultCompositor| -> Option<usize> {
+                match compositor.frame_for(tab.tab_id) {
+                    Some(ExternalHandle::TileCache { tiles, .. }) if !tiles.is_empty() => {
+                        Some(Arc::as_ptr(&tiles) as usize)
+                    }
+                    _ => None,
+                }
+            };
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for the first frame");
+                    return 1;
+                }
+                if frame_id(&compositor).is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            // Focus the field.
+            let (fx, fy) = (79.0f32, 112.0f32);
+            for command in [
+                TabCommand::MouseMove { x: fx, y: fy },
+                TabCommand::MouseDown {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                },
+                TabCommand::MouseUp {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                },
+            ] {
+                let _ = tab.send(command).await;
+            }
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the field", |e| {
+                matches!(
+                    e,
+                    EngineEvent::FocusChanged {
+                        focused: true,
+                        editable: true,
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            // One command, then the next frame: how long until the page shows it.
+            let measure = |compositor: &DefaultCompositor, before: Option<usize>| -> Option<f64> {
+                let started = std::time::Instant::now();
+                let until = started + std::time::Duration::from_secs(5);
+                loop {
+                    let now = frame_id(compositor);
+                    if now.is_some() && now != before {
+                        return Some(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    if std::time::Instant::now() >= until {
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                }
+            };
+            let stats = |samples: &mut Vec<f64>| -> String {
+                if samples.is_empty() {
+                    return "no samples".into();
+                }
+                samples.sort_by(|a, b| a.total_cmp(b));
+                let at = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
+                format!(
+                    "n={} median {:.1} ms, p90 {:.1} ms, max {:.1} ms",
+                    samples.len(),
+                    at(0.5),
+                    at(0.9),
+                    samples[samples.len() - 1]
+                )
+            };
+
+            let mut typing: Vec<f64> = Vec::new();
+            let mut missed = 0usize;
+            for i in 0..keystrokes {
+                let before = frame_id(&compositor);
+                let _ = tab
+                    .send(TabCommand::TextInput {
+                        text: if i % 8 == 7 { " ".into() } else { "x".into() },
+                    })
+                    .await;
+                match measure(&compositor, before) {
+                    Some(ms) => typing.push(ms),
+                    None => missed += 1,
+                }
+            }
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: "Tab".into(),
+                    code: String::new(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let mut toggling: Vec<f64> = Vec::new();
+            for _ in 0..toggles {
+                let before = frame_id(&compositor);
+                let _ = tab
+                    .send(TabCommand::KeyDown {
+                        key: " ".into(),
+                        code: String::new(),
+                        modifiers: Modifiers::empty(),
+                    })
+                    .await;
+                match measure(&compositor, before) {
+                    Some(ms) => toggling.push(ms),
+                    None => missed += 1,
+                }
+            }
+            let mut exchanges: Vec<f64> = Vec::new();
+            while let Ok(event) = firehose.try_recv() {
+                if event.kind == "remote.input" {
+                    if let Some(us) = event.data["exchange_us"].as_u64() {
+                        exchanges.push(us as f64 / 1000.0);
+                    }
+                }
+            }
+            println!(
+                "mode {}: keystroke to frame {}",
+                if remote { "remote" } else { "local" },
+                stats(&mut typing)
+            );
+            println!("    checkbox toggle to frame {}", stats(&mut toggling));
+            if remote {
+                println!("    renderer exchange alone {}", stats(&mut exchanges));
+            }
+            if missed > 0 {
+                println!("    {missed} command(s) produced no new frame within 5 s");
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(all(target_os = "linux", feature = "cairo-tiles")))]
+    {
+        eprintln!("engine-remote-latency needs Linux and a rasterizer (feature cairo-tiles)");
+        2
+    }
+}
+
 /// A resident renderer that dies is noticed on the next request and replaced:
 /// the failed exchange marks it dead, the pool spawns a fresh one, and the
 /// tab renders there.
@@ -4333,7 +5491,11 @@ fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
             let n = stream.read(&mut buf).unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
             let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
-            let route = routes.iter().find(|(p, ..)| *p == path);
+            // A route ending in `*` matches by prefix: a form submission's query
+            // is the page's to compose.
+            let route = routes
+                .iter()
+                .find(|(p, ..)| *p == path || p.strip_suffix('*').is_some_and(|prefix| path.starts_with(prefix)));
             let (status, content_type, body): (&str, &str, &[u8]) = match route {
                 Some((_, content_type, body, delay)) => {
                     std::thread::sleep(*delay);

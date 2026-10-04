@@ -218,10 +218,23 @@ retained per tab and rasterizes **only the raster window** around the viewport
   the result into its tile set.
 - **Hover**: `Hover { tab, node }` restyles just the old and new hover chains
   and repaints only the tiles the hovered element covers.
-- Both run **asynchronously**: the broker starts the exchange on a helper
+- **Input**: `Input { tab, scroll_y, known_tiles, event }` applies one user
+  action to the retained page where its DOM is - a press, a release, a key,
+  committed text, a picker's answer - and answers like a scroll: the tiles it
+  changed, then `Rendered` carrying what the input asked of the broker as
+  *effects* (see [Input on a remote page](#input-on-a-remote-page)). Focus,
+  a caret and typed text are a repaint of the tiles under the control; a
+  toggle, a dropdown or a resize lays the page out again, after which the
+  pass ships the window by content hash against `known_tiles` - the broker's
+  tile memory, sent along as on a navigate - so only tiles whose pixels
+  changed travel, and the renderer evicts what the broker held that the new
+  layout no longer accounts for.
+- All three run **asynchronously**: the broker starts the exchange on a helper
   thread and keeps compositing the tiles it already holds; the result is merged
-  on a later frame. One pass in flight per tab; a navigation invalidates stale
-  results by generation.
+  on a later frame. One pass in flight per tab; input that arrives meanwhile
+  queues in order (pointer moves keep the last, wheel notches add up, nothing
+  else coalesces) and goes out before a pending hover; a navigation
+  invalidates stale results by generation and drops the queue.
 - Renders on one renderer are strictly serial (one socket, request/reply), so
   same-site tabs take turns — see [Known limits](#known-limits-and-roadmap).
 
@@ -271,6 +284,48 @@ forked and exec'd alike - runs under a 1 GiB `RLIMIT_DATA`; other children get
 renderer's tiles (the oldest go, and the renderer ships them again if the page
 still needs them), and the link text a page's hit regions carry is bounded
 per URL (a longer one is dropped whole, never cut) and per page.
+
+### Input on a remote page
+
+The broker has no DOM for a page a resident renderer retains, so what needs
+one happens in the renderer and the broker becomes a relay that judges the
+answers. What stays in the broker, from the hit regions the renderer ships:
+hover styling (`Hover`), the cursor shape, the link under the pointer for the
+status bar and the context menu, and scrolling. What goes out as `Input`:
+every press and release, committed text, picker answers, and keys - all of
+them while something on the page is focused, and all but the page-scrolling
+ones (arrows, page keys, Home, End, Space) otherwise, which scroll the page in
+the broker as they would with nothing focused. Pointer moves and wheel
+notches go out only while the renderer **holds the pointer**: a slider thumb,
+a textarea grip or scrollbar, a selection being dragged out, an open
+dropdown; it says so with a `Capture` effect, and the broker then skips its
+own hover processing and page scrolling until the release. A link click
+goes out too (it ends the renderer's focus like any press) and comes back as a
+navigation request. The exec-per-render tier retains no page and gets no
+input.
+
+What comes back are **requests, never state**: `Focus { focused, editable,
+bounds }`, `Cursor`, `Navigate { url, post, body }` (a form submission, or a
+link activated by click or keyboard), `Picker { kind, bounds, value, min,
+max, step }`, `ClipboardWrite`, `PasteRequested`, `Capture`. Each is tagged
+with what produced the pass and judged before the broker acts: a navigation
+faces the rule a hit-region link gets (`http`/`https`, `file` only from a
+`file` page), a cursor is believed from a pointer press or move only, a
+clipboard write only from a pass whose key was Ctrl/Meta+C or +X and a paste
+request only from +V, a picker's bounds are clamped to the viewport. On the
+way in the client bounds them like hit regions: more than 16 effects in one
+pass ends the exchange as a crash, a URL past the hit-text bound or a form
+body past 1 MiB drops its navigation whole, a rectangle that is not a number
+drops its effect. A pass is held to a 5 s deadline in the renderer, against
+the 120 s a render gets. The renderer keeps a page's focus and gestures with the page:
+one it let go of under the retention cap answers input with `no_page`, and
+the broker renders it afresh, unfocused.
+
+Measured on the workstation (`engine-remote-latency`, Cairo tiles in both
+modes): a keystroke reaches the frame in about 4.6 ms in-process and 8 ms out
+of process, the difference being the round trip and the renderer's paint of
+the one tile under the field; a checkbox toggle takes about 150 ms either
+way, which is the layout, not the protocol.
 
 **Crashes** are detected eagerly (a non-blocking liveness probe on every idle
 renderer, ~4×/s) and by any failing exchange; the pool replaces the process,
@@ -323,7 +378,7 @@ at navigation), never from anything the requester sent.
 | `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
 | `security.storage_service` | on (Linux) | A zone's `localStorage` served by the storage process when its local store is a `FileLocalStore` (one process per directory). Other stores stay in-process. |
 | `security.cookie_vault` | on (Linux) | The cookie jars in their own sandboxed process, with a direct line from the network process (see the process model). Linux only; falls back to in-process jars with a warning. |
-| `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
+| `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Input to such a page goes to the renderer too (see [Input on a remote page](#input-on-a-remote-page)). Linux only. |
 
 The defaults are *offers*: at `start()` the engine keeps each one only where
 it can apply, and says what it decided at `info` level (or `warn`, when the
@@ -352,8 +407,8 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   is off by default), `127.0.0.1:9090` serves `/metrics` (timing
   aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and `/events`
   — the **telemetry firehose**, newline-delimited JSON of engine
-  events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover` (exchange time,
-  tiles, per-stage renderer timings), `net.load` (every brokered fetch:
+  events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover`/`remote.input`
+  (exchange time, tiles, per-stage renderer timings), `net.load` (every brokered fetch:
   outcome, status, bytes, duration), `remote.resource` (every subresource a
   renderer asked for), `tab.frame`, `tab.invalidate` (why a full render
   happened), `renderer.memory`. The server's own `/` is a page that
@@ -367,8 +422,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 
 - `cargo test -p gosub_engine --test process_isolation --features cairo-tiles`
   — the end-to-end suite (net, decoder, fork server, resident renderer
-  lifecycle/scroll-window/hover/crash/soak, engine wiring), driven through the
-  `isolation-harness` binary, which dispatches child roles like a real embedder.
+  lifecycle/scroll-window/hover/crash/soak, input on the renderer directly and
+  through the engine - every control on one page, a tall page laid out again,
+  the retention cap, a renderer that lies about its effects - and the engine
+  wiring), driven through the `isolation-harness` binary, which dispatches
+  child roles like a real embedder.
 - `cargo test -p gosub_sandbox` — sandbox unit tests plus enforcement probes
   that verify each profile actually blocks what it claims to.
 - Harness tools (not tests): `render-file` replays a saved page through a
@@ -378,15 +436,24 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   `engine-stress` runs many tabs with continuous random input and a live log
   (`GOSUB_STRESS_TABS`, `GOSUB_STRESS_PACE_MS`, `GOSUB_STRESS_SEED`);
   `renderer-soak` hammers one renderer with hundreds of navigations and checks
-  memory stays flat.
+  memory stays flat; `engine-remote-latency <backend> [local|remote]` times
+  keystrokes and toggles from the tab command to the next composited frame
+  in either mode.
 - `examples/mini-browser` is a minimal winit embedder with everything switched
   on; `Ctrl+P` prints the live process tree and the renderer pool.
 
 ## Known limits and roadmap
 
 - **Same-site tabs serialize** on their shared renderer: a slow render delays
-  the site's other tabs (measured, deliberate for now; the fix is request
-  interleaving, planned together with the input/JS protocol evolution).
+  the site's other tabs, and a keystroke in one waits behind another's render
+  (measured, deliberate for now; the fix is request interleaving in the
+  renderer, planned together with the script protocol).
+- **A re-layout after input costs a full layout** (about 150 ms on a page of
+  forty paragraphs, in-process and out alike); incremental layout in the
+  pipeline is the follow-up, not the protocol.
+- **Input has no window-blur command yet**, so a renderer's focus and gestures
+  outlive the window's; and the bounds a `Focus` effect carries are not yet
+  used to scroll the control into view.
 - **Tiles are CPU pixels.** GPU texture ids cannot cross processes and a
   sandboxed renderer must never touch the GPU; the plan is broker-side texture
   upload first, then out-of-process raster (the renderer ships paint command
