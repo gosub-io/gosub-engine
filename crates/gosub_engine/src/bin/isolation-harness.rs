@@ -191,6 +191,7 @@ fn main() {
         "renderer-input-tall" => with_font_backend!(renderer_input_tall),
         "renderer-input-retained" => with_font_backend!(renderer_input_retained),
         "renderer-input-hostile" => with_font_backend!(renderer_input_hostile),
+        "engine-remote-latency" => with_font_backend!(engine_remote_latency),
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
@@ -3747,6 +3748,284 @@ fn renderer_input_hostile<F: FontSystem + Default>() -> i32 {
     #[cfg(not(target_os = "linux"))]
     {
         eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Keystroke-to-frame latency, local against remote: the same page, the same
+/// keystrokes into a focused field and the same toggles of a checkbox, timed
+/// from the command to the next composited frame. `engine-remote-latency
+/// <backend> [local|remote] [keystrokes] [toggles]`. A measurement, not a
+/// test: it prints distributions and exits 0 whatever they are.
+fn engine_remote_latency<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(all(target_os = "linux", feature = "cairo-tiles"))]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let remote = std::env::args().nth(3).as_deref() != Some("local");
+        let keystrokes: usize = std::env::args().nth(4).and_then(|a| a.parse().ok()).unwrap_or(60);
+        let toggles: usize = std::env::args().nth(5).and_then(|a| a.parse().ok()).unwrap_or(20);
+        if remote && !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("the remote mode needs a Full-tier font system");
+            return 2;
+        }
+        // A page with some text to lay out, so a re-layout costs what a page costs.
+        let mut page = String::from(
+            r#"<html><head><style>body { margin: 0; } p { height: 100px; margin: 0; }</style></head><body>
+            <p>above</p>
+            <form action="/submit" method="get">
+                <p><input id="name" name="name" type="text"></p>
+                <p><input id="agree" name="agree" type="checkbox"></p>
+            </form>"#,
+        );
+        for i in 0..40 {
+            page.push_str(&format!(
+                "<p>Paragraph {i}: the quick brown fox jumps over the lazy dog, and keeps on running \
+                 until the line wraps a couple of times across the viewport.</p>"
+            ));
+        }
+        page.push_str("</body></html>");
+        let Ok(port) = serve_routes(vec![("/", "text/html", page.into_bytes(), std::time::Duration::ZERO)]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            // Cairo in this process too, the rasterizer the forked renderers use, so
+            // both modes paint the same tiles and a frame is a frame in each.
+            let mut engine: GosubEngine<TileConfig<F, gosub_renderer_cairo::CairoBackend>> = GosubEngine::new(
+                None,
+                Arc::new(gosub_renderer_cairo::CairoBackend::new()),
+                Arc::clone(&compositor),
+            );
+            if let Err(e) = engine
+                .settings()
+                .set("security.renderer_process", Setting::Bool(remote))
+            {
+                eprintln!("could not set the renderer process: {e}");
+                return 1;
+            }
+            let mut events = engine.subscribe_events();
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if remote && !matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                eprintln!("the engine did not start a Full-tier renderer fork server");
+                return 1;
+            }
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            // A fast tick: a remote pass lands on the tick after it finishes, so the
+            // tick is part of what is measured, and 240/s keeps that under 5 ms.
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 240 }).await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+            let finished = |e: &EngineEvent| {
+                matches!(
+                    e,
+                    EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }
+                )
+            };
+            if let Err(e) = next_engine_event(&mut events, deadline, "the page to load", finished).await {
+                eprintln!("{e}");
+                return 1;
+            }
+            // A frame's identity: the tile list it carries.
+            let frame_id = |compositor: &DefaultCompositor| -> Option<usize> {
+                match compositor.frame_for(tab.tab_id) {
+                    Some(ExternalHandle::TileCache { tiles, .. }) if !tiles.is_empty() => {
+                        Some(Arc::as_ptr(&tiles) as usize)
+                    }
+                    _ => None,
+                }
+            };
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for the first frame");
+                    return 1;
+                }
+                if frame_id(&compositor).is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            // Focus the field.
+            let (fx, fy) = (79.0f32, 112.0f32);
+            for command in [
+                TabCommand::MouseMove { x: fx, y: fy },
+                TabCommand::MouseDown {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                },
+                TabCommand::MouseUp {
+                    x: fx,
+                    y: fy,
+                    button: MouseButton::Left,
+                },
+            ] {
+                let _ = tab.send(command).await;
+            }
+            if let Err(e) = next_engine_event(&mut events, deadline, "focus on the field", |e| {
+                matches!(
+                    e,
+                    EngineEvent::FocusChanged {
+                        focused: true,
+                        editable: true,
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                eprintln!("{e}");
+                return 1;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            // One command, then the next frame: how long until the page shows it.
+            let measure = |compositor: &DefaultCompositor, before: Option<usize>| -> Option<f64> {
+                let started = std::time::Instant::now();
+                let until = started + std::time::Duration::from_secs(5);
+                loop {
+                    let now = frame_id(compositor);
+                    if now.is_some() && now != before {
+                        return Some(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    if std::time::Instant::now() >= until {
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                }
+            };
+            let stats = |samples: &mut Vec<f64>| -> String {
+                if samples.is_empty() {
+                    return "no samples".into();
+                }
+                samples.sort_by(|a, b| a.total_cmp(b));
+                let at = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
+                format!(
+                    "n={} median {:.1} ms, p90 {:.1} ms, max {:.1} ms",
+                    samples.len(),
+                    at(0.5),
+                    at(0.9),
+                    samples[samples.len() - 1]
+                )
+            };
+
+            let mut typing: Vec<f64> = Vec::new();
+            let mut missed = 0usize;
+            for i in 0..keystrokes {
+                let before = frame_id(&compositor);
+                let _ = tab
+                    .send(TabCommand::TextInput {
+                        text: if i % 8 == 7 { " ".into() } else { "x".into() },
+                    })
+                    .await;
+                match measure(&compositor, before) {
+                    Some(ms) => typing.push(ms),
+                    None => missed += 1,
+                }
+            }
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: "Tab".into(),
+                    code: String::new(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let mut toggling: Vec<f64> = Vec::new();
+            for _ in 0..toggles {
+                let before = frame_id(&compositor);
+                let _ = tab
+                    .send(TabCommand::KeyDown {
+                        key: " ".into(),
+                        code: String::new(),
+                        modifiers: Modifiers::empty(),
+                    })
+                    .await;
+                match measure(&compositor, before) {
+                    Some(ms) => toggling.push(ms),
+                    None => missed += 1,
+                }
+            }
+            let mut exchanges: Vec<f64> = Vec::new();
+            while let Ok(event) = firehose.try_recv() {
+                if event.kind == "remote.input" {
+                    if let Some(us) = event.data["exchange_us"].as_u64() {
+                        exchanges.push(us as f64 / 1000.0);
+                    }
+                }
+            }
+            println!(
+                "mode {}: keystroke to frame {}",
+                if remote { "remote" } else { "local" },
+                stats(&mut typing)
+            );
+            println!("    checkbox toggle to frame {}", stats(&mut toggling));
+            if remote {
+                println!("    renderer exchange alone {}", stats(&mut exchanges));
+            }
+            if missed > 0 {
+                println!("    {missed} command(s) produced no new frame within 5 s");
+            }
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            0
+        })
+    }
+    #[cfg(not(all(target_os = "linux", feature = "cairo-tiles")))]
+    {
+        eprintln!("engine-remote-latency needs Linux and a rasterizer (feature cairo-tiles)");
         2
     }
 }
