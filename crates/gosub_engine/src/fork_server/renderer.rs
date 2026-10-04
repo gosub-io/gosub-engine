@@ -450,7 +450,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         self.scroll_y = scroll_y;
         self.dirty = Dirty::None;
         let focus_before = self.doc.focused_node();
-        let capture_before = self.input.has_capture();
+        let capture_before = self.holds_pointer();
         let pointer = match &event {
             InputEvent::PointerDown { x, y, .. }
             | InputEvent::PointerUp { x, y, .. }
@@ -548,7 +548,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                 bounds: focus_after.and_then(|node| self.control_bounds(node)),
             });
         }
-        let capture = self.input.has_capture();
+        let capture = self.holds_pointer();
         if capture != capture_before {
             effects.push(Effect::Capture { pointer: capture });
         }
@@ -608,6 +608,14 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         self.fragment_targets
             .truncate(crate::fork_server::protocol::MAX_FRAGMENT_TARGETS);
         started.elapsed().as_micros() as u64
+    }
+
+    /// Whether the page wants the pointer's moves and wheel sent here rather
+    /// than hover-tested and scrolled by the broker: a gesture in progress, or
+    /// an open dropdown, whose rows highlight under the pointer and scroll
+    /// under the wheel.
+    fn holds_pointer(&self) -> bool {
+        self.input.has_capture() || self.doc.open_select().is_some()
     }
 
     /// The input layer, run against this page as its host. Taken out for the
