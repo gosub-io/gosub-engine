@@ -277,6 +277,10 @@ pub enum TabCommand {
     MouseScroll {
         delta_x: f32,
         delta_y: f32,
+        /// The deltas come from a device that already reports smooth, pixel-exact motion (a
+        /// trackpad, a precision mouse). They are applied at once: easing them as well would
+        /// leave the page trailing the fingers. Wheel notches send `false` and are animated.
+        precise: bool,
     },
     KeyDown {
         key: String,

@@ -318,7 +318,13 @@ fn main() {
                 // the compositor redraw wake-up, so the draw follows the engine's position.
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x,
+                            delta_y,
+                            precise: false,
+                        })
+                        .await;
                 });
                 glib::Propagation::Stop
             }
@@ -349,7 +355,13 @@ fn main() {
                     let (delta_x, delta_y) = (cur_vx * 0.016, cur_vy * 0.016);
                     let tab = tab.borrow().clone();
                     TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                        let _ = tab
+                            .send(TabCommand::MouseScroll {
+                                delta_x,
+                                delta_y,
+                                precise: true,
+                            })
+                            .await;
                     });
                     glib::ControlFlow::Continue
                 });

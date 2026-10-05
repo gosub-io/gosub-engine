@@ -420,10 +420,10 @@ impl ApplicationHandler<()> for BrowserApp {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
+                let (dx, dy, precise) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER, false),
                     // Trackpad pixel deltas are physical; the engine scrolls in logical (CSS) px.
-                    MouseScrollDelta::PixelDelta(p) => (self.cursor_logical(p.x), self.cursor_logical(p.y)),
+                    MouseScrollDelta::PixelDelta(p) => (self.cursor_logical(p.x), self.cursor_logical(p.y), true),
                 };
                 // Fire-and-forget one delta per wheel event; the engine accumulates the target,
                 // clamps it to the page, and animates the scroll itself.
@@ -434,6 +434,7 @@ impl ApplicationHandler<()> for BrowserApp {
                             .send(TabCommand::MouseScroll {
                                 delta_x: dx,
                                 delta_y: dy,
+                                precise,
                             })
                             .await;
                     });
