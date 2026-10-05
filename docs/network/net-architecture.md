@@ -28,7 +28,7 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 │                            ┌──────▼──────┐                               │
 │                            │ IoCommand      │                            │
 │                            │ - Fetch        │                            │
-│                            │ - Decision     │                            │
+│                            │ - SetTopLevel  │                            │
 │                            │ - ShutdownZone │                            │
 │                            └──────┬──────┘                               │
 │                                   │                                      │

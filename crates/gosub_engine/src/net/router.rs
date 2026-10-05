@@ -43,10 +43,11 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
     /// A top-level navigation to non-renderable content: offer it as a download.
     ///
-    /// `spooled` is the temp file the body was written to; `None` if spooling failed, and the
-    /// download falls back to a fresh fetch. See [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload)
-    /// for why the body is captured rather than re-requested. Boxed to keep the variants of
-    /// comparable size.
+    /// `spooled` is the temp file the body was written to; a spool failure fails the
+    /// navigation instead, there is no fallback to a fresh fetch. See
+    /// [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload) for why the
+    /// body is captured rather than re-requested. Boxed to keep the variants of comparable
+    /// size.
     DownloadOffer {
         meta: Box<crate::net::types::FetchResultMeta>,
         spooled: tempfile::TempPath,
