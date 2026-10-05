@@ -37,6 +37,26 @@ mod text;
 /// How far outside the surface (CSS px) a command's box may lie and still be painted.
 const CULL_MARGIN: f64 = 64.0;
 
+/// Where a text command's ink can land. Glyphs are placed from the layout box's
+/// origin by the shaped text's own positions, so they reach as far as the shaped
+/// text is wide and tall, not as far as the box (a `line-height: 0` box has no
+/// height at all), and a glyph overhangs its line by up to its font size. The box
+/// is widened to the shaped text and padded by the largest font size in it.
+fn text_ink_box(command: &gosub_render_pipeline::painter::commands::text::Text) -> GeoRect {
+    let shaped = &command.shaped;
+    let pad = shaped
+        .runs
+        .iter()
+        .map(|run| run.font_size as f64)
+        .fold(command.font_info.size, f64::max);
+    GeoRect::new(
+        command.rect.x - pad,
+        command.rect.y - pad,
+        command.rect.width.max(shaped.width as f64) + 2.0 * pad,
+        command.rect.height.max(shaped.height as f64) + 2.0 * pad,
+    )
+}
+
 /// Shared by the per-tile rasterizer (once per tile, translated to the tile) and the GPU-scene path
 /// (once for the whole viewport, translated by `−scroll`). `size` bounds text layout; commands carry
 /// pre-shaped glyph runs, so no font system is needed.
@@ -87,7 +107,7 @@ pub(crate) fn paint_commands_to_scene(
             }
             PaintCommand::Svg(command) if !on_surface(command.rect.rect(), cur) => {}
             PaintCommand::Rectangle(command) if !on_surface(command.rect(), cur) => {}
-            PaintCommand::Text(command) if !on_surface(command.rect, cur) => {}
+            PaintCommand::Text(command) if !on_surface(text_ink_box(command), cur) => {}
             PaintCommand::Svg(command) => {
                 svg::do_paint_svg(scene, command.media_id, &command.rect, cur, media_store);
             }

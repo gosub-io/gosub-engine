@@ -188,10 +188,12 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
                 eprintln!("Bad scroll spec '{spec}': expected scroll:DX,DY");
                 std::process::exit(2);
             };
+            // A scripted scroll wants the offset it names, now: a precise delta lands at
+            // once, so the capture that follows never catches the wheel animation midway.
             vec![Step::Send(TabCommand::MouseScroll {
                 delta_x,
                 delta_y,
-                precise: false,
+                precise: true,
             })]
         }
         Some((kind, rest)) if kind.eq_ignore_ascii_case("wait") => match rest.trim().parse::<u64>() {
