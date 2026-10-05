@@ -1425,7 +1425,11 @@ const BROKER_DENY: &[libc::c_long] = &[
     libc::SYS_add_key,
     libc::SYS_request_key,
     libc::SYS_keyctl,
-    libc::SYS_kcmp,
+    // Not `kcmp`: Mesa compares DRM descriptors with it when an embedder
+    // composites on GL (`os_same_file_description`), and under `Trap` that
+    // kills a GTK/EGL broker at its first frame. It only answers "same kernel
+    // object?" for processes the caller could ptrace anyway, and ptrace is
+    // denied above; Docker's default profile allows it for the same reason.
     // Namespace / mount escapes (the broker uses `unshare`, never these).
     libc::SYS_setns,
     libc::SYS_mount,
