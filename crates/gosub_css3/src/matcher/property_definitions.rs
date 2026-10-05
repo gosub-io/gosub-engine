@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
-use log::warn;
-
+use crate::matcher::property_ids::{PropertyId, PROPERTY_COUNT};
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
 use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
-use crate::matcher::syntax_matcher::CssSyntaxTree;
+use crate::matcher::syntax_matcher::{CssSyntaxTree, NUMERIC_DATATYPES};
 use crate::stylesheet::CssValue;
 
 /// Terminal data types that have no expandable grammar and are matched directly by
@@ -67,6 +67,134 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
     "zero",
 ];
 
+/// The short form of a `display` value (css-display-3 §2.7): the two-keyword forms serialize
+/// as the single keyword that means the same. `block flow` is `block`, `inline flow-root` is
+/// `inline-block`, `inline flex` is `inline-flex`; in a `list-item` form a `flow` and a
+/// `block` are implied and left out. Anything else is returned as it came.
+fn display_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
+    let words: Vec<&str> = values
+        .iter()
+        .map(|v| match v {
+            CssValue::String(s) => s.as_str(),
+            _ => "",
+        })
+        .collect();
+    if words.iter().any(|w| w.is_empty()) {
+        return values;
+    }
+    let keyword = |s: &str| CssValue::String(s.to_string());
+    let one = |s: &str| vec![keyword(s)];
+
+    if words.contains(&"list-item") {
+        // `<display-outside>? && [ flow | flow-root ]? && list-item`, in grammar order.
+        let kept: Vec<CssValue> = words
+            .iter()
+            .filter(|w| !matches!(**w, "flow" | "block"))
+            .map(|w| keyword(w))
+            .collect();
+        return kept;
+    }
+    match words.as_slice() {
+        ["flow"] => one("block"),
+        [outside, "flow"] => one(outside),
+        ["block", inside @ ("flow-root" | "flex" | "grid" | "table")] => one(inside),
+        ["inline", "flow-root"] => one("inline-block"),
+        ["inline", "flex"] => one("inline-flex"),
+        ["inline", "grid"] => one("inline-grid"),
+        ["inline", "table"] => one("inline-table"),
+        ["inline", "ruby"] => one("ruby"),
+        _ => values,
+    }
+}
+
+/// The short form of a `font` value (css-fonts-4 §3.9, CSSOM): the optional style, variant,
+/// weight and width pieces are left out when they are `normal`, and so is a `/ normal`
+/// line-height. The pieces arrive in grammar order already - style, variant, weight, width,
+/// size, line-height, family - which is the canonical order.
+fn font_short_form(values: Vec<CssValue>) -> Vec<CssValue> {
+    let is_normal = |v: &CssValue| matches!(v, CssValue::String(s) if s.eq_ignore_ascii_case("normal"));
+    let is_slash = |v: &CssValue| matches!(v, CssValue::String(s) if s == "/");
+    let is_size = |v: &CssValue| match v {
+        CssValue::Unit(..) | CssValue::Percentage(_) | CssValue::Zero | CssValue::Function(..) => true,
+        CssValue::String(s) => matches!(
+            s.as_str(),
+            "xx-small"
+                | "x-small"
+                | "small"
+                | "medium"
+                | "large"
+                | "x-large"
+                | "xx-large"
+                | "xxx-large"
+                | "larger"
+                | "smaller"
+        ),
+        _ => false,
+    };
+    // A system font (`font: menu`) is one keyword and has no pieces to drop.
+    let Some(size) = values.iter().position(is_size) else {
+        return values;
+    };
+    let mut out: Vec<CssValue> = values[..size].iter().filter(|v| !is_normal(v)).cloned().collect();
+    out.push(values[size].clone());
+    let mut rest = &values[size + 1..];
+    if let [slash, line_height, after @ ..] = rest {
+        if is_slash(slash) {
+            if !is_normal(line_height) {
+                out.push(slash.clone());
+                out.push(line_height.clone());
+            }
+            rest = after;
+        }
+    }
+    out.extend(rest.iter().cloned());
+    out
+}
+
+/// The `display` an element computes to when it is blockified (css-display-3 §2.7): absolutely
+/// positioned, floated, or the root. An inline-level outer display becomes block-level and the
+/// inner display is kept, in the short form: `inline-block` and `inline` become `block`,
+/// `inline-table` becomes `table`, `inline flex` becomes `flex`. `display` is expected in its
+/// short form already; anything not inline-level comes back unchanged.
+#[must_use]
+pub fn blockified_display(display: Vec<CssValue>) -> Vec<CssValue> {
+    let words: Vec<&str> = display
+        .iter()
+        .map(|v| match v {
+            CssValue::String(s) => s.as_str(),
+            _ => "",
+        })
+        .collect();
+    let keyword = |s: &str| CssValue::String(s.to_string());
+    match words.as_slice() {
+        ["inline" | "inline-block" | "run-in"] => vec![keyword("block")],
+        ["inline-table"] => vec![keyword("table")],
+        ["inline-flex"] => vec![keyword("flex")],
+        ["inline-grid"] => vec![keyword("grid")],
+        // `ruby` is `inline ruby`; blockified it is `block ruby`.
+        ["ruby"] => vec![keyword("block"), keyword("ruby")],
+        // A layout-internal box type has no block-level counterpart and becomes `block`.
+        ["table-row-group"
+        | "table-header-group"
+        | "table-footer-group"
+        | "table-row"
+        | "table-cell"
+        | "table-column-group"
+        | "table-column"
+        | "table-caption"
+        | "ruby-base"
+        | "ruby-text"
+        | "ruby-base-container"
+        | "ruby-text-container"] => vec![keyword("block")],
+        // `inline list-item`, `inline flow-root list-item`, `run-in list-item`: the outer
+        // display becomes block, which the short form leaves implied.
+        [outside, rest @ ..] if matches!(*outside, "inline" | "run-in") && rest.contains(&"list-item") => {
+            rest.iter().map(|w| keyword(w)).collect()
+        }
+        _ => display,
+    }
+}
+
 /// Pushes `range` onto the numeric builtin leaves of `component` that do not already
 /// carry a range. Used to propagate a range written on a value-type reference (e.g.
 /// `<length-percentage [0,∞]>`) into the leaves of its resolved grammar, which have no
@@ -78,7 +206,9 @@ fn apply_range(component: &mut SyntaxComponent, range: RangeType) {
             *existing = range;
         }
         SyntaxComponent::Group { components, .. } => {
-            for inner in components {
+            // A range on a reference (`<length [0,∞]>`) constrains the leaves of *this* use of
+            // the type, so the shared subtree is copied before it is written to.
+            for inner in Arc::make_mut(components) {
                 apply_range(inner, range);
             }
         }
@@ -144,48 +274,238 @@ impl PropertyDefinition {
         self.syntax.matches(input)
     }
 
-    pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
-        if let Some(shorthands) = &self.shorthands {
-            let resolver = shorthands.get_resolver(fix_list);
+    /// The canonical form of `input` for this property, or `None` when it is not a valid value;
+    /// see [`CssSyntaxTree::canonical`]. A property whose spec defines a shorter serialization
+    /// than its grammar produces gets it here: `display` (css-display-3 §2.7).
+    #[must_use]
+    pub fn canonical(&self, input: &[CssValue]) -> Option<Vec<CssValue>> {
+        let values = self.syntax.canonical(input)?;
+        Some(match self.name.as_str() {
+            "display" => display_short_form(values),
+            "font" => font_short_form(values),
+            _ => values,
+        })
+    }
 
-            self.syntax.matches_and_shorthands(input, resolver)
-        } else {
-            self.syntax.matches(input)
+    /// Matches `input` against this definition and, for a shorthand, records the longhands it
+    /// expands to in `fix_list`.
+    ///
+    /// On a failed match the fix list is left exactly as it was. The resolver records a longhand
+    /// the moment its piece of the grammar completes, and only a branch abandoned *before* that
+    /// point is undone by its snapshot - so `border: 1px solid banana` used to leave
+    /// `border-width: 1px` and `border-style: solid` behind after the declaration as a whole was
+    /// rejected, and they reached the element as if the author had written them.
+    pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
+        let Some(shorthands) = &self.shorthands else {
+            if !self.syntax.matches(input) {
+                return false;
+            }
+            // No shape map, which for a shorthand means its longhands cannot be told apart by
+            // grammar alone. The spec still says exactly what each value means, so the ones
+            // that are placed by position are expanded from those rules instead of being left
+            // to set nothing.
+            if self.is_shorthand() {
+                crate::matcher::shorthands::expand_by_hand(self.name(), input, fix_list);
+            }
+            return true;
+        };
+
+        let before = fix_list.clone();
+        let resolver = shorthands.get_resolver(fix_list);
+        if self.syntax.matches_and_shorthands(input, resolver) {
+            return true;
         }
+        *fix_list = before;
+        false
     }
 
     #[must_use]
     pub fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
+
+    /// Whether a percentage specified for this property computes to a plain number: the
+    /// properties whose computed value is "the specified number, clamped to [0,1]" (`opacity`
+    /// and its kin) take `50%` as `0.5`.
+    #[must_use]
+    pub fn percentage_is_number(&self) -> bool {
+        self.computed
+            .iter()
+            .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
+    }
+
+    /// Whether this property can take a `<color>` at all.
+    ///
+    /// A colour keyword is a keyword until something says otherwise: `red` is a colour on
+    /// `background-color` and a line name on `grid-row-start`. Asking the grammar is what tells
+    /// the two apart, and it only has to be asked once, when the computed value is worked out.
+    #[must_use]
+    pub fn takes_color(&self) -> bool {
+        // `<color>` is inlined into the grammar when the definitions load, so there is no node
+        // by that name left to look for. What the expansion always begins with is the hex form,
+        // and nothing else in CSS takes one, so its presence marks a colour slot.
+        fn walks(component: &SyntaxComponent) -> bool {
+            match component {
+                SyntaxComponent::Builtin { datatype, .. } => datatype == "hex-color",
+                SyntaxComponent::Group { components, .. } => components.iter().any(walks),
+                // A gradient keeps its colours inside its own arguments, so a property that
+                // takes one has its colour slot a level further down than the groups.
+                SyntaxComponent::Function { arguments, .. } => arguments.as_deref().is_some_and(walks),
+                _ => false,
+            }
+        }
+        self.syntax.components.iter().any(walks)
+    }
+
+    /// The range a computed value for this property has to lie in, if it has one.
+    ///
+    /// css-values-4 §10.12: a math function is *not* range-checked when it is parsed, because
+    /// its result is not known then - `width: calc(-5px)` is a perfectly valid declaration. What
+    /// the range does instead is clamp the result at computed-value time. So the same `[0,∞]`
+    /// that rejects the literal `width: -5px` turns `calc(-5px)` into `0px` rather than throwing
+    /// the declaration away.
+    ///
+    /// Two things can name the range, and they are not the same thing:
+    ///
+    /// * The **grammar**, for `<length-percentage [0,∞]>` and its kin. Read below.
+    /// * The property's **computed-value line**, for the handful of properties whose range lives
+    ///   in prose rather than in the syntax - `opacity` is `<number> | <percentage>` with no
+    ///   bounds written on it at all, and css-color-4 says the computed value is "the specified
+    ///   number, clamped to the range [0,1]". That one applies to every value, not only to math
+    ///   results, which is why `opacity: 1.5` computes to `1`.
+    #[must_use]
+    pub fn computed_range(&self) -> Option<(Option<f64>, Option<f64>)> {
+        // The prose rule is the property's own computed-value definition, so it wins over
+        // anything the grammar happens to say.
+        if self
+            .computed
+            .iter()
+            .any(|rule| rule == "specifiedValueNumberClipped0To1" || rule == "specifiedValueClipped0To1")
+        {
+            return Some((Some(0.0), Some(1.0)));
+        }
+
+        let mut seen = false;
+        let mut min: Option<f64> = None;
+        let mut max: Option<f64> = None;
+
+        for range in top_level_numeric_ranges(&self.syntax.components) {
+            // The value matched *some* alternative and there is no record of which, so the
+            // clamp has to be the widest any of them would allow. An arm with no bound at all
+            // makes that side unbounded: `z-index: auto | <integer>` clamps nothing.
+            let (arm_min, arm_max) = (range.min_bound(), range.max_bound());
+            if seen {
+                min = match (min, arm_min) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    _ => None,
+                };
+                max = match (max, arm_max) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                };
+            } else {
+                seen = true;
+                min = arm_min;
+                max = arm_max;
+            }
+        }
+
+        (min.is_some() || max.is_some()).then_some((min, max))
+    }
+}
+
+/// The ranges written on the numeric alternatives a property's value can be.
+///
+/// Descends through groups, because `auto | <length-percentage [0,∞]> | min-content` is one
+/// group of alternatives, and stops at a function, because the range on `fit-content(<length
+/// [0,∞]>)`'s *argument* constrains the argument rather than the property.
+fn top_level_numeric_ranges(components: &[SyntaxComponent]) -> Vec<RangeType> {
+    let mut ranges = Vec::new();
+    for component in components {
+        match component {
+            SyntaxComponent::Group { components, .. } => ranges.extend(top_level_numeric_ranges(components)),
+            SyntaxComponent::Builtin { datatype, range, .. } | SyntaxComponent::Definition { datatype, range, .. }
+                if NUMERIC_DATATYPES.contains(&datatype.as_str()) =>
+            {
+                ranges.push(*range);
+            }
+            _ => {}
+        }
+    }
+    ranges
 }
 
 /// A syntax definition that can be used to resolve a property definition
 #[derive(Debug, Clone)]
 pub struct SyntaxDefinition {
-    /// Actual syntax
+    /// Actual syntax, as the definitions file writes it. Resolution reads this and never
+    /// writes it back: the resolved form lives in [`CssDefinitions::shared_types`], so a type
+    /// replaced through [`CssDefinitions::add_syntax`] can still be rebuilt from its own source.
     pub syntax: CssSyntaxTree,
-    /// True when the element has already been resolved
-    pub resolved: bool,
     pub ty: SyntaxType,
 }
 
+/// Whether a value-definition entry named itself as a value type.
+///
+/// There used to be a third case, `Quoted`, for the `<'property'>` form. Nothing ever read it,
+/// and nothing ever legitimately produced it either: the loader read each name through
+/// `serde_json::Value::to_string`, which wraps it in JSON quotes, and mistook that quote for the
+/// CSS one - so every *bare* name in the file was tagged `Quoted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyntaxType {
-    Quoted,
     Definition,
     None,
+}
+
+/// A resolved property, together with the answers about it that the cascade would otherwise
+/// work out again for every element it applies to.
+///
+/// [`PropertyDefinition::takes_color`] and [`PropertyDefinition::computed_range`] both read the
+/// resolved value grammar, which is a tree a few hundred nodes deep for a property like
+/// `background-image`. Neither answer can change once the definitions are loaded, so both are
+/// settled here instead - as is the initial value, which used to be cloned out of an `Option` on
+/// every lookup.
+#[derive(Debug, Clone)]
+struct ResolvedProperty {
+    definition: PropertyDefinition,
+    /// Exactly what [`PropertyDefinition::initial_value`] answers.
+    initial: CssValue,
+    takes_color: bool,
+    computed_range: Option<(Option<f64>, Option<f64>)>,
 }
 
 /// Defines a list of CSS properties and its syntax.
 #[derive(Debug, Clone)]
 pub struct CssDefinitions {
-    // List of all resolved properties
-    pub resolved_properties: HashMap<String, PropertyDefinition>,
+    /// Every resolved property, indexed by [`PropertyId::index`], so the cascade reaches a
+    /// definition by array index rather than by hashing a name. A property with no id - `--*`,
+    /// or anything a hand-built definition set names that the generated ids do not - is kept in
+    /// a slot past the ids.
+    resolved: Vec<Option<ResolvedProperty>>,
+    /// Which slot of `resolved` each property name sits in. This is the name-keyed door, for
+    /// the parser and the syntax matcher; the cascade uses the ids.
+    resolved_at: HashMap<String, usize>,
+    /// Where [`CssDefinitions::resolve`] accumulates its work, drained into `resolved` when the
+    /// pass is done. Resolution is recursive and looks up what it has already resolved by name,
+    /// which is why it is a map of its own rather than the table above.
+    resolved_properties: HashMap<String, PropertyDefinition>,
     /// All defined properties
     pub properties: HashMap<String, PropertyDefinition>,
     /// List of syntax elements for resolving the properties
     pub syntax: HashMap<String, SyntaxDefinition>,
+    /// Each named type's resolved components, shared by every reference to it.
+    ///
+    /// Resolution used to hand every reference its own deep copy, so `<color>` - referenced by
+    /// dozens of properties, and by other types which are themselves referenced - was stored
+    /// once per mention. The tree is immutable once resolved, so the copies were identical;
+    /// this hands out one `Arc` instead, and the property trees become a DAG over the types.
+    shared_types: HashMap<String, Arc<[SyntaxComponent]>>,
+    /// Whether the builtin named types have been freed after the initial load.
+    ///
+    /// They are load-time scaffolding - resolution inlines them into the property trees and
+    /// nothing reads them afterwards - but a caller that adds a property later and resolves
+    /// again needs them back, so this records that they must be reloaded first.
+    syntax_released: bool,
     /// Datatypes currently being resolved, used to break reference cycles in
     /// self-referential grammars (e.g. the calc() family). Transient during `resolve`.
     resolving: std::collections::HashSet<String>,
@@ -201,9 +521,13 @@ impl CssDefinitions {
     #[must_use]
     pub fn new() -> Self {
         CssDefinitions {
+            resolved: Vec::new(),
+            resolved_at: HashMap::new(),
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
+            shared_types: HashMap::new(),
+            syntax_released: false,
             resolving: std::collections::HashSet::new(),
         }
     }
@@ -218,37 +542,142 @@ impl CssDefinitions {
         self.properties.insert(name.to_string(), property);
     }
 
-    /// Add a new syntax definition
+    /// Add a new syntax definition, replacing one of the same name.
+    ///
+    /// Anything already resolved through the previous definition is dropped: every named type
+    /// in `shared_types` may have been built from the one being replaced, directly or through
+    /// another type, and there is no cheap way to tell which. They are a cache of resolution
+    /// and rebuild from the definitions on the next pass, so throwing them away is enough.
     pub fn add_syntax(&mut self, name: &str, syntax: SyntaxDefinition) {
         self.syntax.insert(name.to_string(), syntax);
+        self.shared_types.clear();
     }
 
-    /// Find a specific property
+    /// Bring the builtin named types back if they were freed after the initial load.
+    ///
+    /// Entries the caller added themselves win: this fills in what is missing rather than
+    /// replacing the map, so adding a type of your own and resolving behaves as it always did.
+    pub(crate) fn reload_released_syntax(&mut self) {
+        if !self.syntax_released {
+            return;
+        }
+        let builtin: HashMap<String, SyntaxDefinition> = get_values();
+        for (name, definition) in builtin {
+            self.syntax.entry(name).or_insert(definition);
+        }
+        self.syntax_released = false;
+    }
+
+    /// Find a specific property by name. The name-keyed door into the definitions, for the
+    /// parser and the syntax matcher; the cascade goes through [`CssDefinitions::definition`].
     #[must_use]
     pub fn find_property(&self, name: &str) -> Option<&PropertyDefinition> {
-        self.resolved_properties.get(name)
+        self.entry_by_name(name).map(|entry| &entry.definition)
+    }
+
+    /// The definition of the property `id` names, when this set has one.
+    #[must_use]
+    pub fn definition(&self, id: PropertyId) -> Option<&PropertyDefinition> {
+        self.entry(id).map(|entry| &entry.definition)
+    }
+
+    /// The initial value of the property `id` names, the same value
+    /// [`PropertyDefinition::initial_value`] answers - worked out once when the definitions
+    /// loaded rather than on every lookup.
+    #[must_use]
+    pub fn initial_value(&self, id: PropertyId) -> Option<CssValue> {
+        self.entry(id).map(|entry| entry.initial.clone())
+    }
+
+    /// Whether the property `id` names can take a `<color>`; see
+    /// [`PropertyDefinition::takes_color`].
+    #[must_use]
+    pub fn takes_color(&self, id: PropertyId) -> bool {
+        self.entry(id).is_some_and(|entry| entry.takes_color)
+    }
+
+    /// The range a computed value for the property `id` names has to lie in; see
+    /// [`PropertyDefinition::computed_range`].
+    #[must_use]
+    pub fn computed_range(&self, id: PropertyId) -> Option<(Option<f64>, Option<f64>)> {
+        self.entry(id).and_then(|entry| entry.computed_range)
+    }
+
+    fn entry(&self, id: PropertyId) -> Option<&ResolvedProperty> {
+        self.resolved.get(id.index())?.as_ref()
+    }
+
+    fn entry_by_name(&self, name: &str) -> Option<&ResolvedProperty> {
+        let slot = *self.resolved_at.get(name)?;
+        self.resolved.get(slot)?.as_ref()
     }
 
     /// Returns the length of the property definitions
     #[must_use]
     pub fn len(&self) -> usize {
-        self.resolved_properties.len()
+        self.resolved_at.len()
     }
 
     /// Returns true when the properties definitions are empty
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.resolved_properties.is_empty()
+        self.resolved_at.is_empty()
     }
 
     /// Resolves all elements in the definitions
     pub fn resolve(&mut self) {
+        self.reload_released_syntax();
+        // The named types resolved by the last pass. A caller may have replaced a definition
+        // one of them was built from since, and this is the only place a resolved named type
+        // is kept, so starting empty is what makes the pass read the definitions as they are
+        // now - for the replaced type and for everything that reached it.
+        self.shared_types.clear();
         let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
         names.sort();
 
         for name in names {
             self.resolve_property(&name);
         }
+
+        self.build_id_table();
+    }
+
+    /// Move what `resolve` produced into the id-indexed table, working out the per-property
+    /// facts that never change while it goes.
+    fn build_id_table(&mut self) {
+        let mut resolved: Vec<Option<ResolvedProperty>> = Vec::with_capacity(PROPERTY_COUNT);
+        resolved.resize_with(PROPERTY_COUNT, || None);
+        let mut resolved_at = HashMap::with_capacity(self.resolved_properties.len());
+
+        // Sorted, so the slots handed out past the ids do not depend on hash order.
+        let mut names: Vec<String> = self.resolved_properties.keys().cloned().collect();
+        names.sort();
+
+        for name in names {
+            let Some(definition) = self.resolved_properties.remove(&name) else {
+                continue;
+            };
+            let slot = match PropertyId::from_name(&name) {
+                Some(id) => id.index(),
+                // No id: `--*`, or a name only a hand-built definition set knows. It still needs
+                // a slot, just not one the cascade can reach.
+                None => {
+                    resolved.push(None);
+                    resolved.len() - 1
+                }
+            };
+            let entry = ResolvedProperty {
+                initial: definition.initial_value(),
+                takes_color: definition.takes_color(),
+                computed_range: definition.computed_range(),
+                definition,
+            };
+            resolved[slot] = Some(entry);
+            resolved_at.insert(name, slot);
+        }
+
+        self.resolved = resolved;
+        self.resolved_at = resolved_at;
     }
 
     /// Resolves a property definition (recursively)
@@ -274,7 +703,6 @@ impl CssDefinitions {
         self.resolved_properties.insert(name.to_string(), element);
     }
 
-    /// Resolve a syntax component
     /// Resolves a datatype against the property definitions (for property references and
     /// property-named datatypes). Returns None when no such property exists.
     fn resolve_property_reference(
@@ -300,7 +728,7 @@ impl CssDefinitions {
         }
         // Otherwise, we return a group with the components
         Some(SyntaxComponent::Group {
-            components: resolved_prop.syntax.components.clone(),
+            components: resolved_prop.syntax.components.as_slice().into(),
             combinator: Juxtaposition,
             multipliers: multipliers.to_vec(),
         })
@@ -325,7 +753,7 @@ impl CssDefinitions {
                 }
 
                 // First step: Resolve by looking the definition up in the syntax defintions.
-                if let Some(syntax_element) = self.syntax.get(datatype) {
+                if self.syntax.contains_key(datatype) {
                     // Cycle guard: if this datatype is already being resolved further up
                     // the stack, don't recurse into it again. Self-referential grammars
                     // (notably the calc() family, now reachable because function arguments
@@ -337,24 +765,55 @@ impl CssDefinitions {
                         return component.clone();
                     }
 
-                    let mut syntax_element = syntax_element.clone();
-                    if !syntax_element.resolved {
-                        self.resolving.insert(datatype.clone());
-                        syntax_element.syntax = self.resolve_syntax(&syntax_element.syntax, prop_name);
-                        syntax_element.resolved = true;
-                        self.resolving.remove(datatype);
-                        self.syntax.insert(datatype.clone(), syntax_element.clone());
-                    }
+                    // One `Arc` per named type, resolved once and handed to every reference.
+                    // This is the only cache of the resolution: `self.syntax` keeps the grammar
+                    // as it was written and is never resolved in place, so replacing a named
+                    // type through `add_syntax` leaves nothing built from the old one behind -
+                    // the types that referenced it rebuild from their own source too. It used
+                    // to be resolved in place under a `resolved` flag, which could not be
+                    // undone, because by then the source it would have to be rebuilt from had
+                    // been overwritten by the result.
+                    let shared = match self.shared_types.get(datatype) {
+                        Some(shared) => Arc::clone(shared),
+                        None => {
+                            // Borrowed out rather than copied: resolving needs `&mut self`, and
+                            // a copy of every named type's grammar alongside its resolved form
+                            // is 525 trees the pass would hold twice. Nothing reads the entry
+                            // while it is out - a reference to this datatype from inside its own
+                            // resolution is the cycle the guard above answers, and it answers it
+                            // from `resolving`, before looking at the grammar.
+                            let mut source = CssSyntaxTree::new(Vec::new());
+                            if let Some(entry) = self.syntax.get_mut(datatype) {
+                                std::mem::swap(&mut entry.syntax, &mut source);
+                            }
 
-                    let mut components = syntax_element.syntax.components.clone();
+                            self.resolving.insert(datatype.clone());
+                            let resolved = self.resolve_syntax(&source, prop_name);
+                            self.resolving.remove(datatype);
+
+                            if let Some(entry) = self.syntax.get_mut(datatype) {
+                                entry.syntax = source;
+                            }
+
+                            let shared: Arc<[SyntaxComponent]> = resolved.components.as_slice().into();
+                            self.shared_types.insert(datatype.clone(), Arc::clone(&shared));
+                            shared
+                        }
+                    };
+
                     // A range written on the reference (e.g. `<length-percentage [0,∞]>`)
                     // constrains the numeric leaves of the resolved value type, which have
-                    // no range of their own. Push it down so the leaves enforce it.
-                    if !range.is_empty() {
-                        for component in &mut components {
+                    // no range of their own. Push it down so the leaves enforce it - and that
+                    // belongs to this reference alone, so it takes a copy of its own.
+                    let components = if range.is_empty() {
+                        shared
+                    } else {
+                        let mut owned = shared.to_vec();
+                        for component in &mut owned {
                             apply_range(component, *range);
                         }
-                    }
+                        owned.into()
+                    };
 
                     return SyntaxComponent::Group {
                         components,
@@ -387,11 +846,21 @@ impl CssDefinitions {
                     }
                 }
 
-                #[allow(clippy::panic)]
-                // PANIC-SAFE: datatypes come from the compiled-in definitions; the test suite resolves them all
-                {
-                    panic!("Unknown datatype encountered: {datatype:?}");
-                }
+                // Nothing defines this datatype. That means the compiled-in definitions are
+                // inconsistent - a stylesheet cannot reach here, since a datatype name only
+                // ever comes from those files - so it is a bug in our own data rather than in
+                // the page. It used to be a `panic!`, which answered a corrupt lookup table by
+                // killing the browser.
+                //
+                // Leaving the reference unresolved is what the cycle guard above already does,
+                // and the matcher handles it: `SyntaxComponent::Definition` matches nothing
+                // (see `match_component_single`). So the property that named it stops matching
+                // and every other property is unaffected, which is the smallest correct blast
+                // radius for our own data being wrong.
+                log::error!(
+                    "Unknown datatype {datatype:?} in the definitions for {prop_name:?}; leaving it unresolved"
+                );
+                component.clone()
             }
             SyntaxComponent::Group {
                 components,
@@ -399,13 +868,13 @@ impl CssDefinitions {
                 multipliers,
             } => {
                 // Resolve this group and return a new group with resolved components
-                let mut resolved_components = vec![];
-                for component in components {
+                let mut resolved_components = Vec::with_capacity(components.len());
+                for component in components.iter() {
                     resolved_components.push(self.resolve_component(component, prop_name));
                 }
 
                 SyntaxComponent::Group {
-                    components: resolved_components,
+                    components: resolved_components.into(),
                     combinator: *combinator,
                     multipliers: multipliers.clone(),
                 }
@@ -456,16 +925,144 @@ pub static CSS_PROPERTIES: LazyLock<indexmap::IndexMap<String, PropertyDefinitio
 pub const DEFINITIONS_VALUES: &str = include_str!("../../resources/definitions/definitions_values.json");
 pub const DEFINITIONS_PROPERTIES: &str = include_str!("../../resources/definitions/definitions_properties.json");
 
-#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
-fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).expect("JSON was not well-formatted");
-    parse_syntax_file(json)
+/// One entry of `definitions_values.json`: a named value type and its grammar.
+#[derive(serde::Deserialize)]
+struct RawSyntax {
+    name: String,
+    syntax: String,
 }
 
-#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
+/// One entry of `definitions_properties.json`.
+#[derive(serde::Deserialize)]
+struct RawProperty {
+    name: String,
+    syntax: String,
+    computed: Vec<String>,
+    inherited: bool,
+    initial: RawInitial,
+}
+
+/// The `initial` key, which is a value for a longhand and a list of covered longhands for a
+/// shorthand - `margin`'s reads `["margin-top", "margin-right", ...]`, which is not a value.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RawInitial {
+    Value(String),
+    Longhands(#[expect(dead_code, reason = "a shorthand's longhand list is not a value")] Vec<String>),
+}
+
+/// Descriptions of an initial value rather than the value itself. The file uses these where the
+/// spec says the initial value is prose, so there is nothing to parse.
+const INITIAL_IS_PROSE: &[&str] = &[
+    "seeProse",
+    "dependsOnUserAgent",
+    "noneButOverriddenInUserAgentCSS",
+    "noPracticalInitialValue",
+    "autoForSmartphoneBrowsersSupportingInflation",
+    "zoomForTheTopLevelNoneForTheRest",
+];
+
+impl RawInitial {
+    /// The value as the file writes it, or `None` where the file gives a shorthand's longhand
+    /// list instead. This is what the generated id tables carry.
+    #[cfg(test)]
+    fn source(&self) -> Option<&str> {
+        match self {
+            RawInitial::Value(text) => Some(text),
+            RawInitial::Longhands(_) => None,
+        }
+    }
+
+    /// The initial value this describes for the property `name`, if it describes one at all.
+    fn value(&self, name: &str) -> Option<CssValue> {
+        let RawInitial::Value(text) = self else {
+            // A shorthand's initial is its longhand list; the longhands carry the values.
+            return None;
+        };
+
+        if let Some((_, value)) = INITIAL_OVERRIDES.iter().find(|(property, _)| *property == name) {
+            return Some(initial_token(value));
+        }
+
+        if INITIAL_IS_PROSE.contains(&text.as_str()) {
+            return None;
+        }
+
+        // `text-align`'s entry names CSS 2's initial value, which depended on the direction. CSS
+        // Text 3 §6.1 made it `start`, which is the same thing in either direction. Without a
+        // value, `text-align: initial` resolved to nothing and the element inherited instead -
+        // which is how a quirks-mode table's `text-align: initial` still took a `<center>`'s.
+        if text == "startOrNamelessValueIfLTRRightIfRTL" {
+            return Some(CssValue::String("start".to_string()));
+        }
+
+        // A function (`snapInterval(0px, 100%)`, a Microsoft extension) is not a value this can
+        // read token by token.
+        if text.contains(['(', ',']) {
+            return None;
+        }
+        // Several values (`0% 0%`, `50% 50% 0`) are the list the stylesheet parser would make.
+        let tokens: Vec<CssValue> = text.split_whitespace().map(initial_token).collect();
+        Some(CssValue::from_vec(tokens))
+    }
+}
+
+/// Initial values the definitions data gets wrong or leaves to the UA, by property.
+const INITIAL_OVERRIDES: [(&str, &str); 3] = [
+    // "depends on user agent": the family the engine's typed style falls back to. Without a value
+    // `font-family: initial` resolved to nothing and kept the parent's family.
+    ("font-family", "serif"),
+    // The data says `black`, a copy of `flood-color`'s; css-filter-effects-1 §15.5 says 1.
+    ("flood-opacity", "1"),
+    // The same copy of `stop-color`'s initial; SVG 2 §13.2.3 says 1.
+    ("stop-opacity", "1"),
+];
+
+/// One token of an initial value, as the stylesheet parser would read it: a bare zero is its
+/// own variant, which every `<length>`, `<time>` and `<angle>` grammar accepts.
+fn initial_token(text: &str) -> CssValue {
+    if text == "0" {
+        return CssValue::Zero;
+    }
+    CssValue::parse_str(text).unwrap_or_else(|_| CssValue::String(text.to_string()))
+}
+
+/// Read one of the compiled-in definition files, entry by entry.
+///
+/// Entries are deserialized individually so that one malformed record costs one datatype rather
+/// than the whole table, which is how `parse_syntax_file` already treats a grammar it cannot
+/// compile. A file that is not a JSON array at all does cost the table - but it still *returns*.
+/// Both of these used to be `expect`, and a corrupt lookup table is a bug in our own compiled-in
+/// data, never something a page can cause: answering it by aborting the browser turns a
+/// degradation into an outage. With no definitions every property takes the unvalidated path in
+/// `compute_properties` and pages still render.
+fn load_definitions<T: serde::de::DeserializeOwned>(text: &str, file: &str) -> Vec<T> {
+    let entries: Vec<serde_json::Value> = match serde_json::from_str(text) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::error!("{file} is not a JSON array, so no definitions were loaded from it: {e}");
+            return Vec::new();
+        }
+    };
+
+    entries
+        .into_iter()
+        .filter_map(|entry| match serde_json::from_value(entry) {
+            Ok(parsed) => Some(parsed),
+            Err(e) => {
+                log::error!("skipping a malformed entry in {file}: {e}");
+                None
+            }
+        })
+        .collect()
+}
+
+fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
+    parse_syntax_file(load_definitions(DEFINITIONS_VALUES, "definitions_values.json"))
+}
+
 fn get_properties<M: Map<String, PropertyDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).expect("JSON was not well-formatted");
-    parse_property_file(json)
+    parse_property_file(load_definitions(DEFINITIONS_PROPERTIES, "definitions_properties.json"))
 }
 
 /// Parses the internal CSS definition file
@@ -478,14 +1075,31 @@ fn parse_definition_files() -> CssDefinitions {
 
     // Create definition structure, and resolve all definitions
     let mut definitions = CssDefinitions {
+        resolved: Vec::new(),
+        resolved_at: HashMap::new(),
         resolved_properties: HashMap::new(),
         properties,
         syntax,
+        shared_types: HashMap::new(),
+        syntax_released: false,
         resolving: std::collections::HashSet::new(),
     };
 
     definitions.index_shorthands();
     definitions.resolve();
+
+    // Load-time scaffolding, freed now that it has done its work.
+    //
+    // `syntax` holds the named types (`<color>`, `<length-percentage>`, ...), each one resolved
+    // in its own right, and resolution copies whatever a property references into that
+    // property's tree. So by this point every reference has been inlined and nothing reads the
+    // map again - `index_shorthands` and `resolve`, both above, are its only readers in the
+    // engine. Keeping it cost 525 entries holding 164,000 grammar nodes for the life of the
+    // process, against 0 reads. `resolving` is the cycle guard, empty here by construction.
+    definitions.syntax = HashMap::new();
+    definitions.shared_types = HashMap::new();
+    definitions.syntax_released = true;
+    definitions.resolving = std::collections::HashSet::new();
 
     definitions
 }
@@ -545,84 +1159,63 @@ impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
 }
 
 /// Parses a syntax JSON import file
-#[allow(clippy::unwrap_used)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
-fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) -> M {
+/// Parses a syntax JSON import file
+fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(entries: Vec<RawSyntax>) -> M {
     let mut syntaxes = M::new();
 
-    let entries = json.as_array().unwrap();
     for entry in entries {
-        let syntax_str = entry.get("syntax").unwrap().as_str().unwrap();
-        if syntax_str.is_empty() {
+        if entry.syntax.is_empty() {
             continue;
         }
-        match CssSyntax::new(syntax_str).compile() {
-            Ok(ast) => {
-                let mut name = entry.get("name").unwrap().to_string();
-                let mut ty = SyntaxType::None;
-
-                if name.starts_with('"') {
-                    name = name[1..].to_string();
-                    ty = SyntaxType::Quoted;
-                }
-
-                if name.starts_with('<') {
-                    name = name[1..].to_string();
-                    ty = SyntaxType::Definition;
-                }
-
-                if name.ends_with('"') {
-                    name.pop();
-                }
-
-                if name.ends_with('>') {
-                    name.pop();
-                }
-
-                // Genuine token primitives are matched directly by the syntax matcher.
-                // Don't let a value definition of the same name shadow the builtin: MDN,
-                // for instance, defines `integer` as `<number-token>`, which would make
-                // `<integer>` accept any token and defeat validation.
-                if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
-                    continue;
-                }
-
-                // The definitions carry many names in BOTH forms: a bracketed value type
-                // `<scale()>` (the modern spec grammar, from webref value types / MDN
-                // syntaxes) and a bare `scale()` (a legacy per-property grammar fragment
-                // from webref). Both strip to the same key, and the bare form sorts
-                // last, so it silently shadowed the modern grammar (e.g. scale() lost
-                // its css-transforms-2 percentage form). Prefer the bracketed
-                // Definition-typed entry over any other form.
-                if ty != SyntaxType::Definition {
-                    if let Some(existing) = syntaxes.get(&name) {
-                        if existing.ty == SyntaxType::Definition {
-                            continue;
-                        }
-                    }
-                }
-
-                syntaxes.insert(
-                    name.clone(),
-                    SyntaxDefinition {
-                        // name,
-                        syntax: ast.clone(),
-                        resolved: false,
-                        ty,
-                    },
-                );
-            }
+        let ast = match CssSyntax::new(&entry.syntax).compile() {
+            Ok(ast) => ast,
             Err(e) => {
                 // Type-definition compilation failures are expected for some advanced CSS
                 // grammar constructs (e.g. structural `{ }` blocks in @keyframes, bare `)`
                 // literals inside `[ ]` in <general-enclosed>). These types are not used
                 // in property value matching anyway, so log at debug rather than warn.
-                log::debug!(
-                    "Could not compile syntax for syntax {:?}: {:?}",
-                    entry.get("name").unwrap().to_string(),
-                    e
-                );
+                log::debug!("Could not compile syntax for syntax {:?}: {:?}", entry.name, e);
+                continue;
+            }
+        };
+
+        // `<length>` names a value type; `abs()` is a legacy per-property grammar fragment.
+        // This used to read the name through `serde_json::Value::to_string`, which wraps it in
+        // JSON quotes, so it stripped a `"` first and every bare name came out tagged
+        // `SyntaxType::Quoted` - a type meant for the `<'property'>` form, which this file does
+        // not contain. Nothing ever read that tag, so removing it changes nothing.
+        let (name, ty) = match entry.name.strip_prefix('<') {
+            Some(rest) => (
+                rest.strip_suffix('>').unwrap_or(rest).to_string(),
+                SyntaxType::Definition,
+            ),
+            None => (entry.name, SyntaxType::None),
+        };
+
+        // Genuine token primitives are matched directly by the syntax matcher.
+        // Don't let a value definition of the same name shadow the builtin: MDN,
+        // for instance, defines `integer` as `<number-token>`, which would make
+        // `<integer>` accept any token and defeat validation.
+        if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
+            continue;
+        }
+
+        // The definitions carry many names in BOTH forms: a bracketed value type
+        // `<scale()>` (the modern spec grammar, from webref value types / MDN
+        // syntaxes) and a bare `scale()` (a legacy per-property grammar fragment
+        // from webref). Both strip to the same key, and the bare form sorts
+        // last, so it silently shadowed the modern grammar (e.g. scale() lost
+        // its css-transforms-2 percentage form). Prefer the bracketed
+        // Definition-typed entry over any other form.
+        if ty != SyntaxType::Definition {
+            if let Some(existing) = syntaxes.get(&name) {
+                if existing.ty == SyntaxType::Definition {
+                    continue;
+                }
             }
         }
+
+        syntaxes.insert(name, SyntaxDefinition { syntax: ast, ty });
     }
 
     // Resolve all typedefs since we now have loaded them all
@@ -631,57 +1224,35 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-#[allow(clippy::unwrap_used, clippy::panic)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
-fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Value) -> M {
+/// Parses the JSON input into a CSS property definitions structure
+fn parse_property_file<M: Map<String, PropertyDefinition>>(entries: Vec<RawProperty>) -> M {
     let mut properties = M::new();
 
-    for obj in json.as_array().unwrap() {
-        let name = obj["name"].as_str().unwrap().to_string();
-
-        // Compile syntax
-        let syntax = obj.get("syntax").unwrap().as_str().unwrap();
-        let syntax = CssSyntax::new(syntax)
-            .compile()
-            .unwrap_or_else(|_| panic!("Could not compile syntax for {name}: {syntax:?}"));
-
-        //
-        let computed = if obj["computed"].is_array() {
-            obj["computed"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect()
-        } else if obj["computed"].is_string() {
-            vec![obj["computed"].as_str().unwrap().to_string()]
-        } else {
-            warn!("Computed property is not a string or array {obj:?}");
-            vec![]
-        };
-
-        let initial_value = if obj["initial_value"].is_array() {
-            warn!("Initial value is an array, not supported {obj:?}");
-            None
-        } else if obj["initial_value"].is_string() {
-            match CssValue::parse_str(obj["initial_value"].as_str().unwrap()) {
-                Ok(value) => Some(value),
-                Err(e) => {
-                    warn!("Could not parse initial value: {e:?}");
-                    None
-                }
+    for entry in entries {
+        // A property whose grammar will not compile is skipped, with the name in the log so it
+        // can be found. This used to `panic!`, which meant one unparseable line of a data file
+        // took the whole browser with it.
+        let syntax = match CssSyntax::new(&entry.syntax).compile() {
+            Ok(syntax) => syntax,
+            Err(e) => {
+                log::error!(
+                    "Could not compile the grammar for {:?} ({:?}), so the property is unvalidated: {e:?}",
+                    entry.name,
+                    entry.syntax
+                );
+                continue;
             }
-        } else {
-            None
         };
 
+        let initial_value = entry.initial.value(&entry.name);
         properties.insert(
-            name.clone(),
+            entry.name.clone(),
             PropertyDefinition {
-                name: name.clone(),
+                name: entry.name,
                 syntax,
-                computed,
+                computed: entry.computed,
                 initial_value,
-                inherited: obj["inherited"].as_bool().unwrap(),
+                inherited: entry.inherited,
                 resolved: false,
                 shorthands: None,
             },
@@ -693,8 +1264,105 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Val
 
 #[cfg(test)]
 mod tests {
+    /// A grid track list with line names (`[a] 1px [b c]`) is valid and serializes without
+    /// spaces inside the brackets. The value parser used to reject `[` outright.
+    #[test]
+    fn grid_line_names_parse_and_serialize() {
+        use super::get_css_definitions;
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let sheet = crate::Css3::parse_str(
+                &format!("x {{ grid-template-columns: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            )
+            .expect("parse");
+            // An invalid declaration is dropped at conversion, before the grammar sees it.
+            let declaration = sheet
+                .rules
+                .first()
+                .and_then(|rule| rule.declarations().first().cloned())?;
+            let values = declaration.value.to_slice().to_vec();
+            let def = get_css_definitions()
+                .find_property("grid-template-columns")
+                .expect("defined");
+            def.canonical(&values).map(|v| CssValue::from_vec(v).to_string())
+        };
+        assert_eq!(canonical("[a] 1px [b c] 2px").as_deref(), Some("[a] 1px [b c] 2px"));
+        assert_eq!(canonical("[] 150px [] 1fr []").as_deref(), Some("[] 150px [] 1fr []"));
+        assert_eq!(
+            canonical("repeat(auto-fit, [three] minmax(max-content, 6em) [four])").as_deref(),
+            Some("repeat(auto-fit, [three] minmax(max-content, 6em) [four])")
+        );
+        assert_eq!(canonical("[a"), None, "an unclosed bracket is not a track list");
+    }
+
+    /// css-fonts-4 §3.9: the `font` shorthand serializes without its `normal` pieces and without
+    /// a `/ normal` line-height, in grammar order.
+    #[test]
+    fn font_serializes_in_its_short_form() {
+        use super::get_css_definitions;
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let sheet = crate::Css3::parse_str(
+                &format!("x {{ font: {css} }}"),
+                gosub_shared::config::ParserConfig::default(),
+                gosub_interface::css3::CssOrigin::Author,
+                "t",
+            )
+            .expect("parse");
+            let values = sheet.rules[0].declarations()[0].value.to_slice().to_vec();
+            let def = get_css_definitions().find_property("font").expect("font");
+            CssValue::from_vec(def.canonical(&values).expect("valid")).to_string()
+        };
+        assert_eq!(canonical("normal medium/normal sans-serif"), "medium sans-serif");
+        assert_eq!(
+            canonical("900 italic normal medium/normal sans-serif"),
+            "italic 900 medium sans-serif"
+        );
+        assert_eq!(
+            canonical("small-caps bolder normal italic xx-large/1.2 monospace"),
+            "italic small-caps bolder xx-large / 1.2 monospace"
+        );
+        assert_eq!(canonical("menu"), "menu");
+    }
+
+    /// css-display-3 §2.7: the two-keyword `display` forms serialize as their single-keyword
+    /// equivalent, and blockification keeps the inner display in that short form.
+    #[test]
+    fn display_serializes_in_its_short_form_and_blockifies() {
+        use super::{blockified_display, get_css_definitions};
+        use crate::stylesheet::CssValue;
+        let canonical = |css: &str| {
+            let values: Vec<CssValue> = css.split(' ').map(|w| CssValue::String(w.to_string())).collect();
+            let def = get_css_definitions().find_property("display").expect("display");
+            CssValue::from_vec(def.canonical(&values).expect("valid")).to_string()
+        };
+        assert_eq!(canonical("flow"), "block");
+        assert_eq!(canonical("flow block"), "block");
+        assert_eq!(canonical("flow-root inline"), "inline-block");
+        assert_eq!(canonical("inline flex"), "inline-flex");
+        assert_eq!(canonical("block ruby"), "block ruby");
+        assert_eq!(canonical("list-item flow block"), "list-item");
+        assert_eq!(canonical("inline flow-root list-item"), "inline flow-root list-item");
+        assert_eq!(canonical("flow run-in list-item"), "run-in list-item");
+
+        let blockified = |css: &str| {
+            let values: Vec<CssValue> = css.split(' ').map(|w| CssValue::String(w.to_string())).collect();
+            CssValue::from_vec(blockified_display(values)).to_string()
+        };
+        assert_eq!(blockified("inline"), "block");
+        assert_eq!(blockified("inline-table"), "table");
+        assert_eq!(blockified("inline-flex"), "flex");
+        assert_eq!(blockified("inline list-item"), "list-item");
+        assert_eq!(blockified("table-row-group"), "block");
+        assert_eq!(blockified("flex"), "flex");
+    }
+
     use super::*;
     use crate::colors::RgbColor;
+    use crate::tokenizer::NumberKind;
 
     macro_rules! assert_false {
         ($e:expr) => {
@@ -738,26 +1406,26 @@ mod tests {
         assert!(prop.clone().matches(&[
             unit!(1.0, "px"),
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
         ]));
         assert!(prop.clone().matches(&[
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             str!("solid"),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[
             str!("solid"),
-            CssValue::Color(RgbColor::from("black")),
+            CssValue::Color(RgbColor::from("black").into()),
             unit!(1.0, "px"),
         ]));
         assert!(prop.clone().matches(&[unit!(1.0, "px")]));
         assert!(prop.clone().matches(&[str!("solid")]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert!(prop
             .clone()
-            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black")),]));
+            .matches(&[str!("solid"), CssValue::Color(RgbColor::from("black").into()),]));
         assert_true!(prop.clone().matches(&[str!("solid")]));
         assert_false!(prop.clone().matches(&[str!("not-solid")]));
         assert_false!(prop.clone().matches(&[str!("solid"), str!("solid"), unit!(1.0, "px"),]));
@@ -777,10 +1445,10 @@ mod tests {
             ..Default::default()
         };
         let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "corpus-test").expect("parse");
-        let Some(decl) = sheet.rules.first().and_then(|r| r.declarations.first()) else {
+        let Some(decl) = sheet.rules.first().and_then(|r| r.declarations().first()) else {
             return vec![];
         };
-        match &decl.value {
+        match &*decl.value {
             CssValue::List(v) => v.clone(),
             other => vec![other.clone()],
         }
@@ -1210,9 +1878,12 @@ mod tests {
         assert!(!ok("width", "-webkit-banana(1)"));
     }
 
-    /// POLICY: a lone vendor-prefixed keyword is accepted for every property (cascade
-    /// fallbacks like `display: -webkit-box; display: flex`). Vendor keywords inside
-    /// larger values and unprefixed legacy keywords stay rejected.
+    /// A prefixed keyword is matched against the grammar like any other value, and this
+    /// engine implements none of them, so every one is invalid (css-syntax-3 §9). That is what
+    /// makes the `display: -webkit-box; display: flex` fallback idiom work: the prefixed
+    /// declaration is dropped and the standard one before or after it stands. Prefixed *math*
+    /// functions stay accepted, since the prefix there names a function this engine does
+    /// evaluate.
     #[test]
     fn test_vendor_prefixed_values() {
         let defs = get_css_definitions();
@@ -1223,18 +1894,21 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
+        // The Compatibility Standard's four `display` aliases resolve to the value they name
+        // when the stylesheet is built, so they reach the grammar as `flex`/`inline-flex`.
         assert!(ok("display", "-webkit-box"));
-        assert!(ok("display", "-moz-box"));
-        assert!(ok("position", "-webkit-sticky"));
-        assert!(ok("cursor", "-webkit-grab"));
-        assert!(ok("width", "-webkit-fit-content"));
-        assert!(ok("width", "-moz-fit-content"));
-        // Unprefixed legacy keywords are NOT covered by the policy.
+        assert!(ok("display", "-webkit-inline-flex"));
+        // Nothing else prefixed is supported, on `display` or anywhere else.
+        assert!(!ok("display", "-moz-box"));
+        assert!(!ok("position", "-webkit-sticky"));
+        assert!(!ok("cursor", "-webkit-grab"));
+        assert!(!ok("width", "-webkit-fit-content"));
+        assert!(!ok("width", "-moz-fit-content"));
         assert!(!ok("display", "box"));
-        // A lone dash or non-keyword stays rejected.
         assert!(!ok("display", "-webkit-"));
-        // The policy covers only a single bare identifier, not compound values.
         assert!(!ok("margin", "-webkit-foo 10px"));
+        // A grammar that does list a prefixed keyword still matches it.
+        assert!(ok("-moz-appearance", "button"));
     }
 
     /// `clip` accepts both rect() forms: the legacy comma-separated CSS2 shape (MDN's
@@ -1265,6 +1939,60 @@ mod tests {
     }
 
     #[test]
+    fn a_builtin_without_an_arm_accepts_anything() {
+        let defs = get_css_definitions();
+        let matches = |prop: &str, value: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, value))
+        };
+
+        // `<image>` is `<url> | <gradient>`, and being listed in `BUILTIN_DATA_TYPES` makes
+        // `parse_syntax_file` skip the grammar the definitions carry for `<url>` - so with no arm
+        // of its own it reached the permissive catch-all and `<image>` accepted every value there
+        // is. That is what made `background: red` expand to `background-image: red` when the
+        // shorthand resolver was tried.
+        assert!(!matches("background-image", "red"));
+        assert!(!matches("background-image", "banana"));
+        assert!(!matches("background-image", "12px"));
+
+        assert!(matches("background-image", "none"));
+        assert!(matches("background-image", "url(x.png)"));
+        assert!(matches("background-image", "linear-gradient(red, blue)"));
+        // Upstream `<gradient>` stops at the css-images-3 set; the conic forms are patched back
+        // in by the definitions generator.
+        assert!(matches("background-image", "conic-gradient(red, blue)"));
+        assert!(matches("background-image", "repeating-conic-gradient(red, blue)"));
+    }
+
+    #[test]
+    fn a_zero_datatype_matches_only_a_zero() {
+        let defs = get_css_definitions();
+        let matches = |prop: &str, value: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, value))
+        };
+
+        // `<zero>` sits beside `<angle>` in the grammar of every transform function, so that
+        // `rotate(0)` works - a bare `0` carries no unit and is therefore not an `<angle>`.
+        // With no arm of its own it fell to the permissive catch-all and accepted anything,
+        // which is what made `transform: rotate(banana)` valid.
+        assert!(matches("transform", "rotate(0)"));
+        assert!(matches("transform", "rotate(45deg)"));
+
+        assert!(!matches("transform", "rotate(45px)"));
+        assert!(!matches("transform", "rotate(banana)"));
+        assert!(!matches("transform", "rotate(sin())"));
+        // `sin()` gives a number, and a number is not an angle.
+        assert!(!matches("transform", "rotate(sin(45deg))"));
+        // An unknown function was always rejected; the argument grammar is the part that was not.
+        assert!(!matches("transform", "banana(45deg)"));
+    }
+
+    #[test]
     fn test_calc_and_math_functions() {
         let defs = get_css_definitions();
         let ok = |prop: &str, v: &str| {
@@ -1274,13 +2002,18 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
-        // The parsed calc body must be the raw expression, not empty.
+        // The parsed calc body must be the expression itself, as the values it is made of -
+        // not the empty function it once was, and no longer a string anybody has to re-tokenize.
         let values = parse_decl_values("width", "calc(100% - 20px)");
         assert_eq!(
             values,
             vec![CssValue::Function(
                 "calc".to_string(),
-                vec![CssValue::String("100% - 20px".to_string())]
+                vec![
+                    CssValue::Percentage(100.0),
+                    CssValue::String("-".to_string()),
+                    CssValue::Unit(20.0, "px".to_string())
+                ]
             )]
         );
 
@@ -1295,6 +2028,45 @@ mod tests {
         assert!(ok("z-index", "calc(1 + 1)"));
         // Non-math functions still do not match numeric contexts.
         assert!(!ok("width", "banana(1)"));
+
+        // A math function's *arguments* are checked too. This used to be accepted on the
+        // function's name alone, because a `calc()` body was opaque text nobody evaluated - so
+        // `width: min(red, 50px)` was valid CSS as far as the engine was concerned, and a page
+        // lost the fallback declaration that would otherwise have rendered.
+        assert!(!ok("width", "min(red, 50px)"));
+        assert!(!ok("border-left-width", "min(0s)"));
+        assert!(!ok("border-left-width", "max(1px, 0dpi)"));
+        assert!(!ok("border-left-width", "min(1py)"));
+        // Malformed expressions, which no property accepts.
+        assert!(!ok("border-left-width", "min()"));
+        assert!(!ok("border-left-width", "min(1px 2px)"));
+        assert!(!ok("border-left-width", "min(1px, , 2px)"));
+        assert!(!ok("border-left-width", "clamp(1px, 2px)"));
+
+        // Still accepted: a comparison this cannot fold yet is not a comparison that is wrong.
+        assert!(ok("margin-left", "min(25px, max(15px, 1em))"));
+        assert!(ok("margin-left", "calc(min(1em + 1px, 22px) - max(0.9em, 20px))"));
+        // A length against a percentage is a legal `<length-percentage>`.
+        assert!(ok("width", "min(1px, 20%)"));
+        // And what cannot be read is not called invalid. `random()` stands in for whatever is
+        // not implemented yet - `pow()` used to, and was overtaken.
+        assert!(ok("width", "min(var(--a), 10px)"));
+        assert!(ok("width", "calc(1px + random(1, 2))"));
+
+        // Once a function *is* implemented, its result is typed like any other: `sin()` gives a
+        // number, so adding it to a length is the error it always was.
+        assert!(!ok("width", "calc(1px + sin(45deg))"));
+        assert!(ok("width", "calc(1px * sin(45deg))"));
+        // The same rule read the other way: an angle property takes the inverse functions,
+        // which give one, and not the forward ones, which give a number.
+        assert!(ok("rotate", "atan(1)"));
+        assert!(!ok("rotate", "tan(45deg)"));
+
+        // Note for whoever picks this up: the same check through `transform` does *not* hold -
+        // `transform: rotate(45px)` and even `rotate(banana)` are accepted, though an unknown
+        // function name is rejected. So a transform function's argument grammar is not reaching
+        // the matcher, somewhere between `<transform-function>` and `<rotate()>`. It gates ~105
+        // subtests: wpt's trig `-invalid` suites all assert through `transform: rotate(X)`.
     }
 
     #[test]
@@ -1378,8 +2150,10 @@ mod tests {
         // A bare numeric is NOT a color.
         assert!(!ok("color", "0"));
         assert!(!ok("background-color", "1"));
-        // The alpha() FUNCTION still matches as a color-function alternative.
-        assert!(ok("color", "alpha(50%)"));
+        // alpha() still matches as a colour function, in its relative form, the only form
+        // css-color-5 defines.
+        assert!(ok("color", "alpha(from red / 50%)"));
+        assert!(!ok("color", "alpha(50%)"));
         // Colors themselves are unaffected, including 8-digit hex.
         assert!(ok("color", "#00000026"));
         assert!(ok("background-color", "#00000026"));
@@ -1489,6 +2263,56 @@ mod tests {
         assert!(!ok("banana"));
     }
 
+    /// Replacing a named type has to reach the types that resolved through it.
+    ///
+    /// `<outer>` is defined in terms of `<inner>`, and the property in terms of `<outer>`. Once
+    /// the first pass has resolved all three, replacing `<inner>` and resolving again must
+    /// rebuild `<outer>` too - otherwise the property keeps validating against the grammar
+    /// `<inner>` used to have, which is the value the author has just stopped writing.
+    #[test]
+    fn replacing_a_named_type_reaches_the_types_built_from_it() {
+        let named = |source: &str| SyntaxDefinition {
+            syntax: CssSyntax::new(source).compile().expect("named type should compile"),
+            ty: SyntaxType::Definition,
+        };
+
+        let mut definitions = CssDefinitions::new();
+        definitions.add_syntax("inner", named("foo"));
+        definitions.add_syntax("outer", named("<inner>"));
+        definitions.add_property(
+            "testprop",
+            PropertyDefinition {
+                name: "testprop".to_string(),
+                computed: vec![],
+                syntax: CssSyntax::new("<outer>").compile().expect("property should compile"),
+                inherited: false,
+                initial_value: None,
+                resolved: false,
+                shorthands: None,
+            },
+        );
+        definitions.resolve();
+
+        let accepts = |definitions: &CssDefinitions, value: &str| {
+            definitions
+                .find_property("testprop")
+                .expect("the property is defined")
+                .matches(&[CssValue::String(value.to_string())])
+        };
+
+        assert!(accepts(&definitions, "foo"));
+        assert!(!accepts(&definitions, "bar"));
+
+        definitions.add_syntax("inner", named("bar"));
+        definitions.resolve();
+
+        assert!(
+            accepts(&definitions, "bar"),
+            "`<outer>` was rebuilt from the grammar `<inner>` had, not the one it has"
+        );
+        assert!(!accepts(&definitions, "foo"));
+    }
+
     #[test]
     fn test_property_definitions() {
         let mut definitions = CssDefinitions::new();
@@ -1582,7 +2406,9 @@ mod tests {
         assert_true!(def.clone().matches(&[str!("Menu")]));
 
         assert_true!(def.clone().matches(&[str!("blue")]));
-        assert_true!(def.clone().matches(&[CssValue::Color(RgbColor::from("#ff0000"))]));
+        assert_true!(def
+            .clone()
+            .matches(&[CssValue::Color(RgbColor::from("#ff0000").into())]));
         assert_true!(def.clone().matches(&[str!("rebeccapurple")]));
 
         assert_false!(def.clone().matches(&[str!("thiscolordoesnotexist")]));
@@ -1797,14 +2623,177 @@ mod tests {
 
         assert_true!(def.matches(&[str!("normal")]));
 
-        assert_true!(def.matches(&[str!("wgth"), CssValue::Number(100.0)]));
+        assert_true!(def.matches(&[str!("wgth"), CssValue::Number(100.0, NumberKind::Integer)]));
 
         assert_true!(def.matches(&[
             str!("wgth"),
-            CssValue::Number(100.0),
+            CssValue::Number(100.0, NumberKind::Integer),
             CssValue::Comma,
             str!("ital"),
-            CssValue::Number(100.0)
+            CssValue::Number(100.0, NumberKind::Integer)
         ]));
+    }
+}
+
+/// The generated property ids are a second copy of what `definitions_properties.json` says, so
+/// they can drift from it - a regenerated JSON with a property added, removed or reclassified
+/// leaves the ids describing the old data, and nothing about that fails to compile.
+///
+/// So the ids are re-derived here from the same embedded JSON and compared against the generated
+/// module, entry by entry. A failure means [`crate::matcher::property_ids`] needs regenerating:
+///
+/// ```text
+/// cargo run -p generate_definitions -- --property-ids
+/// ```
+#[cfg(test)]
+mod generated_ids {
+    use super::{RawProperty, DEFINITIONS_PROPERTIES};
+    use crate::matcher::property_ids::{
+        LonghandId, PropertyId, ShorthandId, ALL_LONGHAND_IDS, ALL_SHORTHAND_IDS, LONGHAND_COUNT, PROPERTY_COUNT,
+        SHORTHAND_COUNT,
+    };
+
+    /// The properties of the embedded JSON, split the way the generator splits them: everything
+    /// whose `computed` list names more than one thing is a shorthand, `--*` is neither.
+    fn derived() -> (Vec<RawProperty>, Vec<RawProperty>) {
+        let mut properties: Vec<RawProperty> =
+            serde_json::from_str(DEFINITIONS_PROPERTIES).expect("the embedded property JSON parses");
+        properties.retain(|property| property.name != "--*");
+        properties.sort_by(|a, b| a.name.cmp(&b.name));
+        properties
+            .into_iter()
+            .partition(|property| property.computed.len() <= 1)
+    }
+
+    #[test]
+    fn property_ids_match_the_definitions() {
+        let (longhands, shorthands) = derived();
+
+        assert_eq!(longhands.len(), LONGHAND_COUNT, "longhand count");
+        assert_eq!(shorthands.len(), SHORTHAND_COUNT, "shorthand count");
+        assert_eq!(LONGHAND_COUNT + SHORTHAND_COUNT, PROPERTY_COUNT);
+        assert_eq!(ALL_LONGHAND_IDS.len(), LONGHAND_COUNT);
+        assert_eq!(ALL_SHORTHAND_IDS.len(), SHORTHAND_COUNT);
+
+        for (index, property) in longhands.iter().enumerate() {
+            let id = LonghandId::from_index(index).expect("every longhand slot is filled");
+            assert_eq!(id.name(), property.name, "longhand {index}");
+            assert_eq!(id.index(), index, "longhand {} is not at its own index", property.name);
+            assert_eq!(id.inherited(), property.inherited, "{} inherited", property.name);
+            assert!(!PropertyId::Longhand(id).is_shorthand(), "{}", property.name);
+            assert_eq!(
+                PropertyId::from_name(&property.name),
+                Some(PropertyId::Longhand(id)),
+                "{} by name",
+                property.name
+            );
+        }
+
+        for (index, property) in shorthands.iter().enumerate() {
+            let id = ShorthandId::from_index(index).expect("every shorthand slot is filled");
+            assert_eq!(id.name(), property.name, "shorthand {index}");
+            assert_eq!(id.inherited(), property.inherited, "{} inherited", property.name);
+            assert_eq!(
+                PropertyId::Shorthand(id).index(),
+                LONGHAND_COUNT + index,
+                "{} slot",
+                property.name
+            );
+            assert_eq!(
+                PropertyId::from_name(&property.name),
+                Some(PropertyId::Shorthand(id)),
+                "{} by name",
+                property.name
+            );
+            let expanded: Vec<&str> = id.longhands().iter().map(|longhand| longhand.name()).collect();
+            assert_eq!(expanded, property.computed, "{} longhands", property.name);
+        }
+    }
+
+    /// The initial value in the table is the one the JSON gives, so step 3 can parse it there
+    /// rather than reaching back into the definitions.
+    #[test]
+    fn generated_initial_values_match_the_definitions() {
+        let (longhands, shorthands) = derived();
+        for (index, property) in longhands.iter().enumerate() {
+            let id = LonghandId::from_index(index).expect("every longhand slot is filled");
+            assert_eq!(id.initial_source(), property.initial.source(), "{}", property.name);
+        }
+        for (index, property) in shorthands.iter().enumerate() {
+            let id = ShorthandId::from_index(index).expect("every shorthand slot is filled");
+            assert_eq!(id.initial_source(), property.initial.source(), "{}", property.name);
+        }
+    }
+
+    /// Property names are ASCII case-insensitive (css-syntax-3 §3.3).
+    #[test]
+    fn a_name_is_found_whatever_its_case() {
+        let color = PropertyId::from_name("color").expect("color is a property");
+        assert_eq!(PropertyId::from_name("COLOR"), Some(color));
+        assert_eq!(PropertyId::from_name("Color"), Some(color));
+        assert_eq!(
+            PropertyId::from_name("BorDer-Top-Width").map(PropertyId::name),
+            Some("border-top-width")
+        );
+        assert_eq!(PropertyId::from_name("colour"), None);
+        assert_eq!(PropertyId::from_name("--brand"), None);
+        assert_eq!(PropertyId::from_name(""), None);
+    }
+}
+
+#[cfg(test)]
+mod initial_values {
+    use super::*;
+    use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT};
+
+    /// Longhands whose initial value still does not match their own grammar, and why. Each is a
+    /// vendor or draft property whose data disagrees with its grammar; none is read by the engine.
+    const KNOWN_MISMATCHES: [&str; 15] = [
+        // Microsoft's `snapInterval()` and "depends on the user agent".
+        "-ms-content-zoom-snap-points",
+        "-ms-scroll-snap-points-x",
+        "-ms-scroll-snap-points-y",
+        "-ms-scrollbar-3dlight-color",
+        "-ms-scrollbar-base-color",
+        // Old WebKit spellings (`border`, `padding`, `source-over`) of the standard mask values.
+        "-webkit-mask-clip",
+        "-webkit-mask-composite",
+        "-webkit-mask-origin",
+        "-webkit-box-reflect",
+        // `all` has no initial value of its own.
+        "all",
+        // Drafts whose data has moved on from its grammar.
+        "initial-letter-align",
+        "position-visibility",
+        "speak-as",
+        "text-emphasis-position",
+        // `<paint>` names a colour the data spells as a bare keyword.
+        "fill",
+    ];
+
+    /// Every longhand's initial value is a value its own grammar accepts, so `initial` means
+    /// what the property's definition says - and not nothing, which it used to for the
+    /// properties whose initial is `none`, several values, or a bare `0`.
+    #[test]
+    fn every_initial_value_matches_its_grammar() {
+        let definitions = get_css_definitions();
+        let mut mismatched = Vec::new();
+        for index in 0..LONGHAND_COUNT {
+            let id = PropertyId::Longhand(LonghandId::from_index(index).expect("every slot is filled"));
+            let definition = definitions.definition(id).expect("every longhand has a definition");
+            let tokens = match definitions.initial_value(id) {
+                Some(CssValue::List(tokens)) => tokens,
+                Some(value) => vec![value],
+                None => Vec::new(),
+            };
+            if !definition.matches(&tokens) && !KNOWN_MISMATCHES.contains(&id.name()) {
+                mismatched.push(format!("{} = {:?}", id.name(), id.initial_source()));
+            }
+        }
+        assert!(
+            mismatched.is_empty(),
+            "initial values that do not match their grammar:\n{}",
+            mismatched.join("\n")
+        );
     }
 }

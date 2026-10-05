@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>15 - border-collapse</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  td { padding: 6px; background-color: #e8f0fe; }
+  .sep { border-collapse: separate; border-spacing: 4px; }
+  .sep td { border: 2px solid #999; }
+  .col { border-collapse: collapse; }
+  .col td { border: 2px solid #999; }
+  .col td.thick { border: 6px solid #c0392b; }
+</style>
+</head>
+<body>
+<h3>border-collapse - separate vs collapse, plus a conflict</h3>
+<p>Expected: first table shows double lines between cells (each cell keeps
+its own 2px border, 4px apart). Second table shows single 2px lines -
+adjacent borders merge. Third table: the middle cell declares a 6px red
+border, which must win the conflict against its neighbors' thin grey
+borders on all four shared edges.</p>
+
+<table class="sep">
+  <tr><td>a</td><td>b</td><td>c</td></tr>
+  <tr><td>d</td><td>e</td><td>f</td></tr>
+</table>
+<br>
+<table class="col">
+  <tr><td>a</td><td>b</td><td>c</td></tr>
+  <tr><td>d</td><td>e</td><td>f</td></tr>
+</table>
+<br>
+<table class="col">
+  <tr><td>a</td><td>b</td><td>c</td></tr>
+  <tr><td>d</td><td class="thick">thick wins</td><td>f</td></tr>
+  <tr><td>g</td><td>h</td><td>i</td></tr>
+</table>
+</body>
+</html>

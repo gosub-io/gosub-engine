@@ -18,9 +18,10 @@ fn init_tracing() {
 
     let _ = tracing_log::LogTracer::init();
 
-    // Default to warn. The tab worker emits a WARN for every unimplemented TabCommand
-    // (e.g. SetTitle), which is expected during development - suppress it here so the example
-    // output focuses on navigation and resource events.
+    // Default to warn. The tab worker emits a WARN for every TabCommand it does not handle
+    // (SetCookie, ExecuteScript, PlayMedia and six others - see docs/status.md), which is
+    // expected during development - suppress it here so the example output focuses on
+    // navigation and resource events.
     // Override via RUST_LOG, e.g. RUST_LOG=gosub_engine=debug for deeper inspection.
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("warn,gosub_engine::engine::tab::worker=error"));
@@ -44,8 +45,13 @@ fn short(id: &impl std::fmt::Display) -> String {
     s.chars().take(8).collect()
 }
 
-#[tokio::main]
-async fn main() -> Result<(), EngineError> {
+fn main() -> Result<(), EngineError> {
+    // First, before the runtime spawns its threads: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<DefaultRenderConfig>();
+    tokio::runtime::Runtime::new().expect("tokio runtime").block_on(run())
+}
+
+async fn run() -> Result<(), EngineError> {
     init_tracing();
 
     // Configure the engine through the engine config builder. This will set up the main runtime

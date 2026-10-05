@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>04 - anonymous table boxes</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  .tbl { display: table; border-spacing: 2px; }
+  .row { display: table-row; }
+  .cell { display: table-cell; border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .bare-cells { display: table; }
+  .bare-cells .cell { background-color: #e8f6e8; }
+</style>
+</head>
+<body>
+<h3>CSS display:table on divs + anonymous box generation</h3>
+<p>Expected: first block renders as a normal 2x2 table. Second block has
+cells directly under the table (no row) - an anonymous row must be
+generated, producing one row of two cells.</p>
+
+<div class="tbl">
+  <div class="row"><div class="cell">a1</div><div class="cell">a2</div></div>
+  <div class="row"><div class="cell">b1</div><div class="cell">b2</div></div>
+</div>
+
+<br>
+
+<div class="bare-cells">
+  <div class="cell">bare 1</div>
+  <div class="cell">bare 2</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>21 - section-crossing spans</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #999; padding: 4px 10px; }
+  thead th { background: #dbe6f4; }
+  tfoot td { background: #f4e9d2; font-weight: bold; }
+  .span { background: #e2efe4; }
+</style>
+</head>
+<body>
+<h3>spans vs section boundaries</h3>
+<p>Expected: spans never cross out of their row group. First table: the tbody
+cell declares rowspan=5 but the body only has 2 rows - the span is clipped at
+the tbody and the footer keeps its own row. Second table: rowspan=0 is HTML for
+"all remaining rows of the row group" - it spans both body rows, footer
+untouched. Third table: the tfoot is written BEFORE the tbody in source but
+must still render at the bottom, and the body span must not reach it.</p>
+
+<table>
+  <thead><tr><th>head A</th><th>head B</th></tr></thead>
+  <tbody>
+    <tr><td class="span" rowspan="5">rowspan 5 (clipped at tbody)</td><td>b1</td></tr>
+    <tr><td>b2</td></tr>
+  </tbody>
+  <tfoot><tr><td>foot A</td><td>foot B</td></tr></tfoot>
+</table>
+<br>
+<table>
+  <thead><tr><th>head A</th><th>head B</th></tr></thead>
+  <tbody>
+    <tr><td class="span" rowspan="0">rowspan 0 (rest of group)</td><td>b1</td></tr>
+    <tr><td>b2</td></tr>
+  </tbody>
+  <tfoot><tr><td>foot A</td><td>foot B</td></tr></tfoot>
+</table>
+<br>
+<table>
+  <thead><tr><th>head A</th><th>head B</th></tr></thead>
+  <tfoot><tr><td>foot A</td><td>foot B</td></tr></tfoot>
+  <tbody>
+    <tr><td class="span" rowspan="3">rowspan 3 (clipped at tbody)</td><td>b1</td></tr>
+    <tr><td>b2</td></tr>
+  </tbody>
+</table>
+</body>
+</html>

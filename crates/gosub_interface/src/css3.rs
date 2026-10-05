@@ -1,4 +1,5 @@
 use crate::config::HasDocument;
+use crate::style::{Color, ComputedStyle};
 use gosub_shared::async_executor::{WasmNotSend, WasmNotSendSync};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -34,6 +35,12 @@ pub struct HoverFingerprints {
     /// Element ids that appear in a `:hover` compound.
     pub ids: std::collections::HashSet<String>,
 }
+
+/// Fetches an imported stylesheet for [`CssSystem::resolve_imports`].
+///
+/// Called with `(base_url, requested_url)` and returns the absolute URL actually loaded plus
+/// its text, or `None` when it could not be fetched.
+pub type ImportFetcher<'a> = dyn FnMut(&str, &str) -> Option<(String, String)> + 'a;
 
 /// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
@@ -75,7 +82,46 @@ pub trait CssSystem: Clone + Debug + 'static {
         None
     }
 
+    /// Resolve the `@import` rules in `sheet`, splicing what they pull in ahead of the
+    /// sheet's own rules.
+    ///
+    /// `fetch` is called with `(base_url, requested_url)` - the importing sheet's own URL and
+    /// the target exactly as written - and returns the absolute URL actually loaded plus its
+    /// text, or `None` when it could not be fetched. Only the host has a network stack and a
+    /// URL resolver, which is why it supplies this; cascade order, media and `supports()`
+    /// gating, cycle detection and recursion limits belong to the CSS implementation.
+    ///
+    /// The default implementation does nothing, leaving `@import` unresolved.
+    fn resolve_imports(_sheet: &mut Self::Stylesheet, _fetch: &mut ImportFetcher<'_>) {}
+
+    /// Records which tree scope a stylesheet belongs to: `None` for the document, or the shadow
+    /// root whose shadow tree holds the `<style>` or `<link>` it came from.
+    ///
+    /// A scoped sheet applies only inside that shadow tree, apart from its `:host` and
+    /// `::slotted()` rules, which deliberately reach one step outwards. The default does
+    /// nothing, which means no scoping - every sheet applies to the whole document.
+    fn set_stylesheet_scope(_sheet: &mut Self::Stylesheet, _scope: Option<NodeId>) {}
+
+    /// A hash of everything *outside* the DOM that the cascade reads, under the environment
+    /// currently in force: which `@media` conditions hold, and the viewport when any sheet
+    /// uses viewport-relative units.
+    ///
+    /// Two frames whose fingerprints are equal compute identical styles for an unchanged DOM,
+    /// so a caller can keep every cached computed value across a viewport change instead of
+    /// restyling the document. `None` means the implementation cannot tell, and the caller
+    /// must assume styles went stale - which is the safe answer and the default.
+    fn style_environment_fingerprint(_sheets: &[Self::Stylesheet]) -> Option<u64> {
+        None
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
+
+    /// The extra user-agent rules for a document in quirks mode (HTML spec, Rendering:
+    /// tables do not inherit font and alignment there). Attached after the default sheet;
+    /// `None` when this system has no quirks rules.
+    fn load_quirks_useragent_stylesheet() -> Option<Self::Stylesheet> {
+        None
+    }
 
     /// Scan `sheets` and collect the [`HoverFingerprints`] - the element types/classes/ids that
     /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
@@ -100,6 +146,17 @@ pub trait CssStylesheet: PartialEq + Debug {
 }
 
 pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {
+    /// This element's computed style as a typed struct, given the parent element's.
+    ///
+    /// The map is keyed by property and holds CSS values; a consumer wants fields. This is the
+    /// one conversion between the two, so everything that used to be decided per reader - what
+    /// `currentColor` means, what a `font-size` keyword is worth in pixels, whether a border
+    /// has any width - is decided once, here.
+    ///
+    /// `parent` is what every inherited property falls back to, so styles resolve top-down.
+    /// `None` is the root, which inherits the initial values.
+    fn computed_style(&self, parent: Option<&ComputedStyle>) -> ComputedStyle;
+
     fn insert_inherited(&mut self, name: &str, value: S::Property);
 
     fn insert(&mut self, name: &str, value: S::Property);
@@ -159,6 +216,11 @@ pub trait CssValue: Sized {
     fn as_percentage(&self) -> Option<f32>;
     fn as_unit(&self) -> Option<(f32, &str)>;
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
+    /// The colour this value names, with `currentcolor` - on its own or inside a colour function
+    /// such as `color-mix(in srgb, currentcolor, white)` - standing for `current`, the element's
+    /// own `color`. `None` when the value is not a colour. This is the used value; see
+    /// [`crate::used`].
+    fn used_color(&self, current: Color) -> Option<Color>;
     fn as_number(&self) -> Option<f32>;
     fn as_list(&self) -> Option<&[Self]>;
 

@@ -1,7 +1,7 @@
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
 use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
 use crate::render::backend::{StickyConstraint, TileAnchor};
+use gosub_interface::style::{ComputedStyle, Display, LengthPercentageAuto, Position, Prop, ZIndex};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
@@ -100,9 +100,13 @@ impl Clone for LayerList {
 }
 
 impl LayerList {
-    pub fn new(layout_tree: LayoutTree) -> LayerList {
+    /// Build the layer list over `layout_tree`.
+    ///
+    /// Takes the tree already shared so the caller can keep its own handle on it - the engine
+    /// retains one across frames to recompute geometry without rebuilding the taffy tree.
+    pub fn new(layout_tree: Arc<LayoutTree>) -> LayerList {
         let mut layer_list = LayerList {
-            layout_tree: Arc::new(layout_tree),
+            layout_tree,
             layers: RwLock::new(HashMap::new()),
             layer_ids: RwLock::new(Vec::new()),
             next_layer_id: RwLock::new(LayerId::new(0)),
@@ -140,6 +144,13 @@ impl LayerList {
                     log::warn!("Layout element {:?} not found during hit test", element_id);
                     continue;
                 };
+                // The collapsed-border overlay is a paint phase, not content - never a hit target.
+                if matches!(
+                    layout_element.context,
+                    crate::layouter::ElementContext::TableBorderOverlay(_)
+                ) {
+                    continue;
+                }
                 let box_model = &layout_element.box_model;
 
                 // @TODO: use rtree for this
@@ -162,17 +173,14 @@ impl LayerList {
     fn sticky_constraint(&self, el: &LayoutElementNode) -> Option<StickyConstraint> {
         let doc = &self.layout_tree.render_tree.doc;
 
-        let is_sticky = matches!(
-            doc.get_own_style(el.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if lookup(id) == "sticky"
-        );
-        if !is_sticky {
+        let style = doc.computed_style(el.dom_node_id);
+        if style.box_group.position != Position::Sticky {
             return None;
         }
 
-        // Physical `top`/`left` map to these logical inset properties (see inline_style.rs).
-        let inset_top = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetBlockStart));
-        let inset_left = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetInlineStart));
+        // Physical `top`/`left` are the logical insets in this writing mode.
+        let inset_top = read_px(&style, Prop::InsetBlockStart, style.inset.block_start);
+        let inset_left = read_px(&style, Prop::InsetInlineStart, style.inset.inline_start);
 
         let natural = el.box_model.margin_box;
         let cage = el
@@ -254,6 +262,12 @@ impl LayerList {
 
         self.traverse(default_layer_id, root_id, false, false, 0);
 
+        // An open <select> dropdown floats above everything.
+        if let Some(popup) = self.layout_tree.popup {
+            let layer_id = self.new_layer(isize::MAX);
+            self.add_to_layer(layer_id, popup);
+        }
+
         // Composite order = stacking order. Sort layers by their `order` (z-index level); the sort is
         // stable, so layers at the same level keep DOM/creation order (the correct tie-break for
         // equal z-index). The compositor and hit-test both walk `layer_ids` in this order.
@@ -261,6 +275,34 @@ impl LayerList {
         self.layer_ids
             .write()
             .sort_by_key(|id| layers.get(id).map(|l| l.order).unwrap_or(0));
+
+        if std::env::var("LATTICE_DEBUG_LAYERS").is_ok() {
+            for id in self.layer_ids.read().iter() {
+                let Some(l) = layers.get(id) else { continue };
+                eprintln!("layer {} order={}", id, l.order);
+                for &eid in &l.elements {
+                    let Some(el) = self.layout_tree.get_node_by_id(eid) else {
+                        continue;
+                    };
+                    let doc = &self.layout_tree.render_tree.doc;
+                    let tag = doc.tag_name(el.dom_node_id).unwrap_or_default();
+                    let b = el.box_model.border_box;
+                    let ctx = match &el.context {
+                        crate::layouter::ElementContext::None => "none",
+                        crate::layouter::ElementContext::Text(_) => "text",
+                        crate::layouter::ElementContext::Image(_) => "image",
+                        crate::layouter::ElementContext::Svg(_) => "svg",
+                        crate::layouter::ElementContext::TableBorderOverlay(_) => "overlay",
+                        crate::layouter::ElementContext::FormControl(_) => "control",
+                        crate::layouter::ElementContext::SelectPopup(_) => "popup",
+                    };
+                    eprintln!(
+                        "  el {:?} dom={:?} <{}> ctx={} border_box=({},{} {}x{})",
+                        eid, el.dom_node_id, tag, ctx, b.x, b.y, b.width, b.height
+                    );
+                }
+            }
+        }
     }
 
     /// Walk the layout tree assigning each element to a layer. An element is *promoted* to its own
@@ -283,31 +325,39 @@ impl LayerList {
         };
         let doc = &self.layout_tree.render_tree.doc;
 
+        // The collapsed-border overlay is a paint phase of its table, not a real element. It
+        // shares the table's DOM node, so style-driven promotion (position/opacity/fixed) would
+        // re-promote it into a layer of its own - painting it out of order with respect to its
+        // table. It always joins the enclosing layer.
+        if matches!(
+            layout_element.context,
+            crate::layouter::ElementContext::TableBorderOverlay(_)
+        ) {
+            self.add_to_layer(layer_id, layout_element.id);
+            return;
+        }
+
         // OWN (non-inherited) styles only: descendants inherit the group through the layer and
         // must not each re-promote.
-        let own_opacity = match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Opacity) {
-            Some(Value::Number(n)) | Some(Value::Unit(n, _)) => n,
-            _ => 1.0,
+        let style = doc.computed_style(layout_element.dom_node_id);
+        let own_opacity = if style.has(Prop::Opacity) {
+            style.box_group.opacity
+        } else {
+            1.0
         };
-        let is_fixed = matches!(
-            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if lookup(id) == "fixed"
-        );
+        let is_fixed = style.has(Prop::Position) && style.box_group.position == Position::Fixed;
         // Sticky promotes like `fixed`, but its offset is resolved from scroll at composite time.
         let sticky = self.sticky_constraint(layout_element);
 
         // `z-index` only takes effect on positioned elements; `auto`/non-positioned stays at 0.
-        let is_positioned = matches!(
-            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
-            Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "relative" | "absolute" | "fixed" | "sticky")
-        );
-        let z_index: Option<isize> = if is_positioned {
-            match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::ZIndex) {
-                Some(Value::Number(n)) => Some(n as isize),
-                _ => None,
-            }
-        } else {
-            None
+        let is_positioned = style.has(Prop::Position)
+            && matches!(
+                style.box_group.position,
+                Position::Relative | Position::Absolute | Position::Fixed | Position::Sticky
+            );
+        let z_index: Option<isize> = match (is_positioned, style.box_group.z_index) {
+            (true, ZIndex::Index(index)) if style.has(Prop::ZIndex) => Some(index as isize),
+            _ => None,
         };
         // Stacking level for this element; the layer list is sorted by it after traversal, since
         // DOM order alone would put a `z-index: 0` layer on top of a `z-index: 1` one.
@@ -336,6 +386,26 @@ impl LayerList {
             }
             for &child_id in &layout_element.children {
                 self.traverse(group_layer_id, child_id, true, faded, order);
+            }
+            return;
+        }
+
+        // Positioned elements with `z-index: auto` paint after ALL in-flow content of their
+        // stacking context (CSS 2.1 Appendix E step 8). A fresh layer at the same stacking level
+        // achieves this: the stable sort keeps creation order, so it composites after the
+        // enclosing layer, which holds both earlier and later in-flow siblings. Inside a
+        // promoted group the split would break group compositing, so the subtree stays put.
+        //
+        // Inline-tables get the same treatment for a related reason: as atomic inline-level
+        // content they paint in Appendix E step 7, after in-flow block borders (step 4) -
+        // including an enclosing table's collapsed borders (w3c/csswg-drafts#11570). Painting
+        // strictly in DOM order would put a following block sibling's border on top of them.
+        let is_inline_table = style.has(Prop::Display) && style.box_group.display == Display::InlineTable;
+        if (is_positioned && z_index.is_none() || is_inline_table) && !in_promoted_group {
+            let positioned_layer_id = self.new_layer(order);
+            self.add_to_layer(positioned_layer_id, layout_element.id);
+            for &child_id in &layout_element.children {
+                self.traverse(positioned_layer_id, child_id, in_promoted_group, group_faded, order);
             }
             return;
         }
@@ -370,12 +440,11 @@ impl LayerList {
     }
 }
 
-/// Read a CSS length inset as px, treating unitless numbers as px. `None` for `auto` and non-px
-/// units - percentage/em insets aren't resolved here yet.
-fn read_px(value: Option<Value>) -> Option<f64> {
-    match value {
-        Some(Value::Unit(v, Unit::Px)) => Some(v as f64),
-        Some(Value::Number(v)) => Some(v as f64),
-        _ => None,
+/// A declared inset as px. `None` for `auto` and for a percentage - a percentage inset on a
+/// sticky element is not resolved here yet, so it sticks to nothing.
+fn read_px(style: &ComputedStyle, prop: Prop, inset: LengthPercentageAuto) -> Option<f64> {
+    if !style.has(prop) {
+        return None;
     }
+    inset.to_px().map(f64::from)
 }

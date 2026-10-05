@@ -1,107 +1,85 @@
-# CSS properties and parsing
+# CSS values and the value grammars
 
-CSS is not easy.. It looks deceivingly simple from the outside, but there are a lot of things to consider when parsing 
-and calculating CSS properties. This document will explain how the CSS properties are parsed and calculated in the 
-engine. 
+How a property's value is represented, and how the crate decides whether a declaration is
+valid. The flow around it, from text to computed style, is in [docs/css.md](../../../docs/css.md).
 
-First of all, we need to convert stylesheets (inline stylesheets, external stylesheets
-and even style attributes on elements) from a textual representation into a structured representation. This is done by
-parsing the CSS data into an Abstract Syntax Tree (AST). The AST is then converted into a `CSSStylesheet` structure that
-allows easy usage in the code later on.
+## From text to `CssValue`
 
-A `CssStylesheet` consists of a set of CSS rules, and some information about where this stylesheet is loaded from (is 
-it an external stylesheet, and if so, what is its url etc.).
+Stylesheets, inline `<style>` blocks, `style` attributes and presentational hints are all parsed
+by the same parser into an AST, and `convert_ast_to_stylesheet` turns that into a
+`CssStylesheet`: a list of `CssRule`s, each a list of selectors and a list of declarations, plus
+the sheet's origin, url, `@font-face` entries, `@import` rules and `@layer` names. A
+`CssDeclaration` is the property name, its value as a `CssValue`, and the `!important` flag.
 
-Css rules are contained in a list of `CssRule` structures. A rule has a list of selectors, and a list of declarations.
-The selectors are used to match elements in the HTML document, and the declarations are the actual CSS properties that
-are applied to the matched elements.
+Nothing downstream handles value text. A value is a `CssValue`:
 
-The `CssSelector` itself consists of a list of `CssSelectorParts` structures, and a `CssDeclaration` consists of the 
-property name, the value as a `CssValue` struct and a boolean to represent if the importanct flag has been set on this 
-property (ie: `color: black !important`)
-
-
-## CSS Values
-When the engine deals with CSS properties, it will only handle `CSSValue` structures. It doesn't handle strings so 
-if there are strings they must be converted to `CSSValue` structures first.
-
-The `CSSValue` struct has some functions to parse strings or even AST nodes from stylesheets into a `CSSValue` struct.
-For this you can use the `parse_ast_node()` and `parse_str()` functions.
-
-There are many different CssValue types:
-
-```
-    None,
-    Color(RgbColor),
-    Number(f32),
-    Percentage(f32),
-    String(String),
-    Unit(f32, String),
-    Function(String, Vec<CssValue>),
-    List(Vec<CssValue>),
-    Initial,
-    Inherit,
+``` text
+    None
+    Zero                         a bare 0, which may be a length or a number
+    Number(f64, NumberKind)      with the type flag css-syntax gave it, so 1e1 is not an <integer>
+    Percentage(f64)
+    Unit(f64, String)            10px, 2em, 90deg, 300ms
+    String(String)               keywords and quoted strings
+    Color(CssColor)              a parsed colour, in its own colour space
+    Function(String, Vec<CssValue>)
+    Comma                        the separator, kept so comma lists keep their shape
+    List(Vec<CssValue>)          a multi-token value: border: 1px solid black
+    Initial, Inherit
 ```
 
-The parser functions will parse any value to their correct type. Note that when there are multiple values in a property
-(ie: `border: 1px solid black`) the parser will return a `List` of `CssValue` structures.
+The parser reduces what it can as it goes: a colour function becomes a `Color`, a math function
+is evaluated as far as absolute units allow (`calc(1in + 1px)` becomes `calc(97px)`; `calc(50px
++ 40%)` stays a sum of two terms). A value reached through `var()` substitution is reduced the
+same way, so `rgb(var(--r) 0 0)` is a colour by the time the grammar sees it.
 
+## Validation
 
-# Syntax checking
-At this point, we can convert a stylesheet to a rust structure. But this doesn't mean that the stylesheet is correct.
-For instance, the following will happily be parsed by the system:
+A parsed value is not a valid one. `color: thisisnotacolor` and `border: 5%` parse, and the
+grammar is what rejects them. Every property has a grammar in the CSS value definition syntax,
+the notation the specs are written in:
 
-```
-    div {
-        color: thisisnotacolor;
-        border: 5%;
-        background-color: 10deg 20px solid;
-    }
-```
-
-So, in order to understand if a stylesheet is correct, we need to do some syntax checking. For this we need some 
-external help. Each CSS property has a list of possible values that it can accept. For instance, the `color` property
-can accept a color value, but also the `initial` and `inherit` values. A color value by itself can be a hex value, a
-rgb value, a hsl value, a keyword etc.
-
-With the help of the CSS specifications, we extracted all possible values for each CSS property and put them in a
-definition file. This file is used to check if a value is correct for a certain property. These possible values are 
-a language on its own, and we have a parser for this language that can parse a string into a structure that represents
-the syntax.
-
-This is done in the `syntax.rs` file and we use a nom parser to compile this language into a `CssSyntaxTree` structure.
-
-Specification of the "language" can be found at: https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax
-
-So for instance:
-
-```
+``` text
     <color> | transparent | currentcolor | <image>
 ```
 
-means it a value can only match if its either be a color (a typedef), the word `transparent`, the word `currentcolor` 
-or an image (another typedef). These typedefs are also defined in the CSS specifications.
+`matcher/syntax.rs` parses that notation with nom into a `CssSyntaxTree`: groups with the four
+combinators (juxtaposition, `&&`, `||`, `|`), multipliers (`?`, `*`, `+`, `{m,n}`, `#`),
+literals, functions, and the built-in data types (`<length>`, `<color>`, `<ident>`, ...).
+Named types such as `<color-base>` and property references such as `<'margin-top'>` are resolved
+inline when the definitions load, with a guard for the self-referential ones (the `calc()`
+family). `matcher/syntax_matcher.rs` then matches a `CssValue` slice against the tree. Two
+things sit outside every grammar and are checked first: the CSS-wide keywords, valid for every
+property, and any value still holding a substitution function, which cannot be judged until
+`var()` resolves on an element.
 
-### Typedefs
-The CSS specifications also define some typedefs. For instance, the `color` typedef is defined as:
+The matcher also answers two more questions. Which longhand each input value landed on, which is
+how a shorthand is expanded (`matcher/shorthands.rs`). And the canonical spelling of a value:
+keywords in the grammar's case, `||` operands in grammar order, repetitions shortened, which is
+what `element.style` and `getComputedStyle` serialize.
 
-```
-    "<color>": "<color-base> | currentColor | <system-color> ",
-```
+Validation and expansion run once per rule, the first time an element needs it
+(`matcher/expansion.rs`), not once per element.
 
-where `color-base`, and `system-color` are again typedefs. The system resolves all typedefs when compiling a property 
-syntax.
+## Where the definitions come from
 
-Browsing the CSS specifications for typedefs is no fun. Fortunately, there is a page
-https://www.w3.org/Style/CSS/all-properties.en.json that contains all CSS properties and where their syntax and 
-typedefs are defined. We have an external repository (https://github.com/gosub-browser/css-definition-generator) that
-parses this file and generates the `css_definitions.json` and `css_typedefs.json` files for us.
+`resources/definitions/*.json` holds every property's grammar, whether it inherits, its initial
+value and its longhands, plus the named types, selectors and at-rules. They are generated by the
+in-tree tool `tools/generate_definitions` from the webref grammars merged with MDN metadata, with
+patch tables for the places either source is wrong, and regenerated by hand, never by the build.
+`cargo run -p generate_definitions -- --property-ids` also emits `matcher/property_ids.rs`, the
+generated ids and static tables the cascade is keyed by; a test re-derives the ids from the
+embedded JSON, so the module and the data cannot drift.
 
+## Colours
 
- 
-
-
-
-
-
-
+`colors.rs` parses named colours (the full css-color-4 list, `rebeccapurple` included), hex,
+`rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()` and `oklch()`, and keeps each
+colour in the space it was written in. The three components and alpha are packed as four `f64`
+with a bitmask saying which are the CSS-wide `none`, rather than four `Option<f64>`: a colour is
+the largest variant of `CssValue`, so the eight bytes each `Option` spent on a one-bit tag were
+charged to every value in the engine, colour or not. `components()` and `alpha()` read them
+back. Note that `PartialEq` on a colour asks whether two values *are the same colour*, comparing
+converted sRGB with a tolerance - a caller that needs identity rather than equality, such as the
+value pool, must not use it. Whether a keyword is a colour at all depends on the
+property: `red` names a grid line on `grid-row-start`. Colour keywords compute to the colour
+they name; `currentColor` on the `color` property itself resolves to the inherited colour.

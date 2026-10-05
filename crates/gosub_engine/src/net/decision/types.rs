@@ -68,6 +68,10 @@ pub enum BlockReason {
     UrlPolicy,
     /// The URL scheme is not `http` or `https`.
     UnsupportedScheme,
+    /// Refused by CORS; the network layer's own error says which rule.
+    Cors,
+    /// The request required a stored response and the cache had none.
+    NotCached,
 }
 
 impl BlockReason {
@@ -77,6 +81,8 @@ impl BlockReason {
             gosub_sonar::net::types::BlockReason::MixedContent => BlockReason::MixedContent,
             gosub_sonar::net::types::BlockReason::UrlPolicy => BlockReason::UrlPolicy,
             gosub_sonar::net::types::BlockReason::UnsupportedScheme => BlockReason::UnsupportedScheme,
+            gosub_sonar::net::types::BlockReason::Cors(_) => BlockReason::Cors,
+            gosub_sonar::net::types::BlockReason::NotCached => BlockReason::NotCached,
         }
     }
 }
@@ -88,6 +94,8 @@ impl std::fmt::Display for BlockReason {
             BlockReason::MixedContent => "blocked as mixed content",
             BlockReason::UrlPolicy => "blocked by URL policy",
             BlockReason::UnsupportedScheme => "unsupported URL scheme",
+            BlockReason::Cors => "blocked by CORS",
+            BlockReason::NotCached => "not in the cache",
         };
         f.write_str(s)
     }

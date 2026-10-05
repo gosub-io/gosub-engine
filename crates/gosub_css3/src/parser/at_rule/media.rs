@@ -13,10 +13,10 @@ impl Css3<'_> {
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
-            TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
+            TokenType::Number(value, kind) => Ok(Node::new(NodeType::Number { value, kind }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(_) => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 Ok(self.parse_function()?)
             }
             _ => Err(CssError::with_location(
@@ -33,7 +33,7 @@ impl Css3<'_> {
 
         let delim = self.consume_any_delim()?;
         if delim == '=' {
-            return Ok(Node::new(NodeType::Operator("=".into()), loc));
+            return Ok(Node::new(NodeType::operator("="), loc));
         }
 
         if delim == '>' || delim == '<' {
@@ -42,9 +42,9 @@ impl Css3<'_> {
             let la = self.tokenizer.lookahead(0);
             if la.is_delim('=') {
                 self.consume_any()?;
-                return Ok(Node::new(NodeType::Operator(format!("{delim}=")), loc));
+                return Ok(Node::new(NodeType::operator(format!("{delim}=")), loc));
             }
-            return Ok(Node::new(NodeType::Operator(format!("{delim}")), loc));
+            return Ok(Node::new(NodeType::operator(format!("{delim}")), loc));
         }
 
         Err(CssError::with_location("Expected comparison operator", loc))
@@ -65,7 +65,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             if !t.is_comma() {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 break;
             }
         }
@@ -98,11 +98,11 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             let first = match t.token_type {
-                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
+                TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, t.location),
                 TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
                 TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
                 TokenType::Function(_) => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_function()?
                 }
                 _ => {
@@ -122,7 +122,7 @@ impl Css3<'_> {
                 let second = self.parse_media_read_term()?;
                 Some(Node::new(
                     NodeType::Value {
-                        children: vec![first, Node::new(NodeType::Operator("/".into()), op_loc), second],
+                        children: vec![first, Node::new(NodeType::operator("/"), op_loc), second],
                     },
                     loc,
                 ))
@@ -137,7 +137,14 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new(NodeType::Feature { kind, name, value }, loc))
+        Ok(Node::new(
+            NodeType::Feature {
+                kind,
+                name,
+                value: value.map(Box::new),
+            },
+            loc,
+        ))
     }
 
     fn parse_media_feature_range(&mut self, _kind: FeatureKind) -> CssResult<Node> {
@@ -171,11 +178,11 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::Range {
-                left,
-                left_comparison,
-                middle,
-                right_comparison,
-                right,
+                left: Box::new(left),
+                left_comparison: Box::new(left_comparison),
+                middle: Box::new(middle),
+                right_comparison: right_comparison.map(Box::new),
+                right: right.map(Box::new),
             },
             loc,
         ))
@@ -184,9 +191,9 @@ impl Css3<'_> {
     pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_media_feature_or_range");
 
-        let t = self.tokenizer.lookahead_sc(1);
+        let t_is_ident = self.tokenizer.lookahead_sc(1).is_ident();
         let nt = self.tokenizer.lookahead_sc(2);
-        if t.is_ident() && (nt.is_colon() || nt.token_type == TokenType::RParen) {
+        if t_is_ident && (nt.is_colon() || nt.token_type == TokenType::RParen) {
             // feature
             return self.parse_media_feature_feature(kind);
         }
@@ -207,13 +214,16 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let t = self.consume_any()?;
 
+        // Asking once for the identifier, rather than testing `is_ident()` and then matching
+        // for it again with an `unreachable!()` for the case the test already excluded. `t`
+        // itself is kept whole, because the `else` branch below reconsumes it.
         let nt = self.tokenizer.lookahead_sc(0);
-        if t.is_ident() && nt.token_type != TokenType::LParen {
-            let ident = match t.token_type {
-                TokenType::Ident(s) => s,
-                _ => unreachable!(),
-            };
+        let bare_ident = match &t.token_type {
+            TokenType::Ident(ident) if nt.token_type != TokenType::LParen => Some(ident.clone()),
+            _ => None,
+        };
 
+        if let Some(ident) = bare_ident {
             let s = ident.cow_to_lowercase();
             media_type = if ["not", "only"].contains(&s.as_ref()) {
                 self.consume_whitespace_comments();
@@ -225,9 +235,9 @@ impl Css3<'_> {
 
             self.consume_whitespace_comments();
             let nt = self.tokenizer.lookahead_sc(0);
-            match nt.token_type {
+            match &nt.token_type {
                 TokenType::Ident(s) => {
-                    if s != "and" {
+                    if s.as_str() != "and" {
                         return Err(CssError::with_location("Expected 'and'", t.location));
                     }
 
@@ -248,7 +258,7 @@ impl Css3<'_> {
             //
             match t.token_type {
                 TokenType::Ident(_) | TokenType::LParen | TokenType::Function(_) => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     condition = Some(self.parse_condition(FeatureKind::Media)?);
                 }
                 TokenType::LCurly | TokenType::Semicolon => {
@@ -267,7 +277,7 @@ impl Css3<'_> {
             NodeType::MediaQuery {
                 modifier,
                 media_type,
-                condition,
+                condition: condition.map(Box::new),
             },
             loc,
         ))

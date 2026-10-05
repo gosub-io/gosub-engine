@@ -9,6 +9,18 @@ use gosub_shared::node::NodeId;
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
+/// How deep the tree builder nests elements before it starts placing new ones beside their
+/// parent instead of inside it.
+///
+/// The HTML spec sets no limit, but everything downstream of the parser - style, the render tree,
+/// layout, dropping the document - does work per level of nesting, and a page chooses how many
+/// levels there are. Blink caps the tree the same way, with the same constant
+/// (`HTMLConstructionSite::kMaximumHTMLParserDOMTreeDepth`, applied in
+/// `HTMLConstructionSite::Attach`): past it, a node is attached to its parent's parent. The stack
+/// of open elements still grows, so end tags, scopes and the adoption agency see the document as
+/// written; only the shape of the tree stops getting deeper. Real pages nest a few dozen levels.
+pub(crate) const MAX_TREE_DEPTH: usize = 512;
+
 #[derive(Debug)]
 pub(crate) enum InsertionPositionMode<NodeId> {
     LastChild { parent_id: NodeId },
@@ -195,7 +207,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     }
 
     pub(crate) fn insert_element(&mut self, node_id: NodeId, override_node: Option<NodeId>) -> NodeId {
-        let insert_position = self.appropriate_place_insert(override_node);
+        let insert_position = self.cap_tree_depth(self.appropriate_place_insert(override_node));
         self.insert_element_helper(node_id, insert_position);
 
         //     if parser not created as part of html fragment parsing algorithm
@@ -223,8 +235,25 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             return;
         }
 
-        let insert_position = self.appropriate_place_insert(None);
+        let insert_position = self.cap_tree_depth(self.appropriate_place_insert(None));
         self.insert_element_helper(node_id, insert_position);
+    }
+
+    /// Past [`MAX_TREE_DEPTH`] open elements, moves an insertion into the current node up to its
+    /// parent, the way Blink does. Text is left alone, as in Blink: it is a leaf, so it adds at
+    /// most one level.
+    fn cap_tree_depth(&self, position: InsertionPositionMode<NodeId>) -> InsertionPositionMode<NodeId> {
+        // +1 for the `html` element at the bottom of the stack, as Blink counts it.
+        if self.open_elements.len() <= MAX_TREE_DEPTH + 1 {
+            return position;
+        }
+        match position {
+            InsertionPositionMode::LastChild { parent_id } => match self.document.parent(parent_id) {
+                Some(grandparent) => InsertionPositionMode::LastChild { parent_id: grandparent },
+                None => position,
+            },
+            sibling @ InsertionPositionMode::Sibling { .. } => sibling,
+        }
     }
 
     pub(crate) fn insert_text_element(&mut self, token: &Token) {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gosub_engine::cookies::DefaultCookieJar;
-use gosub_engine::events::{EngineEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
 use gosub_engine::zone::ZoneServices;
 use gosub_engine::{EngineConfig, GosubEngine};
@@ -57,19 +57,32 @@ async fn redraw_wakeup_fires_and_tab_state_is_readable() {
     .unwrap();
     tab.send(TabCommand::ResumeDrawing { fps: 60 }).await.unwrap();
 
-    // The wakeup must fire on its own: nothing else tells a shell a frame is ready.
+    // The wakeup must fire on its own: nothing else tells a shell a frame is ready. A
+    // frame may be drawn before the document commits (the tab paints as soon as drawing
+    // resumes), so the read-side state is checked once the load has finished too.
     let redraw = tokio::time::timeout(Duration::from_secs(10), async {
+        let (mut drawn, mut finished) = (false, false);
         loop {
             match events.recv().await {
-                Ok(EngineEvent::Redraw { tab_id }) if tab_id == tab.tab_id => return true,
-                Ok(_) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Ok(EngineEvent::Redraw { tab_id }) if tab_id == tab.tab_id => drawn = true,
+                Ok(EngineEvent::Navigation {
+                    tab_id,
+                    event: NavigationEvent::Finished { .. },
+                }) if tab_id == tab.tab_id => finished = true,
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => return false,
+            }
+            if drawn && finished {
+                return true;
             }
         }
     })
     .await;
-    assert!(matches!(redraw, Ok(true)), "no Redraw for the tab: {redraw:?}");
+    assert!(
+        matches!(redraw, Ok(true)),
+        "no Redraw and Finished for the tab: {redraw:?}"
+    );
 
     assert_eq!(
         tab.url().map(|u| u.to_string()).as_deref(),

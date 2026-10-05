@@ -19,13 +19,14 @@ impl Css3<'_> {
                 break;
             }
             self.consume_any()?; // consume '.'
-            match self.tokenizer.consume().token_type {
+            let t = self.tokenizer.consume();
+            match t.token_type {
                 TokenType::Ident(part) => {
                     name.push('.');
                     name.push_str(&part);
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
             }
@@ -57,7 +58,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             if !t.is_comma() {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 break;
             }
 

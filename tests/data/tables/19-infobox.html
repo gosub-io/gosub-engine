@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>19 - wikipedia-style infobox</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; font-size: 14px; }
+  .infobox {
+    width: 300px;
+    border: 1px solid #a2a9b1;
+    background-color: #f8f9fa;
+    border-spacing: 3px;
+    font-size: 12px;
+  }
+  .infobox th { background-color: #cedff2; padding: 4px; text-align: center; }
+  .infobox td { padding: 3px; vertical-align: top; }
+  .infobox .label { font-weight: bold; width: 90px; }
+  .infobox .imgcell { text-align: center; }
+  .infobox .img { width: 260px; height: 140px; background-color: #b0c4d8; margin: 0 auto; }
+</style>
+</head>
+<body>
+<h3>Real-world: infobox - fixed 300px table, label/value pairs, full-width rows</h3>
+<p>Expected: a 300px-wide box. The title and image rows span both columns;
+label/value rows below have a narrow bold label column (90px) and a value
+column that wraps. Long values wrap rather than widen the box.</p>
+<table class="infobox">
+  <tr><th colspan="2">Gosub Engine</th></tr>
+  <tr><td colspan="2" class="imgcell"><div class="img"></div></td></tr>
+  <tr><td class="label">Developer</td><td>Gosub Community</td></tr>
+  <tr><td class="label">Written in</td><td>Rust</td></tr>
+  <tr><td class="label">Type</td><td>Browser engine with a very long description that needs to wrap across multiple lines</td></tr>
+  <tr><td class="label">License</td><td>MIT</td></tr>
+</table>
+</body>
+</html>

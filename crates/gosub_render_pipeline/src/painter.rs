@@ -1,14 +1,28 @@
 pub mod commands;
+pub mod shape_cache;
+pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
-use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
+use gosub_interface::style::{
+    BorderCollapse, BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display,
+};
+
+/// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
+/// property id: the field is the property, now that the style is a struct.
+type ColorOf = fn(&ComputedStyle) -> CssColor;
+
+/// Which border style of a [`ComputedStyle`] an edge is drawn in.
+type BorderStyleOf = fn(&ComputedStyle) -> CssBorderStyle;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
-use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
+use crate::layouter::{
+    BackgroundMedia, CollapsedCellBorders, ElementContext, ElementContextFormControl, ElementContextSelectPopup,
+    FormControl, LayoutElementId, LayoutElementNode, MeterLevel, PopupRow,
+};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
@@ -16,10 +30,13 @@ use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
+use crate::painter::shape_cache::ShapeCache;
 use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
+use gosub_interface::document::ControlEditState;
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedText, TextAlign, TextStyle};
+use gosub_interface::used;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -59,7 +76,7 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
             FontStyle::Normal
         },
         stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
+        line_height: font_info.line_height.map(|v| v as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width),
         align,
@@ -75,6 +92,15 @@ pub struct Painter {
     /// time. `None` (e.g. the null backend) yields empty glyph runs, drawable only by
     /// engine-native text rasterizers.
     font_system: Option<Arc<Mutex<dyn FontSystem>>>,
+    /// Commands per element for this paint pass. An element straddling several tiles is asked for
+    /// its commands once per tile; they don't depend on the tile (page coordinates), and shaping
+    /// a textarea's text six times per keystroke is what made typing feel slow.
+    memo: Mutex<std::collections::HashMap<LayoutElementId, Vec<PaintCommand>>>,
+    /// Shaped runs shared with the passes before and after this one. The per-pass `memo` above
+    /// stops at the pass boundary, and a scrolling page keeps handing the next pass the runs at
+    /// the window edge that the last one already shaped. `None` when the caller has no grid to
+    /// hang a cache on (a one-shot whole-page paint), and then every run is shaped here.
+    shape_cache: Option<Arc<ShapeCache>>,
 }
 
 impl Painter {
@@ -82,23 +108,44 @@ impl Painter {
         Painter {
             layer_list,
             font_system,
+            memo: Mutex::new(std::collections::HashMap::new()),
+            shape_cache: None,
         }
+    }
+
+    /// Share `cache` with the other passes over the same tile grid, so a run at the window edge
+    /// is shaped by the first pass that reaches it and read by the rest.
+    #[must_use]
+    pub fn with_shape_cache(mut self, cache: Arc<ShapeCache>) -> Painter {
+        self.shape_cache = Some(cache);
+        self
     }
 
     /// Shape `text` into the positioned glyph runs a glyph-based rasterizer will paint.
-    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> ShapedText {
+    ///
+    /// Shared rather than copied: the same run reaches every tile the element covers, and with a
+    /// grid cache every pass over those tiles as well.
+    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> Arc<ShapedText> {
         let Some(ref fs) = self.font_system else {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         };
         if text.is_empty() || font_info.size <= 0.0 {
-            return ShapedText::empty();
+            return Arc::new(ShapedText::empty());
         }
         let style = paint_text_style(font_info, rect_width, available_width);
-        fs.lock().shape(text, &style)
+        match self.shape_cache {
+            Some(ref cache) => cache.get_or_shape(text, &style, || fs.lock().shape(text, &style)),
+            None => Arc::new(fs.lock().shape(text, &style)),
+        }
     }
 
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
-        self.paint_element(element.id, state)
+        if let Some(cmds) = self.memo.lock().get(&element.id) {
+            return cmds.clone();
+        }
+        let cmds = self.paint_element(element.id, state);
+        self.memo.lock().insert(element.id, cmds.clone());
+        cmds
     }
 
     /// Flattens every element into one command list, in z-order (`layer_ids`) then paint order
@@ -164,12 +211,10 @@ impl Painter {
         commands
     }
 
-    fn get_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
+    fn get_brush(&self, node_id: NodeId, color_of: ColorOf, _default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let brush = match doc.get_style(node_id, css_prop) {
-            Value::Color(r, g, b, a) => Brush::solid(Color::from_rgba8(r, g, b, a)),
-            _ => default,
-        };
+        let color = color_of(&doc.computed_style(node_id));
+        let brush = Brush::solid(Color::from_rgba8(color.r, color.g, color.b, color.a));
         self.apply_opacity(node_id, brush)
     }
 
@@ -183,10 +228,7 @@ impl Painter {
         }
 
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let opacity = match doc.get_style(node_id, &StyleProperty::Opacity) {
-            Value::Number(n) | Value::Unit(n, _) => n,
-            _ => 1.0,
-        };
+        let opacity = doc.computed_style(node_id).box_group.opacity;
         if opacity >= 1.0 {
             return brush;
         }
@@ -203,22 +245,19 @@ impl Painter {
     /// not modelled.
     fn mix_blend_mode(&self, node_id: NodeId) -> BlendMode {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        match doc.get_style(node_id, &StyleProperty::MixBlendMode) {
-            Value::Keyword(kw) => BlendMode::from_css_keyword(&lookup(kw)),
-            _ => BlendMode::Normal,
-        }
+        BlendMode::from_css_keyword(&doc.computed_style(node_id).box_group.mix_blend_mode)
     }
 
     /// Base fill plus overlay `background-image` gradient layers to paint on top, back-to-front.
     ///
     /// A lone non-tiled gradient becomes the base brush directly, so border/radius decorate the
     /// same rect. Multiple or tiled layers instead stack as separate rects over `background-color`.
-    fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
+    fn background_fill(&self, node_id: NodeId, box_size: (f32, f32)) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let layers = doc.background_layers(node_id);
+        let layers = doc.background_layers(node_id, box_size);
         let color = self.get_brush(
             node_id,
-            &StyleProperty::BackgroundColor,
+            |style| style.background.color,
             Brush::solid(Color::TRANSPARENT),
         );
         match layers.as_slice() {
@@ -248,7 +287,7 @@ impl Painter {
         let rect = Rect::new(x, y, width, height);
 
         let font_info = self.alt_font_info(node_id);
-        let brush = self.get_brush(node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+        let brush = self.get_brush(node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
         let shaped = self.shape_text(alt, &font_info, rect.width, rect.width);
         Some(PaintCommand::text(Text::new(
             rect, alt, &font_info, brush, rect.width, shaped,
@@ -259,21 +298,16 @@ impl Painter {
     /// undecorated, matching how browsers render the placeholder label.
     fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let size = match doc.get_style(node_id, &StyleProperty::FontSize) {
-            Value::Unit(px, _) => px as f64,
-            _ => 16.0,
-        };
-        let family = match doc.get_style(node_id, &StyleProperty::FontFamily) {
-            Value::Keyword(id) => lookup(id),
-            _ => "sans-serif".to_string(),
-        };
+        let style = doc.computed_style(node_id);
+        let size = f64::from(style.inherited.font_size);
+        let family = style.inherited.font_family.to_string();
         FontInfo {
             family,
             size,
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: size * 1.4,
+            line_height: None,
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: false,
@@ -281,10 +315,10 @@ impl Painter {
         }
     }
 
-    fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
+    fn get_parent_brush(&self, node_id: NodeId, color_of: ColorOf, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.parent(node_id) {
-            Some(parent_id) => self.get_brush(parent_id, css_prop, default),
+            Some(parent_id) => self.get_brush(parent_id, color_of, default),
             None => default,
         }
     }
@@ -333,14 +367,14 @@ impl Painter {
         dom_node_id: NodeId,
     ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
-            Some(Value::Display(Display::Table)) => Color::from_rgb8(255, 0, 0),
-            Some(Value::Display(Display::TableCell)) => Color::from_rgb8(0, 180, 0),
-            Some(Value::Display(Display::TableRow)) => Color::from_rgb8(0, 0, 255),
-            Some(Value::Display(Display::TableRowGroup))
-            | Some(Value::Display(Display::TableHeaderGroup))
-            | Some(Value::Display(Display::TableFooterGroup)) => Color::from_rgb8(160, 0, 200),
-            Some(Value::Display(Display::TableCaption)) => Color::from_rgb8(255, 140, 0),
+        let color = match doc.computed_style(dom_node_id).declared_display() {
+            Some(Display::Table | Display::InlineTable) => Color::from_rgb8(255, 0, 0),
+            Some(Display::TableCell) => Color::from_rgb8(0, 180, 0),
+            Some(Display::TableRow) => Color::from_rgb8(0, 0, 255),
+            Some(Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup) => {
+                Color::from_rgb8(160, 0, 200)
+            }
+            Some(Display::TableCaption) => Color::from_rgb8(255, 140, 0),
             _ => return Vec::new(),
         };
         let border = Border::new(
@@ -379,7 +413,12 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                // Collapsed cells get their border from the TableBorderOverlay.
+                let r = if layout_element.collapsed_borders.is_some() {
+                    r
+                } else {
+                    self.decorate_with_border_and_radius(dom_node_id, None, r)
+                };
                 vec![PaintCommand::rectangle(r)]
             }
             BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
@@ -401,7 +440,8 @@ impl Painter {
 
         match &layout_element.context {
             ElementContext::Text(ctx) => {
-                let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+                let brush =
+                    self.get_parent_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK));
                 let brush = self.apply_opacity(dom_node_id, brush);
 
                 let r = layout_element.box_model.content_box;
@@ -421,7 +461,7 @@ impl Painter {
                 // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
                 // `border:1px white solid`).
                 if self.has_border(dom_node_id) {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_box));
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_box));
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
@@ -431,14 +471,17 @@ impl Painter {
 
                 // CSS paints background-color behind the (possibly transparent) replaced content,
                 // e.g. a transparent PNG on `<img style="background:#3a7">` shows green through.
-                let (bg_brush, _) = self.background_fill(dom_node_id);
+                let (bg_brush, _) =
+                    self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
                 if !matches!(&bg_brush, Brush::Solid(c) if c.a() == 0.0) {
                     let bg_r = Rectangle::new(border_box)
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
-                    commands.push(PaintCommand::rectangle(
-                        self.decorate_with_border_and_radius(dom_node_id, bg_r),
-                    ));
+                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(
+                        dom_node_id,
+                        None,
+                        bg_r,
+                    )));
                 }
 
                 let brush = Brush::image(image_ctx.media_id);
@@ -454,7 +497,7 @@ impl Painter {
                 let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
                 // The border/radius belongs to the element box, not the shrunk icon rect.
                 let border_target = if image_ctx.placeholder { border_box } else { draw_box };
-                let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_target));
                 if image_ctx.placeholder {
                     commands.push(PaintCommand::rectangle(r));
                     // Emit the element border separately so it frames the full reserved box.
@@ -462,7 +505,7 @@ impl Painter {
                         commands.push(PaintCommand::rectangle(border_r));
                     }
                 } else {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
                     commands.push(PaintCommand::rectangle(r));
                 }
 
@@ -475,13 +518,26 @@ impl Painter {
                     }
                 }
             }
+            ElementContext::FormControl(fc) => {
+                commands.extend(self.form_control_commands(fc, layout_element, dom_node_id));
+            }
+            ElementContext::SelectPopup(popup) => {
+                commands.extend(self.select_popup_commands(popup, layout_element));
+            }
             ElementContext::None => {
-                let (brush, overlay_layers) = self.background_fill(dom_node_id);
                 let border_box = layout_element.box_model.border_box;
+                let (brush, overlay_layers) =
+                    self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                // A collapsed cell paints only its background here; its border strips are
+                // painted by the table's TableBorderOverlay AFTER all table content.
+                let r = if layout_element.collapsed_borders.is_some() {
+                    r
+                } else {
+                    self.decorate_with_border_and_radius(dom_node_id, None, r)
+                };
                 commands.push(PaintCommand::rectangle(r));
 
                 // background-image paints on top of the background-color.
@@ -500,6 +556,595 @@ impl Painter {
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
+            // Collapsed borders of a whole table, painted in front of its content: one
+            // border-only rectangle per collapsed cell, in cell paint order.
+            ElementContext::TableBorderOverlay(cells) => {
+                for &cell_id in cells {
+                    let Some(cell) = self.layer_list.layout_tree.get_node_by_id(cell_id) else {
+                        continue;
+                    };
+                    let Some(ref cb) = cell.collapsed_borders else { continue };
+                    let r = Rectangle::new(cell.box_model.border_box);
+                    let r = self.decorate_with_border_and_radius(cell.dom_node_id, Some(cb), r);
+                    commands.push(PaintCommand::rectangle(r));
+                }
+            }
+        }
+
+        // Text runs don't carry an outline; the owning element does. The popup shares the select's
+        // node but isn't the select.
+        if !matches!(
+            layout_element.context,
+            ElementContext::Text(_) | ElementContext::SelectPopup(_)
+        ) {
+            if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
+                commands.push(cmd);
+            }
+        }
+
+        commands
+    }
+
+    /// CSS `outline`: a border-only rectangle around the border box, inflated by offset + width,
+    /// following the element's corner radii. Takes no layout space.
+    fn outline_command(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Option<PaintCommand> {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let outline = doc.computed_style(dom_node_id).outline.clone();
+        let width = f64::from(outline.width);
+        if width <= 0.0 {
+            return None;
+        }
+        if !outline.style.is_visible() {
+            return None;
+        }
+        let style = css_border_style_to_paint(&outline.style);
+        let offset = f64::from(outline.offset);
+        // A negative offset pulls the ring inside the border box.
+        let grow = offset + width;
+
+        let bb = layout_element.box_model.border_box;
+        let ring = Rect::new(bb.x - grow, bb.y - grow, bb.width + grow * 2.0, bb.height + grow * 2.0);
+        if ring.width <= 0.0 || ring.height <= 0.0 {
+            return None;
+        }
+
+        let brush = self.get_brush(dom_node_id, |style| style.outline.color, Brush::solid(Color::BLACK));
+        let border = Border::new(
+            width as f32,
+            style,
+            [brush.clone(), brush.clone(), brush.clone(), brush],
+        );
+        let mut r = Rectangle::new(ring).with_border(border);
+
+        // The ring follows the border box's corners, each radius grown by the distance the ring
+        // sits outside it (css-ui-4 §4.3); a square corner stays square.
+        let border = &doc.computed_style(dom_node_id).border;
+        let grown = |length: f64| if length > 0.0 { length + grow } else { 0.0 };
+        let [tl, tr, br, bl] = used::border_radii(border, bb.width, bb.height).map(|(x, y)| Radius {
+            x: grown(x),
+            y: grown(y),
+        });
+        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+            r = r.with_radius_tlrb(tl, tr, br, bl);
+        }
+        Some(PaintCommand::rectangle(r))
+    }
+
+    /// An open `<select>` dropdown per the design guide: shadowed white box, 30px rows, light
+    /// hover / solid keyboard-active highlight, checkmark on the committed value, muted group
+    /// labels and disabled options, scrollbar when needed.
+    fn select_popup_commands(
+        &self,
+        popup: &ElementContextSelectPopup,
+        layout_element: &LayoutElementNode,
+    ) -> Vec<PaintCommand> {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let bb = layout_element.box_model.border_box;
+        let mb = layout_element.box_model.margin_box;
+        let inner = layout_element.box_model.content_box;
+        let mut commands = Vec::new();
+
+        let theme = crate::common::theme::select_theme();
+        if let Some(shadow) = popup.shadow {
+            commands.push(PaintCommand::svg(shadow, Rectangle::new(mb)));
+        }
+        let border = Brush::solid(theme.popup_border.clone());
+        commands.push(PaintCommand::rectangle(
+            Rectangle::new(bb)
+                .with_background(Brush::solid(theme.popup_bg.clone()))
+                .with_border(Border::new(
+                    1.0,
+                    BorderStyle::Solid,
+                    [border.clone(), border.clone(), border.clone(), border],
+                ))
+                .with_radius(Radius::new(6.0)),
+        ));
+
+        let open = doc.open_select();
+        let (hovered, active, first) = open.map_or((None, None, 0), |o| (o.hover, o.active, o.first_row));
+        let chosen = doc.selected_option(popup.select);
+        let bar_w = popup.scrollbar_width();
+        let mut ink_font = popup.font_info.clone();
+        ink_font.alignment = FontAlignment::Start;
+
+        for (i, row) in popup.rows.iter().enumerate().skip(first).take(popup.visible_rows) {
+            let rect = Rect::new(
+                inner.x,
+                inner.y + (i - first) as f64 * popup.row_height,
+                inner.width - bar_w,
+                popup.row_height,
+            );
+            let (label, is_group, disabled, is_chosen) = match row {
+                PopupRow::Group { label } => (label, true, false, false),
+                PopupRow::Option {
+                    label,
+                    disabled,
+                    node_id,
+                } => (label, false, *disabled, Some(*node_id) == chosen),
+            };
+            let selectable = row.selectable();
+            let is_active = selectable && active == Some(i);
+            let is_hover = selectable && !is_active && hovered == Some(i);
+            if is_active || is_hover {
+                let bg = if is_active {
+                    theme.active_bg.clone()
+                } else {
+                    theme.hover_bg.clone()
+                };
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(rect)
+                        .with_background(Brush::solid(bg))
+                        .with_radius(Radius::new(4.0)),
+                ));
+            }
+            let color = if is_active {
+                theme.active_text.clone()
+            } else if is_group {
+                theme.group_text.clone()
+            } else if disabled {
+                theme.disabled_text.clone()
+            } else {
+                theme.text.clone()
+            };
+            let text = if is_group {
+                format!("\u{2014} {label} \u{2014}")
+            } else {
+                label.clone()
+            };
+            let text_rect = Rect::new(
+                rect.x + 10.0,
+                rect.y + 6.0,
+                (rect.width - 20.0 - 24.0).max(1.0),
+                rect.height - 12.0,
+            );
+            let shaped = self.shape_text(&text, &ink_font, text_rect.width, 1_000_000_000.0);
+            commands.push(PaintCommand::text(Text::new(
+                text_rect,
+                &text,
+                &ink_font,
+                Brush::solid(color),
+                1_000_000_000.0,
+                shaped,
+            )));
+            if is_chosen && !is_active {
+                if let Some(check) = popup.check {
+                    let s = 16.0;
+                    commands.push(PaintCommand::svg(
+                        check,
+                        Rectangle::new(Rect::new(
+                            rect.x + rect.width - 10.0 - s,
+                            rect.y + (rect.height - s) / 2.0,
+                            s,
+                            s,
+                        )),
+                    ));
+                }
+            }
+        }
+
+        if let Some((track, thumb)) = popup.scrollbar(inner, first) {
+            commands.push(PaintCommand::rectangle(
+                Rectangle::new(track).with_background(Brush::solid(theme.scrollbar_track.clone())),
+            ));
+            commands.push(PaintCommand::rectangle(
+                Rectangle::new(thumb)
+                    .with_background(Brush::solid(theme.scrollbar_thumb.clone()))
+                    .with_radius(Radius::new(4.0)),
+            ));
+        }
+        commands
+    }
+
+    /// A native form control: the CSS chrome (background + border) with the widget's state on top,
+    /// composed from rectangles and shaped text.
+    fn form_control_commands(
+        &self,
+        fc: &ElementContextFormControl,
+        layout_element: &LayoutElementNode,
+        dom_node_id: NodeId,
+    ) -> Vec<PaintCommand> {
+        let border_box = layout_element.box_model.border_box;
+        let content_box = layout_element.box_model.content_box;
+        let blend = self.mix_blend_mode(dom_node_id);
+        let mut commands = Vec::new();
+
+        let (bg_brush, _) = self.background_fill(dom_node_id, (border_box.width as f32, border_box.height as f32));
+        let chrome = Rectangle::new(border_box)
+            .with_background(bg_brush)
+            .with_blend_mode(blend);
+        let chrome = self.decorate_with_border_and_radius(dom_node_id, None, chrome);
+        commands.push(PaintCommand::rectangle(chrome));
+
+        // Solid fill respecting the element's opacity.
+        let fill = |c: Color| self.apply_opacity(dom_node_id, Brush::solid(c));
+        // Gosub blue, matching the checkbox/radio artwork.
+        let accent = if fc.disabled {
+            Color::from_rgb8(0xb0, 0xb0, 0xb0)
+        } else {
+            Color::from_rgb8(0x23, 0x82, 0xeb)
+        };
+        let track_gray = Color::from_rgb8(0xe6, 0xe6, 0xe6);
+        // One line of text, vertically centered in the content box.
+        let line_rect = |inset_x: f64| {
+            let h = fc.font_info.line_height_px().max(fc.font_info.size);
+            Rect::new(
+                content_box.x + inset_x,
+                content_box.y + ((content_box.height - h) / 2.0).max(0.0),
+                (content_box.width - inset_x * 2.0).max(1.0),
+                h,
+            )
+        };
+        let css_text_brush = || {
+            self.apply_opacity(
+                dom_node_id,
+                self.get_brush(dom_node_id, |style| style.inherited.color, Brush::solid(Color::BLACK)),
+            )
+        };
+
+        match &fc.control {
+            FormControl::TextField {
+                value: initial_value,
+                placeholder,
+                masked,
+                multiline,
+                grip,
+                ..
+            } => {
+                if let Some(grip) = grip {
+                    let pb = layout_element.box_model.padding_box;
+                    let g = 12.0_f64.min(pb.width).min(pb.height);
+                    commands.push(PaintCommand::svg(
+                        *grip,
+                        Rectangle::new(Rect::new(pb.x + pb.width - g - 1.0, pb.y + pb.height - g - 1.0, g, g)),
+                    ));
+                }
+                // The typed value/caret/selection are read here, not at layout, so typing is
+                // paint-only.
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let focused = doc.is_focused(dom_node_id);
+                let state = doc
+                    .control_edit_state(dom_node_id)
+                    .unwrap_or_else(|| ControlEditState::new(initial_value.clone(), initial_value.chars().count()));
+                let value = state.value.clone();
+                // A date/time kind holds an ISO string and shows it the way its placeholder
+                // promised (`dd-mm-yyyy`); it is picked, not typed, so it has no caret.
+                let shown = doc
+                    .attribute(dom_node_id, "type")
+                    .and_then(|ty| text_field::display_value(&ty, &value));
+                let picked = shown.is_some();
+                let caret = if picked { None } else { focused.then_some(state.caret) };
+                let selection = if focused && !picked { state.selection() } else { None };
+                let is_placeholder = value.is_empty();
+                let mut text = if is_placeholder {
+                    placeholder.clone()
+                } else if *masked {
+                    "\u{2022}".repeat(value.chars().count())
+                } else {
+                    shown.unwrap_or_else(|| value.clone())
+                };
+                let brush = if is_placeholder {
+                    fill(Color::from_rgb8(0x75, 0x75, 0x75))
+                } else {
+                    css_text_brush()
+                };
+                let theme = crate::common::theme::select_theme();
+                let selection_brush = Brush::solid(theme.selection_bg.clone());
+                let inset_x = text_field::inset_x(content_box.width);
+                let mut rect = if *multiline {
+                    Rect::new(
+                        content_box.x + inset_x,
+                        content_box.y,
+                        (content_box.width - inset_x * 2.0).max(1.0),
+                        content_box.height.max(fc.font_info.line_height_px()),
+                    )
+                } else {
+                    line_rect(inset_x)
+                };
+                let avail = if *multiline { rect.width } else { 1_000_000_000.0 };
+                let line_h = fc.font_info.line_height_px().max(fc.font_info.size);
+                // No caret index into a placeholder; it sits at the start.
+                let mut caret = caret.map(|c| if is_placeholder { 0 } else { c.min(text.chars().count()) });
+
+                // Paint commands can't clip, so cut the text to what fits (see `text_field`).
+                let mut caret_pos: Option<(f64, f64)> = None;
+                let mut rows_to_draw: Vec<(String, f64)> = Vec::new();
+                let mut highlights: Vec<Rect> = Vec::new();
+                if let Some(fs) = &self.font_system {
+                    let mut fs = fs.lock();
+                    if *multiline {
+                        // Visual rows (greedy wrap) drawn one by one; the window is the stored
+                        // scroll row, nudged so the caret stays in view.
+                        let area = text_field::area_layout(&mut *fs, &text, &fc.font_info, content_box);
+                        rect = area.text;
+                        let caret_row = caret.map(|c| text_field::row_of_caret(&area.rows, c));
+                        let first = match caret_row {
+                            Some(r) => area.first_showing(state.scroll, r),
+                            None => area.clamp_first(state.scroll),
+                        };
+                        for (i, row) in area.rows.iter().enumerate().skip(first).take(area.rows_fit) {
+                            let dy = (i - first) as f64 * line_h;
+                            let rt = text_field::row_text(&text, row);
+                            if let Some((x0, x1)) = selection
+                                .and_then(|sel| text_field::selection_in_row(&mut *fs, &text, row, sel, &fc.font_info))
+                            {
+                                let x1 = x1.min(rect.width);
+                                highlights.push(Rect::new(rect.x + x0, rect.y + dy, (x1 - x0).max(0.0), line_h));
+                            }
+                            if !rt.is_empty() {
+                                rows_to_draw.push((rt, dy));
+                            }
+                        }
+                        if let (Some(c), Some(caret_row)) = (caret, caret_row) {
+                            let row = &area.rows[caret_row];
+                            let rt = text_field::row_text(&text, row);
+                            let x = text_field::x_in_row(&mut *fs, &rt, c - row.start, &fc.font_info);
+                            caret_pos = Some((x.min(rect.width), (caret_row - first) as f64 * line_h));
+                        }
+                        if let (Some(track), Some(thumb)) = (area.track, area.thumb(first)) {
+                            commands.push(PaintCommand::rectangle(
+                                Rectangle::new(track).with_background(Brush::solid(theme.scrollbar_track.clone())),
+                            ));
+                            commands.push(PaintCommand::rectangle(
+                                Rectangle::new(thumb)
+                                    .with_background(Brush::solid(theme.scrollbar_thumb.clone()))
+                                    .with_radius(Radius::new(3.0)),
+                            ));
+                        }
+                        text.clear();
+                    } else {
+                        let (start, end) =
+                            text_field::single_line_window(&mut *fs, &text, caret, &fc.font_info, rect.width);
+                        text = text.chars().skip(start).take(end - start).collect();
+                        caret = caret.map(|c| c.saturating_sub(start).min(text.chars().count()));
+                        if let Some((s, e)) = selection {
+                            let row = text_field::Row {
+                                start,
+                                end,
+                                hard_end: true,
+                            };
+                            let shown = text.chars().count();
+                            let sel = (s.clamp(start, start + shown), e.clamp(start, start + shown));
+                            // The window's text is `text` itself (already cut), so index it from 0.
+                            let local = text_field::Row {
+                                start: 0,
+                                end: shown,
+                                hard_end: row.hard_end,
+                            };
+                            if let Some((x0, x1)) = text_field::selection_in_row(
+                                &mut *fs,
+                                &text,
+                                &local,
+                                (sel.0 - start, sel.1 - start),
+                                &fc.font_info,
+                            ) {
+                                let x1 = x1.min(rect.width);
+                                highlights.push(Rect::new(rect.x + x0, rect.y, (x1 - x0).max(0.0), line_h));
+                            }
+                        }
+                        if let Some(c) = caret {
+                            caret_pos = Some(text_field::caret_offset(&mut *fs, &text, c, &fc.font_info, avail));
+                        }
+                    }
+                }
+                for hl in highlights {
+                    if hl.width > 0.0 {
+                        commands.push(PaintCommand::rectangle(
+                            Rectangle::new(hl).with_background(selection_brush.clone()),
+                        ));
+                    }
+                }
+                for (row_text, dy) in rows_to_draw {
+                    let row_rect = Rect::new(rect.x, rect.y + dy, rect.width, line_h);
+                    let shaped = self.shape_text(&row_text, &fc.font_info, row_rect.width, 1_000_000_000.0);
+                    commands.push(PaintCommand::text(Text::new(
+                        row_rect,
+                        &row_text,
+                        &fc.font_info,
+                        brush.clone(),
+                        1_000_000_000.0,
+                        shaped,
+                    )));
+                }
+
+                if !text.is_empty() {
+                    let shaped = self.shape_text(&text, &fc.font_info, rect.width, avail);
+                    commands.push(PaintCommand::text(Text::new(
+                        rect,
+                        &text,
+                        &fc.font_info,
+                        brush,
+                        avail,
+                        shaped,
+                    )));
+                }
+                if let Some((cx, cy)) = caret_pos {
+                    let caret_rect = Rect::new((rect.x + cx).min(rect.x + rect.width - 1.0), rect.y + cy, 1.0, line_h);
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(caret_rect)
+                            .with_background(css_text_brush())
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::Button { label } => {
+                if label.is_empty() {
+                    return commands;
+                }
+                let mut font_info = fc.font_info.clone();
+                font_info.alignment = FontAlignment::Center;
+                let rect = line_rect(0.0);
+                let shaped = self.shape_text(label, &font_info, rect.width, rect.width);
+                commands.push(PaintCommand::text(Text::new(
+                    rect,
+                    label,
+                    &font_info,
+                    css_text_brush(),
+                    rect.width,
+                    shaped,
+                )));
+            }
+            FormControl::Select { label, chevron } => {
+                // Label in the content area; chevron centred in the 28px arrow area at the right
+                // (the padding the UA sheet reserves for it).
+                let pb = layout_element.box_model.padding_box;
+                let arrow_w = 28.0_f64.min(pb.width / 2.0);
+                if !label.is_empty() {
+                    let rect = line_rect(0.0);
+                    let shaped = self.shape_text(label, &fc.font_info, rect.width, 1_000_000_000.0);
+                    commands.push(PaintCommand::text(Text::new(
+                        rect,
+                        label,
+                        &fc.font_info,
+                        css_text_brush(),
+                        1_000_000_000.0,
+                        shaped,
+                    )));
+                }
+                if let Some(chevron) = chevron {
+                    let s = 16.0_f64.min(pb.height);
+                    commands.push(PaintCommand::svg(
+                        *chevron,
+                        Rectangle::new(Rect::new(
+                            pb.x + pb.width - arrow_w + (arrow_w - s) / 2.0,
+                            pb.y + (pb.height - s) / 2.0,
+                            s,
+                            s,
+                        )),
+                    ));
+                }
+            }
+            FormControl::Checkbox(icons) | FormControl::Radio(icons) => {
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let icon = icons.pick(doc.is_checked(dom_node_id), fc.disabled);
+                let side = content_box.width.min(content_box.height).max(1.0);
+                let box_rect = Rect::new(
+                    content_box.x + (content_box.width - side) / 2.0,
+                    content_box.y + (content_box.height - side) / 2.0,
+                    side,
+                    side,
+                );
+                commands.push(PaintCommand::svg(icon, Rectangle::new(box_rect)));
+            }
+            FormControl::Range { min, max, fraction } => {
+                let live = self
+                    .layer_list
+                    .layout_tree
+                    .render_tree
+                    .doc
+                    .control_edit_state(dom_node_id)
+                    .and_then(|s| s.value.trim().parse::<f64>().ok())
+                    .filter(|_| max > min)
+                    .map(|v| ((v - min) / (max - min)).clamp(0.0, 1.0));
+                let fraction = &live.unwrap_or(*fraction);
+                let cy = content_box.y + content_box.height / 2.0;
+                let track_h = 4.0_f64.min(content_box.height);
+                let track = Rect::new(content_box.x, cy - track_h / 2.0, content_box.width.max(1.0), track_h);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(track)
+                        .with_background(fill(track_gray))
+                        .with_radius(Radius::new(track_h / 2.0))
+                        .with_blend_mode(blend),
+                ));
+                let active_w = track.width * fraction;
+                if active_w > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(Rect::new(track.x, track.y, active_w, track_h))
+                            .with_background(fill(accent.clone()))
+                            .with_radius(Radius::new(track_h / 2.0))
+                            .with_blend_mode(blend),
+                    ));
+                }
+                let d = 12.0_f64.min(content_box.height);
+                let thumb_x = content_box.x + (content_box.width - d).max(0.0) * fraction;
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(Rect::new(thumb_x, cy - d / 2.0, d, d))
+                        .with_background(fill(accent.clone()))
+                        .with_radius(Radius::new(d / 2.0))
+                        .with_blend_mode(blend),
+                ));
+            }
+            FormControl::Progress { fraction } => {
+                let radius = Radius::new(content_box.height / 2.0);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(track_gray))
+                        .with_radius(radius)
+                        .with_blend_mode(blend),
+                ));
+                let bar = match fraction {
+                    Some(f) => Rect::new(content_box.x, content_box.y, content_box.width * f, content_box.height),
+                    // Static stand-in for the animated indeterminate bar.
+                    None => Rect::new(
+                        content_box.x + content_box.width * 0.3,
+                        content_box.y,
+                        content_box.width * 0.4,
+                        content_box.height,
+                    ),
+                };
+                if bar.width > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(bar)
+                            .with_background(fill(accent.clone()))
+                            .with_radius(radius)
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::Meter { fraction, level } => {
+                let radius = Radius::new(content_box.height / 2.0);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(track_gray))
+                        .with_radius(radius)
+                        .with_blend_mode(blend),
+                ));
+                let color = match level {
+                    MeterLevel::Optimum => Color::from_rgb8(0x10, 0x7c, 0x10),
+                    MeterLevel::Suboptimum => Color::from_rgb8(0xff, 0xb9, 0x00),
+                    MeterLevel::Critical => Color::from_rgb8(0xd8, 0x3b, 0x01),
+                };
+                let bar_w = content_box.width * fraction;
+                if bar_w > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(Rect::new(content_box.x, content_box.y, bar_w, content_box.height))
+                            .with_background(fill(color))
+                            .with_radius(radius)
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::ColorSwatch { value } => {
+                // What the picker chose lives on the document, like typed text; the markup
+                // value is only the default. Unparsable is black, per value sanitisation.
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let live = doc.control_edit_state(dom_node_id).map(|s| s.value);
+                let color = Color::try_from_css(live.as_deref().unwrap_or(value)).unwrap_or(Color::BLACK);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(color))
+                        .with_blend_mode(blend),
+                ));
+            }
         }
 
         commands
@@ -507,21 +1152,124 @@ impl Painter {
 
     fn has_border(&self, dom_node_id: NodeId) -> bool {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth) != 0.0
-            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth) != 0.0
+        let border = &doc.computed_style(dom_node_id).border;
+        border.top_width != 0.0 || border.right_width != 0.0 || border.bottom_width != 0.0 || border.left_width != 0.0
     }
 
     /// Apply the element's computed CSS border and border-radius to `r`. Shared by block,
     /// image and SVG elements so replaced elements (`<img>`) get their borders too.
-    fn decorate_with_border_and_radius(&self, dom_node_id: NodeId, mut r: Rectangle) -> Rectangle {
+    /// `suppressed` edges (`[top, right, bottom, left]`, from `border-collapse`
+    /// conflict resolution) are painted at zero width - the neighbouring cell
+    /// paints the shared border instead.
+    fn decorate_with_border_and_radius(
+        &self,
+        dom_node_id: NodeId,
+        collapsed: Option<&CollapsedCellBorders>,
+        mut r: Rectangle,
+    ) -> Rectangle {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
 
-        let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
-        let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
-        let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
-        let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
+        // Table cells under border-collapse paint the collapse geometry, not
+        // their CSS borders: each edge at its layout width (half the resolved
+        // boundary - the adjacent cell paints the other half, so the result is
+        // independent of cell paint order), lost edges in the winning
+        // neighbour's style, and perimeter edges extended outward by the
+        // outset (the border covers the background bleed on those strips).
+        // border-radius does not apply to collapsed cells.
+        if let Some(cb) = collapsed {
+            if (0..4).all(|e| cb.widths[e] + cb.outsets[e] <= 0.0) {
+                return r;
+            }
+            let own_color: [ColorOf; 4] = [
+                |style| style.border.top_color,
+                |style| style.border.right_color,
+                |style| style.border.bottom_color,
+                |style| style.border.left_color,
+            ];
+            let own_style: [BorderStyleOf; 4] = [
+                |style| style.border.top_style,
+                |style| style.border.right_style,
+                |style| style.border.bottom_style,
+                |style| style.border.left_style,
+            ];
+            // A lost edge renders the winning neighbour's FACING edge: our top
+            // is its bottom, our right is its left, and vice versa. When the winner
+            // is the TABLE itself (a perimeter boundary the table's border won),
+            // the same side applies - the table's left border faces the same way
+            // as the cell's left border.
+            let facing_color: [ColorOf; 4] = [
+                |style| style.border.bottom_color,
+                |style| style.border.left_color,
+                |style| style.border.top_color,
+                |style| style.border.right_color,
+            ];
+            let facing_style: [BorderStyleOf; 4] = [
+                |style| style.border.bottom_style,
+                |style| style.border.left_style,
+                |style| style.border.top_style,
+                |style| style.border.right_style,
+            ];
+            let owner_is_table = |owner: NodeId| {
+                matches!(
+                    doc.computed_style(owner).declared_display(),
+                    Some(Display::Table | Display::InlineTable)
+                )
+            };
+
+            let brushes: [Brush; 4] = std::array::from_fn(|e| match cb.owners[e] {
+                Some(owner) if owner_is_table(owner) => self.get_brush(owner, own_color[e], Brush::solid(Color::BLACK)),
+                Some(owner) => self.get_brush(owner, facing_color[e], Brush::solid(Color::BLACK)),
+                None => self.get_brush(dom_node_id, own_color[e], Brush::solid(Color::BLACK)),
+            });
+            let styles: [BorderStyle; 4] = std::array::from_fn(|e| {
+                let (node, style_of) = match cb.owners[e] {
+                    Some(owner) if owner_is_table(owner) => (owner, own_style[e]),
+                    Some(owner) => (owner, facing_style[e]),
+                    None => (dom_node_id, own_style[e]),
+                };
+                css_border_style_to_paint(&style_of(&doc.computed_style(node)))
+            });
+            // Snap the box and the strip ends to whole device pixels. The two
+            // cells of a boundary compute their strip ends from the SAME edge
+            // coordinate, so they snap identically and the half-strips abut
+            // without a double-AA seam - and thin borders land on whole
+            // pixels (a fractional 0.5+0.5 split would render as two
+            // half-alpha rows instead of one crisp line).
+            let rect = r.rect();
+            let (x0, y0) = (rect.x, rect.y);
+            let (x1, y1) = (rect.x + rect.width, rect.y + rect.height);
+            let top = (y0 - cb.outsets[0] as f64).round();
+            let right = (x1 + cb.outsets[1] as f64).round();
+            let bottom = (y1 + cb.outsets[2] as f64).round();
+            let left = (x0 - cb.outsets[3] as f64).round();
+            let widths = [
+                ((y0 + cb.widths[0] as f64).round() - top) as f32,
+                (right - (x1 - cb.widths[1] as f64).round()) as f32,
+                (bottom - (y1 - cb.widths[2] as f64).round()) as f32,
+                ((x0 + cb.widths[3] as f64).round() - left) as f32,
+            ];
+            return r
+                .with_rect(Rect::new(left, top, right - left, bottom - top))
+                .with_border(Border::new_per_side(widths, styles, brushes));
+        }
+
+        // A collapsed table's boundary is painted entirely by its perimeter cells
+        // (their halves + outsets, in whatever style won the conflict); painting the
+        // table's own CSS border as well would double-draw the losing style on top.
+        let element_style = doc.computed_style(dom_node_id);
+        if matches!(
+            element_style.declared_display(),
+            Some(Display::Table | Display::InlineTable)
+        ) && element_style.inherited.border_collapse == BorderCollapse::Collapse
+        {
+            return r;
+        }
+
+        let css_border = &element_style.border;
+        let border_top_width = css_border.top_width;
+        let border_right_width = css_border.right_width;
+        let border_bottom_width = css_border.bottom_width;
+        let border_left_width = css_border.left_width;
 
         if border_top_width != 0.0
             || border_right_width != 0.0
@@ -529,24 +1277,20 @@ impl Painter {
             || border_left_width != 0.0
         {
             let border_top_color =
-                self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
+                self.get_brush(dom_node_id, |style| style.border.top_color, Brush::solid(Color::BLACK));
             let border_right_color = self.get_brush(
                 dom_node_id,
-                &StyleProperty::BorderRightColor,
+                |style| style.border.right_color,
                 Brush::solid(Color::BLACK),
             );
             let border_bottom_color = self.get_brush(
                 dom_node_id,
-                &StyleProperty::BorderBottomColor,
+                |style| style.border.bottom_color,
                 Brush::solid(Color::BLACK),
             );
             let border_left_color =
-                self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
+                self.get_brush(dom_node_id, |style| style.border.left_color, Brush::solid(Color::BLACK));
 
-            let side_style = |prop: &StyleProperty| match doc.get_style(dom_node_id, prop) {
-                Value::BorderStyle(s) => css_border_style_to_paint(&s),
-                _ => BorderStyle::Solid,
-            };
             let border = Border::new_per_side(
                 [
                     border_top_width,
@@ -555,10 +1299,10 @@ impl Painter {
                     border_left_width,
                 ],
                 [
-                    side_style(&StyleProperty::BorderTopStyle),
-                    side_style(&StyleProperty::BorderRightStyle),
-                    side_style(&StyleProperty::BorderBottomStyle),
-                    side_style(&StyleProperty::BorderLeftStyle),
+                    css_border_style_to_paint(&css_border.top_style),
+                    css_border_style_to_paint(&css_border.right_style),
+                    css_border_style_to_paint(&css_border.bottom_style),
+                    css_border_style_to_paint(&css_border.left_style),
                 ],
                 [
                     border_top_color,
@@ -570,19 +1314,10 @@ impl Painter {
             r = r.with_border(border);
         }
 
-        let radius_bottom_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomLeftRadius);
-        let radius_bottom_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomRightRadius);
-        let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
-        let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
-
-        if radius_bottom_left != 0.0 || radius_bottom_right != 0.0 || radius_top_left != 0.0 || radius_top_right != 0.0
-        {
-            r = r.with_radius_tlrb(
-                Radius::new(radius_top_left as f64),
-                Radius::new(radius_top_right as f64),
-                Radius::new(radius_bottom_right as f64),
-                Radius::new(radius_bottom_left as f64),
-            );
+        let rect = r.rect();
+        let [tl, tr, br, bl] = used::border_radii(css_border, rect.width, rect.height).map(|(x, y)| Radius { x, y });
+        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+            r = r.with_radius_tlrb(tl, tr, br, bl);
         }
 
         r
@@ -630,16 +1365,8 @@ fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, bo
         return None;
     }
 
-    let px = if layout.center.0 {
-        (box_w - tw) / 2.0
-    } else {
-        layout.position.0
-    };
-    let py = if layout.center.1 {
-        (box_h - th) / 2.0
-    } else {
-        layout.position.1
-    };
+    let px = layout.position.0.resolve(box_w, tw);
+    let py = layout.position.1.resolve(box_h, th);
 
     Some(Tiling {
         tile_size: (tw, th),

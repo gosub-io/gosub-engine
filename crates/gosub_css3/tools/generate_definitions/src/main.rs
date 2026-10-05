@@ -2,7 +2,10 @@
 //! (`resources/definitions/`) by merging webref's spec grammars with MDN's
 //! property metadata. See README.md for the full data-flow description.
 
+mod fetch;
+mod keywords;
 mod mdn;
+mod property_ids;
 mod types;
 mod webref;
 
@@ -25,7 +28,7 @@ fn strip_trailing_comma_multiplier(re: &Regex, syntax: &str) -> String {
 
 /// Overrides for upstream PROPERTY grammars where both sources are wrong or
 /// incomplete for real-world CSS.
-const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 2] = [
+const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 4] = [
     // webref only carries the modern space-separated basic-shape <rect()>, but
     // the dominant real-world clip syntax is the legacy comma-separated CSS2
     // rect() (MDN's <shape>). Accept both.
@@ -35,23 +38,68 @@ const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 2] = [
     // `background-clip: text` is widely deployed. MDN's <bg-clip> carries the
     // full alternation.
     ("background-clip", "<bg-clip>#"),
+    // webref types column-rule from the css-gaps-1 draft (<gap-rule-list>),
+    // whose shape matches none of its own longhands, so the shorthand expanded
+    // to nothing and never reset them. css-multicol-1 §3.2 is the stable
+    // definition and names the longhands directly.
+    (
+        "column-rule",
+        "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    ),
+    // The HTML rendering section needs keywords no CSS spec defines: `<center>` and `align` on
+    // the table and block elements centre (or push aside) their block-level descendants as well
+    // as their text, which plain `center` does not, and `<th>` centres only where its parent
+    // left `text-align` at its initial value. The user-agent sheet spells these the way the
+    // engines do, and pages use the `-webkit-` ones directly.
+    (
+        "text-align",
+        "start | end | left | right | center | justify | match-parent | justify-all | -webkit-left \
+         | -webkit-right | -webkit-center | -webkit-match-parent | -internal-center",
+    ),
+];
+
+/// Overrides for a property's longhand list where MDN's is out of date.
+///
+/// A shorthand's list is what the cascade resets when the declaration leaves a longhand out, so
+/// a stale entry resets a property the shorthand does not set at all.
+const PROPERTY_LONGHAND_PATCHES: [(&str, &[&str]); 1] = [
+    // MDN still lists the gutters, from the css-grid-1 draft where `grid` reset them. css-grid-2
+    // §7.4 sets only the six grid-template-* and grid-auto-* longhands, and WPT asserts that a
+    // `grid` declaration leaves the gutters alone.
+    (
+        "grid",
+        &[
+            "grid-template-rows",
+            "grid-template-columns",
+            "grid-template-areas",
+            "grid-auto-rows",
+            "grid-auto-columns",
+            "grid-auto-flow",
+        ],
+    ),
 ];
 
 /// Value types that grammars reference but neither source defines: webref
 /// lists them with an EMPTY syntax (which the generator skips) and MDN
 /// references them from <shape> without defining them. Definitions per
 /// CSS2.1 §11.1.2.
-const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
+///
+/// `<color-layers()>` comes from the css-color-6 editor's draft, which webref
+/// does not carry yet. `<contrast-color()>` is the simplified form in the
+/// css-color-5 editor's draft.
+const MISSING_VALUE_PATCHES: [(&str, &str); 6] = [
     ("<top>", "<length> | auto"),
     ("<right>", "<length> | auto"),
     ("<bottom>", "<length> | auto"),
     ("<left>", "<length> | auto"),
+    ("<color-layers()>", "color-layers( [ <blend-mode> , ]? <color># )"),
+    ("<contrast-color()>", "contrast-color( <color> )"),
 ];
 
 /// Pins value definitions that multiple specs define differently, so the
 /// choice is explicit instead of an artifact of decode order (first spec
 /// wins).
-const VALUE_SYNTAX_PATCHES: [(&str, &str); 1] = [
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 7] = [
     // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
     // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
     // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
@@ -59,6 +107,50 @@ const VALUE_SYNTAX_PATCHES: [(&str, &str); 1] = [
     (
         "rect()",
         "rect( [ <length-percentage> | auto ]{4} [ round <'border-radius'> ]? )",
+    ),
+    // Upstream `<gradient>` stops at the css-images-3 set and omits the conic
+    // forms, though both are defined in the same data and css-images-4 lists
+    // them. Without them `background-image: conic-gradient(...)` matches no
+    // arm of `<image>` and the declaration is dropped.
+    (
+        "<gradient>",
+        "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()>          | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>",
+    ),
+    // css-images-4 §3.1 lets every gradient name the space its stops are interpolated in, and
+    // upstream carries it only on the conic form. Without it `linear-gradient(in oklab, red,
+    // blue)` is not a gradient at all and the declaration is dropped.
+    (
+        "<linear-gradient-syntax>",
+        "[ [ <angle> | <zero> | to <side-or-corner> ]? || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    (
+        "<radial-gradient-syntax>",
+        "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>",
+    ),
+    // css-color-5 makes color-mix() and contrast-color() a <color>, and
+    // css-color-6 does the same for color-layers(). Upstream lists none of them
+    // in <color-function>, so a value such as `color: color-mix(in srgb, red,
+    // blue)` was dropped. Upstream does list ictcp(), jzazbz(), jzczhz() and
+    // hdr-color() from the HDR draft, which no engine ships and this one cannot
+    // compute; they are left out, so they fail validation as in browsers. The
+    // list has to match `functions::registry`, which a gosub_css3 test checks.
+    (
+        "<color-function>",
+        "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <alpha()> | <color()> | <color-mix()> | <color-layers()> | <contrast-color()>",
+    ),
+    // The css-color-5 editor's draft makes the interpolation method optional and
+    // takes one or more colours. Upstream still has the two-colour form.
+    (
+        "<color-mix()>",
+        "color-mix( [ <color-interpolation-method> , ]? [ <color> && <percentage [0,100]>? ]# )",
+    ),
+    // A mask layer names its boxes <geometry-box>, while every mask longhand
+    // takes <coord-box> - two spellings of the same set, from css-masking-1 and
+    // css-box-4. The shorthand resolver maps longhands onto layer pieces by
+    // shape, so the spelling difference left `mask` expanding to nothing.
+    (
+        "<mask-layer>",
+        "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <coord-box> || [ <coord-box> | no-clip ] || <compositing-operator> || <masking-mode>",
     ),
 ];
 
@@ -77,7 +169,37 @@ fn add_bare_fit_content(syntax: &str) -> String {
     }
 }
 
+/// Where the checked-in definition data and the generated id module live, relative to this
+/// tool's own directory, so the offline mode works from any working directory.
+const CHECKED_IN_PROPERTIES: &str = "../../resources/definitions/definitions_properties.json";
+const PROPERTY_IDS_MODULE: &str = "../../src/matcher/property_ids.rs";
+const CHECKED_IN_VALUES: &str = "../../resources/definitions/definitions_values.json";
+const KEYWORDS_MODULE: &str = "../../src/matcher/keywords.rs";
+
 fn main() -> Result<()> {
+    // The offline mode reads the definition JSON that is already checked in and writes the
+    // property-id module from it. It is a separate run rather than a step of the regeneration
+    // because it needs no network and is what keeps the ids in step after the data changes.
+    // The keyword enums are the same kind of offline output: one enum per property whose
+    // grammar is a plain choice of keywords, read from the same checked-in JSON.
+    if std::env::args().any(|arg| arg == "--keywords") {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        return keywords::generate(
+            &here.join(CHECKED_IN_PROPERTIES),
+            &here.join(CHECKED_IN_VALUES),
+            &here.join(KEYWORDS_MODULE),
+        );
+    }
+    if std::env::args().any(|arg| arg == "--property-ids") {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut paths = std::env::args().skip(1).filter(|arg| arg != "--property-ids");
+        let input = paths
+            .next()
+            .map_or_else(|| here.join(CHECKED_IN_PROPERTIES), Into::into);
+        let output = paths.next().map_or_else(|| here.join(PROPERTY_IDS_MODULE), Into::into);
+        return property_ids::generate(&input, &output);
+    }
+
     eprintln!(
         "{} v{} — regenerate the CSS definition JSON embedded in gosub_css3 from webref + MDN",
         env!("CARGO_BIN_NAME"),
@@ -97,12 +219,8 @@ fn main() -> Result<()> {
     // and many layers.
     let comma_list_idiom = Regex::new(r"(<[^>]+>)#\? , ")?;
 
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("gosub-generate-definitions")
-        .build()?;
-
-    let webref_data = webref::get_webref_data(&client)?;
-    let mdn_data = mdn::get_mdn_data(&client)?;
+    let webref_data = webref::get_webref_data()?;
+    let mdn_data = mdn::get_mdn_data()?;
 
     let mut data = Data::default();
 
@@ -148,6 +266,10 @@ fn main() -> Result<()> {
         } else {
             mdn_prop.computed.array.clone()
         };
+        let computed = match PROPERTY_LONGHAND_PATCHES.iter().find(|(n, _)| *n == name) {
+            Some((_, longhands)) => longhands.iter().map(|l| (*l).to_string()).collect(),
+            None => computed,
+        };
 
         data.properties.push(Property {
             name: name.clone(),
@@ -172,7 +294,7 @@ fn main() -> Result<()> {
     // not fully cover (e.g. outline-radius, single-animation-*). Add every
     // entry webref did not already define, so grammar references to them
     // resolve.
-    for (name, syntax) in mdn::get_mdn_syntaxes(&client)? {
+    for (name, syntax) in mdn::get_mdn_syntaxes()? {
         let key = format!("<{name}>");
         if syntax.is_empty() || defined_values.contains(&key) {
             continue;

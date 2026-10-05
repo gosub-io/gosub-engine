@@ -55,15 +55,16 @@ impl Css3<'_> {
 
         let mut selector = None;
 
-        let nth = match self.consume_any()?.token_type {
-            TokenType::Ident(value) if value == "odd" => Node::new(
+        let t = self.consume_any()?;
+        let nth = match t.token_type {
+            TokenType::Ident(ref value) if value == "odd" => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "1".into(),
                 },
                 loc,
             ),
-            TokenType::Ident(value) if value == "even" => Node::new(
+            TokenType::Ident(ref value) if value == "even" => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "0".into(),
@@ -71,14 +72,14 @@ impl Css3<'_> {
                 loc,
             ),
             TokenType::Ident(_) => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 self.parse_anplusb()?
             }
             TokenType::Dimension { .. } => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 self.parse_anplusb()?
             }
-            TokenType::Number(value) => Node::new(NodeType::Number { value }, loc),
+            TokenType::Number(value, kind) => Node::new(NodeType::Number { value, kind }, loc),
             _ => {
                 return Err(CssError::with_location(
                     format!("Unexpected token {:?}", self.tokenizer.lookahead(0)).as_str(),
@@ -89,16 +90,22 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let t = self.tokenizer.lookahead(0);
-        if let TokenType::Ident(value) = t.token_type {
+        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value == "of");
+        if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
             self.consume_any()?;
 
-            if value == "of" {
+            if is_of {
                 selector = Some(self.parse_selector_list()?);
             }
         }
 
-        Ok(Node::new(NodeType::Nth { nth, selector }, loc))
+        Ok(Node::new(
+            NodeType::Nth {
+                nth: Box::new(nth),
+                selector: selector.map(Box::new),
+            },
+            loc,
+        ))
     }
 
     /// `:is(...)`, `:not(...)` and friends take a selector list, which may contain further pseudo

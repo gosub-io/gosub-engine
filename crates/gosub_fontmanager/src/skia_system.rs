@@ -1,13 +1,9 @@
 //! `SkiaFontSystem` - measurement and shaping through Skia's `textlayout` engine.
-//!
-//! Lives here (rather than in the Skia renderer crate) because a font system is
-//! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
-//! consume its output.
 
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign as GosubTextAlign,
-    TextStyle as GosubTextStyle,
+    Confinement, FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign as GosubTextAlign, TextStyle as GosubTextStyle,
 };
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
@@ -17,6 +13,38 @@ use skia_safe::{FontMgr, FontStyle};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
+
+/// The system font manager for this thread, built once and reused.
+///
+/// Two reasons it is not simply `FontMgr::new()` at each use site.
+///
+/// **It must not be built concurrently.** On Linux `FontMgr::new()` reaches
+/// `SkFontMgr_New_FontConfig` → `FcInitLoadConfigAndFonts()`, which builds a fontconfig
+/// configuration and mmaps its caches. Two threads doing that at once - or one doing it while
+/// Pango walks the same global config on another thread - had one unmapping cache files under
+/// the other, segfaulting inside libfontconfig. It showed up as an occasional SIGSEGV in this
+/// crate's tests, but only under `cargo test --workspace`: the `pango` and `skia` features are
+/// off by default, so a standalone run never compiled the two systems into the same binary.
+///
+/// **It is expensive.** Each call scanned the system's fonts from scratch, and eight call sites
+/// did so on every query.
+///
+/// The handle itself stays per-thread because skia-safe puts no `Send`/`Sync` on `RCHandle`, so a
+/// `FontMgr` cannot be shared between threads; only its construction is serialised.
+fn system_font_mgr() -> FontMgr {
+    thread_local! {
+        static SYSTEM_FONT_MGR: RefCell<Option<FontMgr>> = const { RefCell::new(None) };
+    }
+
+    SYSTEM_FONT_MGR.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        cell.get_or_insert_with(|| {
+            let _guard = crate::fontconfig_lock::hold();
+            FontMgr::new()
+        })
+        .clone()
+    })
+}
 
 // ── Registered web fonts ──────────────────────────────────────────────────────
 //
@@ -46,21 +74,17 @@ pub(crate) fn web_font_generation() -> u64 {
     registry().lock().generation
 }
 
-/// Build a `FontMgr` (backed by a `TypefaceFontProvider`) containing every registered web
-/// font, or `None` if none are registered or none could be decoded.
+/// Build a `FontMgr` containing every registered web font, or `None` if none decode.
 ///
-/// A variable font is registered as one instance per standard CSS weight stop (100–900)
-/// within its `wght` axis range, not just its default instance. Google Fonts serves a single
-/// variable file for a multi-weight `@font-face` set (e.g. `wght@600;700` → one file whose
-/// default instance is 400); registering only the default made every bold-ish weight request
-/// fall back to faux-bold of the 400 instance. With per-weight instances,
-/// `FontCollection::matchStyle` selects the genuinely-instanced weight.
+/// Variable fonts are registered as one instance per CSS weight stop (100–900): Google
+/// Fonts serves one variable file whose default instance is 400, and registering only
+/// that made bold weights fall back to faux-bold.
 fn build_web_font_mgr() -> Option<FontMgr> {
     let reg = registry().lock();
     if reg.fonts.is_empty() {
         return None;
     }
-    let fm = FontMgr::new();
+    let fm = system_font_mgr();
     let mut provider = TypefaceFontProvider::new();
     let mut any = false;
     for (family, bytes) in reg.fonts.iter() {
@@ -137,7 +161,7 @@ thread_local! {
 
 fn base_font_collection() -> FontCollection {
     let mut fc = FontCollection::new();
-    fc.set_default_font_manager(FontMgr::new(), None);
+    fc.set_default_font_manager(system_font_mgr(), None);
     fc
 }
 
@@ -155,10 +179,7 @@ pub(crate) fn with_font_collection<R>(f: impl FnOnce(&FontCollection) -> R) -> R
     })
 }
 
-/// Split a CSS `font-family` value (`"Source Serif 4", Georgia, serif`) into its individual
-/// family names, trimmed and unquoted, in priority order. The font system tries each in turn
-/// so the CSS fallback chain (including the generic `serif`/`sans-serif`/`monospace`) is
-/// honoured instead of only the first name being attempted.
+/// Split a CSS `font-family` value into trimmed, unquoted family names in priority order.
 pub(crate) fn split_font_families(families: &str) -> Vec<String> {
     families
         .split(',')
@@ -174,9 +195,8 @@ fn is_real_generic(name: &str) -> bool {
         .any(|generic| name.eq_ignore_ascii_case(generic))
 }
 
-/// Newer CSS generic keywords that fontconfig usually does *not* map. We drop them so resolution
-/// falls through to the real generic (`monospace`, `sans-serif`, …) that CSS font stacks
-/// conventionally end with, instead of letting the platform default masquerade as this family.
+/// Newer CSS generic keywords fontconfig usually does not map; dropped so resolution falls
+/// through to the real generic the stack ends with.
 fn is_pseudo_generic(name: &str) -> bool {
     [
         "system-ui",
@@ -201,18 +221,12 @@ thread_local! {
 
 /// Prune a CSS `font-family` list to the entries Skia should actually try, in order.
 ///
-/// Skia's `FontCollection` walks the list and, on Linux, fontconfig returns *some* face for *every*
-/// name - even an unknown one like `ui-monospace` - so an unavailable leading family silently
-/// captures the platform default and the real generic (`monospace`) at the end of the chain is never
-/// reached.
-///
-/// We keep an entry when it's a real generic, or when it resolves to a *genuine* face: either an
-/// exact name match, or a fontconfig **alias** to a family other than the bare default fallback
-/// (e.g. `Arial` → Liberation Sans, which is what Firefox uses). We drop the newer pseudo-generics
-/// (`ui-*`, `system-ui`) and any name that only yields the default fallback, so the stack's trailing
-/// real generic decides instead of the platform default impersonating an unavailable family. If
-/// nothing survives, fall back to the original list so text still draws. Applied to both measure and
-/// draw so they stay on the same faces.
+/// On Linux fontconfig returns some face for every name, so an unavailable leading family
+/// silently captures the platform default and the trailing real generic is never reached.
+/// Keep real generics and names resolving to a genuine face or alias (e.g. `Arial` →
+/// Liberation Sans); drop pseudo-generics and names that only yield the default fallback.
+/// If nothing survives, keep the original list so text still draws. Applied to both
+/// measure and draw so they stay on the same faces.
 pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
     RESOLVED_FAMILIES.with(|cell| {
         let mut cell = cell.borrow_mut();
@@ -225,22 +239,27 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
             return v.clone();
         }
 
-        let fm = FontMgr::new();
+        let fm = system_font_mgr();
         let web = web_font_mgr();
         let normal = FontStyle::normal();
 
-        // The face fontconfig hands back for a name it doesn't actually have. A name that resolves
-        // to anything *else* is a real family or a real alias; a name that only yields this is an
-        // unavailable family we should drop.
+        // The face fontconfig hands back for a name it doesn't actually have; a name that
+        // only yields this is an unavailable family to drop.
         let default_fallback = fm
             .match_family_style("__gosub_nonexistent_family__", normal)
             .map(|tf| tf.family_name());
 
         let resolves_to_real = |name: &str| -> bool {
-            if let Some(tf) = web.as_ref().and_then(|w| w.match_family_style(name, normal)) {
-                if tf.family_name().eq_ignore_ascii_case(name) {
-                    return true;
-                }
+            // The web provider holds only the faces we registered, each under the family name
+            // its `@font-face` rule gave it, so any match here is genuine. It is deliberately
+            // *not* checked against `tf.family_name()`: that reports the font file's own name
+            // ("Roboto"), not the CSS name it was registered as ("MyFace"), so comparing the
+            // two dropped every web font whose file disagrees with its `@font-face` family -
+            // which is nearly all of them. Dropped from the list, the trailing generic won and
+            // the web font never rendered, except in the single-family case that the
+            // "nothing survived" fallback below happened to rescue.
+            if web.as_ref().and_then(|w| w.match_family_style(name, normal)).is_some() {
+                return true;
             }
             match fm.match_family_style(name, normal) {
                 Some(tf) => {
@@ -257,12 +276,10 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
                 continue;
             }
             if is_real_generic(&name) {
-                // Replace the generic with the concrete family fontconfig picks for it
-                // (what `fc-match` and Firefox use). Skia's textlayout resolves families via
-                // `matchFamily()`, whose fontconfig style-set is ordered differently from
-                // `matchFamilyStyle()` - it hands back e.g. FreeMono for `monospace` and
-                // FreeSerif for `serif` instead of DejaVu Sans Mono / Noto Serif. Concrete
-                // names round-trip through textlayout unchanged, so resolve the generic here.
+                // Replace the generic with the concrete family fontconfig picks: textlayout's
+                // `matchFamily()` orders fontconfig style-sets differently from
+                // `matchFamilyStyle()` (FreeMono for `monospace` instead of DejaVu Sans Mono);
+                // concrete names round-trip unchanged.
                 match fm.match_family_style(&name, normal) {
                     Some(tf) => out.push(tf.family_name()),
                     None => out.push(name),
@@ -315,11 +332,8 @@ fn to_skia_slant(style: CssFontStyle) -> skia_safe::font_style::Slant {
     }
 }
 
-/// Build and lay out the measurement/shaping paragraph for `text` in `style`.
-///
-/// This is the single source of truth for how a [`GosubTextStyle`] maps onto Skia's textlayout -
-/// `measure` reads this paragraph's extents and `shape` exports its glyph runs, so the two can't
-/// disagree.
+/// Build and lay out the paragraph for `text` in `style`. `measure` reads its extents and
+/// `shape` exports its glyph runs, so the two can't disagree.
 fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle) -> Paragraph {
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_align(match style.align {
@@ -332,10 +346,8 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 
     let mut ts = TextStyle::new();
     ts.set_font_size(style.size);
-    // Apply the CSS line-height (absolute px → multiple of font size) exactly as the draw
-    // path (`build_paragraph`) does, so the measured box height matches what is painted.
-    // Skipping this measured the font's natural ~1.2× box while draw rendered the CSS 1.7×,
-    // overflowing the reserved box into the next element.
+    // CSS line-height (absolute px → multiple of font size), same as the draw path, so the
+    // measured box height matches what is painted.
     if let Some(line_height) = style.line_height {
         if line_height > 0.0 && style.size > 0.0 {
             ts.set_height(line_height / style.size);
@@ -364,26 +376,31 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 }
 
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
-///
-/// Measurement, shaping, and the Skia rasterizer's own drawing all go through the same
-/// thread-local [`FontCollection`], so they can't disagree. `resolve`/`shape` export concrete
-/// fonts (via `Typeface::to_font_data`) and positioned glyph runs in the neutral trait types, so
-/// a [`ShapedText`]-painting backend can consume this font system like any other; the Skia
-/// rasterizer itself still draws through textlayout natively.
 #[derive(Debug, Default)]
 pub struct SkiaFontSystem;
 
 impl FontSystem for SkiaFontSystem {
+    /// Statically [`Confinement::FontPathsReadable`], so the fork server knows
+    /// not to construct (or warm) this stack at all.
+    fn confinement() -> Confinement {
+        Confinement::FontPathsReadable
+    }
+
+    /// Skia needs the font paths readable, and no preparation helps or hurts.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        Confinement::FontPathsReadable
+    }
+
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
         // Validate the bytes and derive the family name if none was supplied.
         let family = match family_override {
             Some(f) => f.to_string(),
-            None => match FontMgr::new().new_from_data(&data, None) {
+            None => match system_font_mgr().new_from_data(&data, None) {
                 Some(tf) => tf.family_name(),
                 None => return Err(FontError::InvalidFont("could not decode font data".into())),
             },
         };
-        if FontMgr::new().new_from_data(&data, None).is_none() {
+        if system_font_mgr().new_from_data(&data, None).is_none() {
             return Err(FontError::InvalidFont(format!("unsupported font data for '{family}'")));
         }
         let mut reg = registry().lock();
@@ -408,7 +425,7 @@ impl FontSystem for SkiaFontSystem {
         }
 
         let web = web_font_mgr();
-        let fm = FontMgr::new();
+        let fm = system_font_mgr();
         for name in &names {
             let typeface = web
                 .as_ref()
@@ -432,7 +449,7 @@ impl FontSystem for SkiaFontSystem {
     fn families(&mut self) -> Vec<String> {
         // System fonts plus the registered web fonts, which live in a separate provider
         // (`web_font_mgr`) rather than the platform font manager.
-        let mut out: Vec<String> = FontMgr::new().family_names().collect();
+        let mut out: Vec<String> = system_font_mgr().family_names().collect();
         if let Some(web) = web_font_mgr() {
             out.extend(web.family_names());
         }
@@ -524,9 +541,7 @@ impl FontSystem for SkiaFontSystem {
 }
 
 /// Map a CSS `font-stretch` percentage (normal = 100) onto Skia's 1–9 width classes
-/// (normal = 5), using the CSS-defined keyword percentages as bucket centres. The previous
-/// `width / 100` mapping sent the default 100% to width class 1 (ultra-condensed), which
-/// disagreed with the measure path's `Width::NORMAL` and could select a condensed face.
+/// (normal = 5). A naive `pct / 100` sends the default 100% to class 1 (ultra-condensed).
 fn width_from_css_percent(pct: i32) -> skia_safe::font_style::Width {
     let class = match pct {
         ..=56 => 1,     // ultra-condensed (50%)
@@ -562,9 +577,6 @@ mod tests {
         assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
     }
 
-    /// End-to-end resolve + shape through Skia: the resolved font must carry its file bytes,
-    /// shaping must produce glyph runs, and the shape bounding box must agree with `measure`
-    /// (both read the same textlayout paragraph).
     #[test]
     fn resolves_and_shapes_via_skia() {
         let mut fs = SkiaFontSystem;
@@ -589,6 +601,29 @@ mod tests {
             "measure ({w} x {h}) must agree with shape ({} x {})",
             shaped.width,
             shaped.height
+        );
+    }
+
+    /// A registered `@font-face` family must survive `resolve_family_list` when the CSS names a
+    /// fallback after it - which is how `font-family` is nearly always written. The face is
+    /// registered under the name its `@font-face` rule gave it, not the one inside the file, so
+    /// the pruning must not judge it by the font's own family name: doing so dropped the web
+    /// font from the list and let the trailing generic render instead.
+    #[test]
+    fn a_registered_web_font_survives_pruning_ahead_of_its_fallback() {
+        let mut fs = SkiaFontSystem;
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Skia Alias Test"))
+            .expect("bundled Roboto must register");
+
+        let resolved = resolve_family_list("\"Gosub Skia Alias Test\", serif");
+        assert_eq!(
+            resolved.first().map(String::as_str),
+            Some("Gosub Skia Alias Test"),
+            "the web font must stay first in the list, ahead of the fallback: {resolved:?}"
+        );
+        assert!(
+            resolved.len() > 1,
+            "the fallback generic must still be kept: {resolved:?}"
         );
     }
 
@@ -627,7 +662,7 @@ mod tests {
             let name = &resolved[0];
             // If the system has any monospace font, the generic must have been replaced by
             // the same concrete family `matchFamilyStyle` (fc-match) picks.
-            if let Some(tf) = FontMgr::new().match_family_style("monospace", FontStyle::normal()) {
+            if let Some(tf) = system_font_mgr().match_family_style("monospace", FontStyle::normal()) {
                 assert_eq!(name, &tf.family_name(), "stack '{stack}'");
             } else {
                 assert_eq!(name, "monospace");

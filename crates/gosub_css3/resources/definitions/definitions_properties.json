@@ -2482,7 +2482,7 @@
   },
   {
     "name": "column-rule",
-    "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
+    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
     "computed": [
       "column-rule-width",
       "column-rule-style",
@@ -3423,11 +3423,7 @@
       "grid-template-areas",
       "grid-auto-rows",
       "grid-auto-columns",
-      "grid-auto-flow",
-      "grid-column-gap",
-      "grid-row-gap",
-      "column-gap",
-      "row-gap"
+      "grid-auto-flow"
     ],
     "initial": [
       "grid-template-rows",
@@ -3914,7 +3910,7 @@
   },
   {
     "name": "letter-spacing",
-    "syntax": "normal | <length>",
+    "syntax": "normal | <length-percentage>",
     "computed": [
       "optimumValueOfAbsoluteLengthOrNormal"
     ],
@@ -5799,7 +5795,7 @@
   },
   {
     "name": "text-align",
-    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
+    "syntax": "start | end | left | right | center | justify | match-parent | justify-all | -webkit-left | -webkit-right | -webkit-center | -webkit-match-parent | -internal-center",
     "computed": [
       "asSpecifiedExceptMatchParent"
     ],

@@ -5,6 +5,7 @@ pub mod geo;
 pub mod media;
 pub mod texture;
 pub mod texture_store;
+pub mod theme;
 
 mod hash;
 

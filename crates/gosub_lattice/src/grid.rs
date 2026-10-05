@@ -4,7 +4,7 @@ use crate::model::TableRow;
 #[derive(Debug, Clone)]
 pub struct PlacedCell<N> {
     pub node: N,
-    /// Zero-based row index within the **section** (not the whole table).
+    /// Zero-based row index within the section (not the whole table).
     pub row: usize,
     /// Zero-based column index within the table.
     pub col: usize,
@@ -19,12 +19,22 @@ pub struct SectionGrid<N> {
     cells: Vec<PlacedCell<N>>,
     pub n_cols: usize,
     pub n_rows: usize,
+    /// The row element behind each grid row, `None` for an anonymous row.
+    pub row_nodes: Vec<Option<N>>,
 }
 
 impl<N: Copy> SectionGrid<N> {
     /// All placed cells in the section.
     pub fn cells(&self) -> &[PlacedCell<N>] {
         &self.cells
+    }
+
+    /// Clamp every cell's colspan to the table-wide column count, so spans
+    /// can't reach past the last column any cell (in any section) originates in.
+    pub fn clamp_colspans(&mut self, table_n_cols: usize) {
+        for cell in &mut self.cells {
+            cell.colspan = cell.colspan.min(table_n_cols.saturating_sub(cell.col)).max(1);
+        }
     }
 
     /// Iterate over cells whose `row` field equals `row_idx`.
@@ -60,7 +70,7 @@ impl<N: Copy> SectionGrid<N> {
 ///
 /// Rules:
 /// - Cells are placed left-to-right, skipping slots already occupied by a
-///   spanning cell from an earlier row in the **same section**.
+///   spanning cell from an earlier row in the same section.
 /// - `rowspan` is clamped to the number of rows remaining in the section,
 ///   enforcing that spans never cross section boundaries.
 pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
@@ -84,9 +94,15 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
 
             let colspan = source_cell.colspan.max(1);
 
-            // Rowspan is clamped: a cell can only span within the current section.
+            // Rowspan is clamped: a cell can only span within the current
+            // section. HTML's rowspan=0 means "all remaining rows of the
+            // row group" (same clamp, taken literally).
             let rows_left = n_rows.saturating_sub(row_idx);
-            let rowspan = source_cell.rowspan.max(1).min(rows_left);
+            let rowspan = if source_cell.rowspan == 0 {
+                rows_left
+            } else {
+                source_cell.rowspan.min(rows_left)
+            };
 
             // Grow the slot tracker to cover all columns this cell occupies.
             grow_slots(&mut slot_remaining, col + colspan);
@@ -108,8 +124,20 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
         }
     }
 
-    let n_cols = slot_remaining.len();
-    SectionGrid { cells, n_cols, n_rows }
+    // Trailing columns no cell *originates* in don't count (css-tables-3;
+    // matches browsers): a lone `colspan=9` in a 4-column grid must not create
+    // five phantom columns that would each drag in a border-spacing gutter.
+    // Colspans stay unclamped here - the table clamps them against the
+    // TABLE-wide column count (spans may reach into columns other sections
+    // define) via [`SectionGrid::clamp_colspans`].
+    let n_cols = cells.iter().map(|c| c.col + 1).max().unwrap_or(0);
+    let row_nodes = rows.iter().map(|row| row.node).collect();
+    SectionGrid {
+        cells,
+        n_cols,
+        n_rows,
+        row_nodes,
+    }
 }
 
 // Internal helpers
@@ -185,7 +213,7 @@ mod tests {
 
     #[test]
     fn rowspan_clamped_at_section_boundary() {
-        // Section has 2 rows; a cell in row 0 claims rowspan=5 → clamped to 2.
+        // Section has 2 rows; a cell in row 0 claims rowspan=5 -> clamped to 2.
         let rows = vec![make_row(&[(1, 5), (1, 1)]), make_row(&[(1, 1)])];
         let grid = build_section_grid(&rows);
         let spanning = grid.cells_in_row(0).next().expect("first cell");
@@ -193,8 +221,19 @@ mod tests {
     }
 
     #[test]
+    fn rowspan_zero_spans_rest_of_section() {
+        // HTML rowspan=0: the cell spans all remaining rows of the row group.
+        let rows = vec![make_row(&[(1, 0), (1, 1)]), make_row(&[(1, 1)]), make_row(&[(1, 1)])];
+        let grid = build_section_grid(&rows);
+        let spanning = grid.cells_in_row(0).next().expect("first cell");
+        assert_eq!(spanning.rowspan, 3, "rowspan=0 covers every remaining section row");
+        // The spanned column stays occupied: later rows' cells land in col 1.
+        assert_eq!(grid.cells_in_row(2).next().expect("row 2 cell").col, 1);
+    }
+
+    #[test]
     fn colspan_places_correctly() {
-        // Row 0: A (colspan=2), B (colspan=1)  → 3 columns
+        // Row 0: A (colspan=2), B (colspan=1)  -> 3 columns
         let rows = vec![make_row(&[(2, 1), (1, 1)])];
         let grid = build_section_grid(&rows);
         assert_eq!(grid.n_cols, 3);

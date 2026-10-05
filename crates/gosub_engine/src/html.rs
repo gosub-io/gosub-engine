@@ -1,5 +1,6 @@
 //! HTML parsing entry points and the render-side configuration traits.
 mod parser;
+pub use parser::read_document_source;
 
 pub use parser::parse_main_document_stream;
 pub use parser::{DocumentError, HtmlParseConfig, ResourceHint};
@@ -76,6 +77,15 @@ pub trait RenderConfiguration: ModuleConfiguration<Document = DocumentImpl<Self>
     /// Font system used for text measurement (layout) and shared with the renderer for drawing.
     /// The engine owns one instance, created via `Default`, and hands it to both.
     type FontSystem: FontSystem + Default;
+
+    /// A stage-6 tile rasterizer for a forked renderer process, or `None`
+    /// if forked renderers should stop after painting.
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        let _ = font_system;
+        None
+    }
 }
 
 impl<B, F, S> RenderConfiguration for DefaultRenderConfig<B, F, S>
@@ -87,6 +97,32 @@ where
     type RenderBackend = B;
     type CompositorSink = S;
     type FontSystem = F;
+
+    /// A CPU tile rasterizer for forked renderers, when one is compiled in
+    /// (`cairo-tiles`, else `skia-tiles`). Independent of `B`: a GPU backend in
+    /// the broker still receives isolated tiles as CPU pixels.
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        #[cfg(feature = "cairo-tiles")]
+        {
+            Some(Box::new(gosub_renderer_cairo::CairoRasterizer::with_font_system(
+                font_system,
+            )))
+        }
+        #[cfg(all(feature = "skia-tiles", not(feature = "cairo-tiles")))]
+        {
+            Some(Box::new(gosub_renderer_skia::SkiaRasterizer::with_font_system(
+                1.0,
+                font_system,
+            )))
+        }
+        #[cfg(not(any(feature = "cairo-tiles", feature = "skia-tiles")))]
+        {
+            let _ = font_system;
+            None
+        }
+    }
 }
 
 /// The parsed document type used by the engine for a given config (defaults to [`DefaultRenderConfig`]).
@@ -95,6 +131,96 @@ pub type EngineDocument<C = DefaultRenderConfig> = DocumentImpl<C>;
 /// Extract the text content of the first `<title>` element in the document.
 pub fn document_title<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option<String> {
     find_title(doc, doc.root())
+}
+
+/// Whether `node_id` is a text-editable control: `<textarea>`, a text-like
+/// `<input>`, or `contenteditable`.
+pub fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+    match doc.tag_name(node_id) {
+        Some("textarea") => true,
+        Some("input") => !doc.attribute(node_id, "type").is_some_and(|t| {
+            [
+                "button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden",
+            ]
+            .iter()
+            .any(|k| t.eq_ignore_ascii_case(k))
+        }),
+        _ => crate::engine::focus::is_contenteditable(doc, node_id),
+    }
+}
+
+/// Every `#fragment` target of a laid-out page - elements with an `id`, and
+/// `<a name>`s - with where each starts, in document order (layout ids are
+/// handed out in tree order), so the first match is the one the spec wants.
+/// A remotely rendered page ships these to the broker, which has no layout;
+/// the renderer caps that payload, a local lookup sees every target.
+pub(crate) fn collect_fragment_targets<C: RenderConfiguration>(
+    layer_list: &gosub_render_pipeline::layering::layer::LayerList,
+    doc: &EngineDocument<C>,
+) -> Vec<crate::fork_server::protocol::FragmentTarget> {
+    use crate::fork_server::protocol::FragmentTarget;
+
+    let mut nodes: Vec<_> = layer_list.layout_tree.arena.values().collect();
+    nodes.sort_by_key(|n| n.id.as_u64());
+    let mut targets = Vec::new();
+    for node in nodes {
+        let dom = node.dom_node_id;
+        let y = node.box_model.border_box.y;
+        if let Some(id) = doc.attribute(dom, "id") {
+            targets.push(FragmentTarget {
+                name: id.to_string(),
+                by_id: true,
+                y,
+            });
+        }
+        if doc.tag_name(dom) == Some("a") {
+            if let Some(name) = doc.attribute(dom, "name") {
+                targets.push(FragmentTarget {
+                    name: name.to_string(),
+                    by_id: false,
+                    y,
+                });
+            }
+        }
+    }
+    targets
+}
+
+/// The document's icon: the first `<link rel="icon">` (or `shortcut icon`,
+/// `apple-touch-icon*`) resolved against `base_url`, else `/favicon.ico` for
+/// http(s) documents.
+pub fn favicon_url<C: RenderConfiguration>(doc: &EngineDocument<C>, base_url: &url::Url) -> Option<url::Url> {
+    fn walk<C: RenderConfiguration>(doc: &EngineDocument<C>, node: NodeId, base: &url::Url) -> Option<url::Url> {
+        for &child in doc.children(node) {
+            if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
+                let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
+                    rel.split_ascii_whitespace().any(|t| {
+                        // Compared as bytes: slicing the `str` at 16 panics when a
+                        // page puts a multi-byte character across that offset.
+                        t.eq_ignore_ascii_case("icon")
+                            || t.as_bytes()
+                                .get(..16)
+                                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"apple-touch-icon"))
+                    })
+                });
+                if is_icon {
+                    if let Some(url) = doc.attribute(child, "href").and_then(|h| base.join(h).ok()) {
+                        return Some(url);
+                    }
+                }
+            }
+            if let Some(found) = walk::<C>(doc, child, base) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    walk::<C>(doc, doc.root(), base_url).or_else(|| {
+        matches!(base_url.scheme(), "http" | "https")
+            .then(|| base_url.join("/favicon.ico").ok())
+            .flatten()
+    })
 }
 
 fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
@@ -111,7 +237,6 @@ fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) 
             continue;
         }
 
-        // Collect text from title's children
         let mut text = String::new();
         for &t in doc.children(child) {
             if doc.node_type(t) != NodeType::TextNode {

@@ -536,7 +536,7 @@ mod tests {
             let _ = render_tree.parse();
 
             let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(512.0, TILE)), 1.0);
-            let mut tile_list = TileList::new(LayerList::new(layout_tree), Dimension::new(TILE, TILE));
+            let mut tile_list = TileList::new(LayerList::new(Arc::new(layout_tree)), Dimension::new(TILE, TILE));
             tile_list.generate();
             tile_list
         }

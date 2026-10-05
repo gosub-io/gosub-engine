@@ -13,17 +13,17 @@ GosubEngine<C>                        (owns backend, compositor, font system, ev
 
 ## Why zones
 
-A zone is a **browser profile/container** (in the Firefox-containers sense): it encapsulates everything that constitutes an identity on the web --- cookies, local/session storage, and runtime services --- so "Work" and "Home" zones browsing the same site are two different users as far as that site can tell. Zones also carry UI metadata (title, icon, color, description) so a user agent can render them as visible containers.
+A zone is a **browser profile/container** (in the Firefox-containers sense): it encapsulates everything that constitutes an identity on the web — cookies, local/session storage, and runtime services — so "Work" and "Home" zones browsing the same site are two different users as far as that site can tell. Zones also carry UI metadata (title, icon, color, description) so a user agent can render them as visible containers.
 
 Isolation is the default; sharing is opt-in per data class via `SharedFlags` (autocomplete, bookmarks, passwords, cookie jar).
 
 A zone is created through `engine.zone_builder()`, from:
 
--   **`ZoneConfig`** --- limits and settings (e.g. maximum tabs);
--   **`ZoneServices`** --- the isolation boundary made concrete: a `StorageService` (local + session stores --- see [datastores.md](datastores.md)), an optional cookie store/jar (see [cookies.md](cookies.md)), and a `PartitionPolicy` describing how storage is keyed (e.g. per-origin partitioning);
--   an optional fixed `ZoneId` (a UUID --- pass one to restore a persisted zone across runs).
+-   **`ZoneConfig`** — limits and settings (e.g. maximum tabs);
+-   **`ZoneServices`** — the isolation boundary made concrete: a `StorageService` (local + session stores — see [datastores.md](datastores.md)), an optional cookie store/jar (see [cookies.md](cookies.md)), and a `PartitionPolicy` describing how storage is keyed (e.g. per-origin partitioning);
+-   an optional fixed `ZoneId` (a UUID — pass one to restore a persisted zone across runs).
 
-Internally the zone builds a `ZoneContext` that flows down to every tab it creates: the services above plus the engine-wide pieces --- event channel, network I/O channel, the render backend, compositor sink, and the single shared font system (all concrete types per the config `C`, see [configuration.md](configuration.md)).
+Internally the zone builds a `ZoneContext` that flows down to every tab it creates: the services above plus the engine-wide pieces — event channel, network I/O channel, the render backend, compositor sink, and the single shared font system (all concrete types per the config `C`, see [configuration.md](configuration.md)).
 
 ## The engine around them
 
@@ -73,5 +73,5 @@ Inside the worker:
 
 -   **Isolation by construction.** Zone state lives in `ZoneServices`; a tab can only reach what its `ZoneContext` hands it. Cross-zone leaks would require explicit plumbing.
 -   **One slow tab can't stall the rest.** Each `TabWorker` is its own task; heavy layout or a hung fetch affects only that tab. Networking is off on its own thread entirely.
--   **Message passing over shared state.** The UA ↔ engine boundary is channels in both directions, so a GUI event loop (winit, GTK, egui) and the engine's tokio runtime never lock each other --- the [headless tool](headless.md) drives the exact same interface without a window.
--   **Compile-time config all the way down.** `ZoneContext` carries the *concrete* backend/compositor/font types of `C: RenderConfiguration` --- no dynamic dispatch on the hot rendering path and no possibility of a zone mixing components from different configs.
+-   **Message passing over shared state.** The UA ↔ engine boundary is channels in both directions, so a GUI event loop (winit, GTK, egui) and the engine's tokio runtime never lock each other — the [headless tool](headless.md) drives the exact same interface without a window.
+-   **Compile-time config all the way down.** `ZoneContext` carries the *concrete* backend/compositor/font types of `C: RenderConfiguration` — no dynamic dispatch on the hot rendering path and no possibility of a zone mixing components from different configs.

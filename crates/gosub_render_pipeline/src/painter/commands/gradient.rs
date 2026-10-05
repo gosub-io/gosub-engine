@@ -31,11 +31,11 @@ pub struct LinearGradient {
 }
 
 impl LinearGradient {
-    /// Gradient line within a `w`×`h` box, relative to the box origin. Per spec the line is
+    /// Gradient line within a `w`x`h` box, relative to the box origin. Per spec the line is
     /// centred and long enough that the `0%`/`100%` stops land on the box's edges/corners.
     pub fn line(&self, w: f32, h: f32) -> ((f32, f32), (f32, f32)) {
         let theta = self.angle_deg.to_radians();
-        // CSS direction vector: 0deg → up (0,-1), 90deg → right (1,0), 180deg → down (0,1).
+        // CSS direction vector: 0deg -> up (0,-1), 90deg -> right (1,0), 180deg -> down (0,1).
         let dx = theta.sin();
         let dy = -theta.cos();
         // Half the length of the gradient line projected onto the box.
@@ -81,7 +81,7 @@ impl LinearGradient {
         }
     }
 
-    /// Rasterize one `tw`×`th` tile into straight-alpha RGBA8 (row-major, 4 bytes per pixel),
+    /// Rasterize one `tw`x`th` tile into straight-alpha RGBA8 (row-major, 4 bytes per pixel),
     /// to be repeated across a tiled `background-image` layer.
     pub fn rasterize_tile(&self, tw: u32, th: u32) -> Vec<u8> {
         let (w, h) = (tw as f32, th as f32);

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>16 - block and flex layout inside cells</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; width: 640px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; vertical-align: top; }
+  .flex { display: flex; }
+  .flex div { flex: 1; padding: 4px; }
+  .f1 { background-color: #ffd9b3; }
+  .f2 { background-color: #d9ffb3; }
+  .f3 { background-color: #f0d9ff; }
+  .stack div { padding: 4px; margin-bottom: 4px; background-color: #ffd9b3; }
+</style>
+</head>
+<body>
+<h3>Other layout inside cells - flex row, block stack, wrapping text</h3>
+<p>Expected: cell 1 holds a flex row of three equal boxes filling the cell
+width. Cell 2 holds three stacked blocks with margins; the row grows to
+fit them. Cell 3 holds a paragraph that wraps within its column width; the
+whole row takes the tallest cell's height.</p>
+<table>
+  <tr>
+    <td>
+      <div class="flex"><div class="f1">one</div><div class="f2">two</div><div class="f3">three</div></div>
+    </td>
+    <td class="stack">
+      <div>first block</div>
+      <div>second block</div>
+      <div>third block</div>
+    </td>
+    <td>
+      This paragraph of text is long enough that it will need to wrap onto
+      several lines inside its table cell, which makes this row taller than
+      a single line of text.
+    </td>
+  </tr>
+</table>
+</body>
+</html>

@@ -148,7 +148,7 @@ fn run_pipeline_once(html: &str, layouter: &mut TaffyLayouter) -> StageTimes {
 
     // Stage 3: layering
     let t = Instant::now();
-    let layer_list = LayerList::new(layout_tree);
+    let layer_list = LayerList::new(Arc::new(layout_tree));
     let layering_time = t.elapsed();
 
     // Stage 4: tiling

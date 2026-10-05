@@ -297,15 +297,19 @@
   },
   {
     "name": "<color-function>",
-    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()>"
+    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <alpha()> | <color()> | <color-mix()> | <color-layers()> | <contrast-color()>"
   },
   {
     "name": "<color-interpolation-method>",
     "syntax": "in [ <rectangular-color-space> | <polar-color-space> <hue-interpolation-method>? ]"
   },
   {
+    "name": "<color-layers()>",
+    "syntax": "color-layers( [ <blend-mode> , ]? <color># )"
+  },
+  {
     "name": "<color-mix()>",
-    "syntax": "color-mix( <color-interpolation-method> , [ <color> && <percentage [0,100]>? ]#{2})"
+    "syntax": "color-mix( [ <color-interpolation-method> , ]? [ <color> && <percentage [0,100]>? ]# )"
   },
   {
     "name": "<color-space>",
@@ -438,6 +442,10 @@
   {
     "name": "<contrast()>",
     "syntax": "contrast( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<contrast-color()>",
+    "syntax": "contrast-color( <color> )"
   },
   {
     "name": "<control-point>",
@@ -805,7 +813,7 @@
   },
   {
     "name": "<gradient>",
-    "syntax": "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>"
+    "syntax": "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>"
   },
   {
     "name": "<grayscale()>",
@@ -1057,7 +1065,7 @@
   },
   {
     "name": "<linear-gradient-syntax>",
-    "syntax": "[ <angle> | <zero> | to <side-or-corner> ]? ',' <color-stop-list>"
+    "syntax": "[ [ <angle> | <zero> | to <side-or-corner> ]? || <color-interpolation-method> ]? ',' <color-stop-list>"
   },
   {
     "name": "<log()>",
@@ -1069,7 +1077,7 @@
   },
   {
     "name": "<mask-layer>",
-    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <geometry-box> || [ <geometry-box> | no-clip ] || <compositing-operator> || <masking-mode>"
+    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <coord-box> || [ <coord-box> | no-clip ] || <compositing-operator> || <masking-mode>"
   },
   {
     "name": "<mask-position>",
@@ -1481,7 +1489,7 @@
   },
   {
     "name": "<radial-gradient-syntax>",
-    "syntax": "[ <radial-shape> || <radial-size> ]? [ at <position> ]? ',' <color-stop-list>"
+    "syntax": "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? ',' <color-stop-list>"
   },
   {
     "name": "<radial-shape>",

@@ -1,5 +1,64 @@
+use crate::common::geo::Rect;
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::Trbl;
+
+/// Axis-aligned strips that paint one side of a non-uniform border while keeping its
+/// style: `Double` is two thin strips, `Dashed`/`Dotted` a run of segments along the edge,
+/// everything else (incl. the 3D styles, which have no two-tone rendering yet) one solid
+/// strip. Sides are `[top, right, bottom, left]`; a side with no visible border is empty.
+/// Backends only need a rect fill to consume this, so all three stay in sync.
+pub fn per_side_strips(rect: Rect, widths: [f32; 4], styles: &[BorderStyle; 4]) -> [Vec<Rect>; 4] {
+    let w = |i: usize| widths[i] as f64;
+    let edges = [
+        (rect.x, rect.y, rect.width, w(0), true),
+        (rect.x + rect.width - w(1), rect.y, w(1), rect.height, false),
+        (rect.x, rect.y + rect.height - w(2), rect.width, w(2), true),
+        (rect.x, rect.y, w(3), rect.height, false),
+    ];
+    let mut out: [Vec<Rect>; 4] = Default::default();
+    for (i, &(x, y, width, height, horizontal)) in edges.iter().enumerate() {
+        let thickness = if horizontal { height } else { width };
+        if thickness <= 0.0 || styles[i].is_invisible() {
+            continue;
+        }
+        let strips = &mut out[i];
+        match styles[i] {
+            BorderStyle::Double if thickness >= 3.0 => {
+                let strand = (thickness / 3.0).floor();
+                let inner = thickness - strand;
+                if horizontal {
+                    strips.push(Rect::new(x, y, width, strand));
+                    strips.push(Rect::new(x, y + inner, width, strand));
+                } else {
+                    strips.push(Rect::new(x, y, strand, height));
+                    strips.push(Rect::new(x + inner, y, strand, height));
+                }
+            }
+            BorderStyle::Dashed | BorderStyle::Dotted => {
+                // Same dash rhythm as the uniform stroke paths: dots are `w` on / `w` off,
+                // dashes `3w` (min 3px) on / off.
+                let seg = if styles[i] == BorderStyle::Dotted {
+                    thickness
+                } else {
+                    (thickness * 3.0).max(3.0)
+                };
+                let length = if horizontal { width } else { height };
+                let mut pos = 0.0;
+                while pos < length {
+                    let len = seg.min(length - pos);
+                    strips.push(if horizontal {
+                        Rect::new(x + pos, y, len, thickness)
+                    } else {
+                        Rect::new(x, y + pos, thickness, len)
+                    });
+                    pos += 2.0 * seg;
+                }
+            }
+            _ => strips.push(Rect::new(x, y, width, height)),
+        }
+    }
+    out
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum BorderStyle {
@@ -74,7 +133,18 @@ impl Border {
     /// All four sides share width and style, so the whole-rectangle stroke path applies. Per-side
     /// colours are still allowed, but that fast path only uses the first brush.
     pub fn is_uniform(&self) -> bool {
-        self.widths.iter().all(|&w| w == self.widths[0]) && self.styles.iter().all(|s| *s == self.styles[0])
+        self.widths.iter().all(|&w| w == self.widths[0])
+            && self.styles.iter().all(|s| *s == self.styles[0])
+            // Same-width same-style borders can still differ per side in COLOR (collapsed
+            // table boundaries owned by different neighbours) - the single-stroke path
+            // would paint all four sides with one brush. Non-solid brushes conservatively
+            // count as differing.
+            && self.brushes.iter().all(|b| match (b, &self.brushes[0]) {
+                (crate::painter::commands::brush::Brush::Solid(a), crate::painter::commands::brush::Brush::Solid(c)) => {
+                    a.r() == c.r() && a.g() == c.g() && a.b() == c.b() && a.a() == c.a()
+                }
+                _ => false,
+            })
     }
 
     pub fn widths(&self) -> [f32; 4] {

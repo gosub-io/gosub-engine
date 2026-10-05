@@ -8,6 +8,7 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
+use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -60,6 +61,24 @@ pub struct HtmlParseConfig {
     /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
     /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
+    /// Where a blocking script's stylesheets come from.
+    ///
+    /// A classic `<script>` may not run until the sheets before it have applied, and the
+    /// parser no longer fetches them, so it asks this instead and waits. `None` means no
+    /// script waits for anything and the sheets are resolved after the parse.
+    pub stylesheets: Option<std::sync::Arc<dyn gosub_html5::parser::StylesheetSource>>,
+
+    /// Navigation these timings belong to, if this parse is part of one.
+    ///
+    /// Entered around the synchronous parse below, which is where `decode.html` and the
+    /// parser's own blocking `net.fetch.css` are recorded. `None` for parses with no
+    /// navigation behind them; those samples stay unattributed rather than misfiled.
+    pub timing_scope: Option<gosub_shared::timing::ScopeId>,
+    /// Also return the document's source text, for an engine that will hand it
+    /// to a renderer process (which re-parses; a DOM cannot cross a fork by
+    /// value). Off by default - retaining a copy of every document would tax
+    /// engines that render in-process.
+    pub capture_source: bool,
 }
 
 impl Default for HtmlParseConfig {
@@ -67,8 +86,51 @@ impl Default for HtmlParseConfig {
         // Matches the `net.document.max_bytes` schema default.
         Self {
             max_bytes: 10 * 1024 * 1024,
+            stylesheets: None,
+            timing_scope: None,
+            capture_source: false,
         }
     }
+}
+
+/// Read a document's bytes as source text, without parsing it: what a tab
+/// keeps when a renderer process does the parsing. Same size cap and lossy
+/// UTF-8 as the captured source of a parsed document.
+pub async fn read_document_source<R>(
+    base_url: &Url,
+    mut reader: R,
+    cancel: CancellationToken,
+    max_bytes: usize,
+) -> Result<std::sync::Arc<str>, DocumentError>
+where
+    R: AsyncRead + Unpin + Send,
+{
+    let mut buf: Vec<u8> = Vec::new();
+    let mut tmp = [0u8; 16 * 1024];
+    loop {
+        if cancel.is_cancelled() {
+            return Err(DocumentError::Cancelled);
+        }
+        let n = reader.read(&mut tmp).await?;
+        if n == 0 {
+            break;
+        }
+        let remaining = max_bytes.saturating_sub(buf.len()).min(n);
+        if remaining > 0 {
+            buf.extend_from_slice(&tmp[..remaining]);
+        }
+        if buf.len() >= max_bytes {
+            log::warn!("Document {base_url} exceeds the {max_bytes} byte limit (net.document.max_bytes); truncated");
+            let mut drain = [0u8; 16 * 1024];
+            while reader.read(&mut drain).await? != 0 {
+                if cancel.is_cancelled() {
+                    return Err(DocumentError::Cancelled);
+                }
+            }
+            break;
+        }
+    }
+    Ok(std::sync::Arc::<str>::from(String::from_utf8_lossy(&buf).as_ref()))
 }
 
 /// Main entry point: buffer the HTML stream, parse it into a real DOM document,
@@ -85,7 +147,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     cancel: CancellationToken,
     cfg: HtmlParseConfig,
     mut on_discover: F,
-) -> Result<EngineDocument<C>, DocumentError>
+) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>), DocumentError>
 where
     C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
@@ -128,7 +190,8 @@ where
         }
     }
 
-    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    // Lossy UTF-8 for the fast resource-discovery regex scan; the parse below
+    // decodes properly.
     let html_lossy = String::from_utf8_lossy(&buf);
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
@@ -146,14 +209,83 @@ where
         tmp.read_from_bytes(&buf)?;
         tmp.detect_encoding()
     };
-    let mut stream = ByteStream::new(encoding, None);
-    stream.read_from_bytes(&buf)?;
-    let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
-    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
-    let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
-    doc.add_stylesheet(ua);
+    // Decoded the way the parse below decodes, so the renderer process re-parses
+    // the same text this process would have: a UTF-16 page read as lossy UTF-8
+    // would be nothing but replacement characters.
+    let source = cfg
+        .capture_source
+        .then(|| std::sync::Arc::<str>::from(decode_source(&buf, &encoding)));
+    // The parse below is synchronous, and because the parser fetches external stylesheets
+    // inline it can sit still for as long as a server cares to stay silent. Run on a
+    // runtime worker, that starves every task the worker owns -- and always at least one:
+    // tokio parks the most recently spawned task in a slot no other worker may steal from,
+    // so the last subresource this document just discovered is never polled. A page with
+    // three stylesheets fetched two, and the third was the one still missing when the
+    // parser went looking for it. So the parse goes to the blocking pool, where a thread
+    // is allowed to sit still.
+    //
+    // The timing scope is a thread-local, so it is entered inside the closure -- on the
+    // thread that actually does the work. It covers `decode.html` and the `net.fetch.css`
+    // samples the parser's own blocking fetches produce.
+    let timing_scope = cfg.timing_scope;
+    let stylesheets = cfg.stylesheets.clone();
+    let parse = move || -> Result<EngineDocument<C>, DocumentError> {
+        let _scope = timing_scope.map(gosub_shared::timing::enter_scope);
 
-    Ok(doc)
+        let mut stream = ByteStream::new(encoding, None);
+        stream.read_from_bytes(&buf)?;
+        let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
+        let options = gosub_html5::parser::Html5ParserOptions {
+            stylesheets,
+            ..Default::default()
+        };
+        let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options));
+        let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        if doc.quirks_mode() == QuirksMode::Quirks {
+            if let Some(quirks) = <C::CssSystem as CssSystem>::load_quirks_useragent_stylesheet() {
+                doc.add_stylesheet(quirks);
+            }
+        }
+
+        Ok(doc)
+    };
+
+    // No blocking pool on wasm, and no worker to starve either: nothing else was going to
+    // run on that thread anyway.
+    #[cfg(target_arch = "wasm32")]
+    let parsed = parse();
+    #[cfg(not(target_arch = "wasm32"))]
+    let parsed = match tokio::task::spawn_blocking(parse).await {
+        Ok(result) => result,
+        // The pool cancels its tasks at runtime shutdown, which is a cancelled
+        // navigation by another name; a panic in the parser is not, but there is no
+        // document either way.
+        Err(e) => {
+            log::error!("HTML parse task failed: {e}");
+            Err(DocumentError::Cancelled)
+        }
+    };
+    parsed.map(|doc| (doc, source))
+}
+
+/// The document's text as the parser reads it: UTF-16 when the detection said so,
+/// UTF-8 otherwise (the only other encoding the parser decodes), minus a BOM.
+fn decode_source(bytes: &[u8], encoding: &Encoding) -> String {
+    let utf16 = |bytes: &[u8], unit: fn([u8; 2]) -> u16| -> String {
+        let bytes = bytes
+            .strip_prefix(&[0xFF, 0xFE])
+            .or_else(|| bytes.strip_prefix(&[0xFE, 0xFF]))
+            .unwrap_or(bytes);
+        // A trailing odd byte is dropped, as `from_utf16_lossy` could not use it anyway.
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| unit(*pair)).collect();
+        String::from_utf16_lossy(&units)
+    };
+    match encoding {
+        Encoding::UTF16LE => utf16(bytes, u16::from_le_bytes),
+        Encoding::UTF16BE => utf16(bytes, u16::from_be_bytes),
+        _ => String::from_utf8_lossy(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes)).into_owned(),
+    }
 }
 
 // ======== Forgiving resource discovery (regex-based) ========
@@ -166,34 +298,44 @@ fn unquote(s: &str) -> &str {
     }
 }
 
-/// Compile a literal regex pattern.
-fn re(pattern: &str) -> Regex {
-    #[allow(clippy::unwrap_used)] // PANIC-SAFE: all callers pass literal patterns, exercised by tests
-    Regex::new(pattern).unwrap()
+/// Compile a literal regex pattern, or `None` if it will not compile.
+///
+/// These patterns are literals in this file, so a failure here is a typo in this repository
+/// rather than anything a page can cause - but this is a *prescan* that produces preload hints,
+/// so a pattern that does not compile costs the hints it would have found and nothing else.
+/// It used to be an `unwrap()`, which paid for a typo with the process.
+fn re(pattern: &str) -> Option<Regex> {
+    match Regex::new(pattern) {
+        Ok(regex) => Some(regex),
+        Err(e) => {
+            log::error!("resource prescan pattern {pattern:?} did not compile, so it will find nothing: {e}");
+            None
+        }
+    }
 }
 
-static RE_LINK_STYLESHEET: Lazy<Regex> = Lazy::new(|| {
+static RE_LINK_STYLESHEET: Lazy<Option<Regex>> = Lazy::new(|| {
     // allow "..." or '...' or unquoted; capture into the *same* group `href`
     re(
         r#"(?is)<\s*link\b[^>]*\brel\s*=\s*(?:"stylesheet"|'stylesheet')[^>]*\bhref\s*=\s*(?P<href>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#,
     )
 });
 
-static RE_SCRIPT_SRC: Lazy<Regex> =
+static RE_SCRIPT_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-static RE_ASYNC_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\basync\b"#));
+static RE_ASYNC_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\basync\b"#));
 
-static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\bdefer\b"#));
+static RE_DEFER_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\bdefer\b"#));
 
-static RE_IMG_SRC: Lazy<Regex> =
+static RE_IMG_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
 fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     let mut out = Vec::new();
 
     // Stylesheets
-    for cap in RE_LINK_STYLESHEET.captures_iter(html) {
+    for cap in RE_LINK_STYLESHEET.iter().flat_map(|re| re.captures_iter(html)) {
         let Some(m) = cap.name("href") else {
             continue;
         };
@@ -214,11 +356,14 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     }
 
     // Scripts
-    for cap in RE_SCRIPT_SRC.captures_iter(html) {
+    for cap in RE_SCRIPT_SRC.iter().flat_map(|re| re.captures_iter(html)) {
         let tag = cap.get(0).map_or("", |m| m.as_str());
         let tag_lower = tag.cow_to_ascii_lowercase();
         // A script is blocking unless it has async or defer attributes
-        let blocking = !RE_ASYNC_ATTR.is_match(tag_lower.as_ref()) && !RE_DEFER_ATTR.is_match(tag_lower.as_ref());
+        // A pattern that did not compile cannot say the script is async or deferred, so the
+        // script is treated as blocking - the conservative answer, and the HTML default.
+        let has = |re: &Lazy<Option<Regex>>| re.as_ref().is_some_and(|re| re.is_match(tag_lower.as_ref()));
+        let blocking = !has(&RE_ASYNC_ATTR) && !has(&RE_DEFER_ATTR);
         let Some(m) = cap.name("src") else {
             continue;
         };
@@ -239,7 +384,7 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     }
 
     // Images
-    for cap in RE_IMG_SRC.captures_iter(html) {
+    for cap in RE_IMG_SRC.iter().flat_map(|re| re.captures_iter(html)) {
         let Some(m) = cap.name("src") else {
             continue;
         };
@@ -268,12 +413,93 @@ fn resolve(base: &Url, candidate: &str) -> Result<Url, url::ParseError> {
     if trimmed.is_empty() {
         return Err(url::ParseError::EmptyHost);
     }
-    base.join(trimmed)
+    base.join(&decode_ampersands(trimmed))
+}
+
+/// Turn escaped ampersands back into `&`.
+///
+/// This scanner reads raw HTML, so an attribute arrives exactly as it was written -- and HTML
+/// requires an ampersand in an attribute to be escaped. A URL with a query string therefore
+/// shows up as `load.php?lang=en&amp;only=scripts`, and fetching that literally asks the
+/// server for a parameter called `amp;only`. Wikipedia answers with a couple of hundred bytes
+/// of nothing, which is not an error anyone notices until they read the bytes.
+///
+/// Only the ampersand forms are decoded, not the full character-reference grammar. Every
+/// other reference is either invalid in a URL or already percent-encoded, and a partial
+/// decoder that pretended otherwise would be its own source of wrong URLs. The DOM path is
+/// unaffected: it gets properly decoded attribute values from the tokenizer.
+fn decode_ampersands(url: &str) -> std::borrow::Cow<'_, str> {
+    if !url.contains('&') {
+        return std::borrow::Cow::Borrowed(url);
+    }
+    use cow_utils::CowUtils;
+    let decoded = url
+        .cow_replace("&amp;", "&")
+        .cow_replace("&AMP;", "&")
+        .cow_replace("&#38;", "&")
+        .cow_replace("&#x26;", "&")
+        .cow_replace("&#X26;", "&")
+        .into_owned();
+    if decoded == url {
+        std::borrow::Cow::Borrowed(url)
+    } else {
+        std::borrow::Cow::Owned(decoded)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The source handed to a renderer process is the text the parser read, BOM
+    /// and all encodings it knows accounted for.
+    #[test]
+    fn the_captured_source_is_decoded_like_the_parse() {
+        let text = "<p>héllo</p>";
+        let mut le = vec![0xFF, 0xFE];
+        le.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let mut be = vec![0xFE, 0xFF];
+        be.extend(text.encode_utf16().flat_map(u16::to_be_bytes));
+        let mut utf8 = b"\xEF\xBB\xBF".to_vec();
+        utf8.extend_from_slice(text.as_bytes());
+
+        assert_eq!(decode_source(&le, &Encoding::UTF16LE), text);
+        assert_eq!(decode_source(&be, &Encoding::UTF16BE), text);
+        assert_eq!(decode_source(&utf8, &Encoding::UTF8), text);
+    }
+
+    #[test]
+    fn an_escaped_ampersand_does_not_reach_the_network() {
+        let base = Url::parse("https://en.wikipedia.org/wiki/BASIC").unwrap();
+
+        // As it appears in real markup: HTML requires the ampersand to be escaped.
+        let resolved = resolve(&base, "/w/load.php?lang=en&amp;only=scripts").unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://en.wikipedia.org/w/load.php?lang=en&only=scripts"
+        );
+        assert_eq!(
+            resolved.query_pairs().count(),
+            2,
+            "two parameters, not one called amp;only"
+        );
+
+        // Numeric forms too.
+        assert_eq!(
+            resolve(&base, "/a?x=1&#38;y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+        assert_eq!(
+            resolve(&base, "/a?x=1&#x26;y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+
+        // A bare ampersand is already what it should be, and is left alone.
+        assert_eq!(
+            resolve(&base, "/a?x=1&y=2").unwrap().as_str(),
+            "https://en.wikipedia.org/a?x=1&y=2"
+        );
+    }
     use crate::html::DefaultRenderConfig;
     use bytes::Bytes;
     use futures::stream;
@@ -304,7 +530,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        parse_main_document_stream::<DefaultRenderConfig, _, _>(
+        let (_doc, _) = parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -324,6 +550,41 @@ mod tests {
         assert!(hints
             .iter()
             .any(|h| h.kind == ResourceKind::Image && h.url.as_str() == "https://example.com/path/images/logo.png"));
+    }
+
+    /// HN-style markup: no doctype, `<center><table>`. The spec's quirks-mode table rules
+    /// keep the cells from inheriting the centering; a standards-mode document gets no such sheet.
+    #[tokio::test(flavor = "current_thread")]
+    async fn quirks_mode_documents_get_the_quirks_useragent_sheet() {
+        let body = "<center><table><tr><td>row</td></tr></table></center>";
+        let base = Url::parse("https://example.com/").unwrap();
+        let parse = |html: String| {
+            parse_main_document_stream::<DefaultRenderConfig, _, _>(
+                base.clone(),
+                reader_from_str(&html),
+                CancellationToken::new(),
+                HtmlParseConfig::default(),
+                |_| {},
+            )
+        };
+        let parse = |html: String| async { parse(html).await.map(|(doc, _source)| doc) };
+
+        let quirks = parse(format!("<html><body>{body}</body></html>")).await.unwrap();
+        assert_eq!(quirks.quirks_mode(), QuirksMode::Quirks);
+        let standards = parse(format!("<!DOCTYPE html><html><body>{body}</body></html>"))
+            .await
+            .unwrap();
+        assert_eq!(standards.quirks_mode(), QuirksMode::NoQuirks);
+
+        assert_eq!(
+            quirks.stylesheets().len(),
+            standards.stylesheets().len() + 1,
+            "quirks documents carry exactly one extra user-agent sheet"
+        );
+        assert!(
+            quirks.stylesheets().iter().any(|s| s.url.contains("useragent-quirks")),
+            "the extra sheet is the quirks sheet"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -357,7 +618,10 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig {
+            max_bytes: 64 * 1024, // 64 KiB
+            ..Default::default()
+        };
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(

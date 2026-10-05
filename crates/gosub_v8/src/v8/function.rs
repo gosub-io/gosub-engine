@@ -145,6 +145,8 @@ impl V8Function {
             }
             Err(e) => {
                 ret.set(undefined(&mut scope).into());
+                // ctx.error opens its own scope; this one must close first
+                drop(scope);
                 ctx.error(e);
             }
         }
@@ -425,18 +427,21 @@ impl V8FunctionVariadic {
 
         f(&mut cb);
 
-        let scope = &mut ctx.scope();
+        let mut scope = ctx.scope();
 
         if cb.is_error {
-            ret.set(undefined(scope).into());
+            ret.set(undefined(&mut scope).into());
             return;
         }
 
         match cb.ret {
             Ok(value) => {
-                ret.set(Local::new(scope, value));
+                ret.set(Local::new(&mut scope, value));
             }
             Err(e) => {
+                ret.set(undefined(&mut scope).into());
+                // ctx.error opens its own scope; this one must close first
+                drop(scope);
                 ctx.error(e);
             }
         }

@@ -1,31 +1,22 @@
 //! JSON-backed cookie store.
 //!
-//! `JsonCookieStore` persists **all zones'** cookie jars in a single JSON file on disk.
-//! It implements the [`CookieStore`] trait and returns per-zone jars wrapped in
-//! [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so that **every mutation** to a jar triggers a snapshot
-//! write back to this store.
+//! `JsonCookieStore` persists all zones' cookie jars in a single JSON file; jars are
+//! cached in memory and returned wrapped in
+//! [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so every jar mutation
+//! snapshots back to this store.
 //!
-//! ### Design
-//! - One file for all zones; jars are cached in memory for quick reuse.
-//! - The store keeps a self handle (`store_self`) so the persistent jars can call
-//!   back into `persist_zone_from_snapshot`.
-//! - Internally synchronized; safe to share behind a [`CookieStoreHandle`].
+//! `persist_zone_from_snapshot` and `remove_zone` read then rewrite the entire JSON
+//! file; for large datasets use the SQLite store. Writes go to a temp file renamed
+//! over the target (atomic on POSIX filesystems). Persistence is best-effort: I/O and
+//! serialization errors are logged, never panicked on.
 //!
-//! ### I/O characteristics & caveats
-//! - `persist_zone_from_snapshot` and `remove_zone` **read then rewrite** the entire
-//!   JSON file. For large datasets, consider an SQLite-backed store.
-//! - Writes go to a temp file which is then renamed over the target (atomic on
-//!   POSIX filesystems).
-//! - Persistence is best-effort: I/O and serialization errors are logged, never panicked on.
-//!
-//! ### Example
 //! ```ignore,no_run
 //! let store = JsonCookieStore::new("cookies.json".into())?;
 //!
 //! // New zones will receive a PersistentCookieJar minted by this store.
 //! let zone_id = engine.zone().cookie_store(store).create()?;
 //! ```
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -45,14 +36,15 @@ struct CookieStoreFile {
 }
 
 /// A JSON-based cookie store that persists cookies across sessions.
-///
-/// The store caches per-zone jars in memory and loads/saves them to a single JSON file.
-/// Jars returned by this store are wrapped in [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so that writes
-/// automatically trigger persistence to disk.
 pub struct JsonCookieStore {
     path: PathBuf,
 
     jars: RwLock<HashMap<ZoneId, CookieJarHandle>>,
+
+    /// Held across every read-modify-write of the file: each one rewrites all
+    /// zones, so two at once would drop the other's zone (and share the temp
+    /// file). Taken after `jars`, never before.
+    file: Mutex<()>,
 
     /// Self handle, so `PersistentCookieJar` can call back into this store.
     /// Initialized in [`new`](Self::new) and read-only thereafter.
@@ -68,17 +60,18 @@ impl JsonCookieStore {
     /// Returns [`EngineError::CookieStore`] if the initial write of an empty file fails.
     pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
         if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+            let _ = crate::storage::private_dir(parent);
         }
         if !path.exists() {
             let empty = CookieStoreFile { zones: HashMap::new() };
             let bytes = serde_json::to_vec(&empty).map_err(|e| EngineError::CookieStore(e.into()))?;
-            fs::write(&path, bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
+            write_private(&path, &bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
         }
 
         let store = Arc::new(Self {
             path,
             jars: RwLock::new(HashMap::new()),
+            file: Mutex::new(()),
             store_self: RwLock::new(None),
         });
 
@@ -118,7 +111,7 @@ impl JsonCookieStore {
         };
         // atomic-ish: write to tmp then rename
         let tmp = self.path.with_extension("json.tmp");
-        if let Err(e) = fs::write(&tmp, &contents) {
+        if let Err(e) = write_private(&tmp, &contents) {
             log::error!("Failed to write temp cookie store file {tmp:?}: {e}");
             return;
         }
@@ -129,15 +122,6 @@ impl JsonCookieStore {
 }
 
 impl CookieStore for JsonCookieStore {
-    /// Returns the cookie jar handle for `zone_id`, creating it if needed.
-    ///
-    /// Behavior:
-    /// - If a jar for `zone_id` exists in the in-memory cache, it is returned.
-    /// - Otherwise, a serialized jar is loaded from disk (if present) or an empty
-    ///   [`DefaultCookieJar`] is created.
-    /// - That jar is wrapped in a [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) bound to this store
-    ///   (via `store_self`) so that subsequent mutations persist automatically.
-    ///
     /// Returns `None` only on the defensive internal-error path (uninitialized
     /// `store_self`); for a healthy store this always provisions a jar.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
@@ -146,11 +130,9 @@ impl CookieStore for JsonCookieStore {
         })
     }
 
-    /// Persists a snapshot of `zone_id`'s jar to disk (best-effort).
-    ///
-    /// Called by [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) after each mutation. This method reads
-    /// the current file, updates/replaces the zone entry, and writes the file back.
+    /// Reads the current file, replaces the zone entry, and writes the file back.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
+        let _file = self.file.lock();
         let mut store_file = self.load_file();
         store_file.zones.insert(zone_id, snapshot.clone());
         self.save_file(&store_file);
@@ -167,25 +149,52 @@ impl CookieStore for JsonCookieStore {
     fn remove_zone(&self, zone_id: ZoneId) {
         self.jars.write().remove(&zone_id);
 
+        let _file = self.file.lock();
         let mut file = self.load_file();
         file.zones.remove(&zone_id);
         self.save_file(&file);
     }
 
-    /// Persists **all** in-memory jars to disk by snapshotting them (best-effort).
-    ///
-    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) that wrap a [`DefaultCookieJar`]
-    /// are snapshotted here. This avoids double-wrapping and keeps the format stable.
+    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar)
+    /// wrapping a [`DefaultCookieJar`] are snapshotted, keeping the format stable.
     fn persist_all(&self) {
         let jars = self.jars.read();
 
-        let mut file = self.load_file();
-        crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| {
-            file.zones.insert(zone_id, snapshot.clone());
-        });
+        // Every cached jar is read-locked before the file and held through the
+        // write. A change then cannot land between its jar's snapshot and the
+        // write (which would put the stale snapshot back), and the order is the
+        // one a jar saving itself uses - jar, then file - so neither waits on
+        // the other. In zone order, so two flushes cannot cross either.
+        let mut cached: Vec<_> = jars.iter().collect();
+        cached.sort_by_key(|(zone_id, _)| zone_id.to_string());
+        let held: Vec<_> = cached
+            .into_iter()
+            .map(|(zone_id, jar)| (*zone_id, jar.read()))
+            .collect();
 
+        let _file = self.file.lock();
+        let mut file = self.load_file();
+        for (zone_id, jar) in &held {
+            if let Some(snapshot) = crate::cookies::store::persisted_snapshot(&***jar) {
+                file.zones.insert(*zone_id, snapshot);
+            }
+        }
         self.save_file(&file);
     }
+}
+
+/// Write `bytes` to `path` readable by this user alone (`0600`): cookies are
+/// credentials, and the profile directory may be traversable.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 #[cfg(test)]
@@ -205,6 +214,60 @@ mod tests {
             h.append(http::header::SET_COOKIE, (*sc).parse().unwrap());
         }
         h
+    }
+
+    /// Two zones persisting at once both end up in the file: each write is a
+    /// read-modify-write of every zone, and they must not interleave.
+    #[test]
+    fn concurrent_zone_snapshots_both_reach_the_file() {
+        let dir = tempdir().unwrap();
+        let store = JsonCookieStore::new(dir.path().join("cookies.json")).unwrap();
+        for _ in 0..50 {
+            let (a, b) = (ZoneId::new(), ZoneId::new());
+            let snapshot = DefaultCookieJar::new();
+            std::thread::scope(|s| {
+                for zone in [a, b] {
+                    let (store, snapshot) = (&store, &snapshot);
+                    s.spawn(move || store.persist_zone_from_snapshot(zone, snapshot));
+                }
+            });
+            let zones = store.load_file().zones;
+            assert!(
+                zones.contains_key(&a) && zones.contains_key(&b),
+                "a concurrent snapshot was overwritten"
+            );
+        }
+    }
+
+    /// A flush and a jar saving its own change, side by side, both finish: the
+    /// two take the jar and file locks in the same order.
+    #[test]
+    fn a_flush_and_a_jar_saving_itself_do_not_deadlock() {
+        let dir = tempdir().unwrap();
+        let store = JsonCookieStore::new(dir.path().join("cookies.json")).unwrap();
+        let jar = store.jar_for(ZoneId::new()).unwrap();
+        let url = Url::parse("https://example.com/").unwrap();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let writer_done = done_tx.clone();
+        std::thread::spawn(move || {
+            for i in 0..200 {
+                jar.write()
+                    .store_response_cookies(&url, &mk_headers(&[&format!("c{i}=1; Path=/")]), None);
+            }
+            let _ = writer_done.send(());
+        });
+        let flusher = store.clone();
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                flusher.persist_all();
+            }
+            let _ = done_tx.send(());
+        });
+        for _ in 0..2 {
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .expect("a flush and a jar's own save deadlocked");
+        }
     }
 
     #[test]

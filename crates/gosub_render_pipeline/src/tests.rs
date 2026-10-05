@@ -15,6 +15,7 @@ mod rendertree_from_engine {
 
     use crate::common::document::pipeline_doc::GosubDocumentAdapter;
     use crate::rendertree_builder::tree::RenderTree;
+    use gosub_interface::style::{LengthPercentage, LengthPercentageAuto, LetterSpacing, LineHeight};
 
     // Minimal config wiring gosub_html5 + gosub_css3 together.
     #[derive(Clone, Debug, PartialEq)]
@@ -39,6 +40,370 @@ mod rendertree_from_engine {
         let mut rt = RenderTree::new(Arc::new(adapter));
         rt.parse().expect("failed to build render tree");
         rt
+    }
+
+    /// `border-top: 3px dashed red` (a per-side shorthand) must set that side's width, style
+    /// and color - from a stylesheet and from an inline `style=""` alike.
+    #[test]
+    fn border_side_shorthand_sets_width_style_color() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{BorderStyle, Color};
+
+        let html = r#"<html><head><style>
+          #sheet { border-top: 3px dashed red }
+          #multi { border-top: 3px dashed #c00; border-bottom: 6px double #06c; border-left: 4px dotted #080; border-right: 2px solid #000 }
+        </style></head>
+        <body><div id="sheet">a</div><div id="multi">m</div><div id="inline" style="border-left: 4px dotted green">b</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let sheet = adapter.computed_style(find_node_by_id_attr(&adapter.doc, root, "sheet").expect("#sheet"));
+        assert!((sheet.border.top_width - 3.0).abs() < 0.01, "sheet width");
+        assert_eq!(sheet.border.top_style, BorderStyle::Dashed);
+        assert_eq!(sheet.border.top_color, Color::rgba(255, 0, 0, 255));
+        // Untouched sides keep the initial (none -> 0 width).
+        assert_eq!(sheet.border.left_width, 0.0, "sheet untouched side");
+
+        let multi = adapter.computed_style(find_node_by_id_attr(&adapter.doc, root, "multi").expect("#multi"));
+        assert_eq!(multi.border.top_style, BorderStyle::Dashed);
+        assert_eq!(multi.border.right_style, BorderStyle::Solid);
+        assert_eq!(multi.border.bottom_style, BorderStyle::Double);
+        assert_eq!(multi.border.left_style, BorderStyle::Dotted);
+        assert!((multi.border.bottom_width - 6.0).abs() < 0.01, "multi bottom width");
+
+        let inline = adapter.computed_style(find_node_by_id_attr(&adapter.doc, root, "inline").expect("#inline"));
+        assert!((inline.border.left_width - 4.0).abs() < 0.01, "inline width");
+        assert_eq!(inline.border.left_style, BorderStyle::Dotted);
+        assert_eq!(inline.border.left_color, Color::rgba(0, 128, 0, 255));
+    }
+
+    /// The CSS-wide keywords are cascade instructions, not values (css-cascade-4 §7), and every
+    /// property takes all of them. They used to reach the value converters, which read a keyword
+    /// they did not recognise as "nothing declared" - so `width: inherit` silently behaved like
+    /// `width: initial`, and `revert` did nothing at all.
+    #[test]
+    fn the_css_wide_keywords_resolve_against_the_cascade() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{Color, LengthPercentageAuto};
+
+        let html = r#"<html><head><style>
+          #parent { width: 300px; color: rgb(1, 2, 3) }
+          #width-inherit { width: inherit }
+          #width-unset { width: 50px; width: unset }
+          #color-unset { color: rgb(9, 9, 9); color: unset }
+          #deep-color { color: inherit }
+          #reverted { margin-left: 40px; margin-left: revert }
+        </style></head>
+        <body><div id="parent">
+          <div id="width-inherit">a</div>
+          <div id="width-unset">b</div>
+          <div id="color-unset">c</div>
+          <div><div id="deep-color">d</div></div>
+          <div id="reverted">e</div>
+        </div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+
+        // `inherit` names the parent's computed value, for a property that does not inherit too.
+        let width = adapter.computed_style(node("width-inherit")).size.width;
+        assert_eq!(
+            width,
+            LengthPercentageAuto::Px(300.0),
+            "width: inherit should be the parent's 300px"
+        );
+
+        // `unset` is `initial` for a property that does not inherit, so the earlier 50px goes.
+        let width = adapter.computed_style(node("width-unset")).size.width;
+        assert_ne!(
+            width,
+            LengthPercentageAuto::Px(50.0),
+            "width: unset should drop the earlier 50px"
+        );
+
+        // `unset` is `inherit` for a property that does inherit.
+        let color = adapter.computed_style(node("color-unset")).inherited.color;
+        assert_eq!(color, Color::rgba(1, 2, 3, 255), "color: unset");
+
+        // Inheritance travels through an element that declares nothing itself.
+        let color = adapter.computed_style(node("deep-color")).inherited.color;
+        assert_eq!(color, Color::rgba(1, 2, 3, 255), "color: inherit");
+
+        // `revert` drops its own origin's declarations, leaving the user-agent sheet's value.
+        let margin = adapter.computed_style(node("reverted")).margin.left;
+        assert_ne!(
+            margin,
+            LengthPercentageAuto::Px(40.0),
+            "margin-left: revert should drop the author 40px"
+        );
+    }
+
+    /// A shorthand resets the longhands it does not mention (css-cascade-5 §2.5). An earlier
+    /// `border-color: red` must not survive a later `border: 1px solid`, an earlier
+    /// `font-weight: bold` must not survive `font: 12px serif`, and a `border` without a width
+    /// gets `medium`, which is 3px and not nothing.
+    #[test]
+    fn a_shorthand_resets_the_longhands_it_leaves_out() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{Color, FontWeight};
+
+        let html = r#"<html><head><style>
+          #b { border-color: red; border: 1px solid }
+          #f { font-weight: bold; font: 12px serif }
+          #w { border: solid red }
+        </style></head>
+        <body><div id="b">b</div><div id="f">f</div><div id="w">w</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        // `currentColor`, which resolves to the text colour: black, not red.
+        let b = find_node_by_id_attr(&adapter.doc, root, "b").expect("#b");
+        assert_eq!(
+            adapter.computed_style(b).border.top_color,
+            Color::BLACK,
+            "border reset colour"
+        );
+
+        let f = find_node_by_id_attr(&adapter.doc, root, "f").expect("#f");
+        assert_eq!(
+            adapter.computed_style(f).inherited.font_weight,
+            FontWeight::Normal,
+            "font reset weight"
+        );
+
+        let w = find_node_by_id_attr(&adapter.doc, root, "w").expect("#w");
+        assert!(
+            (adapter.computed_style(w).border.top_width - 3.0).abs() < 0.01,
+            "medium border width"
+        );
+    }
+
+    /// `background` expands like any other shorthand now: the colour and the image come out
+    /// as longhands, and a `background` without a colour resets an earlier `background-color`.
+    #[test]
+    fn background_shorthand_sets_and_resets_its_longhands() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::Color;
+
+        let html = r#"<html><head><style>
+          #c { background: #c22 }
+          #r { background-color: red; background: url(x.png) }
+        </style></head>
+        <body><div id="c">c</div><div id="r">r</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let c = find_node_by_id_attr(&adapter.doc, root, "c").expect("#c");
+        assert_eq!(
+            adapter.computed_style(c).background.color,
+            Color::rgba(204, 34, 34, 255),
+            "background colour"
+        );
+
+        let r = adapter.computed_style(find_node_by_id_attr(&adapter.doc, root, "r").expect("#r"));
+        assert_eq!(
+            r.background.color.a, 0,
+            "a background without a colour resets background-color to transparent"
+        );
+        assert!(r.background.image.is_some(), "background image via the longhand");
+    }
+
+    /// A sibling combinator walks elements only: `* ~ .target` is not satisfied by the
+    /// whitespace text node before `.target`, and `* .target` not by the document node.
+    #[test]
+    fn combinators_skip_non_element_nodes() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = "<html><head><style>* ~ .target { width: 200px; display: block }</style></head>\
+                    <body><div>\n  <p class=\"target\">x</p></div></body></html>";
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target")
+            .or_else(|| {
+                fn by_class(
+                    doc: &DocumentImpl<Config>,
+                    node: gosub_shared::node::NodeId,
+                ) -> Option<gosub_shared::node::NodeId> {
+                    if doc.attributes(node).and_then(|a| a.get("class").cloned()).as_deref() == Some("target") {
+                        return Some(node);
+                    }
+                    doc.children(node).iter().find_map(|&c| by_class(doc, c))
+                }
+                by_class(&adapter.doc, root)
+            })
+            .expect("p.target");
+        let width = adapter.computed_style(target).size.width;
+        assert_ne!(
+            width,
+            LengthPercentageAuto::Px(200.0),
+            "no element precedes .target, so `* ~ .target` must not match"
+        );
+    }
+
+    /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
+    /// but never exceed its containing block - an abs div wrapping a wide table once sized
+    /// to the table's raw max-content (812px in an 800px viewport).
+    #[test]
+    fn absolute_auto_width_capped_at_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body style="font-family: monospace; font-size: 16px">
+          <div style="position: relative; font-size: 2em;">
+            <div style="position: relative; padding: 1px;">flow</div>
+            <div id="overlay" style="position: absolute; top: 0; padding: 1px;">
+              <table cellpadding="0" cellspacing="0" style="margin: 0; padding: 0; border: none">
+                <tr><td>Row 1, Col 1</td><td>Row 1, Col 2</td><td>Row 1, Col 3</td></tr>
+                <tr><td>Row 333, Col 1</td><td>Row 333, Col 2</td><td>Row 333, Col 3</td></tr>
+              </table>
+            </div>
+          </div></body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut l = TaffyLayouter::new();
+        let tree = l.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+
+        let overlay = tree
+            .arena
+            .values()
+            .find(|el| {
+                doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                    crate::common::document::node::NodeType::Element(ref d) => {
+                        d.attributes.get("id").is_some_and(|v| v == "overlay")
+                    }
+                    _ => false,
+                })
+            })
+            .expect("overlay div in layout tree");
+        // Containing block: body content = 800 - 2x8 margin = 784.
+        assert!(
+            (overlay.box_model.border_box.width - 784.0).abs() < 0.5,
+            "abs overlay must cap at the containing block width, got {}",
+            overlay.box_model.border_box.width
+        );
+    }
+
+    /// CSS 2.1 §17.2.1: consecutive table-internal boxes without a table ancestor get an
+    /// anonymous table wrapper, so bare `display: table-cell` spans lay out side by side
+    /// (WPT table-anonymous-objects-061 and friends).
+    #[test]
+    fn parentless_table_cells_get_anonymous_table() {
+        use crate::common::document::node::NodeType;
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body>
+          <div>
+            <span style="display: table-cell">alpha</span>
+            <span style="display: table-cell">beta</span>
+          </div></body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut l = TaffyLayouter::new();
+        let tree = l.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+
+        let cell_boxes: Vec<_> = tree
+            .arena
+            .values()
+            .filter(|el| {
+                doc.get_node_by_id(el.dom_node_id)
+                    .is_some_and(|n| matches!(n.node_type, NodeType::Element(ref d) if d.tag_name == "span"))
+            })
+            .map(|el| el.box_model.border_box)
+            .collect();
+        assert_eq!(cell_boxes.len(), 2, "both cells reach the layout tree");
+        let (a, b) = (&cell_boxes[0], &cell_boxes[1]);
+        assert!((a.y - b.y).abs() < 0.5, "cells share a table row: y {} vs {}", a.y, b.y);
+        assert!(
+            (a.x - b.x).abs() > 10.0,
+            "cells occupy adjacent columns: x {} vs {}",
+            a.x,
+            b.x
+        );
+    }
+
+    /// A descendant combinator has to try *every* ancestor, not commit to the nearest one that
+    /// matched the part beside it.
+    ///
+    /// `.a > .b .c` matches here: the OUTER `.b` is a child of `.a`, and `p.c` is its
+    /// descendant. Walking from `.c`, the nearest `.b` ancestor is the inner one, whose parent
+    /// is not `.a` - so a matcher that commits there answers "no match" and is wrong.
+    #[test]
+    fn a_descendant_combinator_tries_every_ancestor() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use gosub_interface::document::Document as _;
+
+        fn width_of_c(html: &str) -> LengthPercentageAuto {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target = find_node_by_class_attr(&adapter.doc, root, "c").expect("p.c exists");
+            adapter.computed_style(target).size.width
+        }
+
+        fn find_node_by_class_attr(
+            doc: &DocumentImpl<Config>,
+            node: gosub_shared::node::NodeId,
+            target: &str,
+        ) -> Option<gosub_shared::node::NodeId> {
+            if let Some(attrs) = doc.attributes(node) {
+                if attrs.get("class").map(|s| s.as_str()) == Some(target) {
+                    return Some(node);
+                }
+            }
+            for &child in doc.children(node) {
+                if let Some(found) = find_node_by_class_attr(doc, child, target) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        const STYLE: &str = "<style>.a > .b .c { width: 200px; display: block }</style>";
+
+        // The control: one `.b`, so there is nothing to climb past.
+        let single = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><p class=\"c\">x</p></div></div></body></html>"
+        ));
+        assert_eq!(single, LengthPercentageAuto::Px(200.0), "control case must match");
+
+        // The regression: a second `.b` nested inside the first.
+        let nested = width_of_c(&format!(
+            "<html><head>{STYLE}</head><body><div class=\"a\"><div class=\"b\"><div class=\"b\"><p class=\"c\">x</p></div></div></div></body></html>"
+        ));
+        assert_eq!(
+            nested,
+            LengthPercentageAuto::Px(200.0),
+            "the outer .b satisfies `.a > .b`, so the selector matches"
+        );
     }
 
     #[test]
@@ -85,10 +450,13 @@ mod rendertree_from_engine {
 
     #[test]
     fn head_and_script_are_excluded() {
+        // `noscript` is here because it is hidden by a user-agent `display: none` rule rather than
+        // by the render tree's hardcoded list. With scripting enabled its contents are parsed as
+        // raw text, so if the element survives, that text is drawn on the page verbatim.
         let html = r#"
             <html>
             <head><title>Test</title><style>body{color:red}</style></head>
-            <body><p>Content</p></body>
+            <body><p>Content</p><noscript><img src="//example.org/x.gif"></noscript></body>
             </html>
         "#;
 
@@ -102,7 +470,7 @@ mod rendertree_from_engine {
                     use cow_utils::CowUtils;
                     let tag = data.tag_name.cow_to_ascii_lowercase();
                     assert!(
-                        !matches!(&*tag, "head" | "style" | "script" | "title"),
+                        !matches!(&*tag, "head" | "style" | "script" | "title" | "noscript"),
                         "invisible element <{tag}> must not appear in render tree"
                     );
                 }
@@ -124,7 +492,6 @@ mod rendertree_from_engine {
         "#;
 
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, Unit, Value};
 
         let mut doc = html_compile::<Config>(html);
         let ua = Css3System::load_default_useragent_stylesheet();
@@ -137,16 +504,16 @@ mod rendertree_from_engine {
         assert!(box_node_id.is_some(), "should find #box element");
 
         let id = box_node_id.unwrap();
-        let width = adapter.get_style(id, &StyleProperty::Width);
-        let height = adapter.get_style(id, &StyleProperty::Height);
-
-        assert!(
-            matches!(width, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
-            "expected width:200px, got {width:?}"
+        let style = adapter.computed_style(id);
+        assert_eq!(
+            style.size.width,
+            LengthPercentageAuto::Px(200.0),
+            "expected width:200px"
         );
-        assert!(
-            matches!(height, Value::Unit(h, Unit::Px) if (h - 100.0).abs() < 0.5),
-            "expected height:100px, got {height:?}"
+        assert_eq!(
+            style.size.height,
+            LengthPercentageAuto::Px(100.0),
+            "expected height:100px"
         );
     }
 
@@ -165,7 +532,6 @@ mod rendertree_from_engine {
 
         use crate::common::document::node::NodeType;
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, Unit, Value};
 
         let mut doc = html_compile::<Config>(html);
         let ua = Css3System::load_default_useragent_stylesheet();
@@ -175,12 +541,13 @@ mod rendertree_from_engine {
         let root = adapter.doc.root();
         let m = find_node_by_class_dfs(&adapter.doc, root, "m").expect("find .m");
 
+        let spacing_px = |id| match adapter.computed_style(id).inherited.letter_spacing {
+            LetterSpacing::Length(LengthPercentage::Px(px)) => px,
+            other => panic!("expected a px letter-spacing, got {other:?}"),
+        };
+
         // On the element itself: 0.14em * 20px = 2.8px.
-        let ls = adapter.get_style(m, &StyleProperty::LetterSpacing);
-        assert!(
-            matches!(ls, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
-            "expected letter-spacing 2.8px on .m, got {ls:?}"
-        );
+        assert!((spacing_px(m) - 2.8).abs() < 0.1, "expected letter-spacing 2.8px on .m");
 
         // Inherited by the child text node ("HELLO").
         let text_child = adapter
@@ -188,11 +555,296 @@ mod rendertree_from_engine {
             .into_iter()
             .find(|c| matches!(adapter.get_node_by_id(*c).map(|n| n.node_type), Some(NodeType::Text(_))))
             .expect("find text child");
-        let ls_text = adapter.get_style(text_child, &StyleProperty::LetterSpacing);
         assert!(
-            matches!(ls_text, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
-            "expected inherited letter-spacing 2.8px on text node, got {ls_text:?}"
+            (spacing_px(text_child) - 2.8).abs() < 0.1,
+            "expected inherited letter-spacing 2.8px on text node"
         );
+    }
+
+    #[test]
+    fn a_rem_in_the_style_attribute_follows_the_root_font_size_too() {
+        // The `style` attribute cascades at inline specificity like any other declaration, so
+        // its `rem` resolves in the CSS computed stage against the root's font-size.
+        let html = r#"
+            <html>
+            <head><style>html { font-size: 20px; }</style></head>
+            <body><div id="attr" style="width: 2rem"></div></body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        assert_eq!(
+            adapter.computed_style(node).size.width,
+            LengthPercentageAuto::Px(40.0),
+            "expected 2rem to be 40px against a 20px root"
+        );
+    }
+
+    /// `style="width: <value>"` on a div, with `<root_css>` applied to `html`.
+    fn style_attr_width(root_css: &str, value: &str) -> LengthPercentageAuto {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = format!(
+            r#"<html><head><style>html {{ {root_css} }}</style></head>
+               <body><div id="attr" style="width: {value}"></div></body></html>"#
+        );
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+        adapter.computed_style(node).size.width
+    }
+
+    #[test]
+    fn a_rem_on_the_root_itself_uses_the_initial_font_size() {
+        // css-values-4 §5.1.1: the root's own `font-size` is what *defines* a `rem`, so a `rem`
+        // inside it means the initial 16px. Saying so is also what stops this recursing.
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"<html><head><style>html { font-size: 2rem; }</style></head>
+                      <body><div id="attr" style="width: 1rem"></div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "attr").expect("find #attr");
+
+        // The root resolves 2rem against the initial 16px = 32px, and the div's 1rem then
+        // follows that.
+        assert_eq!(
+            adapter.computed_style(node).size.width,
+            LengthPercentageAuto::Px(32.0),
+            "expected 32px"
+        );
+    }
+
+    #[test]
+    fn a_percentage_root_font_size_still_sets_the_rem_basis() {
+        // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px, so the numbers
+        // in a stylesheet read as tenths.
+
+        assert_eq!(
+            style_attr_width("font-size: 62.5%;", "2rem"),
+            LengthPercentageAuto::Px(20.0),
+            "expected 2rem to be 20px against a 62.5% root"
+        );
+    }
+
+    #[test]
+    fn rem_follows_the_root_font_size_and_em_the_elements_own() {
+        // `rem` used to be hard-coded to the initial 16px, so a document that resizes its root
+        // laid out at the wrong scale everywhere. `min()` is here because its operands are
+        // font-relative too, and it is only resolvable once the basis exists.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html   { font-size: 20px; }
+                    #rem   { width: 2rem; }
+                    #em    { font-size: 25px; width: 2em; }
+                    #cmp   { font-size: 25px; width: min(2em, 30px); }
+                </style>
+            </head>
+            <body>
+                <div id="rem"></div>
+                <div id="em"></div>
+                <div id="cmp"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.computed_style(node).size.width
+        };
+
+        for (id_attr, expected) in [("rem", 40.0), ("em", 50.0), ("cmp", 30.0)] {
+            assert_eq!(
+                width_of(id_attr),
+                LengthPercentageAuto::Px(expected),
+                "expected width {expected}px on #{id_attr}"
+            );
+        }
+    }
+
+    /// `lh` and `rlh` are the element's and the root's computed line-height, not a factor of the
+    /// font-size. Inside `line-height` itself `lh` means the parent's, which is what keeps it
+    /// from referring to itself. The numbers are Chromium's; `normal` is left out, since that
+    /// one is the font's to decide.
+    #[test]
+    fn lh_and_rlh_follow_the_computed_line_height() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html  { font-size: 20px; line-height: 30px; }
+                    #lh   { font-size: 20px; line-height: 40px; width: 1lh; }
+                    #num  { font-size: 10px; line-height: 2; width: 1lh; }
+                    #pct  { font-size: 10px; line-height: 150%; width: 2lh; }
+                    #inh  { font-size: 10px; width: 1lh; }
+                    #rlh  { width: 2rlh; }
+                    #self { font-size: 10px; line-height: 2lh; width: 1lh; }
+                </style>
+            </head>
+            <body>
+                <div id="lh"></div>
+                <div id="num"></div>
+                <div id="pct"></div>
+                <div id="inh"></div>
+                <div id="rlh"></div>
+                <div id="self"></div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.computed_style(node).size.width
+        };
+
+        for (id_attr, expected) in [
+            ("lh", 40.0),
+            ("num", 20.0),
+            ("pct", 30.0),
+            ("inh", 30.0),
+            ("rlh", 60.0),
+            ("self", 60.0),
+        ] {
+            assert_eq!(
+                width_of(id_attr),
+                LengthPercentageAuto::Px(expected),
+                "expected width {expected}px on #{id_attr}"
+            );
+        }
+    }
+
+    /// The corners of `lh` the first cut got wrong, with Chromium's numbers: a `font-size` in
+    /// `lh` measured against the parent's line-height before `em` is worked out from it, a bare
+    /// `0` line-height, and an explicit `inherit` or `unset` of a percentage, which inherits the
+    /// length the parent computed rather than the percentage.
+    #[test]
+    fn lh_in_font_size_zero_and_explicit_inheritance() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html      { font-size: 20px; line-height: 30px; }
+                    #fs       { font-size: 2lh; width: 1em; }
+                    #fs-own   { font-size: 2lh; line-height: 1; width: 1lh; }
+                    #zero     { font-size: 10px; line-height: 0; width: 1lh; }
+                    #parent   { font-size: 20px; line-height: 150%; }
+                    #explicit { font-size: 10px; line-height: inherit; width: 1lh; }
+                    #unset    { font-size: 10px; line-height: unset; width: 1lh; }
+                </style>
+            </head>
+            <body>
+                <div id="fs"></div>
+                <div id="fs-own"></div>
+                <div id="zero"></div>
+                <div id="parent"><div id="explicit"></div><div id="unset"></div></div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let width_of = |id_attr: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            adapter.computed_style(node).size.width
+        };
+
+        for (id_attr, expected) in [
+            ("fs", 60.0),
+            ("fs-own", 60.0),
+            ("zero", 0.0),
+            ("explicit", 30.0),
+            ("unset", 30.0),
+        ] {
+            assert_eq!(
+                width_of(id_attr),
+                LengthPercentageAuto::Px(expected),
+                "expected width {expected}px on #{id_attr}"
+            );
+        }
+    }
+
+    #[test]
+    fn calc_reaches_layout_as_a_length() {
+        // `calc()` bodies were carried to layout as text and never evaluated, so every one of
+        // these arrived as the string it was written as and contributed no length at all.
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    html    { font-size: 20px; }
+                    #plain  { width: calc(10px + 20px); }
+                    #nested { width: calc(10px + calc(10px + calc(10px + calc(10px + 1px)))); }
+                    #units  { width: calc(1in + 1px); }
+                    #rel    { font-size: 25px; width: calc(2em + 1rem); }
+                    #scaled { width: calc((10px + 20px) * 2 / 3); }
+                </style>
+            </head>
+            <body>
+                <div id="plain"></div>
+                <div id="nested"></div>
+                <div id="units"></div>
+                <div id="rel"></div>
+                <div id="scaled"></div>
+            </body>
+            </html>
+        "#;
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for (id_attr, expected) in [
+            ("plain", 30.0),
+            ("nested", 41.0),
+            // 1in is 96px by definition.
+            ("units", 97.0),
+            // 2em at 25px, plus 1rem against the root's 20px.
+            ("rel", 70.0),
+            ("scaled", 20.0),
+        ] {
+            let node = find_node_by_id_attr(&adapter.doc, root, id_attr).unwrap_or_else(|| panic!("find #{id_attr}"));
+            let width = adapter.computed_style(node).size.width;
+            assert!(
+                width.to_px().is_some_and(|px| (px - expected).abs() < 0.1),
+                "expected width {expected}px on #{id_attr}, got {width:?}"
+            );
+        }
     }
 
     // Regression: `line-height: 1.7` once rounded to 2.0, inflating every paragraph.
@@ -211,7 +863,6 @@ mod rendertree_from_engine {
 
         use crate::common::document::node::NodeType;
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, Unit, Value};
 
         let mut doc = html_compile::<Config>(html);
         let ua = Css3System::load_default_useragent_stylesheet();
@@ -227,14 +878,12 @@ mod rendertree_from_engine {
             .expect("find text child");
 
         for id in [p, text_child] {
-            let fs = adapter.get_style(id, &StyleProperty::FontSize);
+            let style = adapter.computed_style(id);
+            let fs = style.inherited.font_size;
+            assert!((fs - 17.0).abs() < 0.01, "expected font-size 17px, got {fs}");
+            let lh = style.inherited.line_height;
             assert!(
-                matches!(fs, Value::Unit(px, Unit::Px) if (px - 17.0).abs() < 0.01),
-                "expected font-size 17px, got {fs:?}"
-            );
-            let lh = adapter.get_style(id, &StyleProperty::LineHeight);
-            assert!(
-                matches!(lh, Value::Number(n) if (n - 1.7).abs() < 0.01),
+                matches!(lh, LineHeight::Number(n) if (n - 1.7).abs() < 0.01),
                 "expected line-height Number(1.7), got {lh:?}"
             );
         }
@@ -243,7 +892,6 @@ mod rendertree_from_engine {
     #[test]
     fn mix_blend_mode_reaches_element_style() {
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{lookup, StyleProperty, Value};
         use crate::painter::commands::rectangle::BlendMode;
 
         let html = r#"
@@ -261,21 +909,13 @@ mod rendertree_from_engine {
         let root = adapter.doc.root();
         let img = find_node_by_class_dfs(&adapter.doc, root, "wreck").expect("find img");
 
-        let v = adapter.get_style(img, &StyleProperty::MixBlendMode);
-        let kw = match v {
-            Value::Keyword(kw) => lookup(kw),
-            other => panic!("expected keyword for mix-blend-mode, got {other:?}"),
-        };
+        let kw = adapter.computed_style(img).box_group.mix_blend_mode.to_string();
         assert_eq!(kw, "multiply");
         assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Multiply);
 
         // Elements without the property default to Normal.
         let body = adapter.body_node_id().expect("body");
-        let v = adapter.get_style(body, &StyleProperty::MixBlendMode);
-        let kw = match v {
-            Value::Keyword(kw) => lookup(kw),
-            other => panic!("expected keyword, got {other:?}"),
-        };
+        let kw = adapter.computed_style(body).box_group.mix_blend_mode.to_string();
         assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Normal);
     }
 
@@ -316,11 +956,130 @@ mod rendertree_from_engine {
         None
     }
 
+    // A longhand declared after a shorthand must win, even though every longhand produced by
+    // expanding a shorthand is applied after all the directly declared ones. Before the cascade
+    // gained a document-order tiebreak, the expansion won every tie: `margin: 4px` beat a later
+    // `margin-left`, and Wikipedia's `grid-template` shorthand erased the `grid-template-areas`
+    // that a later rule set, collapsing the whole page shell into one grid cell.
+    #[test]
+    fn a_longhand_declared_after_a_shorthand_wins() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .same-rule { margin: 4px; margin-left: 80px; }
+                    .later-rule { margin: 4px; }
+                    .later-rule { margin-left: 80px; }
+                    .grid { display: grid; grid-template: min-content / 12rem 1fr; }
+                    .grid { grid-template-areas: 'head head' 'side body'; }
+                </style>
+            </head>
+            <body>
+                <div class="same-rule">a</div>
+                <div class="later-rule">b</div>
+                <div class="grid">c</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        for class in ["same-rule", "later-rule"] {
+            let id = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the element");
+            assert_eq!(
+                adapter.computed_style(id).margin.left,
+                LengthPercentageAuto::Px(80.0),
+                "the later `margin-left` should beat the `margin` shorthand on .{class}"
+            );
+        }
+
+        let grid = find_node_by_class_dfs(&adapter.doc, root, "grid").expect("find .grid");
+        let areas: Vec<Vec<String>> = adapter
+            .computed_style(grid)
+            .grid
+            .template_areas
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.as_deref().unwrap_or(".").to_string())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            areas,
+            [["head", "head"], ["side", "body"]],
+            "the later `grid-template-areas` should survive the `grid-template` shorthand"
+        );
+    }
+
+    // `font-size` written as a percentage or a keyword could not be turned into pixels, so
+    // `font_size_px` fell back to its 16px default and the element rendered at full body size.
+    // Every `<sup>` on Wikipedia is `font-size: 80%`, which is why every reference marker came out
+    // as large as the text around it.
+    #[test]
+    fn font_size_resolves_percentages_and_keywords() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let html = r#"
+            <html><head><style>
+                body { font-size: 20px; }
+                #pct { font-size: 80%; }
+                #smaller { font-size: smaller; }
+                #larger { font-size: larger; }
+                #abs { font-size: small; }
+                #outer { font-size: 50%; }
+                #nested { font-size: 50%; }
+            </style></head>
+            <body>
+                <p id="pct">a</p>
+                <p id="smaller">b</p>
+                <p id="larger">c</p>
+                <p id="abs">d</p>
+                <p id="outer"><span id="nested">e</span></p>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let size_of = |id: &str| {
+            adapter
+                .computed_style(find_node_by_id_attr(&adapter.doc, root, id).expect("find the element"))
+                .inherited
+                .font_size
+        };
+
+        // Against the parent's 20px.
+        assert!((size_of("pct") - 16.0).abs() < 0.01, "80% of 20px");
+        assert!(
+            (size_of("smaller") - 20.0 / 1.2).abs() < 0.01,
+            "one step down from 20px"
+        );
+        assert!((size_of("larger") - 20.0 * 1.2).abs() < 0.01, "one step up from 20px");
+        // An absolute keyword ignores the parent and takes its place on the CSS scale.
+        assert!((size_of("abs") - 13.0).abs() < 0.01, "`small` is 13px");
+        // Percentages compound down the tree: 50% of 50% of 20px.
+        assert!(
+            (size_of("nested") - 5.0).abs() < 0.01,
+            "nested percentages compound: got {} for #nested, {} for #outer",
+            size_of("nested"),
+            size_of("outer")
+        );
+    }
+
     // Covers the shorthand (the HN `.votearrow` case), the longhand, and an inline style.
     #[test]
     fn background_image_is_read_from_css() {
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{lookup, StyleProperty, Value};
 
         let html = r#"
             <html>
@@ -345,9 +1104,9 @@ mod rendertree_from_engine {
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
 
-        let url_of = |id| match adapter.get_style(id, &StyleProperty::BackgroundImage) {
-            Value::Keyword(k) => lookup(k),
-            other => panic!("expected keyword url, got {other:?}"),
+        let url_of = |id| match adapter.computed_style(id).background.image.as_deref() {
+            Some(url) => url.to_string(),
+            None => panic!("expected a background image url"),
         };
 
         let longhand = find_node_by_id_attr(&adapter.doc, root, "longhand").expect("find #longhand");
@@ -359,9 +1118,96 @@ mod rendertree_from_engine {
         let inline = find_node_by_id_attr(&adapter.doc, root, "inline").expect("find #inline");
         assert_eq!(url_of(inline), "inline.gif", "inline url not read");
 
-        // An element without a background-image gets the initial value `none`.
+        // An element without a background-image has no image at all, which is what the initial
+        // value `none` means.
         let plain = find_node_by_id_attr(&adapter.doc, root, "plain").expect("find #plain");
-        assert_eq!(url_of(plain), "none", "plain element should be `none`");
+        assert!(
+            adapter.computed_style(plain).background.image.is_none(),
+            "plain element should have no background image"
+        );
+    }
+
+    /// A `var()` inside a function's arguments is substituted like any other, so the
+    /// Tailwind-shaped `rgb(<channels> / var(--tw-text-opacity))` paints the colour it names.
+    ///
+    /// It used to reach the `<color>` grammar as an unsubstituted `rgb()` call, which matches
+    /// nothing, so the declaration was dropped and the text stayed black. css-variables-1 §3
+    /// substitutes on the token stream before the value is read, which is what makes the
+    /// substituted value a colour.
+    #[test]
+    fn a_var_inside_a_colour_function_paints_that_colour() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::Color;
+
+        let html = r#"<html><head><style>
+          * { --tw-text-opacity: 1 }
+          .text-blue-500 { color: rgb(59 130 246 / var(--tw-text-opacity)) }
+        </style></head>
+        <body><div class="text-blue-500" id="target">x</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        assert_eq!(
+            adapter.computed_style(target).inherited.color,
+            Color::rgba(59, 130, 246, 255)
+        );
+    }
+
+    /// What the ancestor bloom filter may and may not drop.
+    ///
+    /// Every rule here reaches `#target` through the selector index, so each one is decided by
+    /// the filter and then by the matcher. Three of them must apply and one must not, and the
+    /// two that reach across a sibling combinator are the shapes the ancestor rule is easiest
+    /// to get wrong on.
+    #[test]
+    fn ancestor_conditions_survive_the_filter() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::Color;
+
+        let html = r#"<html><head><style>
+          /* The class is on the grandparent: applies. */
+          .wrapper .target { color: rgb(1, 2, 3) }
+          /* No ancestor carries it, and no element on the page does: never applies. */
+          .absent .target { background-color: rgb(4, 5, 6) }
+          /* `.wrapper` and `.sibling` are both ancestors, `.middle` is not: applies. */
+          .wrapper > .middle ~ .sibling .target { border-top-color: rgb(7, 8, 9) }
+          /* `.first` is a sibling of an ancestor rather than one, so it must not be required:
+             applies, and a filter that demanded `.first` of an ancestor would lose it. */
+          .first ~ .wrapper .target { border-bottom-color: rgb(10, 11, 12) }
+        </style></head>
+        <body>
+          <div class="first"></div>
+          <div class="wrapper">
+            <div class="middle"></div>
+            <div class="sibling"><div class="target" id="target">x</div></div>
+          </div>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+        let style = adapter.computed_style(target);
+
+        assert_eq!(style.inherited.color, Color::rgba(1, 2, 3, 255), "ancestor class");
+        assert_ne!(
+            style.background.color,
+            Color::rgba(4, 5, 6, 255),
+            "a class no ancestor has must not apply"
+        );
+        assert_eq!(
+            style.border.top_color,
+            Color::rgba(7, 8, 9, 255),
+            "ancestor across a child and a sibling combinator"
+        );
+        assert_eq!(
+            style.border.bottom_color,
+            Color::rgba(10, 11, 12, 255),
+            "a sibling of an ancestor is not an ancestor requirement"
+        );
     }
 
     fn find_node_by_id_attr(
@@ -384,20 +1230,66 @@ mod rendertree_from_engine {
         None
     }
 
+    /// A [`StylesheetSource`] that reads `file://` URLs straight off disk.
+    ///
+    /// The parser does not fetch — an `@import` asks whoever is driving the parse, which in
+    /// the browser is the resource pipeline and its Fetcher. A unit test has no fetcher, and
+    /// what these cases are about is the cascade, not the transport.
+    #[derive(Debug)]
+    struct DiskSheets;
+
+    impl gosub_html5::parser::StylesheetSource for DiskSheets {
+        fn fetch_blocking(&self, urls: &[String]) -> Vec<Option<Vec<u8>>> {
+            urls.iter()
+                .map(|url| {
+                    url::Url::parse(url)
+                        .ok()
+                        .and_then(|url| url.to_file_path().ok())
+                        .and_then(|path| std::fs::read(path).ok())
+                })
+                .collect()
+        }
+    }
+
+    /// `html_compile`, with a source for the sheets an `@import` asks for.
+    fn html_compile_with_sheets(html: &str) -> DocumentImpl<Config> {
+        use gosub_shared::byte_stream::{ByteStream, Encoding};
+
+        let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+        let mut doc = gosub_html5::document::builder::DocumentBuilderImpl::new_document::<Config>(None);
+        let options = gosub_html5::parser::Html5ParserOptions {
+            scripting_enabled: true,
+            stylesheets: Some(Arc::new(DiskSheets)),
+        };
+        let _ = gosub_html5::parser::Html5Parser::<Config>::parse_document(&mut stream, &mut doc, Some(options));
+        doc
+    }
+
     /// Width of the element with `id="{id_attr}"`, in px, after the full style path.
     fn width_px_of(html: &str, id_attr: &str) -> f32 {
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, Unit, Value};
 
-        let mut doc = html_compile::<Config>(html);
+        let mut doc = html_compile_with_sheets(html);
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
         let id = find_node_by_id_attr(&adapter.doc, root, id_attr).expect("element not found");
-        match adapter.get_style(id, &StyleProperty::Width) {
-            Value::Unit(w, Unit::Px) => w,
-            other => panic!("expected a px width, got {other:?}"),
+        match adapter.computed_style(id).size.width.to_px() {
+            Some(w) => w,
+            None => panic!("expected a px width"),
         }
+    }
+
+    /// As `width_px_of`, for a property the importing sheet in the `@import` tests leaves alone.
+    fn height_px_of(html: &str, id_attr: &str) -> f32 {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        let mut doc = html_compile_with_sheets(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = find_node_by_id_attr(&adapter.doc, root, id_attr).expect("element not found");
+        adapter.computed_style(id).size.height.to_px().unwrap_or(f32::NAN)
     }
 
     #[test]
@@ -485,16 +1377,1588 @@ mod rendertree_from_engine {
         assert!((w - 120.0).abs() < 0.5, "expected 120px, got {w}");
 
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, Unit, Value};
         let mut doc = html_compile::<Config>(html);
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
         let host = find_node_by_id_attr(&adapter.doc, root, "host").expect("host");
         let before = adapter.children(host)[0];
-        match adapter.get_style(before, &StyleProperty::Width) {
-            Value::Unit(w, Unit::Px) => assert!((w - 90.0).abs() < 0.5, "expected 90px, got {w}"),
-            other => panic!("expected a px width on ::before, got {other:?}"),
+        match adapter.computed_style(before).size.width.to_px() {
+            Some(w) => assert!((w - 90.0).abs() < 0.5, "expected 90px, got {w}"),
+            None => panic!("expected a px width on ::before"),
         }
     }
+
+    /// `left: 0; right: 0` stretches across the containing block, not across taffy's parent.
+    ///
+    /// Taffy does stretch a box between opposing insets, but it measures from the immediate
+    /// parent. With a narrow static wrapper between the box and its positioned ancestor, that
+    /// gave the wrapper's width - and the placement pass only moved the box, so the wrong width
+    /// survived. The second layout pass hands taffy insets rebased onto the parent so its own
+    /// algorithm produces the right size, and re-lays-out the children at that size.
+    /// Building the taffy tree, taffy's layout and the paint walk all recurse, and before the
+    /// depth cap a few hundred nested `<div>`s overflowed the stack and aborted the process.
+    /// It is also where the SVG proof of concept ends up once the decoder rejects it: the `<g>`s
+    /// are left to lay out as ordinary elements. Part of GHSA-c762-mxfh-vwvp.
+    ///
+    /// Asking for the style of an element thousands of levels deep, before anything above it has
+    /// been resolved, used to recurse once per ancestor and overflow the stack. The ancestors are
+    /// now resolved outermost first. Part of GHSA-c762-mxfh-vwvp.
+    #[test]
+    fn a_deeply_nested_element_resolves_its_style_cold() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+
+        const DEPTH: usize = 5000;
+
+        let font_size = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body style=\"font-size: 20px\">{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+                // Walk the DOM, not the adapter: its `children` resolves each child's display on
+                // the way down, which would warm the cache top-down and hide the recursion.
+                let mut deepest = adapter.doc.root();
+                while let Some(&child) = adapter.doc.children(deepest).last() {
+                    deepest = child;
+                }
+                adapter.computed_style(deepest).inherited.font_size
+            })
+            .expect("spawn")
+            .join()
+            .expect("style resolution must not abort the process");
+
+        assert_eq!(font_size, 20.0);
+    }
+
+    /// On a 2 MiB stack, which is what a tokio worker gives layout.
+    #[test]
+    fn a_deeply_nested_page_is_capped() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const DEPTH: usize = 2000;
+
+        let laid_out = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body>{}x{}</body></html>",
+                    "<div>".repeat(DEPTH),
+                    "</div>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0)
+            })
+            .expect("spawn")
+            .join()
+            .expect("layout must not abort the process");
+
+        // The element at the limit becomes a leaf, so the tree holds exactly the levels above it
+        // and nothing below. Checking the depth actually reached, not just that the tree is
+        // smaller than the document, is what separates "capped" from "layout gave up early".
+        let depth_of = |mut id| {
+            let mut d = 0;
+            while let Some(node) = laid_out.arena.get(&id) {
+                let Some(parent) = node.parent else { break };
+                d += 1;
+                id = parent;
+            }
+            d
+        };
+        let deepest = laid_out.arena.keys().map(|id| depth_of(*id)).max().unwrap_or(0);
+        assert_eq!(
+            deepest,
+            crate::layouter::taffy::MAX_LAYOUT_DEPTH,
+            "expected the layout tree to reach exactly the cap; {} boxes in total",
+            laid_out.arena.len()
+        );
+        assert!(laid_out.arena.len() < DEPTH, "the subtree past the cap must be dropped");
+    }
+
+    /// The tree builder caps nesting at 512 levels, but a document can be built without it, and
+    /// the layout depth cap only bounds the walks over the layout tree. Two layout passes walk the
+    /// DOM instead - collecting tables and sizing inline boxes - and the cascade's inherited
+    /// values drop as a chain as long as the tree is deep. At 20,000 levels each of those
+    /// overflowed a 2 MiB stack.
+    #[test]
+    fn a_deep_tree_built_without_the_parser_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use gosub_html5::node::HTML_NAMESPACE;
+        use gosub_shared::byte_stream::Location;
+
+        const DEPTH: usize = 20_000;
+
+        for tag in ["div", "span"] {
+            let boxes = std::thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || {
+                    let mut doc = html_compile::<Config>("<html><body></body></html>");
+                    let html = doc.children(doc.root())[0];
+                    let mut parent = *doc.children(html).last().expect("body");
+                    for _ in 0..DEPTH {
+                        let child =
+                            doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
+                        doc.attach(child, parent, None);
+                        parent = child;
+                    }
+                    let text = doc.create_text("x", Location::default());
+                    doc.attach(text, parent, None);
+                    doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+
+                    let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                    render_tree.parse().expect("render tree");
+                    let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+                    laid_out.arena.len()
+                })
+                .expect("spawn")
+                .join()
+                .unwrap_or_else(|_| panic!("<{tag}> x {DEPTH}: layout must not abort the process"));
+
+            assert!(
+                boxes < DEPTH,
+                "<{tag}>: the subtree past the layout cap must be dropped"
+            );
+        }
+    }
+
+    /// The same, with a table over it. The table passes walk the DOM on their own account -
+    /// `subtree_contains_table` looks for a nested table under every cell, and `apply_recursive`
+    /// walks a cell's subtree twice to apply the collapsed-border positions - so a *shallow*
+    /// table whose cell holds a deep subtree reaches them however shallow the table itself is.
+    /// The layout depth cap does not bound either walk: one is now bounded in its own right, the
+    /// other runs off an explicit stack.
+    #[test]
+    fn a_deep_subtree_inside_a_table_cell_built_without_the_parser_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use gosub_html5::node::HTML_NAMESPACE;
+        use gosub_shared::byte_stream::Location;
+
+        const DEPTH: usize = 20_000;
+
+        let boxes = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                let mut doc = html_compile::<Config>("<html><body></body></html>");
+                let html = doc.children(doc.root())[0];
+                let body = *doc.children(html).last().expect("body");
+
+                // The table itself is three levels deep; everything below the cell is the load.
+                let mut parent = body;
+                for tag in ["table", "tr", "td"] {
+                    let node = doc.create_element(tag, Some(HTML_NAMESPACE), Default::default(), Location::default());
+                    doc.attach(node, parent, None);
+                    parent = node;
+                }
+                for _ in 0..DEPTH {
+                    let child =
+                        doc.create_element("div", Some(HTML_NAMESPACE), Default::default(), Location::default());
+                    doc.attach(child, parent, None);
+                    parent = child;
+                }
+                let text = doc.create_text("x", Location::default());
+                doc.attach(text, parent, None);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+                laid_out.arena.len()
+            })
+            .expect("spawn")
+            .join()
+            .unwrap_or_else(|_| panic!("a table cell holding {DEPTH} nested elements must not abort the process"));
+
+        assert!(boxes < DEPTH, "the subtree past the layout cap must be dropped");
+    }
+
+    /// The same depth through the parser, which is what a page gets: the tree builder caps it at
+    /// 512 levels before any of the passes above see it.
+    #[test]
+    fn a_page_nesting_twenty_thousand_inline_boxes_lays_out() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const DEPTH: usize = 20_000;
+
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let html = format!(
+                    "<html><body>{}x{}</body></html>",
+                    "<span>".repeat(DEPTH),
+                    "</span>".repeat(DEPTH)
+                );
+                let mut doc = html_compile::<Config>(&html);
+                doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+                let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+                render_tree.parse().expect("render tree");
+                TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+            })
+            .expect("spawn")
+            .join()
+            .expect("layout must not abort the process");
+    }
+
+    /// Each table whose real height differs from the first taffy pass moves the flow below it.
+    /// That used to scan and move the whole layout tree once per table, so a page of many
+    /// sibling tables did work in the square of its size. 10,000 took 19 s in a release build.
+    /// The moves are now applied once, so each box moves at most once for them.
+    #[test]
+    fn sibling_tables_move_each_box_a_bounded_number_of_times() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::table::TRANSLATIONS;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        const TABLES: usize = 500;
+
+        let html = format!(
+            "<html><body>{}</body></html>",
+            "<table><tr><td>x</td></tr></table>".repeat(TABLES)
+        );
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+        render_tree.parse().expect("render tree");
+
+        TRANSLATIONS.with(|n| n.set(0));
+        let laid_out = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        let moves = TRANSLATIONS.with(|n| n.get());
+
+        // One move per box for the flow shifts, plus what lattice does inside each table.
+        let boxes = laid_out.arena.len();
+        assert!(
+            moves <= 4 * boxes,
+            "{moves} box moves for {boxes} boxes; the flow shifts are quadratic again"
+        );
+        // The tables still stack. Each one starts at or below the bottom of the previous one;
+        // increasing tops alone would let them overlap.
+        let mut tables: Vec<_> = laid_out
+            .arena
+            .values()
+            .filter(|el| laid_out.render_tree.doc.tag_name(el.dom_node_id).as_deref() == Some("table"))
+            .map(|el| el.box_model.border_box)
+            .collect();
+        tables.sort_by(|a, b| a.y.total_cmp(&b.y));
+        assert_eq!(tables.len(), TABLES);
+        for pair in tables.windows(2) {
+            assert!(pair[0].height > 0.0, "empty table at y={}", pair[0].y);
+            assert!(
+                pair[1].y >= pair[0].y + pair[0].height - 0.5,
+                "table at y={} overlaps the one above it, which ends at {}",
+                pair[1].y,
+                pair[0].y + pair[0].height
+            );
+        }
+    }
+
+    /// Percentage padding on the table resolves against the containing block's width: 5% of
+    /// 400px is 20px a side. The caption spans the table's border box, padding included, and the
+    /// cell sits inside that padding. The numbers are Chromium's. The vertical padding is in
+    /// pixels here because vertical percentage padding comes out as zero on any box for now, a
+    /// separate bug this test should not depend on.
+    #[test]
+    fn a_tables_percentage_padding_places_its_caption_and_grid() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; font: 16px/20px monospace; }
+                #cb { width: 400px; }
+                table { border: 2px solid; padding: 10px 5%; border-spacing: 0; }
+                td { padding: 0; width: 100px; }
+                caption { height: 30px; }
+            </style></head>
+            <body><div id="cb"><table id="t1"><caption id="c1">cap</caption><tr><td id="d1">x</td></tr></table><div id="a1" style="height: 10px"></div><table id="t2"><caption id="c2" style="caption-side: bottom">cap</caption><tr><td id="d2">x</td></tr></table><div id="a2" style="height: 10px"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["t1", "c1", "d1", "a1", "t2", "c2", "d2", "a2"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [t1, c1, d1, a1, t2, c2, d2, a2] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+        });
+        let (left, top) = (t1.margin_box.x, t1.margin_box.y);
+        let near = |got: f64, want: f64, what: &str| assert!((got - want).abs() < 1.0, "{what}: {got}, want {want}");
+
+        near(
+            t1.border_box.width,
+            144.0,
+            "t1: 100px cell, 20px padding and 2px border a side",
+        );
+        near(c1.border_box.width, 144.0, "c1 spans t1's border box");
+        near(c1.border_box.x - left, 0.0, "c1 left");
+        near(c1.border_box.y - top, 0.0, "c1 top");
+        near(t1.border_box.y - top, 30.0, "t1's border starts below its caption");
+        near(t1.border_box.height, 44.0, "t1's border box");
+        near(d1.border_box.x - left, 22.0, "d1 inside border and padding");
+        near(d1.border_box.y - top, 42.0, "d1 below caption, border and padding");
+        near(a1.border_box.y - top, 74.0, "a1 follows caption and table");
+
+        near(t2.border_box.y - top, 84.0, "t2 top");
+        near(t2.border_box.height, 44.0, "t2's border box");
+        near(d2.border_box.y - top, 96.0, "d2 inside border and padding");
+        near(c2.border_box.y - top, 128.0, "c2 below t2's border");
+        near(c2.border_box.width, 144.0, "c2 spans t2's border box");
+        near(a2.border_box.y - top, 158.0, "a2 follows table and caption");
+    }
+
+    /// A caption sits outside the table's border, above it or below it, and is as wide as the
+    /// table's border box; the table's border box holds the grid alone. The numbers are
+    /// Chromium's for the same page, where the table's own rect is the wrapper around both.
+    #[test]
+    fn a_caption_sits_outside_the_tables_border() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; font: 16px/20px monospace; }
+                table { border: 4px solid; padding: 3px; border-spacing: 2px; }
+                td { padding: 0; width: 100px; }
+                caption { height: 30px; }
+            </style></head>
+            <body><table id="t1"><caption id="c1">cap</caption><tr><td>x</td></tr></table><div id="a1" style="height: 10px"></div><table id="t2"><caption id="c2" style="caption-side: bottom">cap</caption><tr><td>x</td></tr></table><div id="a2" style="height: 10px"></div><table id="t3" style="border-collapse: collapse"><caption id="c3">cap</caption><tr><td style="border: 6px solid">x</td></tr></table><div id="a3" style="height: 10px"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["t1", "c1", "a1", "t2", "c2", "a2", "t3", "c3", "a3"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [t1, c1, a1, t2, c2, a2, t3, c3, a3] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+        });
+        let top = t1.margin_box.y;
+        let near = |got: f64, want: f64, what: &str| assert!((got - want).abs() < 1.0, "{what}: {got}, want {want}");
+
+        // Separated, caption on top.
+        near(c1.border_box.y - top, 0.0, "c1 top");
+        near(c1.border_box.width, 118.0, "c1 spans the table's border box");
+        near(t1.border_box.y - top, 30.0, "t1's border starts below its caption");
+        near(t1.border_box.height, 38.0, "t1's border box is the grid alone");
+        near(t1.border_box.width, 118.0, "t1 width");
+        near(t1.margin_box.height, 68.0, "t1's margin box holds the caption too");
+        near(a1.border_box.y - top, 68.0, "a1 follows caption and table");
+
+        // Separated, caption at the bottom.
+        near(t2.border_box.y - top, 78.0, "t2 top");
+        near(t2.border_box.height, 38.0, "t2's border box is the grid alone");
+        near(c2.border_box.y - top, 116.0, "c2 sits below t2's border");
+        near(c2.border_box.width, 118.0, "c2 spans the table's border box");
+        near(a2.border_box.y - top, 146.0, "a2 follows table and caption");
+
+        // Collapsed, caption on top.
+        near(c3.border_box.y - top, 156.0, "c3 top");
+        // Chromium makes t3 112 wide; it comes out 6px narrower here, which is the collapsed
+        // table's own width and nothing to do with the caption, so this checks the caption
+        // against the table rather than against a number.
+        near(
+            c3.border_box.width,
+            t3.border_box.width,
+            "c3 spans the table's border box",
+        );
+        near(t3.border_box.y - top, 186.0, "t3's border starts below its caption");
+        near(t3.border_box.height, 32.0, "t3's border box is the grid alone");
+        near(a3.border_box.y - top, 218.0, "a3 follows caption and table");
+    }
+
+    /// A table whose height changes moves what follows it in its own column only. The column
+    /// beside it stays put, and what comes after the row moves only as far as the row's bottom
+    /// did - not at all when the other column is the taller one. Chromium lays this out the same
+    /// way; the checks are relative to the table so they hold whichever way it resizes.
+    #[test]
+    fn a_growing_table_moves_only_its_own_column() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; font: 16px/20px monospace; }
+                .row { display: flex; align-items: flex-start; }
+                .col { width: 200px; }
+                table { border-spacing: 0; }
+                td { padding: 0; }
+                caption { height: 30px; }
+            </style></head>
+            <body>
+                <div id="r1" class="row">
+                    <div class="col"><div style="height: 50px"></div><div id="a1" style="height: 10px"></div></div>
+                    <div class="col">
+                        <table id="t1" style="height: 120px"><caption>cap</caption><tr><td>x</td></tr></table>
+                        <div id="b1" style="height: 10px"></div>
+                    </div>
+                </div>
+                <div id="below1" style="height: 10px"></div>
+                <div id="r2" class="row">
+                    <div class="col"><div style="height: 400px"></div><div id="a2" style="height: 10px"></div></div>
+                    <div class="col">
+                        <table id="t2" style="height: 120px"><caption>cap</caption><tr><td>x</td></tr></table>
+                        <div id="b2" style="height: 10px"></div>
+                    </div>
+                </div>
+                <div id="below2" style="height: 10px"></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["r1", "a1", "t1", "b1", "below1", "r2", "a2", "t2", "b2", "below2"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [r1, a1, t1, b1, below1, r2, a2, t2, b2, below2] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        });
+        let near = |got: f64, want: f64, what: &str| assert!((got - want).abs() < 1.0, "{what}: {got}, want {want}");
+
+        let t1_bottom = t1.y + t1.height - r1.y;
+        near(a1.y - r1.y, 50.0, "the column beside t1 does not move");
+        near(b1.y - r1.y, t1_bottom, "the block under t1 follows it");
+        near(
+            below1.y - r1.y,
+            (t1_bottom + 10.0).max(60.0),
+            "the row ends at its taller column",
+        );
+        near(a2.y - r2.y, 400.0, "the column beside t2 does not move");
+        near(b2.y, t2.y + t2.height, "the block under t2 follows it");
+        near(below2.y - r2.y, 410.0, "the row keeps the height of its taller column");
+    }
+
+    /// A table holding a nested table changes height in both table passes: once when it is laid
+    /// out parents-first, and again when the second pass re-lays it after the nested table has
+    /// grown. The block after it has to take both shifts and still start at its bottom.
+    #[test]
+    fn a_table_resized_in_both_passes_pushes_what_follows_by_both() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><body style="margin:0">
+                <table id="outer"><tr><td>
+                    <table><tr><td style="height: 100px">x</td><td style="height: 300px">y</td></tr></table>
+                </td></tr></table>
+                <div id="after">after</div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let outer_dom = find_node_by_id_attr(&adapter.doc, root, "outer").expect("#outer");
+        let after_dom = find_node_by_id_attr(&adapter.doc, root, "after").expect("#after");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let border_box = |dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        };
+        let outer = border_box(outer_dom);
+        let after = border_box(after_dom);
+
+        assert!(
+            outer.height >= 300.0,
+            "outer table did not grow around its nested tables: {outer:?}"
+        );
+        assert!(
+            (after.y - (outer.y + outer.height)).abs() < 1.0,
+            "#after at y={} should start at the outer table's bottom {}",
+            after.y,
+            outer.y + outer.height
+        );
+    }
+
+    /// A declaration whose substitution fails is invalid at computed-value time, not at parse
+    /// time (css-variables-1 §3.1): it still wins the cascade, and then computes as `unset`. An
+    /// earlier rule does not show through it. Every expectation is Chromium's for the same page.
+    #[test]
+    fn a_declaration_invalid_at_computed_value_time_is_unset() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{Color, FontStyle, LengthPercentageAuto};
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                div { width: 10px; margin: 5px; }
+                p { color: rgb(0, 0, 255); }
+                #w { width: var(--nope); }
+                #g { --col: red; width: var(--col); }
+                #m { margin: var(--nope); }
+                #l { width: var(--nope); }
+                div#l { width: 30px; }
+                #c { color: var(--nope); }
+                #cp { color: rgb(0, 128, 0); }
+                #fp { font-size: 20px; font-style: italic; }
+                #f { font-size: 30px; font: var(--nope); }
+            </style></head>
+            <body><div id="w"></div><div id="g"></div><div id="m"></div><div id="l"></div>
+            <section id="cp"><p id="c">x</p></section><section id="fp"><p id="f">x</p></section></body></html>
+        "#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+
+        // Not inherited: `unset` is `initial`, so the earlier 10px goes.
+        assert_eq!(
+            adapter.computed_style(node("w")).size.width,
+            LengthPercentageAuto::Auto,
+            "#w"
+        );
+        // Substituting fine but to something the grammar rejects is the same failure.
+        assert_eq!(
+            adapter.computed_style(node("g")).size.width,
+            LengthPercentageAuto::Auto,
+            "#g"
+        );
+        // A shorthand unsets every longhand.
+        let style = adapter.computed_style(node("m"));
+        let margin = &style.margin;
+        assert_eq!(margin.top, LengthPercentageAuto::Px(0.0), "#m top");
+        assert_eq!(margin.left, LengthPercentageAuto::Px(0.0), "#m left");
+        // It only matters when it wins: a more specific valid declaration still does.
+        assert_eq!(
+            adapter.computed_style(node("l")).size.width,
+            LengthPercentageAuto::Px(30.0),
+            "#l"
+        );
+        // Inherited: `unset` is `inherit`, so the parent's green, not the `p` rule's blue.
+        assert_eq!(
+            adapter.computed_style(node("c")).inherited.color,
+            Color::rgba(0, 128, 0, 255),
+            "#c"
+        );
+        // A shorthand whose longhands inherit: each of them inherits, rather than going back
+        // to its initial value.
+        let style = adapter.computed_style(node("f"));
+        assert_eq!(style.inherited.font_size, 20.0, "#f font-size");
+        assert_eq!(style.inherited.font_style, FontStyle::Italic, "#f font-style");
+    }
+
+    /// An empty `var()` fallback and an empty custom property both substitute to nothing and
+    /// leave the rest of the declaration standing. The widths are Chromium's for the same page.
+    #[test]
+    fn an_empty_var_substitutes_to_nothing() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                div { width: 10px; height: 1px; }
+                #a { width: 50px var(--nope,); }
+                #b { width: var(--nope,) 60px; }
+                #d { --empty:; width: 70px var(--empty); }
+                #e { --empty:; width: var(--empty, 80px) 90px; }
+                #f { width: var(--nope, var(--nope2,)) 40px; }
+            </style></head>
+            <body><div id="a"></div><div id="b"></div><div id="d"></div><div id="e"></div><div id="f"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["a", "b", "d", "e", "f"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let widths = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+                .width
+        });
+        assert_eq!(widths, [50.0, 60.0, 70.0, 90.0, 40.0]);
+    }
+
+    /// A table's `height` is a minimum its rows grow into, and what follows the table starts
+    /// below that height, not below the rows' content. Chromium gives the auto row all 280px
+    /// of extra here and leaves the row whose cell has a height of its own alone.
+    #[test]
+    fn a_tables_height_stretches_its_rows() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                table { border-spacing: 0; }
+                td { padding: 0; }
+            </style></head>
+            <body style="margin:0">
+                <table id="t" style="height: 300px">
+                    <tr><td id="a">a</td></tr>
+                    <tr><td id="b" style="height: 20px">b</td></tr>
+                </table>
+                <div id="after">after</div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["t", "a", "b", "after"].map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let [table, a, b, after] = ids.map(|dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+                .box_model
+                .border_box
+        });
+
+        assert!((table.height - 300.0).abs() < 1.0, "table height {}", table.height);
+        assert!(
+            (b.height - 20.0).abs() < 1.0,
+            "the fixed row's cell stays 20px: {}",
+            b.height
+        );
+        assert!(
+            (a.height - 280.0).abs() < 1.0,
+            "the auto row's cell takes the rest: {}",
+            a.height
+        );
+        assert!(
+            (after.y - (table.y + table.height)).abs() < 1.0,
+            "#after at y={} should start at the table's bottom {}",
+            after.y,
+            table.y + table.height
+        );
+    }
+
+    /// Indentation, a comment and a hidden input between the rows generate no boxes, so they
+    /// must not become anonymous rows: the table is exactly its two 20px rows.
+    #[test]
+    fn whitespace_comments_and_hidden_elements_between_rows_make_no_rows() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                table { border-spacing: 0; }
+                td { padding: 0; height: 20px; }
+            </style></head>
+            <body style="margin:0">
+                <table id="t">
+                    <!-- first -->
+                    <tr><td>a</td></tr>
+                    <input type="hidden" name="x" value="y">
+                    <tr><td>b</td></tr>
+                </table>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let table_dom = find_node_by_id_attr(&adapter.doc, root, "t").expect("#t");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let table = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == table_dom)
+            .expect("#t in the layout tree")
+            .box_model
+            .border_box;
+        assert!(
+            (table.height - 40.0).abs() < 1.0,
+            "table height {} should be its two 20px rows",
+            table.height
+        );
+    }
+
+    #[test]
+    fn opposing_insets_stretch_across_the_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // 300px positioned ancestor, 100px static wrapper in between - CodeRabbit's example.
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #wrap { width: 100px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+
+        assert!(
+            (mb.width - 300.0).abs() < 1.0,
+            "expected the box to span the 300px containing block, got width {} (the 100px wrapper?)",
+            mb.width
+        );
+        assert!(
+            (mb.x - 40.0).abs() < 1.0,
+            "expected x ~40 (the containing block's left edge), got {}",
+            mb.x
+        );
+    }
+
+    /// The common shape - an absolute child directly inside its positioned ancestor - must still
+    /// come out right, and is the case the second pass deliberately skips.
+    #[test]
+    fn opposing_insets_with_the_parent_as_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                #cb { position: relative; margin-left: 40px; width: 300px; height: 200px; }
+                #target { position: absolute; left: 0; right: 0; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="cb"><div id="target"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let mb = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == target_dom)
+            .expect("#target in the layout tree")
+            .box_model
+            .margin_box;
+        assert!((mb.width - 300.0).abs() < 1.0, "expected width ~300, got {}", mb.width);
+        assert!((mb.x - 40.0).abs() < 1.0, "expected x ~40, got {}", mb.x);
+    }
+
+    /// The initial containing block sits at the canvas origin, not inside the root's padding.
+    ///
+    /// It used to be anchored on the root element's *content* box, so any padding on the root
+    /// pushed it inwards and `top: 0; left: 0` on an unanchored absolute box - or on anything
+    /// `fixed` - missed the corner by exactly that padding.
+    #[test]
+    fn initial_containing_block_is_anchored_at_the_origin() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // Padding on the root, and no positioned ancestor above `#pinned`.
+        let html = r#"
+            <html><head><style>
+                html { padding: 20px; }
+                #pinned { position: absolute; left: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0"><div id="pinned"></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        let mb = pinned.box_model.margin_box;
+        assert!(
+            mb.x.abs() < 0.5 && mb.y.abs() < 0.5,
+            "`top: 0; left: 0` with no positioned ancestor should reach the canvas corner, got ({}, {})",
+            mb.x,
+            mb.y
+        );
+    }
+
+    /// A font-relative inset must place the box, not be discarded as `auto`.
+    ///
+    /// The converter feeding taffy resolves `em`/`rem`, but the absolute-positioning pass read
+    /// the raw value and matched only `px` and `%`. A box whose only specified side was an `em`
+    /// inset was therefore treated as `auto` on that axis and left wherever taffy had put it,
+    /// rather than placed against its containing block.
+    #[test]
+    fn font_relative_insets_are_honoured() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// x of `#target`'s margin box, laid out at 800x600.
+        fn target_x(html: &str) -> f64 {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let target_dom = find_node_by_id_attr(&adapter.doc, root, "target").expect("#target");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == target_dom)
+                .expect("#target in the layout tree")
+                .box_model
+                .margin_box
+                .x
+        }
+
+        // The static `#wrap` in between is what makes this observable: taffy places an absolute
+        // child against its *immediate parent*, so it puts `#target` at 150 + 64, while CSS
+        // measures from `#cb` and wants 100 + 64. Dropping the inset left taffy's answer standing.
+        // Without the wrapper the two agree and the bug hides.
+        // 4em at the default 16px font size; `left: 64px` is the same distance spelled in px.
+        let page = |left: &str| {
+            format!(
+                r#"<html><head><style>
+                    #cb {{ position: relative; margin-left: 100px; width: 400px; height: 200px; }}
+                    #wrap {{ margin-left: 50px; }}
+                    #target {{ position: absolute; left: {left}; width: 50px; height: 10px; }}
+                </style></head>
+                <body style="margin:0">
+                    <div id="cb"><div id="wrap"><div id="target"></div></div></div>
+                </body></html>"#
+            )
+        };
+
+        let em_x = target_x(&page("4em"));
+        let px_x = target_x(&page("64px"));
+        assert!(
+            (em_x - px_x).abs() < 0.5,
+            "`left: 4em` should place identically to `left: 64px`, got {em_x} vs {px_x}"
+        );
+        assert!(
+            (em_x - 164.0).abs() < 1.0,
+            "expected x ~164 (containing block at 100px + 4em), got {em_x}"
+        );
+    }
+
+    /// With no viewport, the initial containing block comes from the root's settled size.
+    ///
+    /// `root_dimension` is zero until the layout pass publishes it, and that used to happen
+    /// *after* the absolute-positioning pass ran - so the fallback containing block was 0x0,
+    /// percentage insets resolved to zero and `right`/`bottom` placed boxes at negative offsets.
+    #[test]
+    fn absolute_placement_without_a_viewport_uses_the_root_size() {
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        // No positioned ancestor anywhere, so `#pinned` measures against the *initial*
+        // containing block - the fallback this test is about. The in-flow sibling is what gives
+        // the root a width to fall back to; without a viewport its size is content-driven.
+        let html = r#"
+            <html><head><style>
+                #pinned { position: absolute; right: 0; top: 0; width: 50px; height: 10px; }
+            </style></head>
+            <body style="margin:0">
+                <div style="width:400px;height:20px"></div>
+                <div id="pinned"></div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let pinned_dom = find_node_by_id_attr(&adapter.doc, root, "pinned").expect("#pinned");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        // No viewport: the initial containing block has to fall back to the root's own size.
+        let layout_tree = TaffyLayouter::new().layout(render_tree, None, 1.0);
+
+        assert!(
+            layout_tree.root_dimension.width > 0.0,
+            "the root's settled size must be published before it is used"
+        );
+
+        let pinned = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == pinned_dom)
+            .expect("#pinned in the layout tree");
+        // `right: 0` puts the box's right edge on the containing block's right edge, so its
+        // left edge lands at (containing block width - 50). With the zero fallback that came out
+        // at -50: flush against nothing, off the left of the canvas.
+        let expected = layout_tree.root_dimension.width - 50.0;
+        assert!(
+            pinned.box_model.margin_box.x >= 0.0,
+            "right-edge placement produced a negative offset: x = {}",
+            pinned.box_model.margin_box.x
+        );
+        assert!(
+            (pinned.box_model.margin_box.x - expected).abs() < 1.0,
+            "expected x ~{expected} (root width {} minus the 50px box), got {}",
+            layout_tree.root_dimension.width,
+            pinned.box_model.margin_box.x
+        );
+    }
+
+    /// A promoted layer whose element has a collapsed margin box must still get tiles.
+    ///
+    /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
+    /// was still bounded by margin boxes alone - and skipped any element with zero area. A
+    /// negative margin large enough to collapse the margin box (the `margin-left: -320px` float
+    /// the union was added for) therefore produced a layer with no tiles at all, so the union
+    /// had nothing to select and the element's background vanished.
+    #[test]
+    fn collapsed_margin_box_still_gets_tiles() {
+        use crate::common::geo::Dimension;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::tiler::TileList;
+
+        // `opacity` promotes the div to its own layer, so it goes through the bounds computation
+        // rather than layer 0's full-page coverage. `margin-left: -320px` against a 320px width
+        // leaves a zero-width margin box while the border box keeps its 320px.
+        let html = r#"
+            <html><head><style>
+                #ghost {
+                    display: block; width: 320px; height: 100px;
+                    margin-left: -320px; opacity: 0.5; background-color: #ff0000;
+                }
+            </style></head>
+            <body style="margin:0"><div style="padding-left:400px"><div id="ghost"></div></div></body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ghost_dom = find_node_by_id_attr(&adapter.doc, root, "ghost").expect("#ghost");
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        // Confirm the setup really does collapse the margin box - if a layout change ever stops
+        // reproducing that, this test should say so rather than pass hollowly.
+        let ghost = layout_tree
+            .arena
+            .iter()
+            .find(|(_, el)| el.dom_node_id == ghost_dom)
+            .map(|(id, el)| (*id, el.box_model))
+            .expect("#ghost in the layout tree");
+        assert!(
+            ghost.1.margin_box.width <= 0.0,
+            "the negative margin should collapse the margin box, got {}",
+            ghost.1.margin_box.width
+        );
+        assert!(ghost.1.border_box.width > 0.0, "the border box should keep its width");
+
+        let layer_list = LayerList::new(Arc::new(layout_tree));
+        // More than one layer means the div really was promoted; layer 0 gets full-page coverage
+        // and would bypass the bounds computation this test is about.
+        assert!(
+            layer_list.layer_ids.read().len() > 1,
+            "the div should have been promoted to its own layer"
+        );
+
+        let mut tile_list = TileList::new(layer_list, Dimension::new(256.0, 256.0));
+        tile_list.generate();
+
+        assert!(
+            !tile_list.get_tiles_for_element(ghost.0).is_empty(),
+            "#ghost was assigned to no tile, so nothing paints its background"
+        );
+    }
+
+    /// Floating a flex container must not turn it into a block container.
+    ///
+    /// CSS blockification (Display §2.7) only maps *inline-level* boxes to their block-level
+    /// equivalent - `inline-flex` becomes `flex`, not `block`, and a box that is already
+    /// block-level is untouched. Forcing `Display::Block` on every float laid a floated flex
+    /// container's children out stacked instead of in a row.
+    #[test]
+    fn floated_flex_container_keeps_its_flex_children() {
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        /// Lay `html` out at 800x600 and return the margin boxes of `#row`'s children.
+        fn child_boxes(html: &str) -> Vec<Rect> {
+            let mut doc = html_compile::<Config>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+            let root = adapter.doc.root();
+            let row_dom = find_node_by_id_attr(&adapter.doc, root, "row").expect("#row");
+
+            let mut render_tree = RenderTree::new(Arc::new(adapter));
+            render_tree.parse().expect("render tree");
+            let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+            let row = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == row_dom)
+                .expect("#row in the layout tree");
+            row.children
+                .iter()
+                .filter_map(|id| layout_tree.get_node_by_id(*id))
+                .map(|el| el.box_model.margin_box)
+                .collect()
+        }
+
+        let html = r#"
+            <html><head><style>
+                #row { display: flex; float: left; }
+                #row > div { width: 50px; height: 20px; }
+            </style></head>
+            <body style="margin:0">
+                <div id="row"><div id="a"></div><div id="b"></div></div>
+            </body></html>
+        "#;
+
+        let boxes = child_boxes(html);
+        assert_eq!(boxes.len(), 2, "expected the two flex items");
+        // Side by side (flex row), not stacked (block flow).
+        assert!(
+            (boxes[0].y - boxes[1].y).abs() < 0.5,
+            "floated flex children should share a row, got y = {} and {}",
+            boxes[0].y,
+            boxes[1].y
+        );
+        assert!(
+            boxes[1].x > boxes[0].x + 1.0,
+            "the second flex item should sit right of the first, got x = {} and {}",
+            boxes[0].x,
+            boxes[1].x
+        );
+    }
+
+    /// Resolve `#target`'s width with the given viewport installed as the media environment.
+    /// Each test runs on its own thread, so the thread-local environment does not leak.
+    fn width_px_at_viewport(html: &str, width: f32, height: f32) -> f32 {
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width,
+            height,
+            device_width: width,
+            device_height: height,
+            ..Default::default()
+        });
+        width_px_of(html, "target")
+    }
+
+    /// The headline case: a mobile-first stylesheet whose desktop rules live in a `@media`
+    /// block. Before media evaluation existed those rules were dropped when the stylesheet
+    /// was built, so the desktop layout could never appear at any window size.
+    #[test]
+    fn media_block_applies_only_above_its_breakpoint() {
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media (min-width: 768px) {
+                    #target { width: 300px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let narrow = width_px_at_viewport(html, 500.0, 800.0);
+        assert!(
+            (narrow - 100.0).abs() < 0.5,
+            "below the breakpoint: expected 100px, got {narrow}"
+        );
+
+        let wide = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (wide - 300.0).abs() < 0.5,
+            "above the breakpoint: expected 300px, got {wide}"
+        );
+    }
+
+    /// A rule inside a matching `@media` block cascades by its own specificity and source
+    /// position - the block itself adds nothing. Here a later, equally specific rule outside
+    /// the block must win even though the media condition holds.
+    #[test]
+    fn media_block_adds_no_specificity() {
+        let html = r#"
+            <html><head><style>
+                @media (min-width: 768px) {
+                    #target { width: 300px; display: block; }
+                }
+                #target { width: 250px; }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let w = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (w - 250.0).abs() < 0.5,
+            "the later rule should win: expected 250px, got {w}"
+        );
+    }
+
+    /// Nested `@media` blocks must both hold, and a `@media` inside a `@layer` still reaches the
+    /// cascade with its layer intact.
+    ///
+    /// The base rule sits in a layer of its own here. It used to be unlayered, from when `@layer`
+    /// was flattened away and the last rule written simply won; now that layers are sorted, an
+    /// unlayered rule beats every layer, so the layered rule could never have shown through.
+    #[test]
+    fn nested_and_layered_media_blocks() {
+        let html = r#"
+            <html><head><style>
+                @layer base, desktop;
+                @layer base {
+                    #target { width: 100px; display: block; }
+                }
+                @media (min-width: 700px) {
+                    @media (max-width: 900px) {
+                        #target { width: 200px; }
+                    }
+                }
+                @layer desktop {
+                    @media (min-width: 1200px) {
+                        #target { width: 400px; }
+                    }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        // Only the inner range matches.
+        let inside = width_px_at_viewport(html, 800.0, 600.0);
+        assert!(
+            (inside - 200.0).abs() < 0.5,
+            "inside both bounds: expected 200px, got {inside}"
+        );
+
+        // Outside the nested range and below the layered one.
+        let between = width_px_at_viewport(html, 1000.0, 600.0);
+        assert!(
+            (between - 100.0).abs() < 0.5,
+            "between the blocks: expected 100px, got {between}"
+        );
+
+        // The rule inside `@layer` + `@media` is reachable, and its layer was declared after
+        // the base layer, so it wins.
+        let widest = width_px_at_viewport(html, 1400.0, 600.0);
+        assert!(
+            (widest - 400.0).abs() < 0.5,
+            "layered media block: expected 400px, got {widest}"
+        );
+    }
+
+    /// Non-length features reach the cascade too, and read the environment rather than the
+    /// viewport.
+    #[test]
+    fn prefers_color_scheme_selects_a_rule() {
+        use gosub_css3::media_query::{ColorScheme, MediaEnvironment};
+
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media (prefers-color-scheme: dark) {
+                    #target { width: 300px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        gosub_css3::media_query::set_media_environment(MediaEnvironment {
+            color_scheme: ColorScheme::Dark,
+            ..Default::default()
+        });
+        let dark = width_px_of(html, "target");
+        assert!((dark - 300.0).abs() < 0.5, "dark scheme: expected 300px, got {dark}");
+
+        gosub_css3::media_query::set_media_environment(MediaEnvironment {
+            color_scheme: ColorScheme::Light,
+            ..Default::default()
+        });
+        let light = width_px_of(html, "target");
+        assert!((light - 100.0).abs() < 0.5, "light scheme: expected 100px, got {light}");
+    }
+
+    /// `@supports` gates a block on what the engine can actually do. The condition is settled
+    /// when the stylesheet is built, so nothing about it reaches the cascade.
+    #[test]
+    fn supports_block_gates_the_cascade() {
+        let satisfied = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @supports (display: grid) { #target { width: 300px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(satisfied, "target");
+        assert!(
+            (w - 300.0).abs() < 0.5,
+            "supported condition applies: expected 300px, got {w}"
+        );
+
+        let unsatisfied = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @supports (display: bogus-value) { #target { width: 300px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(unsatisfied, "target");
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "unsupported condition is inert: expected 100px, got {w}"
+        );
+    }
+
+    /// The `not (...)` fallback branch a site writes must be reachable for a feature the
+    /// engine parses but never renders - otherwise the page loses its working fallback.
+    #[test]
+    fn supports_fallback_branch_is_reachable_for_unimplemented_features() {
+        let html = r#"
+            <html><head><style>
+                #target { display: block; width: 100px; }
+                @supports (position: sticky) { #target { width: 300px; } }
+                @supports not (position: sticky) { #target { width: 200px; } }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!(
+            (w - 200.0).abs() < 0.5,
+            "sticky is not implemented, so the fallback should win: expected 200px, got {w}"
+        );
+    }
+
+    /// End-to-end `@import`: the whole chain from an inline `<style>` through the html5
+    /// parser's fetcher, off disk, and back into the cascade in the right order.
+    #[test]
+    fn imported_stylesheet_is_fetched_and_cascades_below_the_importer() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let imported = dir.path().join("imported.css");
+        let nested = dir.path().join("nested.css");
+        std::fs::write(&nested, "#target { width: 400px; display: block; }").expect("write nested");
+        std::fs::write(
+            &imported,
+            format!(
+                "@import url(\"file://{}\");\n#target {{ width: 300px; }}",
+                nested.display()
+            ),
+        )
+        .expect("write imported");
+
+        // An absolute URL, because `html_compile` builds the document without one.
+        let html = format!(
+            r#"<html><head><style>
+                @import url("file://{}");
+                #target {{ width: 100px; display: block; }}
+            </style></head>
+            <body><div id="target">x</div></body></html>"#,
+            imported.display()
+        );
+
+        // The importing sheet's own rule wins over everything it pulled in, at equal
+        // specificity, because imported rules are spliced in ahead of it.
+        let w = width_px_of(&html, "target");
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "the importing sheet should win: expected 100px, got {w}"
+        );
+    }
+
+    /// The same chain, with the importing sheet declaring nothing of its own: the deepest
+    /// import still has to lose to the one that imported it.
+    #[test]
+    fn nested_imports_keep_their_relative_order() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let imported = dir.path().join("imported.css");
+        let nested = dir.path().join("nested.css");
+        std::fs::write(&nested, "#target { width: 400px; display: block; }").expect("write nested");
+        std::fs::write(
+            &imported,
+            format!(
+                "@import url(\"file://{}\");\n#target {{ width: 300px; }}",
+                nested.display()
+            ),
+        )
+        .expect("write imported");
+
+        let html = format!(
+            r#"<html><head><style>@import url("file://{}");</style></head>
+            <body><div id="target">x</div></body></html>"#,
+            imported.display()
+        );
+
+        let w = width_px_of(&html, "target");
+        assert!(
+            (w - 300.0).abs() < 0.5,
+            "the importer should beat what it imported: expected 300px, got {w}"
+        );
+    }
+
+    /// An import carrying a media query only contributes when that query holds.
+    #[test]
+    fn imported_stylesheet_respects_its_media_query() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let wide = dir.path().join("wide.css");
+        std::fs::write(&wide, "#target { width: 300px; }").expect("write wide");
+
+        let html = format!(
+            r#"<html><head><style>
+                @import url("file://{}") (min-width: 600px);
+                #target {{ width: 100px; display: block; }}
+            </style></head>
+            <body><div id="target">x</div></body></html>"#,
+            wide.display()
+        );
+
+        // Same document, two viewports: the imported rule is conditional, not dropped.
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 1000.0,
+            ..Default::default()
+        });
+        // `#target { width: 100px }` in the importing sheet still wins on source order, so
+        // assert on a property the importing sheet does not set instead.
+        std::fs::write(&wide, "#target { height: 300px; }").expect("rewrite wide");
+        let tall = height_px_of(&html, "target");
+        assert!(
+            (tall - 300.0).abs() < 0.5,
+            "wide viewport: expected 300px tall, got {tall}"
+        );
+
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 400.0,
+            ..Default::default()
+        });
+        // No height at all is the expected outcome here, and `NaN` compares false against
+        // everything - so test for the absence rather than for a difference.
+        let short = height_px_of(&html, "target");
+        assert!(
+            !(short.is_finite() && (short - 300.0).abs() < 0.5),
+            "narrow viewport: the import's media query should exclude its rule, got {short}"
+        );
+    }
+
+    /// `print`-only rules must not reach a screen render.
+    #[test]
+    fn print_only_rules_are_inert_on_screen() {
+        let html = r#"
+            <html><head><style>
+                #target { width: 100px; display: block; }
+                @media print {
+                    #target { width: 999px; }
+                }
+            </style></head>
+            <body><div id="target">x</div></body></html>
+        "#;
+
+        let w = width_px_at_viewport(html, 1024.0, 800.0);
+        assert!(
+            (w - 100.0).abs() < 0.5,
+            "print rules must not apply: expected 100px, got {w}"
+        );
+    }
+
+    /// A gradient stop can be `currentcolor`, or a colour function built on it. Both stand for
+    /// the element's own `color`, which only the used value knows; the stop used to be dropped,
+    /// and a two-stop gradient with it.
+    #[test]
+    fn gradient_stops_resolve_currentcolor() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .plain { color: rgb(255, 0, 0); background-image: linear-gradient(currentcolor, transparent); }
+                    .mixed { color: rgb(0, 0, 255); background-image: linear-gradient(color-mix(in srgb, currentcolor, white), black); }
+                    .pseudo { color: rgb(0, 0, 255); }
+                    .pseudo::before { content: "x"; color: rgb(0, 128, 0); background-image: linear-gradient(currentcolor, transparent); }
+                </style>
+            </head>
+            <body>
+                <div class="plain">a</div>
+                <div class="mixed">b</div>
+                <div class="pseudo">c</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let first_stop = |class: &str| {
+            let mut id = find_node_by_class_dfs(&adapter.doc, root, class).expect("find the element");
+            if class == "pseudo" {
+                id = crate::common::document::pipeline_doc::encode_pseudo(
+                    id,
+                    crate::common::document::pipeline_doc::ROLE_BEFORE_ELEM,
+                );
+            }
+            let layers = adapter.background_layers(id, (100.0, 100.0));
+            let [crate::painter::commands::gradient::Gradient::Linear(gradient)] = layers.as_slice() else {
+                panic!("one gradient layer on .{class}, got {layers:?}");
+            };
+            assert_eq!(gradient.stops.len(), 2, "both stops on .{class}");
+            let color = &gradient.stops[0].color;
+            (color.r8(), color.g8(), color.b8(), color.a8())
+        };
+        assert_eq!(first_stop("plain"), (255, 0, 0, 255));
+        // The exact mix is 127.5; the typed colour truncates its channels (`to_color` in
+        // gosub_css3), where browsers round to 128. That is `to_color`'s bug, not this test's.
+        assert_eq!(first_stop("mixed"), (127, 127, 255, 255));
+        // A pseudo-element's `currentcolor` is its own colour, not its owner's.
+        assert_eq!(first_stop("pseudo"), (0, 128, 0, 255));
+    }
+
+    /// The csstools `light-dark()` polyfill MDN ships: `initial` on a custom property makes it
+    /// guaranteed-invalid, a custom property that references it without a fallback is then
+    /// invalid too, and a `var()` of that takes its fallback (css-variables-1 §2.2, §3).
+    #[test]
+    fn an_invalid_custom_property_chain_falls_back() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    :root { --light: initial; }
+                    :root {
+                        --toggle: var(--light) rgb(81, 86, 93);
+                        --border: var(--toggle, rgb(195, 199, 203));
+                    }
+                    .box { border: 1px solid var(--border); }
+                    .outer { --c: rgb(1, 2, 3); }
+                    .middle { --c: rgb(9, 9, 9); }
+                    .inner { --c: inherit; color: var(--c, rgb(255, 0, 0)); }
+                </style>
+            </head>
+            <body>
+                <div class="box">a</div>
+                <div class="outer"><div class="middle"><div class="inner">b</div></div></div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = find_node_by_class_dfs(&adapter.doc, root, "box").expect("find the element");
+        let border = adapter.computed_style(id).border.clone();
+        assert_eq!(border.top_width, 1.0);
+        assert_eq!(border.top_style, gosub_interface::style::BorderStyle::Solid);
+        assert_eq!(
+            border.top_color,
+            gosub_interface::style::Color::rgba(195, 199, 203, 255)
+        );
+    }
 }
+
+#[cfg(test)]
+mod shadow_dom;

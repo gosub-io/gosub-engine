@@ -1,12 +1,17 @@
 use anyhow::Result;
 use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::rusqlite::{params, OpenFlags};
+use r2d2_sqlite::rusqlite::{params, Connection, OpenFlags};
 use r2d2_sqlite::SqliteConnectionManager;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::engine::storage::area::{LocalStore, StorageArea};
 use crate::engine::storage::types::PartitionKey;
 use crate::zone::ZoneId;
+
+/// How long a statement waits for another connection's lock before failing. Another process
+/// on the same profile (a second browser instance) can hold it for a while.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// SQLite-based local storage implementation
 pub struct SqliteLocalStore {
@@ -16,25 +21,34 @@ pub struct SqliteLocalStore {
 impl SqliteLocalStore {
     /// Creates a new SQLite local store with the specified database file path.
     pub fn new(path: &str) -> Result<Self> {
-        let manager = SqliteConnectionManager::file(path)
-            .with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI)
-            .with_init(|c| {
-                c.busy_timeout(std::time::Duration::from_millis(500))?;
-                c.pragma_update(None, "journal_mode", "WAL")?;
-                c.pragma_update(None, "foreign_keys", "ON")?;
-                c.execute_batch(
-                    "CREATE TABLE IF NOT EXISTS local_storage (
-                        zone TEXT NOT NULL,
-                        partition TEXT NOT NULL,
-                        origin TEXT NOT NULL,
-                        key TEXT NOT NULL,
-                        value TEXT NOT NULL,
-                        updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-                        PRIMARY KEY(zone, partition, origin, key)
-                    );",
-                )?;
-                Ok(())
-            });
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI;
+
+        // One-time setup on a single connection, before the pool exists. Both steps take the
+        // write lock, and the pool opens all its connections at once: done per connection,
+        // they queued on each other, and any that outwaited the busy timeout failed and were
+        // logged by r2d2 as a bare "database is locked" before it retried. WAL mode is a
+        // property of the file, so setting it once is enough.
+        let setup = Connection::open_with_flags(path, flags)?;
+        setup.busy_timeout(BUSY_TIMEOUT)?;
+        setup.pragma_update(None, "journal_mode", "WAL")?;
+        setup.execute_batch(
+            "CREATE TABLE IF NOT EXISTS local_storage (
+                zone TEXT NOT NULL,
+                partition TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+                PRIMARY KEY(zone, partition, origin, key)
+            );",
+        )?;
+        drop(setup);
+
+        // Per-connection settings only; neither takes a lock.
+        let manager = SqliteConnectionManager::file(path).with_flags(flags).with_init(|c| {
+            c.busy_timeout(BUSY_TIMEOUT)?;
+            c.pragma_update(None, "foreign_keys", "ON")
+        });
 
         let pool = Pool::builder()
             .max_size(16)

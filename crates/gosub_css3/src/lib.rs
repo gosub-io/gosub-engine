@@ -3,9 +3,10 @@
 //! This parser is heavily based on the MIT-licensed `CssTree` parser written by Roman Dvornov
 //! (<https://github.com/lahmatiy>). The original can be found at <https://github.com/csstree/csstree>.
 
-use crate::ast::convert_ast_to_stylesheet;
+use crate::ast::{convert_node_into, note_viewport_units};
 use crate::stylesheet::CssStylesheet;
 use crate::tokenizer::Tokenizer;
+use crate::value_pool::ValuePool;
 
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
@@ -17,16 +18,19 @@ use gosub_shared::{timing_start, timing_stop};
 pub mod ast;
 pub mod colors;
 mod functions;
+pub mod imports;
+pub mod layers;
 pub mod matcher;
-// The as_* accessors panic by contract when called on the wrong node type;
-// callers are expected to check the matching is_* predicate first.
-#[allow(clippy::panic)]
+pub mod media_query;
+pub mod memory;
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
+pub mod supports;
 pub mod system;
 pub mod tokenizer;
 mod unicode;
+pub(crate) mod value_pool;
 pub mod walker;
 
 /// Cap on recursive-descent depth, shared by every recursive cycle in the parser.
@@ -51,6 +55,9 @@ pub struct Css3<'stream> {
     source: String,
     /// Current recursive-descent depth; capped to prevent stack overflow on adversarial input.
     recursion_depth: usize,
+    /// Set when a block was too deep to parse and was skipped up to its closing `}`. The rule
+    /// that owns the block then consumes that `}` and is dropped, instead of resynchronising.
+    skipped_deep_block: bool,
 }
 
 impl<'stream> Css3<'stream> {
@@ -63,6 +70,7 @@ impl<'stream> Css3<'stream> {
             origin,
             source: source.to_string(),
             recursion_depth: 0,
+            skipped_deep_block: false,
         }
     }
 
@@ -113,23 +121,55 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("Expected a stylesheet context"));
         }
 
-        let t_id = timing_start!("css3.parse", self.config.source.as_deref().unwrap_or(""));
+        let t_id = timing_start!(
+            gosub_shared::timing::Timing::DecodeCss,
+            self.config.source.as_deref().unwrap_or("")
+        );
 
-        let node_tree = match self.config.context {
-            Context::Stylesheet => self.parse_stylesheet_internal(),
-            Context::Rule => self.parse_rule(),
-            Context::AtRule => self.parse_at_rule(true),
-            Context::Declaration => self.parse_declaration(),
-        };
+        // Converted rule by rule rather than whole tree and then whole sheet. The parser hands
+        // over each top-level rule as it finishes it, it becomes the sheet's rules here, and its
+        // nodes are dropped before the next rule is parsed - so the AST never exists in full.
+        // On a 2.2 MB sheet the tree is ~460,000 nodes at 104 bytes each, and holding it was
+        // most of the ~72 MB that parsing cost.
+        let url = self.source.clone();
+        let mut sheet = CssStylesheet::new(self.origin, url.as_str());
+        let mut layers = Vec::new();
+        // One pool for the sheet: a value written by fifty rules is allocated once. It is
+        // dropped when the parse ends; what it handed out lives on in the sheet.
+        let mut pool = ValuePool::default();
+        let emitted =
+            self.parse_stylesheet_streaming(|node| convert_node_into(node, &mut sheet, &mut layers, &mut pool));
 
         timing_stop!(t_id);
 
-        match node_tree {
-            Ok(None) => Err(CssError::new("No node tree found")),
-            Ok(Some(node)) => convert_ast_to_stylesheet(&node, self.origin, self.source.clone().as_str()),
-            Err(e) => Err(e),
+        if !emitted? {
+            return Err(CssError::new("No node tree found"));
         }
+        sheet.layers = layers;
+        note_viewport_units(&mut sheet);
+        sheet.shrink_to_fit();
+        Ok(sheet)
     }
+}
+
+/// Parse the body of a `calc()` from text into the values it is made of.
+///
+/// This is the one way to get from CSS text to a math expression, and it goes through the real
+/// tokenizer and the real `calc()` token parser - there is no second lexer to disagree with them.
+/// Tests use it so they can be written against the text an author types while still exercising
+/// the path a stylesheet takes.
+///
+/// `None` when the body holds something that is not a math token at all.
+#[cfg(test)]
+pub(crate) fn parse_calc_body(text: &str) -> Option<Vec<stylesheet::CssValue>> {
+    let mut stream = ByteStream::from_str(text, Encoding::UTF8);
+    let mut parser = Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "calc");
+    let tokens = parser.parse_calc_tokens().ok()?;
+
+    tokens
+        .into_iter()
+        .map(|token| stylesheet::CssValue::parse_ast_node(token).ok())
+        .collect()
 }
 
 /// Loads the default user agent stylesheet
@@ -145,8 +185,28 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     };
 
     let css_data = include_str!("../resources/useragent.css");
-    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by every parser test
-    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
+    // A compiled-in sheet that will not parse is a bug in this repository, not in any page - but
+    // it used to be an `expect`, so that bug reached a user as a browser that would not start. An
+    // empty user-agent sheet renders every page unstyled, which is bad and visible and
+    // recoverable; the error says why.
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).unwrap_or_else(|e| {
+        log::error!("Could not parse the built-in user-agent stylesheet, continuing without it: {e:?}");
+        CssStylesheet::empty(CssOrigin::UserAgent, url)
+    })
+}
+
+/// The rules the HTML spec adds for documents in quirks mode; attached after the default sheet.
+#[must_use]
+pub fn load_quirks_useragent_stylesheet() -> CssStylesheet {
+    let config = ParserConfig {
+        ignore_errors: true,
+        match_values: true,
+        ..Default::default()
+    };
+    let css_data = include_str!("../resources/useragent-quirks.css");
+    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by the parser tests
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, "gosub:useragent-quirks.css")
+        .expect("Could not parse quirks useragent stylesheet")
 }
 
 #[cfg(test)]

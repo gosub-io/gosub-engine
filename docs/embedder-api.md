@@ -78,11 +78,12 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `SetTitle { title }` | A UA-set title, e.g. for a `LoadHtml` page with no `<title>`. |
 | **Input** | |
 | `MouseMove` / `MouseDown` / `MouseUp { x, y, button }` | CSS px, viewport-relative. `MouseDown` drives click-to-focus and link activation. |
-| `MouseScroll { delta_x, delta_y }` | A delta; the engine decides where it lands and may animate. |
+| `MouseScroll { delta_x, delta_y, precise }` | A delta; the engine decides where it lands. A `precise` delta (trackpad, pixel-exact) lands at once; a wheel notch animates. |
 | `KeyDown` / `KeyUp { key, code, modifiers }` | `key` is a `String`; see [Rough edges](#rough-edges). |
 | `QueryHitTest { x, y, token }` | `token` is minted by you and echoed back in `HitTestResult`. The input for a native context menu. |
+| `TextInput { text }` | Committed text for the focused control: IME output, or the clipboard contents in answer to `PasteRequested`. The only text-input path; there is no per-character command. |
+| `PickerChanged { value }` / `PickerClosed` | Answer `PickerRequested`: the platform picker's value as it moves (sanitised to the control's own form on arrival), and its close. |
 | **Not yet implemented** | |
-| `TextInput` · gated · | Committed text for the focused control: IME output, or clipboard contents on paste. The only text-input path; there is no per-character command. Editing lands with M1. |
 | `SetCookie` / `ClearCookies` · gated · | Cookies are reachable through the zone's jar today. |
 | `SetStorageItem` / `RemoveStorageItem` / `ClearStorage` · gated · | |
 | `ExecuteScript` · gated · | Awaiting JS integration, see [javascript.md](javascript.md). |
@@ -108,6 +109,9 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `HoverUrl { url }` | `None` when the pointer leaves a link. |
 | `CursorChanged { cursor }` | Change-only; resets on navigation. Map to your native cursor. |
 | `FocusChanged { focused, editable }` | `editable` is the cue for an on-screen keyboard or IME. |
+| `TitleChanged { title }` | `<title>` parsed, or a renderer process reported one. `tab.title()` mirrors it. |
+| `ClipboardWrite { text }` / `PasteRequested` | A text control copied or cut `text`: put it on the clipboard. A paste wants the clipboard back as `TextInput`. |
+| `PickerRequested { kind, x, y, width, height, value, min, max, step }` | A colour, date, time, `datetime-local`, month or week input was activated. The engine draws no picker: open the platform's over the control's box (viewport CSS px) and answer with `PickerChanged` / `PickerClosed`. |
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
 | **Downloads** | |
@@ -116,11 +120,11 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | **Tab lifecycle** | |
 | `TabCreated` / `TabClosed { tab_id, zone_id }` | |
 | `TabCrashed { tab_id, zone_id, error }` | The worker panicked. The tab is dead: its handle's commands now fail and no further events arrive for it. Show a crash page and offer reload by recreating the tab. |
+| `RendererCrashed { tabs, error }` | With process isolation on, a renderer process died or could not start. The engine replaces it on the tabs' next render, so most recover on their own; with one tab and an error naming the fork server, that tab could not be rendered at all. |
 | **Storage** | |
 | `StorageChanged { key, value, scope, origin, ... }` | `value: None` means the key was removed. An empty `key` means the whole area was cleared, not that a key named `""` changed: the underlying `StorageEvent.key: Option<String>` is flattened with `unwrap_or_default()` on the way out. |
 | **Not yet implemented** | |
-| `TitleChanged` · gated · | Emission arrives with the pending mac-app patches. Until then read `tab.title()`. |
-| `LocationChanged` · gated · | Likewise; until then use `NavigationEvent::Finished` or read `tab.url()`. |
+| `LocationChanged` · gated · | Use `NavigationEvent::Finished` or read `tab.url()`. |
 | `FrameComplete` · gated · | |
 | `TabResized` · gated · | You told the engine the size; it has nothing to add yet. |
 | `Warning` / `EngineShutdown` / `BackendChanged` · gated · | |
@@ -147,7 +151,7 @@ Events for the main document. Every event in one navigation carries the same `Na
 
 Events for everything else the page loads, delivered as `ResourceUpdate { tab_id, event }` on the separate stream from `subscribe_resource_events()`. Each carries a `RequestId` and a `RequestReference` saying what the resource belongs to.
 
-`Started`, `Redirected`, `Headers`, `Progress`, `Finished`, `Failed` and `Cancelled` are live. `Queued` · gated ·: requests currently go straight to `Started`.
+`Started`, `Redirected`, `Headers`, `Progress`, `Finished`, `Failed` and `Cancelled` are live, as are the devtools detail events `RequestSent` (the request line and headers as sent), `DnsResolved` and `Connected` (connection timings) and `BodyPreview` (the first bytes of the body, when capture is on). `Queued` · gated ·: requests currently go straight to `Started`.
 
 ------------------------------------------------------------------------
 
@@ -174,16 +178,19 @@ Failures arrive as a typed [`LoadError`](https://docs.rs/gosub_engine), not an o
 
 | Variant | Means | Retry? |
 |---|---|---|
-| `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`. | No |
+| `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`, `Cors`, `NotCached`. | No |
 | `InvalidUrl { message }` | The URL string did not parse. | No |
-| `Network { message }` | The transfer failed - DNS, connection, TLS, HTTP. | Maybe |
+| `Connect { message }` | No connection was established: the name did not resolve, or nothing accepted it. The client does not separate the two. | Maybe |
+| `Tls { message }` | The TLS handshake failed: an expired, untrusted or mismatched certificate. | No |
 | `Timeout { message }` | The request did not finish within the time limit. | Maybe |
+| `Transfer { message }` | The connection worked and then broke part way through. | Maybe |
+| `Redirect { message }` | A redirect could not be followed: too many hops, or an invalid target. | No |
 | `Io { message }` | A local I/O failure: writing a download, opening storage. | Maybe |
 | `Cancelled { message }` | A new navigation, the tab closing, or an explicit cancel. | n/a |
 | `Content { message }` | The bytes arrived but could not be made into a document. | No |
 | `Other { message }` | Unclassified. | Unknown |
 
-It implements `Display`, so code that only prints the error needs no change from the days when this was an `Arc<anyhow::Error>`. It is `#[non_exhaustive]`: match with a `_` arm, because variants will be added as the engine learns to tell failures apart.
+The same type arrives on both streams: `NavigationEvent::Failed` and `ResourceEvent::Failed` carry a `LoadError`, classified from the network stack's own typed error rather than from its message. It implements `Display`, so code that only prints the error needs no change from the days when this was an `Arc<anyhow::Error>`. It is `#[non_exhaustive]`: match with a `_` arm, because variants will be added as the engine learns to tell failures apart.
 
 ------------------------------------------------------------------------
 
@@ -255,8 +262,8 @@ Subscribe to events instead when you need the moment something changes, or detai
 ## Rough edges
 
 -   **`Redraw` is still on the control bus.** It fires per frame, so a shell scrolling at 60fps puts real traffic alongside `TabCrashed`. It sits there because shells overwhelmingly want it in the same loop as navigation, and because a dropped one costs a coalesced repaint. If it becomes a problem it wants a third stream, not a bigger buffer.
--   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
--   **`LoadError::Network` still lumps DNS, connect and TLS together**, because the HTTP client reports them as one error type. Telling them apart means inspecting `reqwest::Error` inside the network layer. Separately, the *resource* stream is coarser than the navigation one: `ResourceEvent::Failed` can only ever be `Network`, because `NetEvent::Failed` carries a bare `anyhow::Error` where the navigation path gets a typed `NetError`. Both want a change in gosub-sonar; `LoadError` is `#[non_exhaustive]` so neither will be breaking.
+-   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` carries committed text only, so a composition preview is the shell's to draw. `FocusChanged { editable }` is the hook for an on-screen keyboard.
+-   **`LoadError::Connect` cannot tell a name that did not resolve from a host that refused**, because the HTTP client reports both as one transport failure. Splitting them wants a change in gosub-sonar; `LoadError` is `#[non_exhaustive]` so it will not be breaking.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
 
 ------------------------------------------------------------------------

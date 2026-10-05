@@ -5,5 +5,8 @@ pub mod font;
 pub mod font_system;
 pub mod html5;
 pub mod input;
+pub mod media_decoder;
 pub mod node;
 pub mod render;
+pub mod style;
+pub mod used;

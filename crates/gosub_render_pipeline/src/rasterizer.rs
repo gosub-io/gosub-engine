@@ -80,13 +80,30 @@ pub struct BakedTile {
 /// Format: (page_x bits, page_y bits, layer_id, paint-command hash).
 pub type TileCacheKey = (u64, u64, u64, u64);
 
+/// A tile's identity folded to one number: position, layer, and painted
+/// content. What a process that *keeps* tiles (the broker) sends to a process
+/// that *produces* them (a renderer), so the renderer can skip both
+/// rasterizing and shipping a tile the other side already holds.
+pub fn tile_content_hash(tile: &crate::tiler::Tile) -> u64 {
+    let (x, y, layer, content) = tile_cache_key(tile);
+    // FNV-1a over the four components, matching the key's own hasher.
+    let mut h: u64 = 14695981039346656037;
+    for part in [x, y, layer, content] {
+        for b in part.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+    }
+    h
+}
+
 /// Rasterized tile cache: maps a [`TileCacheKey`] to `(physical_width, physical_height, pixels)`.
 /// Carried between renders so unchanged tiles skip rasterization.
 pub type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>;
 
 /// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
 /// The content hash covers all paint commands so any visual change produces a different key.
-fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
+pub fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
     use crate::painter::commands::{
         border::{BorderRadius, BorderStyle},
         brush::Brush,
@@ -265,7 +282,8 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                     hstr!(&t.text);
                     hstr!(&t.font_info.family);
                     hf64!(t.font_info.size);
-                    hf64!(t.font_info.line_height);
+                    // `normal` (None) hashes as -1.0, distinct from any real px line-height.
+                    hf64!(t.font_info.line_height.unwrap_or(-1.0));
                     hu64!(t.font_info.weight as u64);
                     hu64!(t.font_info.width as u64);
                     hu64!(t.font_info.slant as u64);
@@ -308,7 +326,7 @@ pub fn rasterize_sequential(
     use crate::tiler::TileState;
     use gosub_shared::{timing_start, timing_stop};
 
-    let ts6 = timing_start!("pipeline.rasterize");
+    let ts6 = timing_start!(gosub_shared::timing::Timing::PipelineRasterize);
     let mut texture_store = TextureStore::new();
 
     for &layer_id in layer_ids {
@@ -361,7 +379,7 @@ pub fn rasterize_parallel(
     full_page_rect: crate::common::geo::Rect,
     media_store: &crate::common::media::MediaStore,
     prev_tile_cache: &TilePixelCache,
-    timing_label: &str,
+    timing_label: gosub_shared::timing::Timing,
 ) -> (Vec<BakedTile>, TilePixelCache) {
     use crate::common::texture_store::TextureStore;
     use crate::render::backend::PixelFormat;

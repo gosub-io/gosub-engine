@@ -34,8 +34,8 @@ Storage is a **zone service**: each zone gets its own `StorageService` via `Zone
 
 Storage areas are keyed by **(partition key, origin)**, not origin alone. The zone's `PartitionPolicy` (part of `ZoneServices`) controls the partition key:
 
--   `PartitionPolicy::None` --- no partitioning; one global state per origin.
--   `PartitionPolicy::TopLevelOrigin` (the default) --- the key is the top-level origin of the navigated URL, so `site-a.com` and `site-b.com` embedding the same third party see *different* storage for it.
+-   `PartitionPolicy::None` — no partitioning; one global state per origin.
+-   `PartitionPolicy::TopLevelOrigin` (the default) — the key is the top-level origin of the navigated URL, so `site-a.com` and `site-b.com` embedding the same third party see *different* storage for it.
 
 The tab worker computes the key on every navigation (`compute_partition_key` in `storage/types.rs`, called from `prepare_storage_for`) and resolves its local/session handles for that (partition, origin) pair. Cookies do not use this mechanism; their isolation is per-zone via the cookie store (see [`cookies.md`](cookies.md)).
 

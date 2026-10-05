@@ -1,25 +1,30 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
-    TextAlign, TextStyle,
+    Confinement, FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun,
+    ShapedText, TextAlign, TextStyle,
 };
-use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
+use parley::fontique::{
+    Attributes, Blob, FontInfoOverride, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache,
+};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
 
-/// A [`FontSystem`] implementation backed by Parley + Fontique.
+/// A [`FontSystem`] backed by Parley + Fontique.
 ///
-/// Holds a single `FontContext` (fontique collection) and `LayoutContext` so that
-/// all callers - the layout engine and every renderer - share the same font data and
-/// produce consistent glyph metrics.
-///
-/// Construct once at application start, wrap in `Arc<Mutex<ParleyFontSystem>>`, and
-/// pass the same `Arc` into both the Taffy layouter and the rendering backend.
+/// One shared `FontContext`/`LayoutContext` so layout and rendering produce consistent
+/// glyph metrics. Wrap in `Arc<Mutex<..>>` and hand the same `Arc` to layouter and backend.
 pub struct ParleyFontSystem {
     font_cx: FontContext,
     layout_cx: LayoutContext<()>,
+    /// Shares one backing store with `font_cx.source_cache`: Parley prunes that
+    /// one every layout (entries idle for 128 layouts are dropped), and a miss
+    /// there falls through to the shared store's weak handle rather than to disk
+    /// - as long as something still holds the blob strongly (`pinned`).
     source_cache: SourceCache,
+    /// Strong handles to every face [`FontSystem::prepare_for_confinement`]
+    /// loaded, so pruning can never turn a warmed face back into a file read.
+    pinned: Vec<Blob<u8>>,
 }
 
 impl std::fmt::Debug for ParleyFontSystem {
@@ -40,35 +45,49 @@ impl ParleyFontSystem {
     pub fn new() -> Self {
         let mut font_cx = FontContext::new();
 
-        // Register Roboto as a bundled fallback so there is always something to
-        // render with even on systems that have no fonts installed.
+        // Bundled Roboto fallback so rendering works with no system fonts installed.
         font_cx
             .collection
             .register_fonts(gosub_shared::ROBOTO_FONT.to_vec().into(), None);
 
+        // Clones of a shared cache share its backing store; see the field docs.
+        let source_cache = SourceCache::new_shared();
+        font_cx.source_cache = source_cache.clone();
+
         Self {
             font_cx,
             layout_cx: LayoutContext::new(),
-            source_cache: SourceCache::new_shared(),
+            source_cache,
+            pinned: Vec::new(),
         }
     }
 }
 
 impl ParleyFontSystem {
-    /// Grants direct access to the underlying Parley font collection.
-    ///
-    /// Used by `TaffyLayouter` so that the same font collection is shared between
-    /// the layout engine and rendering, ensuring consistent shaping.
+    /// Used by `TaffyLayouter` so layout and rendering share one font collection.
     pub fn font_cx_mut(&mut self) -> &mut FontContext {
         &mut self.font_cx
     }
 }
 
 impl FontSystem for ParleyFontSystem {
-    fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
-        // fontique derives the family name from the font's own `name` table;
-        // custom name overrides are not yet supported here.
-        self.font_cx.collection.register_fonts(data.into(), None);
+    fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
+        // An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+        // document, whatever the file's own `name` table says - so it has to override the name
+        // fontique would otherwise derive, or `font-family: "MyFace"` never matches the face
+        // that was just registered for it.
+        let info_override = family_override.map(|family_name| FontInfoOverride {
+            family_name: Some(family_name),
+            ..Default::default()
+        });
+        let registered = self.font_cx.collection.register_fonts(data.into(), info_override);
+        if registered.is_empty() {
+            return Err(FontError::InvalidFont(
+                family_override
+                    .map(|f| format!("no usable face in font data for '{f}'"))
+                    .unwrap_or_else(|| "no usable face in font data".to_string()),
+            ));
+        }
         Ok(())
     }
 
@@ -120,6 +139,27 @@ impl FontSystem for ParleyFontSystem {
         out
     }
 
+    /// Every face is in memory once prepared (see below), so no file access is needed after.
+    fn confinement() -> Confinement {
+        Confinement::Full
+    }
+
+    /// Load every face of every family into the shared source store and pin it.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        let names: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
+        for name in names {
+            let Some(family) = self.font_cx.collection.family_by_name(&name) else {
+                continue;
+            };
+            for font in family.fonts() {
+                if let Some(blob) = font.load(Some(&mut self.source_cache)) {
+                    self.pinned.push(blob);
+                }
+            }
+        }
+        Confinement::Full
+    }
+
     /// Shape `text` into positioned glyph runs, resolving `style.family` first so shaping starts
     /// from the same concrete font that [`FontSystem::measure`] used.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
@@ -140,9 +180,6 @@ impl FontSystem for ParleyFontSystem {
     }
 
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
-    ///
-    /// Resolves the family (mapping generics, appending a `sans-serif` fallback) then lays it out
-    /// with Parley and reads the line extents.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
@@ -196,9 +233,8 @@ impl FontSystem for ParleyFontSystem {
 }
 
 impl ParleyFontSystem {
-    /// Shape `text` with an already-resolved font. Layout parameters (size, line height, wrap
-    /// width, letter spacing, display scale) come from `style`; the font identity comes from
-    /// `font` - which is why measurement and drawing agree when both go through this path.
+    /// Shape `text` with an already-resolved font, so measurement and drawing agree on the
+    /// concrete font.
     fn shape_resolved(&mut self, text: &str, font: &ResolvedFont, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
@@ -218,8 +254,7 @@ impl ParleyFontSystem {
         if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
         }
-        // Applied during measurement too - shaping without it would draw narrower than the
-        // layout box that measurement reserved.
+        // Must match measurement, or drawing comes out narrower than the reserved layout box.
         if style.letter_spacing != 0.0 {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
         }
@@ -263,10 +298,8 @@ impl ParleyFontSystem {
                         .collect();
 
                     if !glyphs.is_empty() {
-                        // Use the run's *actual* font: parley may substitute a fallback for
-                        // glyphs the requested family lacks (emoji, CJK, …), and the glyph ids
-                        // index into that fallback font - so drawing must use it, not the
-                        // originally requested `font`.
+                        // Parley may substitute a fallback font (emoji, CJK); the glyph ids
+                        // index into that font, so draw with the run's actual font.
                         let prun = run.run();
                         let run_font = prun.font();
                         let (data_arc, _) = run_font.data.clone().into_raw_parts();
@@ -311,14 +344,8 @@ impl ParleyFontSystem {
     }
 }
 
-/// Split a CSS `font-family` value (e.g. `Verdana, Geneva, sans-serif`) into individual family
-/// names, trimming whitespace and matching quotes. A trailing `sans-serif` generic is appended as
-/// an ultimate fallback if the list doesn't already end in a generic, so resolution always has a
-/// last resort.
-///
-/// Passing the whole comma-joined string as a single family name (the old behaviour) never matches
-/// an installed family like `Verdana`, so resolution silently fell through to the `sans-serif`
-/// generic - picking a different (often thinner) font than the page author intended.
+/// Split a CSS `font-family` value into trimmed, unquoted family names, appending a
+/// `sans-serif` generic as last resort if none is present.
 pub fn split_css_families(families: &str) -> Vec<&str> {
     let mut out: Vec<&str> = families
         .split(',')
@@ -394,6 +421,32 @@ mod tests {
         let families = fs.families();
         assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
         assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
+
+    /// An `@font-face` rule's `font-family` descriptor names the font for the rest of the
+    /// document, whatever the file's own `name` table says. Registering the bundled Roboto
+    /// under a different name must make *that* name resolve - otherwise every
+    /// `@font-face { font-family: "MyFace"; src: url(...) }` silently falls back, because
+    /// almost no font file calls itself what the CSS calls it.
+    #[test]
+    fn font_face_family_name_overrides_the_files_own_name() {
+        let mut fs = ParleyFontSystem::new();
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Parley Alias Test"))
+            .expect("registering the bundled font must succeed");
+
+        assert!(
+            fs.families().iter().any(|f| f == "Gosub Parley Alias Test"),
+            "the @font-face family must be listed under the CSS name"
+        );
+
+        let resolved = fs
+            .resolve(&FontQuery::new(&["Gosub Parley Alias Test"]))
+            .expect("the @font-face family must resolve");
+        assert_eq!(
+            resolved.family, "Gosub Parley Alias Test",
+            "must resolve to the registered face, not a fallback"
+        );
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
     }
 
     #[test]

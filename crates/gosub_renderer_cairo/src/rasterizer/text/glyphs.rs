@@ -20,8 +20,8 @@ const PANGO_GLYPH_UNKNOWN_FLAG: u32 = 0x1000_0000;
 
 /// Process-global, immortal FreeType library + cairo font faces, one per distinct font file.
 ///
-/// Global and immortal is **load-bearing**, not convenience: cairo internally caches
-/// `cairo_font_face_t`s keyed by `FT_Face` *pointer*. Per-thread caches (tiles rasterize on
+/// Global and immortal is load-bearing, not convenience: cairo internally caches
+/// `cairo_font_face_t`s keyed by `FT_Face` pointer. Per-thread caches (tiles rasterize on
 /// short-lived pool threads) freed their faces on thread death, and a later thread's new
 /// `FT_Face` allocated at a recycled address made cairo resurrect the stale entry - painting
 /// entire runs as solid boxes. Faces created once and never freed can't collide; it also means
@@ -170,7 +170,7 @@ mod tests {
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: 28.0,
+            line_height: Some(28.0),
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: true,
@@ -179,7 +179,7 @@ mod tests {
         let mut style = TextStyle::new("sans-serif", 24.0);
         style.line_height = Some(28.0);
         style.max_width = Some(180.0);
-        let shaped = fs.shape("Hello", &style);
+        let shaped = std::sync::Arc::new(fs.shape("Hello", &style));
         let cmd = Text::new(
             GeoRect::new(10.0, 10.0, 180.0, 40.0),
             "Hello",

@@ -21,12 +21,13 @@ use crate::EngineError;
 use bitflags::bitflags;
 #[cfg(feature = "unstable-api")]
 use gosub_render_pipeline::render::Viewport;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MouseButton {
     Left,
     Middle,
@@ -35,7 +36,7 @@ pub enum MouseButton {
 
 /// The mouse cursor the page wants shown at the pointer's position. The engine reports it
 /// (see [`EngineEvent::CursorChanged`]); the shell maps it to the native cursor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum CursorShape {
     /// The platform's ordinary arrow.
     #[default]
@@ -44,6 +45,8 @@ pub enum CursorShape {
     Pointer,
     /// I-beam: over selectable text or an editable field.
     Text,
+    /// Diagonal resize arrows: over a textarea's resize grip.
+    Resize,
 }
 
 /// Correlates a [`TabCommand::QueryHitTest`] with its [`EngineEvent::HitTestResult`]. Chosen
@@ -148,15 +151,56 @@ impl Display for Modifiers {
 pub(crate) enum IoCommand {
     Fetch {
         zone_id: ZoneId,
+        tab_id: Option<TabId>,
         req: FetchRequest,
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
+    /// The tab now shows `url`: requests it makes from here on belong to that
+    /// document. Sent through the same queue as the tab's fetches, so a request
+    /// queued before a navigation keeps the old document's cookie context and one
+    /// queued after it gets the new one - the registry is only ever read in that
+    /// order (see `net::tab_identity`).
+    SetTopLevel { tab_id: TabId, url: url::Url },
     /// Ask IO to shut down a specific zone; replies when fully stopped.
     ShutdownZone {
         zone_id: ZoneId,
         reply_tx: oneshot::Sender<()>,
     },
+    /// Run the escape audit in the network process, when there is one.
+    #[cfg(feature = "process-isolation")]
+    AuditNet {
+        reply_tx: oneshot::Sender<Option<gosub_sandbox::audit::AuditReport>>,
+    },
+}
+
+/// Which picker an input opens; the `type` attribute, for the six types the engine does not
+/// edit as text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PickerKind {
+    Color,
+    Date,
+    Time,
+    DateTimeLocal,
+    Month,
+    Week,
+}
+
+impl PickerKind {
+    /// From the `type` attribute (any case). `None` for the types that edit as text.
+    pub fn from_input_type(ty: &str) -> Option<Self> {
+        [
+            ("color", Self::Color),
+            ("date", Self::Date),
+            ("time", Self::Time),
+            ("datetime-local", Self::DateTimeLocal),
+            ("month", Self::Month),
+            ("week", Self::Week),
+        ]
+        .into_iter()
+        .find(|(name, _)| ty.eq_ignore_ascii_case(name))
+        .map(|(_, kind)| kind)
+    }
 }
 
 /// Commands that can be sent to a specific tab
@@ -285,6 +329,10 @@ pub enum TabCommand {
     MouseScroll {
         delta_x: f32,
         delta_y: f32,
+        /// The deltas come from a device that already reports smooth, pixel-exact motion (a
+        /// trackpad, a precision mouse). They are applied at once: easing them as well would
+        /// leave the page trailing the fingers. Wheel notches send `false` and are animated.
+        precise: bool,
     },
     KeyDown {
         key: String,
@@ -296,14 +344,25 @@ pub enum TabCommand {
         code: String,
         modifiers: Modifiers,
     },
-    #[cfg(feature = "unstable-api")]
-    /// Committed text for the focused control: IME output, or clipboard contents on paste.
-    /// This is the only text-input path - there is no per-character command.
-    ///
-    /// Not yet handled (logged and dropped); behind `unstable-api`.
+    /// Committed text for the focused control: IME output, or the clipboard contents in answer
+    /// to [`EngineEvent::PasteRequested`]. This is the only text-input path - there is no
+    /// per-character command.
     TextInput {
         text: String,
     },
+    /// The shell's picker moved: apply `value` to the input that asked for it (see
+    /// [`EngineEvent::PickerRequested`]). The value is sanitised the way the HTML spec
+    /// sanitises the control's value: a colour in any CSS notation (`#663399`,
+    /// `rebeccapurple`, `rgb(102 51 153)`) lands as `#rrggbb` and an unparsable one as
+    /// `#000000`; a date, time, `datetime-local`, month or week must be a valid string of
+    /// that kind (`2026-09-15`, `10:35`, `2026-09-15T10:35`, `2026-09`, `2026-W38`) and
+    /// anything else clears the control. Sent on every change while the picker is open, so
+    /// the control previews live; a cancel is a `PickerChanged` back to the original value.
+    PickerChanged {
+        value: String,
+    },
+    /// The shell's picker closed. Later `PickerChanged`s are dropped until the next request.
+    PickerClosed,
 
     // ****************************************
     // ** Session / zone state
@@ -435,7 +494,7 @@ pub struct ResourceUpdate {
 /// resources. @TODO: how do we see this?
 ///
 /// Every variant carries the `request_id` of the load (@TODO: what if it contains multiple
-/// redirects?) and its `reference` — what the resource belongs to (navigation id, document id,
+/// redirects?) and its `reference` - what the resource belongs to (navigation id, document id,
 /// background task id etc.).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -485,9 +544,13 @@ pub enum ResourceEvent {
         elapsed: Option<Duration>,
     },
     Failed {
+        /// Request this belongs to
         request_id: RequestId,
+        /// What initiated it
         reference: RequestReference,
+        /// URL that failed
         url: String,
+        /// Why it failed, classified; `Display` gives the message to show
         error: LoadError,
     },
     Cancelled {
@@ -495,6 +558,63 @@ pub enum ResourceEvent {
         reference: RequestReference,
         url: String,
         reason: CancelReason,
+    },
+    /// The request line and headers this hop actually sent. One per hop, so a redirect
+    /// chain reports each leg.
+    RequestSent {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// Target of this hop
+        url: String,
+        /// HTTP method
+        method: String,
+        /// Headers the net stack set, as name/value pairs
+        headers: Vec<(String, String)>,
+    },
+    /// How long name resolution took for this request's connection.
+    ///
+    /// Only for a request that opened a connection: one served by a pooled connection
+    /// resolves nothing and reports nothing, which is itself worth seeing.
+    DnsResolved {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// Host that was looked up
+        host: String,
+        /// How long resolution took, in microseconds
+        elapsed_us: u64,
+    },
+    /// How long establishing the connection took, resolution included.
+    ///
+    /// The span *encloses* [`ResourceEvent::DnsResolved`] rather than following it, because
+    /// resolution happens inside the connector this times.
+    Connected {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// How long the connection took to establish, in microseconds
+        elapsed_us: u64,
+    },
+    /// The first bytes of the response body, capped at the net stack's peek window.
+    ///
+    /// Only emitted while body capture is switched on -- see
+    /// [`crate::net::emitter::set_capture_body_previews`]. Off by default, because copying a
+    /// few kilobytes per request is wasted on every page nobody is inspecting.
+    BodyPreview {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// URL the body belongs to
+        url: String,
+        /// The bytes, exactly as received: not decoded, not necessarily UTF-8
+        body: Vec<u8>,
+        /// Whether the body continued past the preview
+        truncated: bool,
     },
     Headers {
         request_id: RequestId,
@@ -652,9 +772,39 @@ pub enum EngineEvent {
         id: DownloadId,
         error: String,
     },
-    #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted; emission arrives with the pending mac-app patches.
-    /// Behind `unstable-api`.
+    /// The page copied/cut `text` (Ctrl+C / Ctrl+X in a text control): put it on the clipboard.
+    ClipboardWrite {
+        tab_id: TabId,
+        text: String,
+    },
+    /// The page wants to paste (Ctrl+V): read the clipboard and send it as
+    /// [`TabCommand::TextInput`].
+    PasteRequested {
+        tab_id: TabId,
+    },
+    /// The user activated an input that opens a picker - `type=color`, `date`, `time`,
+    /// `datetime-local`, `month` or `week` - by clicking it, or with Enter/Space while it is
+    /// focused. The engine draws no picker of its own: the shell opens the platform's over
+    /// the control's border box (`x`, `y`, `width`, `height`, in viewport CSS px - the same
+    /// space mouse coordinates arrive in) and answers with [`TabCommand::PickerChanged`] as
+    /// the choice moves and [`TabCommand::PickerClosed`] when it is done. `value` is the
+    /// input's current value, sanitised (`#rrggbb`, or the ISO form of the date kinds, or
+    /// empty); `min`, `max` and `step` are the attributes as written, for the shell to grey
+    /// out what the control would refuse.
+    PickerRequested {
+        tab_id: TabId,
+        kind: PickerKind,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        value: String,
+        min: Option<String>,
+        max: Option<String>,
+        step: Option<String>,
+    },
+    /// The document's title was learned or changed: `<title>` parsed in-process, or a
+    /// renderer process reported one.
     TitleChanged {
         tab_id: TabId,
         title: String,
@@ -777,6 +927,19 @@ pub enum EngineEvent {
     TabCrashed {
         tab_id: TabId,
         zone_id: ZoneId,
+        error: String,
+    },
+    /// A renderer process died (or could not be started). `tabs` are the
+    /// tabs it hosted; the engine replaces the process on their next render,
+    /// so most recover on their own - an embedder may still want to show
+    /// something meanwhile. When `tabs` has one entry and the error names
+    /// the fork server, that tab could not be rendered at all: page content
+    /// is never rendered in-process once isolation is on.
+    RendererCrashed {
+        zone_id: ZoneId,
+        /// The (scheme + eTLD+1) site the process served.
+        site: String,
+        tabs: Vec<TabId>,
         error: String,
     },
     // Uncategorized / generic

@@ -17,7 +17,7 @@ pub fn get_text_layout(
         weight: FontWeight(font_info.weight.clamp(1, 1000) as u16),
         style: FontStyle::Normal,
         stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
+        line_height: font_info.line_height.map(|v| v as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width as f32),
         // Alignment shifts lines within max_width but never changes the bounding box, so

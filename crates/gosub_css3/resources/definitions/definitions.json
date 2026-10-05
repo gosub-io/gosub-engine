@@ -5800,7 +5800,7 @@
     },
     {
       "name": "text-align",
-      "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
+      "syntax": "start | end | left | right | center | justify | match-parent | justify-all | -webkit-left | -webkit-right | -webkit-center | -webkit-match-parent | -internal-center",
       "computed": [
         "asSpecifiedExceptMatchParent"
       ],
@@ -6883,7 +6883,7 @@
     },
     {
       "name": "<color-function>",
-      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()>"
+      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <alpha()> | <color()> | <color-mix()> | <color-layers()> | <contrast-color()>"
     },
     {
       "name": "<color-interpolation-method>",

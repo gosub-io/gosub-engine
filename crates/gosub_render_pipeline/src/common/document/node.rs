@@ -1,5 +1,5 @@
-use crate::common::document::style::{Display, NodeStyle, StyleProperty, Value};
 use cow_utils::CowUtils;
+use gosub_interface::style::Display;
 use std::collections::HashMap;
 
 pub use gosub_shared::node::NodeId;
@@ -47,21 +47,23 @@ impl std::fmt::Display for AttrMap {
 pub struct ElementData {
     pub tag_name: String,
     pub attributes: AttrMap,
-    /// Own CSS properties for this element (only explicitly-set values; no inheritance).
-    pub styles: NodeStyle,
+    /// The element's computed `display`, when its own cascade gave it one.
+    ///
+    /// The whole style of an element lives on its `ComputedStyle`, read through the document.
+    /// This one property is carried on the node as well because the layouter's inline-vs-block
+    /// grouping walks nodes rather than the document, and because it needs to tell "the cascade
+    /// said `inline`" from "the cascade said nothing": the user-agent sheet is incomplete, so an
+    /// element with no `display` of its own falls back to what its tag name means.
+    pub display: Option<Display>,
 }
 
 impl ElementData {
-    pub fn new(tag_name: String, attributes: Option<AttrMap>, styles: Option<NodeStyle>) -> ElementData {
+    pub fn new(tag_name: String, attributes: Option<AttrMap>, display: Option<Display>) -> ElementData {
         ElementData {
             tag_name,
             attributes: attributes.unwrap_or_default(),
-            styles: styles.unwrap_or_default(),
+            display,
         }
-    }
-
-    pub fn get_style(&self, key: &StyleProperty) -> Option<&Value> {
-        self.styles.get_own(key)
     }
 
     pub fn get_attribute(&self, key: &str) -> Option<&String> {
@@ -70,18 +72,13 @@ impl ElementData {
 
     pub fn is_inline_element(&self) -> bool {
         matches!(
-            self.get_style(&StyleProperty::Display),
-            None | Some(Value::Display(Display::Inline))
-                | Some(Value::Display(Display::InlineFlex))
-                | Some(Value::Display(Display::InlineGrid))
+            self.display,
+            None | Some(Display::Inline) | Some(Display::InlineFlex) | Some(Display::InlineGrid)
         )
     }
 
     pub fn is_inline_block_element(&self) -> bool {
-        matches!(
-            self.get_style(&StyleProperty::Display),
-            Some(Value::Display(Display::InlineBlock))
-        )
+        self.display == Some(Display::InlineBlock)
     }
 }
 
@@ -102,32 +99,25 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn is_block_element(&self) -> bool {
+    fn display(&self) -> Option<Display> {
         match &self.node_type {
-            NodeType::Element(data) => {
-                matches!(
-                    data.get_style(&StyleProperty::Display),
-                    Some(Value::Display(Display::Block))
-                )
-            }
-            _ => false,
+            NodeType::Element(data) => data.display,
+            _ => None,
         }
     }
 
+    pub fn is_block_element(&self) -> bool {
+        self.display() == Some(Display::Block)
+    }
+
     pub fn is_inline_block_element(&self) -> bool {
-        match &self.node_type {
-            NodeType::Element(data) => matches!(
-                data.get_style(&StyleProperty::Display),
-                Some(Value::Display(Display::InlineBlock))
-            ),
-            _ => false,
-        }
+        self.display() == Some(Display::InlineBlock)
     }
 
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => match data.get_style(&StyleProperty::Display) {
-                Some(Value::Display(Display::Inline)) => true,
+            NodeType::Element(data) => match data.display {
+                Some(Display::Inline) => true,
                 // The CSS initial value is `inline`, but UA stylesheets make most structural
                 // elements `block` - defaulting to inline would group <li>, <h2>, <div> etc.
                 // into inline flows, so fall back to the tag's intrinsic type.
@@ -140,17 +130,6 @@ impl Node {
 
     pub fn is_text(&self) -> bool {
         matches!(&self.node_type, NodeType::Text(_))
-    }
-
-    pub fn get_style_f32(&self, prop: &StyleProperty) -> f32 {
-        match &self.node_type {
-            NodeType::Element(data) => match data.get_style(prop) {
-                Some(Value::Unit(px, _)) => *px,
-                Some(Value::Number(px)) => *px,
-                _ => 0.0,
-            },
-            _ => 0.0,
-        }
     }
 }
 

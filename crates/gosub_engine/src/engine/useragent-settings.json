@@ -185,5 +185,14 @@
       "default": "u:16",
       "description": "Tick interval (milliseconds) of the momentum-scroll loop."
     }
+  ],
+  "colorpicker": [
+    {
+      "key": "details",
+      "type": "s",
+      "values": "full,nocss,packed",
+      "default": "s:full",
+      "description": "How much of the colour picker a shell shows for <input type=color>: 'full' is the plane, sliders, fields, swatches and the searchable list of CSS named colours; 'nocss' drops the list; 'packed' is the plane and the hue slider alone, without sidebar or fields."
+    }
   ]
 }

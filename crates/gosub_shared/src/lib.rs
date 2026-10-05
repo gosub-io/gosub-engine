@@ -1,7 +1,4 @@
-//! Shared functionality
-//!
-//! This crate supplies a lot of shared functionality in the gosub engine.
-//!
+//! Functionality shared across the gosub engine crates.
 
 extern crate core;
 
@@ -13,7 +10,10 @@ pub mod css_colors;
 pub mod errors;
 pub mod font;
 pub mod geo;
+pub mod memory;
 pub mod node;
+pub mod subresource;
+pub mod svg_limits;
 pub mod tab_id;
 pub mod timing;
 pub mod types;

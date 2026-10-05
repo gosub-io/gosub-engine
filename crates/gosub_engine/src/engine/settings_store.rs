@@ -98,6 +98,8 @@ mod test {
         assert!(cfg.has("dns.local.enabled"));
         assert_eq!(cfg.get_uint("dns.cache.max_entries"), 1000);
         assert!(cfg.get_bool("renderer.opengl.enabled"));
+        // Shell-facing user-agent settings live under `useragent.`.
+        assert_eq!(cfg.get_string("useragent.colorpicker.details"), "full");
         // User-agent settings, merged under the `useragent` namespace.
         assert_eq!(cfg.get_string("useragent.general.default_page"), "about:blank");
         assert!(cfg.has("useragent.tab.close_button"));

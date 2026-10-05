@@ -28,18 +28,16 @@ struct MdnSyntax {
     syntax: String,
 }
 
-pub fn get_mdn_data(client: &reqwest::blocking::Client) -> Result<BTreeMap<String, MdnItem>> {
-    let resp = client.get(MDN_PROPERTIES).send()?.error_for_status()?;
-    let body = resp.bytes()?;
+pub fn get_mdn_data() -> Result<BTreeMap<String, MdnItem>> {
+    let body = crate::fetch::get(MDN_PROPERTIES)?;
     serde_json::from_slice(&body).context("parsing MDN properties.json")
 }
 
 /// Returns MDN's value-type dictionary (css/syntaxes.json) as a map of type
 /// name (without angle brackets) to its grammar. webref does not fully cover
 /// these value types, so they are used to backfill value definitions.
-pub fn get_mdn_syntaxes(client: &reqwest::blocking::Client) -> Result<BTreeMap<String, String>> {
-    let resp = client.get(MDN_SYNTAXES).send()?.error_for_status()?;
-    let body = resp.bytes()?;
+pub fn get_mdn_syntaxes() -> Result<BTreeMap<String, String>> {
+    let body = crate::fetch::get(MDN_SYNTAXES)?;
     let raw: BTreeMap<String, MdnSyntax> = serde_json::from_slice(&body).context("parsing MDN syntaxes.json")?;
 
     Ok(raw.into_iter().map(|(name, item)| (name, item.syntax)).collect())

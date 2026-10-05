@@ -22,11 +22,20 @@ descriptions say what they should cover so we can decide what to write next.
 
 ## Architecture
 
+- [What the engine can do today](status.md) — per-component capability: what each
+  part does, what it does not do yet, and the measured numbers behind both.
+
 - [Crates overview](crates.md) — one section per workspace crate and how they depend on
   each other. Start here to find where something lives.
-- [The two worlds](two-worlds.md) — why there are two parallel document/style models (the
+- [The two worlds](two-worlds.md) — why there are two parallel document models (the
   `gosub_interface` world where parsing happens and the pipeline's own types), and the
   `GosubDocumentAdapter` seam that joins them. Read this before diving into either.
+- [Module configuration](moduleconfig.md) — the embedder's view of the same thing: what
+  `DefaultRenderConfig` picks for you, and how to name every component yourself.
+- [Process isolation](process-isolation.md) - the multi-process architecture: broker, network
+  and decoder processes, the fork server and resident renderers, the embedder contract
+  (`dispatch_with` first in `main`), sealed-shm tiles, crash handling, and the test tools.
+- [Security assessment](security-assessment.md) - the process-isolation design read as an attacker would: positions, assets, what was fixed, what is accepted and why
 - [Interface trait families](interface.md) — `gosub_interface` as the dependency-inversion
   crate: `ModuleConfiguration` and the `Has*` view traits, the per-component contracts,
   and the deliberate type-erasure escape hatches.
@@ -39,6 +48,12 @@ descriptions say what they should cover so we can decide what to write next.
   contents by the host engine).
 - [JavaScript stack](javascript.md) — the five scripting crates (`webexecutor` abstraction,
   V8 bindings, proc-macro glue, web APIs, event loop) and their built-but-not-wired status.
+- [WPT quickstart](wpt-quickstart.md) — clone to a fixed test in about ten minutes; the
+  fastest route to a first contribution.
+- [Web-platform-tests](wpt.md) — the two WPT harnesses: `testharness.js` suites driven
+  through the test-only `gosub_domjs` bindings, and reftests rendered and pixel-compared
+  through `gosub-screenshot`. Which parts of the corpus each can run, where the numbers
+  stand, and what CI does with them.
 - [Fonts](fonts.md) — the two font backend families: *font systems* (measure text for
   layout) vs *text rasterizers* (draw glyphs), and how one shared font collection keeps
   them consistent.
@@ -54,8 +69,7 @@ descriptions say what they should cover so we can decide what to write next.
 - [Zones and tabs](zones-and-tabs.md) — the engine's runtime model: zones as isolated
   profiles, tabs as independent worker tasks, and the command/event flow between them.
 - [Resource pipelines](resource-pipeline.md) — how fetched bytes become typed assets
-  (HTML/CSS/JS/images/fonts), including parser-driven sub-resource discovery and
-  hierarchical fetch cancellation.
+  (HTML/CSS/JS/fonts), who fetches sub-resources, and hierarchical fetch cancellation.
 - [Cookies](cookies.md) — the cookie subsystem inside `gosub_engine`.
 - [Storage](datastores.md) — localStorage / sessionStorage architecture.
 

@@ -3,10 +3,16 @@
 //! Most users should start with [`GosubEngine`].
 
 mod context;
+pub mod damage;
+mod edit;
 #[allow(clippy::module_inception)]
 mod engine;
 mod errors;
+pub(crate) mod focus;
+mod form;
+pub(crate) mod input;
 pub mod internal_pages;
+mod media_source;
 pub mod places;
 
 pub mod events;
@@ -22,6 +28,7 @@ pub mod settings_store;
 pub mod types;
 
 pub use context::BrowsingContext;
+pub use damage::{Damage, DamageLevel};
 pub use engine::EngineContext;
 pub use engine::{GosubEngine, ZoneBuilder};
 pub use errors::{EngineError, LoadError};

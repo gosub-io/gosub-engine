@@ -31,6 +31,11 @@ impl Rect {
         }
     }
 
+    /// Whether the point lies inside (left/top edges inclusive, right/bottom exclusive).
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.width && y < self.y + self.height
+    }
+
     pub fn shift(&self, coord: Coordinate) -> Self {
         Self {
             x: self.x + coord.x,

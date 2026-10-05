@@ -8,6 +8,7 @@ use crate::engine::types::{EventChannel, IoChannel, ResourceChannel};
 use crate::engine::{DEFAULT_CHANNEL_CAPACITY, RESOURCE_CHANNEL_CAPACITY};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
+use crate::net::tab_identity::TabIdentityRegistry;
 use crate::net::{spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
@@ -20,6 +21,25 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::timeout;
 use tracing::instrument;
+
+/// The one switch over the five process settings; see
+/// [`GosubEngine::set_process_isolation`].
+pub const PROCESS_ISOLATION_SWITCH: &str = "security.process_isolation";
+
+/// The run-only switch's three states; see `GosubEngine::process_isolation_this_run`.
+const RUN_SWITCH_UNSET: u8 = 0;
+const RUN_SWITCH_OFF: u8 = 1;
+const RUN_SWITCH_ON: u8 = 2;
+
+/// The settings that each run one of the engine's components in a sandboxed
+/// process of its own.
+pub const PROCESS_SETTINGS: [&str; 5] = [
+    "security.network_process",
+    "security.image_decoder_process",
+    "security.renderer_process",
+    "security.cookie_vault",
+    "security.storage_service",
+];
 
 /// Main Gosub engine struct
 pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
@@ -38,6 +58,17 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
     /// Cookie stores of zones that requested persistence, flushed on shutdown.
     cookie_stores: HashMap<ZoneId, CookieStoreHandle>,
+    /// The storage service each zone's localStorage was routed through: the
+    /// one reference `close_zone` gives back. A zone that stayed in-process
+    /// has none, whatever directory its store names.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    local_storage_routes: HashMap<ZoneId, std::path::PathBuf>,
+    /// `security.process_isolation` chosen for this run only
+    /// ([`Self::set_process_isolation_for_this_run`]): a command-line flag's
+    /// choice, which must not become the persisted setting. Outranks the
+    /// stored value while set. Three states (unset, off, on) in an atomic,
+    /// so the engine stays `Sync` for embedders that share it across threads.
+    process_isolation_this_run: std::sync::atomic::AtomicU8,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -72,7 +103,40 @@ pub struct EngineContext {
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     /// `gosub://` page registry (built-ins + embedder overrides), shared with every tab.
     pub internal_pages: InternalPages,
+    /// Which cookie jar and top-level document each tab has. The I/O side reads
+    /// this to attach cookies itself, so no cookie value is ever handled by tab
+    /// code - see [`TabIdentityRegistry`].
+    pub tab_identities: Arc<TabIdentityRegistry>,
+    /// The fork server renderers are forked from, if `security.renderer_process`
+    /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
+    /// One per engine: what it holds (a warmed font system, a confinement tier)
+    /// is engine-wide state. On the shared context so tab workers can route
+    /// their renders through it; behind a `Mutex` because its request/reply
+    /// protocol is strictly serial.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_process: OnceLock<Arc<Mutex<crate::fork_server::client::ForkServer>>>,
+    /// The resident renderers forked from it, one per (zone, site); set
+    /// together with `renderer_process`. Tabs render through this.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_pool: OnceLock<Arc<crate::fork_server::pool::RendererPool>>,
+    /// The cookie vault, when `security.cookie_vault` started one: zones the
+    /// engine provisions jars for keep them there.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub cookie_vault: OnceLock<Arc<crate::cookie_vault::client::CookieVault>>,
+    /// The network process's end of its line to the vault, waiting for the I/O
+    /// thread to spawn that process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub net_vault_link: Arc<Mutex<Option<crate::cookie_vault::client::NetVaultLink>>>,
+    /// Storage service processes, one per directory, shared by the zones
+    /// whose local store lives there.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub storage_services: Arc<Mutex<StorageServices>>,
 }
+
+/// Storage service per directory, with how many open zones use it.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub type StorageServices =
+    std::collections::HashMap<std::path::PathBuf, (Arc<crate::storage_service::client::ServiceLocalStore>, usize)>;
 
 impl Default for EngineContext {
     fn default() -> Self {
@@ -84,8 +148,26 @@ impl Default for EngineContext {
             io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             internal_pages: InternalPages::with_builtins(),
+            tab_identities: Arc::new(TabIdentityRegistry::new()),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_pool: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            cookie_vault: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            net_vault_link: Arc::new(Mutex::new(None)),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            storage_services: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
+}
+
+/// The storage-service registry key for a directory: one process per directory,
+/// so two spellings of the same path must land on one entry.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn storage_service_key(dir: std::path::PathBuf) -> std::path::PathBuf {
+    std::fs::canonicalize(&dir).unwrap_or(dir)
 }
 
 impl<C: RenderConfiguration> GosubEngine<C> {
@@ -125,12 +207,26 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
                 internal_pages: InternalPages::with_builtins(),
+                tab_identities: Arc::new(TabIdentityRegistry::new()),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_process: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_pool: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                cookie_vault: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                net_vault_link: Arc::new(Mutex::new(None)),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                storage_services: Arc::new(Mutex::new(std::collections::HashMap::new())),
             }),
             render_backend: backend,
             compositor,
             font_system: Arc::new(Mutex::new(C::FontSystem::default())),
             zones: HashMap::new(),
             cookie_stores: HashMap::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            local_storage_routes: HashMap::new(),
+            process_isolation_this_run: std::sync::atomic::AtomicU8::new(RUN_SWITCH_UNSET),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
@@ -140,7 +236,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Starts the engine's I/O runtime and returns the main run-loop future.
     ///
-    /// The returned future is intentionally **not** spawned: the caller decides how to drive it -
+    /// The returned future is intentionally not spawned: the caller decides how to drive it -
     /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
     /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
     /// driven on the caller's current task/thread). The engine is considered running as soon as
@@ -150,6 +246,17 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::AlreadyRunning);
         }
 
+        // Which `security.*` process settings survive into this run. Decided
+        // before the I/O thread, which is what spawns the network process.
+        self.resolve_isolation_settings();
+
+        // The vault before the I/O thread: the network process, spawned there,
+        // inherits its line to the vault.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_cookie_vault();
+
+        // Start the I/O thread. The fetcher config is read from the settings store
+        // when a zone first fetches, not here, so `net.*` set after `start()` applies.
         let io_handle = spawn_io_thread(self.context.clone());
         // Set once; `start()` already refuses to run twice, so this never races or overwrites.
         let _ = self.context.io_tx.set(io_handle.subscribe());
@@ -157,12 +264,333 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
         #[cfg(feature = "metrics")]
-        crate::metrics::start(9090);
+        if self.context.config_store.get_bool("telemetry.metrics_enabled") {
+            crate::metrics::start(9090, Arc::clone(&self.context));
+        }
+
+        // Spawn the renderer fork server if asked to. Blocks briefly (spawn
+        // plus font warm-up, ~200 ms typical) - acceptable at startup, and
+        // the answer decides engine-wide behaviour, so it belongs here.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_renderer_process();
 
         // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Whether `key` still holds its schema default, i.e. the embedder never
+    /// chose it. A default that cannot apply here is dropped quietly; an
+    /// explicit choice that cannot apply gets a warning.
+    #[cfg_attr(not(feature = "process-isolation"), allow(dead_code))]
+    fn setting_at_default(&self, key: &str) -> bool {
+        // Not "equals the default": an embedder that sets the default value
+        // explicitly (turning the network process on where it is off by
+        // default) has still made a choice. The one switch, set, is that
+        // choice for all five.
+        let store = &self.context.config_store;
+        !store.is_overridden(key) && self.process_isolation_switch().is_none()
+    }
+
+    /// The switch as chosen: for this run, else as stored; `None` when unset.
+    fn process_isolation_switch(&self) -> Option<bool> {
+        let store = &self.context.config_store;
+        match self
+            .process_isolation_this_run
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            RUN_SWITCH_OFF => Some(false),
+            RUN_SWITCH_ON => Some(true),
+            _ => store
+                .is_overridden(PROCESS_ISOLATION_SWITCH)
+                .then(|| store.get_bool(PROCESS_ISOLATION_SWITCH)),
+        }
+    }
+
+    /// `security.process_isolation`, when the embedder set it, decides the five
+    /// process settings for this run: `false` is the single-process engine,
+    /// `true` asks for every component process. The five keep their own
+    /// values only while the switch is unset. Transient, like every value the
+    /// engine resolves itself: the user's persisted per-component choices stay
+    /// what they were for a run with the switch unset.
+    fn apply_process_isolation_switch(&self) {
+        let store = &self.context.config_store;
+        let Some(on) = self.process_isolation_switch() else {
+            return;
+        };
+        for key in PROCESS_SETTINGS {
+            let _ = store.set_transient(key, gosub_config::settings::Setting::Bool(on));
+        }
+        log::info!(
+            "{PROCESS_ISOLATION_SWITCH} is {}: {}",
+            if on { "on" } else { "off" },
+            if on {
+                "every component process requested"
+            } else {
+                "single process, no component processes"
+            }
+        );
+    }
+
+    /// For this run only: what this process cannot do must not be written back as
+    /// the embedder's persisted choice, or a run that can would inherit the `false`.
+    fn turn_off(&self, key: &str) {
+        let _ = self
+            .context
+            .config_store
+            .set_transient(key, gosub_config::settings::Setting::Bool(false));
+    }
+
+    /// The `security.*` process settings default to on; here the defaults meet
+    /// this process, platform and configuration. Without the embedder's
+    /// `child_process::dispatch()` nothing may spawn (a child is this binary
+    /// re-exec'd, and would run the embedder's own `main()` - for a GUI
+    /// embedder, a phantom window per spawn); the network and decoder
+    /// processes are on by default on Linux only, until the macOS and Windows
+    /// backends have run in CI; the renderer tier has conditions of its own,
+    /// checked in `start_renderer_process`.
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    fn resolve_isolation_settings(&self) {
+        self.apply_process_isolation_switch();
+
+        #[cfg(not(feature = "process-isolation"))]
+        {
+            for key in PROCESS_SETTINGS {
+                self.turn_off(key);
+            }
+        }
+
+        #[cfg(feature = "process-isolation")]
+        {
+            let store = &self.context.config_store;
+            if !crate::child_process::was_dispatched() {
+                let requested: Vec<&str> = PROCESS_SETTINGS.into_iter().filter(|key| store.get_bool(key)).collect();
+                if requested.is_empty() {
+                    return;
+                }
+                if requested.iter().any(|key| !self.setting_at_default(key)) {
+                    log::warn!(
+                        "{} requested, but gosub_engine::child_process::dispatch() was not called at the \
+                         top of main(); running without process isolation",
+                        requested.join(", ")
+                    );
+                } else {
+                    log::info!(
+                        "process isolation is off: this embedder does not call \
+                         gosub_engine::child_process::dispatch() at the top of main()"
+                    );
+                }
+                for key in requested {
+                    self.turn_off(key);
+                }
+                return;
+            }
+
+            if !cfg!(target_os = "linux") {
+                for key in PROCESS_SETTINGS {
+                    if store.get_bool(key) && self.setting_at_default(key) {
+                        self.turn_off(key);
+                    }
+                }
+                if PROCESS_SETTINGS.iter().any(|key| store.get_bool(key)) {
+                    log::info!(
+                        "process isolation was requested explicitly on a platform where it is not on by default"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Spawn the cookie vault when `security.cookie_vault` asks for it. With
+    /// the network process also on, the two get a direct line so cookie values
+    /// on requests bypass this process entirely.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_cookie_vault(&self) {
+        use crate::cookie_vault::client::CookieVault;
+        let store = &self.context.config_store;
+        if !store.get_bool("security.cookie_vault") {
+            return;
+        }
+        let with_net = store.get_bool("security.network_process");
+        match CookieVault::spawn(with_net) {
+            Ok((vault, net_link)) => {
+                log::info!(
+                    "cookie jars live in a separate, sandboxed vault process{}",
+                    if with_net {
+                        " (the network process talks to it directly)"
+                    } else {
+                        ""
+                    }
+                );
+                *self.context.net_vault_link.lock() = net_link;
+                let _ = self.context.cookie_vault.set(Arc::new(vault));
+            }
+            Err(e) => {
+                log::error!("security.cookie_vault is on but the vault could not start ({e}); cookies stay in-process");
+                self.turn_off("security.cookie_vault");
+            }
+        }
+    }
+
+    /// Spawn the fork server when `security.renderer_process` asks for it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_renderer_process(&mut self) {
+        use crate::fork_server::client::ForkServer;
+        use crate::fork_server::protocol::ConfinementTier;
+
+        if !self.context.config_store.get_bool("security.renderer_process") {
+            return;
+        }
+
+        let by_default = self.setting_at_default("security.renderer_process");
+
+        // The configured font system's (static) tier decides the mechanism:
+        // only `Full` systems benefit from a warmed fork server.
+        // `FontPathsReadable` renders in throwaway exec'd processes spawned
+        // per render (see `render_process`) - nothing to start here, and not
+        // by default either: that tier has no resident renderers (every scroll
+        // and hover is a full render in a fresh process), so an embedder opts
+        // into it knowingly.
+        let exec_per_render = {
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => false,
+                Confinement::FontPathsReadable if by_default => {
+                    log::info!(
+                        "renderer isolation is off by default for this font system (it reads font \
+                         files while operating, so renderers would be exec'd per render); set \
+                         security.renderer_process explicitly to opt in"
+                    );
+                    self.turn_off("security.renderer_process");
+                    return;
+                }
+                // Explicitly asked for: exec-per-render, once the rasterizer check
+                // below has passed - that mode ships pixels as much as the fork
+                // server's does.
+                Confinement::FontPathsReadable => true,
+                Confinement::Unsupported(reason) => {
+                    if by_default {
+                        log::info!(
+                            "renderer isolation is off: the configured font system cannot run isolated ({reason})"
+                        );
+                    } else {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                    }
+                    self.turn_off("security.renderer_process");
+                    return;
+                }
+            }
+        };
+
+        // A renderer that cannot rasterize would ship geometry and no pixels:
+        // blank tabs with no way back. Better to say so and stay in-process.
+        {
+            let fonts: Arc<Mutex<dyn gosub_interface::font_system::FontSystem>> =
+                Arc::new(Mutex::new(C::FontSystem::default()));
+            if C::forked_tile_rasterizer(fonts).is_none() {
+                if by_default {
+                    log::info!(
+                        "renderer isolation is off: this RenderConfiguration provides no \
+                         forked_tile_rasterizer (enable the engine's `cairo-tiles`/`skia-tiles` feature)"
+                    );
+                } else {
+                    log::warn!(
+                        "security.renderer_process is on, but this RenderConfiguration provides no \
+                         forked_tile_rasterizer (enable the engine's `cairo-tiles`/`skia-tiles` feature, \
+                         or implement it); rendering stays in-process"
+                    );
+                }
+                self.turn_off("security.renderer_process");
+                return;
+            }
+        }
+
+        if exec_per_render {
+            log::info!(
+                "renderer isolation active in exec-per-render mode \
+                 (the configured font system reads font files while operating)"
+            );
+            return;
+        }
+
+        match ForkServer::spawn() {
+            Ok(mut server) => {
+                let tier = server.confinement().clone();
+                match tier {
+                    ConfinementTier::Unsupported(reason) => {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                        self.turn_off("security.renderer_process");
+                        server.shutdown();
+                    }
+                    tier => {
+                        log::info!("renderer fork server ready (confinement tier: {tier:?})");
+                        // Set once, like `io_tx`; `start()` refuses to run twice.
+                        let server = Arc::new(Mutex::new(server));
+                        let _ = self
+                            .context
+                            .renderer_pool
+                            .set(Arc::new(crate::fork_server::pool::RendererPool::new(
+                                Arc::clone(&server),
+                                Some(self.context.event_tx.clone()),
+                            )));
+                        let _ = self.context.renderer_process.set(server);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "security.renderer_process is on, but the fork server could not be started ({e}); \
+                     rendering stays in-process. The most likely cause is an embedder that has not \
+                     called gosub_engine::child_process::dispatch_with() first thing in main()."
+                );
+            }
+        }
+    }
+
+    /// The running renderer fork server, when `security.renderer_process` is on
+    /// and it started - the handle render routing goes through. `None` means
+    /// this engine renders in-process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
+        self.context.renderer_process.get()
+    }
+
+    /// The escape audit in the network process; `None` when networking is
+    /// in-process (tools and tests).
+    #[cfg(feature = "process-isolation")]
+    pub async fn audit_net_process(&self) -> Option<gosub_sandbox::audit::AuditReport> {
+        self.io_handle.as_ref()?.audit_net().await
+    }
+
+    /// The cookie vault, when one runs (tools and tests).
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn cookie_vault(&self) -> Option<&Arc<crate::cookie_vault::client::CookieVault>> {
+        self.context.cookie_vault.get()
+    }
+
+    /// The pool of resident renderers, when `security.renderer_process` is on
+    /// and the fork server started: one process per (zone, site), listable
+    /// for diagnostics.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_pool(&self) -> Option<&Arc<crate::fork_server::pool::RendererPool>> {
+        self.context.renderer_pool.get()
+    }
+
+    /// The confinement tier the renderer fork server announced, when one is
+    /// running: how confined this engine's forked renderers are.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process_tier(&self) -> Option<crate::fork_server::protocol::ConfinementTier> {
+        self.context
+            .renderer_process
+            .get()
+            .map(|server| server.lock().confinement().clone())
     }
 
     /// Return a receiver for engine events.
@@ -202,6 +630,39 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// start fetching after it; zones already fetching keep the values they were built with.
     pub fn settings(&self) -> &Config {
         &self.context.config_store
+    }
+
+    /// Run the engine's components in separate sandboxed processes (`true`),
+    /// or everything in this process as the engine always has (`false`). The
+    /// same as setting `security.process_isolation`: it decides all five
+    /// `security.*` process settings at [`start`](Self::start). **Persisted**
+    /// like any setting: with a persistent settings adapter it holds for
+    /// later runs too, until the key is removed - the user's preference. A
+    /// command-line flag is a choice for this run and belongs to
+    /// [`Self::set_process_isolation_for_this_run`]. The per-component
+    /// settings are for finer choices while this one is unset. Needs
+    /// `child_process::dispatch_with()` first in `main()` to take effect, like
+    /// the settings it governs.
+    pub fn set_process_isolation(&self, enabled: bool) -> Result<(), EngineError> {
+        self.context
+            .config_store
+            .set(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
+            .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))
+    }
+
+    /// [`Self::set_process_isolation`] for this run only: nothing is written
+    /// to the settings storage, and the choice outranks whatever is stored.
+    /// What an embedder's `--single-process` or `--isolated` flag maps to.
+    pub fn set_process_isolation_for_this_run(&self, enabled: bool) -> Result<(), EngineError> {
+        self.context
+            .config_store
+            .set_transient(PROCESS_ISOLATION_SWITCH, gosub_config::settings::Setting::Bool(enabled))
+            .map_err(|e| EngineError::InvalidConfiguration(e.to_string()))?;
+        self.process_isolation_this_run.store(
+            if enabled { RUN_SWITCH_ON } else { RUN_SWITCH_OFF },
+            std::sync::atomic::Ordering::Release,
+        );
+        Ok(())
     }
 
     pub fn backend(&self) -> Arc<C::RenderBackend> {
@@ -250,8 +711,22 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::NotRunning);
         }
 
-        // Persist cookie stores before tearing anything down.
-        self.flush_persistence();
+        // Ask the fork server for a clean exit (it kills-and-reaps on drop
+        // regardless, but a Shutdown lets it leave without a SIGKILL).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            if let Some(pool) = self.context.renderer_pool.get() {
+                log::trace!("signal: shutting down the resident renderers");
+                pool.shutdown_all();
+            }
+            if let Some(server) = self.context.renderer_process.get() {
+                log::trace!("signal: shutting down the renderer fork server");
+                server.lock().shutdown();
+            }
+            for (store, _) in self.context.storage_services.lock().values() {
+                store.shutdown();
+            }
+        }
 
         // Shutdown I/O thread
         log::trace!("signal: shutting down I/O thread");
@@ -263,6 +738,17 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         } else {
             log::debug!("I/O handle already gone");
         }
+
+        // The vault after I/O, so a response still in flight stores its
+        // cookies first; its shutdown waits for the snapshots it sent.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(vault) = self.context.cookie_vault.get() {
+            log::trace!("signal: shutting down the cookie vault");
+            vault.shutdown();
+        }
+
+        // Persist cookie stores once nothing can change them any more.
+        self.flush_persistence();
 
         // Send shutdown command to the run loop
         log::trace!("signal: sending shutdown to run loop");
@@ -286,18 +772,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Create and register a new zone, returning a [`Zone`] for userland code.
     ///
-    /// - `config`: zone configuration (features, limits, identity); if `None`, the
-    ///   engine's [`EngineConfig::default_zone_config`] is used
-    /// - `services`: storage, cookie store/jar, partition policy, etc.
-    /// - `zone_id`: optional id; if `None`, a fresh one is generated
-    /// - `event_tx`: channel where the zone (and its tabs) will emit [`EngineEvent`]s
-    ///
-    /// Fails with [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones.
-    ///
-    /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
-    /// command sender, allowing the caller to send zone commands without holding
-    /// a reference to the engine.
     /// Start building a zone. Everything is optional: the default is an ephemeral profile
     /// with the engine's default [`ZoneConfig`] and a fresh id.
     ///
@@ -316,6 +790,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
     }
 
+    /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
+    /// `None` for `zone_id` generates a fresh id. Fails with
+    /// [`EngineError::ZoneLimitExceeded`] once the engine holds
+    /// [`EngineConfig::max_zones`] zones. The returned handle carries the [`ZoneId`]
+    /// and a clone of the engine's command sender, so the caller can send zone
+    /// commands without holding a reference to the engine.
     pub(crate) fn create_zone(
         &mut self,
         config: Option<ZoneConfig>,
@@ -328,6 +808,129 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
         let cookie_store = services.cookie_store.clone();
 
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let routed = self.route_local_storage(&services);
+
+        // A zone whose jar the engine provisions keeps it in the vault, behind a
+        // jar handle that forwards; an embedder-supplied jar is the embedder's.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let services = match self.context.cookie_vault.get() {
+            Some(vault) if services.cookie_jar.is_none() => {
+                let vault = Arc::clone(vault);
+                let id = zone_id.unwrap_or_default();
+                vault.open_zone(id, cookie_store.clone());
+                let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(&vault), id).handle();
+                let created = self.create_zone_with_services(
+                    config,
+                    ZoneServices {
+                        cookie_jar: Some(jar),
+                        ..services
+                    },
+                    Some(id),
+                    cookie_store,
+                );
+                // No zone came of it: the vault must not keep (or respawn
+                // with) a jar nothing will ever close, nor the storage
+                // service a reference nothing will give back.
+                if created.is_err() {
+                    vault.close_zone(id);
+                }
+                self.settle_local_storage(&created, routed);
+                return created;
+            }
+            _ => services,
+        };
+        let created = self.create_zone_with_services(config, services, zone_id, cookie_store);
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.settle_local_storage(&created, routed);
+        created
+    }
+
+    /// Record which storage service a new zone holds a reference to, for
+    /// `close_zone`. A zone that never came to exist is never closed, so its
+    /// reference is given back here instead.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn settle_local_storage(&mut self, created: &Result<Zone<C>, EngineError>, routed: Option<std::path::PathBuf>) {
+        match (created, routed) {
+            (Ok(zone), Some(dir)) => {
+                self.local_storage_routes.insert(zone.id, dir);
+            }
+            (Err(_), routed) => self.release_local_storage(routed),
+            (Ok(_), None) => {}
+        }
+    }
+
+    /// Route a zone's local storage through the storage service process when
+    /// its store can be served from a directory. One process per directory.
+    /// Returns the registry key it counted the zone under, for
+    /// [`Self::release_local_storage`].
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn route_local_storage(&self, services: &ZoneServices) -> Option<std::path::PathBuf> {
+        use crate::storage_service::client::ServiceLocalStore;
+        if !self.context.config_store.get_bool("security.storage_service") {
+            return None;
+        }
+        let dir = storage_service_key(services.storage.local_store().service_directory()?);
+        let mut processes = self.context.storage_services.lock();
+        let store = match processes.get_mut(&dir) {
+            Some((store, zones)) => {
+                *zones += 1;
+                Arc::clone(store)
+            }
+            None => match ServiceLocalStore::new(&dir) {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    processes.insert(dir.clone(), (Arc::clone(&store), 1));
+                    store
+                }
+                Err(e) => {
+                    log::warn!("localStorage stays in-process for {}: {e}", dir.display());
+                    return None;
+                }
+            },
+        };
+        drop(processes);
+        if !services.storage.route_local_through(store) {
+            log::warn!(
+                "localStorage stays in-process for {}: this zone's storage already handed out an area, \
+                 and a second store over the same files would lose writes",
+                dir.display()
+            );
+            self.release_local_storage(Some(dir));
+            return None;
+        }
+        Some(dir)
+    }
+
+    /// Give back one zone's reference to a storage service process, ending the
+    /// process with its last zone.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn release_local_storage(&self, dir: Option<std::path::PathBuf>) {
+        let Some(dir) = dir else {
+            return;
+        };
+        let mut processes = self.context.storage_services.lock();
+        let last = match processes.get_mut(&dir) {
+            Some((_, zones)) => {
+                *zones = zones.saturating_sub(1);
+                *zones == 0
+            }
+            None => false,
+        };
+        if last {
+            if let Some((store, _)) = processes.remove(&dir) {
+                store.shutdown();
+            }
+        }
+    }
+
+    fn create_zone_with_services(
+        &mut self,
+        config: ZoneConfig,
+        services: ZoneServices,
+        zone_id: Option<ZoneId>,
+        cookie_store: Option<crate::cookies::CookieStoreHandle>,
+    ) -> Result<Zone<C>, EngineError> {
         let zone = match zone_id {
             Some(zone_id) => Zone::new_with_id(
                 zone_id,
@@ -354,9 +957,16 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             self.cookie_stores.insert(zone_id, store);
         }
 
-        // A broadcast send only fails when nobody is subscribed, which is not an error:
-        // a headless embedder may never listen for events at all.
-        let _ = self.context.event_tx.send(EngineEvent::ZoneCreated { zone_id });
+        // Nobody listening is not a reason to fail: the zone exists and is
+        // registered, and an error here would hand back no zone to close it with.
+        if self
+            .context
+            .event_tx
+            .send(EngineEvent::ZoneCreated { zone_id })
+            .is_err()
+        {
+            log::debug!("zone {zone_id} created with no event subscriber");
+        }
 
         Ok(zone)
     }
@@ -374,6 +984,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
 
+        // The vault drops the zone's jar once its last snapshot is with the store.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(vault) = self.context.cookie_vault.get() {
+            vault.close_zone(zone_id);
+        }
+
         // Shut down the zone's fetcher on the I/O thread (ack'd).
         if let Some(io) = &self.io_handle {
             let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
@@ -387,6 +1003,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Final cookie snapshot + cache eviction; durable data stays on disk.
         if let Some(store) = self.cookie_stores.remove(&zone_id) {
             store.release_zone(zone_id);
+        }
+
+        // The storage service outlives its last zone by nothing.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            let routed = self.local_storage_routes.remove(&zone_id);
+            self.release_local_storage(routed);
         }
 
         self.zones.remove(&zone_id);
@@ -550,8 +1173,8 @@ mod tests {
         .expect("timed out waiting for NavigationEvent::Failed");
 
         assert!(
-            matches!(error, LoadError::Network { .. }),
-            "a refused connection should classify as Network, got {error:?}"
+            matches!(error, LoadError::Connect { .. }),
+            "a refused connection should classify as Connect, got {error:?}"
         );
         // And it still prints something a shell can show.
         assert!(!error.to_string().is_empty());
@@ -986,6 +1609,105 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Without `child_process::dispatch()` the process settings must not survive
+    /// `start()`: a child would re-exec into this test binary's own startup.
+    #[cfg(feature = "process-isolation")]
+    #[tokio::test]
+    async fn process_settings_are_dropped_without_dispatch() {
+        use gosub_config::settings::Setting;
+        let mut engine = engine_with_max_zones(1);
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            engine.settings().set(key, Setting::Bool(true)).expect("set");
+            assert!(engine.settings().get_bool(key));
+        }
+        assert!(!crate::child_process::was_dispatched());
+        let _join = tokio::spawn(engine.start().expect("start"));
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            assert!(!engine.settings().get_bool(key), "{key} should have been turned off");
+        }
+    }
+
+    /// Embedders share the engine across threads; the run-only switch must
+    /// not take that away.
+    #[test]
+    fn the_engine_stays_sync() {
+        fn assert_sync<T: Sync>() {}
+        assert_sync::<GosubEngine>();
+    }
+
+    /// The one switch decides all five for the run: off is the single-process
+    /// engine whatever the per-component settings say, on requests every one,
+    /// and unset leaves them alone.
+    #[test]
+    fn the_process_isolation_switch_decides_all_five() {
+        use gosub_config::settings::Setting;
+        let engine = engine_with_max_zones(1);
+        let store = engine.settings();
+        store.set("security.cookie_vault", Setting::Bool(true)).expect("set");
+        store
+            .set("security.renderer_process", Setting::Bool(true))
+            .expect("set");
+
+        engine.apply_process_isolation_switch();
+        assert!(
+            store.get_bool("security.cookie_vault"),
+            "unset: the component setting stands"
+        );
+
+        engine.set_process_isolation(false).expect("switch off");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(!store.get_bool(key), "{key} is on with the switch off");
+        }
+        assert!(
+            !engine.setting_at_default("security.network_process"),
+            "the switch is the embedder's choice for every component"
+        );
+
+        engine.set_process_isolation(true).expect("switch on");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(store.get_bool(key), "{key} is off with the switch on");
+        }
+
+        // A flag's choice for this run outranks the stored one and is not
+        // written back: the stored value stays `true`.
+        engine
+            .set_process_isolation_for_this_run(false)
+            .expect("switch off for this run");
+        engine.apply_process_isolation_switch();
+        for key in PROCESS_SETTINGS {
+            assert!(!store.get_bool(key), "{key} is on with the run's switch off");
+        }
+        assert!(
+            store.is_overridden(PROCESS_ISOLATION_SWITCH),
+            "the stored choice is still there"
+        );
+    }
+
+    /// The defaults are on, but they too need `dispatch()`: an engine in a
+    /// process that never dispatched ends up with all three off, quietly.
+    #[cfg(feature = "process-isolation")]
+    #[tokio::test]
+    async fn process_settings_default_on_but_need_dispatch() {
+        let mut engine = engine_with_max_zones(1);
+        assert!(engine.settings().get_bool("security.network_process"));
+        assert!(engine.settings().get_bool("security.image_decoder_process"));
+        assert!(engine.settings().get_bool("security.renderer_process"));
+        let _join = tokio::spawn(engine.start().expect("start"));
+        assert!(!engine.settings().get_bool("security.network_process"));
+        assert!(!engine.settings().get_bool("security.image_decoder_process"));
+        assert!(!engine.settings().get_bool("security.renderer_process"));
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(
@@ -993,6 +1715,103 @@ mod tests {
             Arc::new(NullBackend::new()),
             Arc::new(DefaultCompositor::default()),
         )
+    }
+
+    /// The inversion, end to end: the I/O side stores a `Set-Cookie` from one
+    /// navigation and attaches it to the next, with no cookie code on the tab
+    /// path at all. Both halves are covered - a failure to store and a failure to
+    /// attach look identical here, which is why the second request is inspected
+    /// rather than the jar.
+    #[tokio::test]
+    async fn cookies_are_stored_and_replayed_by_the_io_side() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // Only the second request matters; the first exists to hand out the cookie.
+        let second_request = Arc::new(Mutex::new(String::new()));
+        let captured = second_request.clone();
+
+        // Serves every connection: besides the two navigations the tab may fetch its
+        // icon, and which connection comes second is not fixed. The request for
+        // `/second` is the one the test is about, wherever it lands.
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let first = request.starts_with("GET /first ");
+                if request.starts_with("GET /second ") {
+                    *captured.lock() = request;
+                }
+
+                let body = b"<html><title>hi</title></html>";
+                let set_cookie = if first {
+                    "Set-Cookie: sid=abc123; Path=/\r\n"
+                } else {
+                    ""
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{set_cookie}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(body).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        // One tab for both navigations: with no zone store or jar configured every
+        // tab gets its own jar, so a second tab would start empty.
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/first"))
+            .await
+            .expect("first navigation");
+        // The store happens on the I/O side after the response arrives, so the
+        // second navigation must not start until the first has been answered. The
+        // cookie is stored before the reply is forwarded, so a finished navigation
+        // is one whose cookie is already in the jar.
+        assert!(
+            wait_for(&mut events, |e| matches!(
+                e,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            ))
+            .await,
+            "the first navigation never finished"
+        );
+
+        tab.navigate(format!("http://127.0.0.1:{port}/second"))
+            .await
+            .expect("second navigation");
+
+        let mut request = String::new();
+        for _ in 0..100 {
+            request = second_request.lock().clone();
+            if !request.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        use cow_utils::CowUtils;
+        assert!(
+            request.cow_to_ascii_lowercase().contains("cookie: sid=abc123"),
+            "the I/O side should have stored and replayed the cookie, got:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]
@@ -1344,6 +2163,21 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// An embedder that sets a process setting to its default value has still
+    /// chosen it: on a platform where the default is turned off, that choice is
+    /// what keeps it on.
+    #[cfg(feature = "process-isolation")]
+    #[test]
+    fn an_explicit_process_setting_equal_to_its_default_is_not_at_default() {
+        let engine = engine_with_max_zones(1);
+        let key = "security.network_process";
+        assert!(engine.setting_at_default(key), "untouched: at its default");
+
+        let default = engine.settings().get_info(key).expect("known setting").default;
+        engine.settings().set(key, default).expect("set to its own default");
+        assert!(!engine.setting_at_default(key), "set explicitly, even to the default");
+    }
+
     /// Crash containment: a panicking tab worker produces a TabCrashed event (instead of
     /// dying silently), and the tab's handle then reports closed on further commands.
     #[tokio::test]
@@ -1379,6 +2213,12 @@ mod tests {
             crashed.1.contains("deliberate test crash"),
             "panic message: {}",
             crashed.1
+        );
+        // The worker's own cleanup never ran, so the watchdog drops the tab's
+        // identity: a fetch the dead tab left behind gets no cookies.
+        assert!(
+            engine.context.tab_identities.get(tab_id).is_none(),
+            "a crashed tab must not resolve to its cookie jar"
         );
 
         // The dead tab's handle fails cleanly rather than hanging.
@@ -1500,6 +2340,159 @@ mod tests {
         .unwrap_or(false)
     }
 
+    /// Whether a page's icon served with `content_type` (none: no header at
+    /// all) reaches the embedder as `FavIconChanged`.
+    async fn favicon_delivered(content_type: Option<&'static str>) -> bool {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let icon_served = Arc::new(tokio::sync::Notify::new());
+        let icon_served_srv = icon_served.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let icon_served = icon_served_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(path) = req.split_whitespace().nth(1) else {
+                        return;
+                    };
+                    let head = if path == "/icon" {
+                        let ctype = content_type
+                            .map(|t| format!("Content-Type: {t}\r\n"))
+                            .unwrap_or_default();
+                        format!("HTTP/1.1 200 OK\r\n{ctype}Content-Length: 8\r\nConnection: close\r\n\r\nPNGBYTES")
+                    } else {
+                        let body = "<html><head><link rel=\"icon\" href=\"/icon\"></head><body>p</body></html>";
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    if path == "/icon" {
+                        icon_served.notify_one();
+                    }
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+
+        tokio::time::timeout(Duration::from_secs(10), icon_served.notified())
+            .await
+            .expect("the page's icon was never requested");
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(EngineEvent::FavIconChanged { .. }) = event_rx.recv().await {
+                    return;
+                }
+            }
+        })
+        .await
+        .is_ok()
+    }
+
+    /// A page's icon served without an image Content-Type never reaches the
+    /// embedder: it would hand the bytes to an image decoder.
+    #[tokio::test]
+    async fn a_favicon_without_an_image_type_is_dropped() {
+        assert!(
+            !favicon_delivered(None).await,
+            "an icon without a Content-Type reached the embedder"
+        );
+        assert!(
+            !favicon_delivered(Some("text/html")).await,
+            "an icon typed text/html reached the embedder"
+        );
+    }
+
+    /// The image type is matched without regard to case, as media types are.
+    #[tokio::test]
+    async fn a_favicon_type_is_matched_without_case() {
+        assert!(
+            favicon_delivered(Some("Image/PNG")).await,
+            "an icon typed Image/PNG was dropped"
+        );
+    }
+
+    /// Enter on a focused link goes through the same scheme check as a click:
+    /// a page's link never opens an internal page.
+    #[tokio::test]
+    async fn enter_on_a_link_does_not_open_an_internal_page() {
+        use crate::events::{Modifiers, NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body><a href=\"gosub://settings\">settings</a></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        assert!(
+            wait_for(&mut event_rx, |ev| matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            ))
+            .await,
+            "the page never loaded"
+        );
+
+        for key in ["Tab", "Enter"] {
+            let _ = tab
+                .send(TabCommand::KeyDown {
+                    key: key.into(),
+                    code: key.into(),
+                    modifiers: Modifiers::empty(),
+                })
+                .await;
+        }
+        let opened = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Started { url, .. },
+                    ..
+                }) = event_rx.recv().await
+                {
+                    return url;
+                }
+            }
+        })
+        .await;
+        assert!(opened.is_err(), "Enter on a page's gosub: link navigated: {opened:?}");
+    }
+
     #[tokio::test]
     async fn session_history_back_and_forward() {
         use crate::events::NavigationEvent;
@@ -1518,7 +2511,12 @@ mod tests {
                     let mut buf = vec![0u8; 4096];
                     let n = stream.read(&mut buf).await.unwrap_or(0);
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    // A connection that closes without a request line is a fetch the
+                    // engine abandoned (the next navigation cancels the last one's icon),
+                    // not a page load: it must not count as one.
+                    let Some(path) = req.split_whitespace().nth(1).map(str::to_string) else {
+                        return;
+                    };
                     if path != "/icon.png" {
                         served.lock().push(path.clone());
                     }

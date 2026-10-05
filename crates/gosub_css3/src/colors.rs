@@ -1,14 +1,25 @@
+use cow_utils::CowUtils;
 use std::convert::From;
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Formatter};
 use std::str::FromStr;
 
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
 
+pub(crate) mod contrast;
+pub(crate) mod layers;
+pub(crate) mod mix;
+pub(crate) mod relative;
+pub(crate) mod resolve;
+pub mod space;
+
+use space::Space;
+
 // The named-color table lives in gosub_shared so the render pipeline can resolve
 // the same names without depending on this crate; re-exported here for existing users.
 pub use gosub_shared::css_colors::{
-    is_named_color, is_system_color, named_color_hex, CssColorEntry, CSS_COLORNAMES, CSS_SYSTEM_COLOR_NAMES,
+    is_named_color, is_system_color, named_color_hex, system_color_rgba, CssColorEntry, CSS_COLORNAMES,
+    CSS_DEPRECATED_SYSTEM_COLORS, CSS_SYSTEM_COLORS,
 };
 
 /// A RGB color with alpha channel
@@ -32,6 +43,28 @@ impl RgbColor {
     }
 }
 
+/// The CSSOM serialization of an sRGB colour.
+///
+/// css-color-4 says a resolved sRGB colour serializes through the legacy comma form - `rgb()`
+/// when it is opaque, `rgba()` when it is not - whatever notation the author used to write it.
+/// `#f00`, `rgb(255 0 0)` and `red` all come back as `rgb(255, 0, 0)`, which is what both
+/// `getComputedStyle` and a round-trip through `element.style` are required to report.
+impl std::fmt::Display for RgbColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (r, g, b) = (self.r.round() as u8, self.g.round() as u8, self.b.round() as u8);
+        let alpha = self.a / 255.0;
+        if alpha >= 1.0 {
+            return write!(f, "rgb({r}, {g}, {b})");
+        }
+        // Alpha is held as one of 256 steps, so three decimals is always enough to tell two
+        // apart (1/255 is 0.0039) and never emits the noise `{}` on an f32 would - `128/255`
+        // is 0.50196078 in full, and every browser writes it `0.502`.
+        let alpha = format!("{:.3}", alpha.max(0.0));
+        let alpha = alpha.trim_end_matches('0').trim_end_matches('.');
+        write!(f, "rgba({r}, {g}, {b}, {alpha})")
+    }
+}
+
 impl Default for RgbColor {
     fn default() -> Self {
         // Default full alpha (solid) with black color
@@ -45,61 +78,89 @@ impl Default for RgbColor {
 }
 
 impl From<&str> for RgbColor {
+    /// Lossy conversion: anything that is not a colour becomes opaque black. Prefer
+    /// [`RgbColor::try_from_str`], which reports that case instead of inventing a colour.
     fn from(value: &str) -> Self {
+        RgbColor::try_from_str(value).unwrap_or_default()
+    }
+}
+
+impl RgbColor {
+    /// Parses a CSS `<color>` from its textual form, or `None` when the string is not a colour.
+    ///
+    /// Reporting the failure matters: a declaration whose value is invalid at computed-value
+    /// time must be dropped, so the property keeps its inherited or initial value. Answering
+    /// with a colour instead turns every keyword that reaches a colour slot into an opaque
+    /// black paint - `background: none` and `background: no-repeat` (the shorthand's non-colour
+    /// components) both filled their box with black.
+    #[must_use]
+    pub fn try_from_str(value: &str) -> Option<Self> {
         if value.is_empty() {
-            return RgbColor::default();
+            return None;
         }
-        if value == "currentcolor" {
-            // @todo: implement currentcolor
-            return RgbColor::default();
+        // CSS defines it as rgba(0, 0, 0, 0), and the named-colour table does not carry it.
+        if value.eq_ignore_ascii_case("transparent") {
+            return Some(RgbColor::new(0.0, 0.0, 0.0, 0.0));
+        }
+        // `currentcolor` is the element's own `color`, which a string cannot say. It is
+        // resolved where that is known ([`resolve::resolve_color`]); here it is not a colour,
+        // rather than the opaque black it used to be.
+        if value.eq_ignore_ascii_case("currentcolor") {
+            return None;
+        }
+        if let Some((r, g, b, a)) = system_color_rgba(value) {
+            return Some(RgbColor::new(f32::from(r), f32::from(g), f32::from(b), f32::from(a)));
+        }
+        // The user-agent sheet's focus ring (`outline: auto 1px -webkit-focus-ring-color`), which
+        // is the engine's own colour rather than one of css-color-4's system colours.
+        if value.eq_ignore_ascii_case("-webkit-focus-ring-color") || value.eq_ignore_ascii_case("focus-ring-color") {
+            return Some(RgbColor::new(35.0, 130.0, 235.0, 255.0));
         }
 
         if value.starts_with('#') {
-            return parse_hex(value);
+            return try_parse_hex(value);
         }
         if value.starts_with("rgb(") {
             // Rgb function
-            let Ok(rgb) = Rgb::from_str(value) else {
-                return RgbColor::default();
-            };
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            let rgb = Rgb::from_str(value).ok()?;
+            return Some(RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0));
         }
         if value.starts_with("rgba(") {
             // Rgba function - alpha from colors_transform is in 0..1 range; scale to 0..255
-            let Ok(rgb) = Rgb::from_str(value) else {
-                return RgbColor::default();
-            };
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
+            let rgb = Rgb::from_str(value).ok()?;
+            return Some(RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha() * 255.0,
+            ));
         }
         if value.starts_with("hsl(") {
-            let Ok(hsl) = Hsl::from_str(value) else {
-                return RgbColor::default();
-            };
+            let hsl = Hsl::from_str(value).ok()?;
             let rgb: Rgb = hsl.to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            return Some(RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0));
         }
         if value.starts_with("hsla(") {
             // hsla() - alpha from colors_transform is in 0..1 range; scale to 0..255
-            let Ok(hsl) = Hsl::from_str(value) else {
-                return RgbColor::default();
-            };
+            let hsl = Hsl::from_str(value).ok()?;
             let rgb: Rgb = hsl.to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
+            return Some(RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha() * 255.0,
+            ));
         }
 
         // Modern CSS Color Level 4 functions stored as unparsed strings.
         if value.starts_with("oklch(") {
-            if let Some(c) = parse_oklch_str(value) {
-                return c;
-            }
+            return parse_oklch_str(value);
         }
         if value.starts_with("oklab(") {
-            if let Some(c) = parse_oklab_str(value) {
-                return c;
-            }
+            return parse_oklab_str(value);
         }
 
-        named_color_hex(value).map_or(RgbColor::default(), parse_hex)
+        named_color_hex(value).and_then(try_parse_hex)
     }
 }
 
@@ -214,7 +275,9 @@ fn is_hex(value: &str) -> bool {
     value.chars().skip(1).all(|c| c.is_ascii_hexdigit())
 }
 
-fn parse_hex(value: &str) -> RgbColor {
+/// Parses `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, or `None` when the string is not one of
+/// those - a malformed hex value is an invalid declaration, not black.
+fn try_parse_hex(value: &str) -> Option<RgbColor> {
     const R: usize = 0;
     const G: usize = 1;
     const B: usize = 2;
@@ -222,7 +285,7 @@ fn parse_hex(value: &str) -> RgbColor {
     const DEFAULT_A_VALUE: f32 = 255.0;
 
     if !is_hex(value) {
-        return RgbColor::default();
+        return None;
     }
 
     // 3 hex digits (RGB)
@@ -233,12 +296,12 @@ fn parse_hex(value: &str) -> RgbColor {
         let r = number_array[R];
         let g = number_array[G];
         let b = number_array[B];
-        return RgbColor::new(
+        return Some(RgbColor::new(
             (r * 16 + r) as f32,
             (g * 16 + g) as f32,
             (b * 16 + b) as f32,
             DEFAULT_A_VALUE,
-        );
+        ));
     }
 
     // 4 hex digits (RGBA)
@@ -251,12 +314,12 @@ fn parse_hex(value: &str) -> RgbColor {
         let b = number_array[B];
         let a = number_array[A];
 
-        return RgbColor::new(
+        return Some(RgbColor::new(
             (r * 16 + r) as f32,
             (g * 16 + g) as f32,
             (b * 16 + b) as f32,
             (a * 16 + a) as f32,
-        );
+        ));
     }
 
     // 6 hex digits (RRGGBB)
@@ -267,7 +330,7 @@ fn parse_hex(value: &str) -> RgbColor {
         let g = number_array[G];
         let b = number_array[B];
 
-        return RgbColor::new(r as f32, g as f32, b as f32, DEFAULT_A_VALUE);
+        return Some(RgbColor::new(r as f32, g as f32, b as f32, DEFAULT_A_VALUE));
     }
 
     // 8 hex digits (RRGGBBAA)
@@ -280,10 +343,10 @@ fn parse_hex(value: &str) -> RgbColor {
         let b = number_array[B];
         let a = number_array[A];
 
-        return RgbColor::new(r as f32, g as f32, b as f32, a as f32);
+        return Some(RgbColor::new(r as f32, g as f32, b as f32, a as f32));
     }
 
-    RgbColor::default()
+    None
 }
 
 fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
@@ -318,6 +381,567 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
         _ => {
             vec![]
         }
+    }
+}
+
+/// Convert an HWB colour to sRGB (css-color-4 §7.2).
+///
+/// The hue is the fully saturated colour at that angle, and whiteness and blackness say how much
+/// of it is replaced by white and by black. The two are normalized when they would leave nothing
+/// of the hue at all: `hwb(0 60% 60%)` is grey, not a negative amount of red.
+#[must_use]
+pub fn hwb_to_srgb(hue: f32, white: f32, black: f32) -> (f32, f32, f32) {
+    let (mut white, mut black) = (white, black);
+    let total = white + black;
+    if total > 1.0 {
+        white /= total;
+        black /= total;
+    }
+    let (r, g, b) = hsl_to_srgb(hue, 1.0, 0.5);
+    let mix = |channel: f32| (channel / 255.0).mul_add(1.0 - white - black, white) * 255.0;
+    (mix(r), mix(g), mix(b))
+}
+
+pub fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    let h = h.rem_euclid(360.0) / 360.0;
+    if s <= 0.0 {
+        let v = l * 255.0;
+        return (v, v, v);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    let hue = |mut t: f32| -> f32 {
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        let c = if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        };
+        c * 255.0
+    };
+    (hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0))
+}
+
+/// Convert a CIE Lab colour to sRGB (css-color-4 §10.3, via XYZ).
+///
+/// Lab is defined against the D50 white point, so the matrix below folds the Bradford adaptation
+/// to D65 into the XYZ-to-linear-sRGB conversion. The result is gamma-encoded and scaled to the
+/// 0-255 channels the rest of the engine paints with; a colour outside the sRGB gamut comes back
+/// clipped, which is what a display can show of it.
+#[must_use]
+pub fn lab_to_srgb(lightness: f32, a: f32, b: f32) -> (f32, f32, f32) {
+    const KAPPA: f32 = 24389.0 / 27.0;
+    const EPSILON: f32 = 216.0 / 24389.0;
+    // The D50 white point, which Lab is measured against.
+    const WHITE: [f32; 3] = [0.964_295_7, 1.0, 0.825_104_6];
+
+    let fy = (lightness + 16.0) / 116.0;
+    let fx = a / 500.0 + fy;
+    let fz = fy - b / 200.0;
+    let cube = |f: f32| {
+        let cubed = f * f * f;
+        if cubed > EPSILON {
+            cubed
+        } else {
+            f.mul_add(116.0, -16.0) / KAPPA
+        }
+    };
+    let x = cube(fx) * WHITE[0];
+    let y = if lightness > KAPPA * EPSILON {
+        fy * fy * fy
+    } else {
+        lightness / KAPPA
+    } * WHITE[1];
+    let z = cube(fz) * WHITE[2];
+
+    // XYZ (D50) straight to linear sRGB.
+    let r = 3.134_136 * x - 1.617_386_3 * y - 0.490_661_95 * z;
+    let g = -0.978_795_5 * x + 1.916_140_4 * y + 0.033_417_27 * z;
+    let bl = 0.071_955_38 * x - 0.228_976_83 * y + 1.405_386 * z;
+
+    let encode = |channel: f32| {
+        let channel = channel.clamp(0.0, 1.0);
+        let encoded = if channel <= 0.003_130_8 {
+            channel * 12.92
+        } else {
+            1.055 * channel.powf(1.0 / 2.4) - 0.055
+        };
+        encoded * 255.0
+    };
+    (encode(r), encode(g), encode(bl))
+}
+
+/// Convert a CIE LCH colour to sRGB. LCH is Lab in polar form: the hue is an angle and the
+/// chroma is how far the colour sits from the neutral axis.
+#[must_use]
+pub fn lch_to_srgb(lightness: f32, chroma: f32, hue_deg: f32) -> (f32, f32, f32) {
+    let hue = hue_deg.to_radians();
+    lab_to_srgb(lightness, chroma * hue.cos(), chroma * hue.sin())
+}
+
+/// How a colour was written, which is also what decides how it serializes.
+///
+/// css-color-4 §15 does not serialize every colour the same way. A colour written as a keyword,
+/// a hex triple or `rgb()` is an sRGB colour and comes back through `rgb()`; one written
+/// `hsl()` or `hwb()` does too, but only while every component is present; and the rest keep the
+/// notation they were written in, because no other notation can say what they say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ColorSyntax {
+    /// A keyword, a hex triple, `rgb()` or `rgba()`. Components are 0-255.
+    Rgb,
+    /// `hsl()` or `hsla()`: hue in degrees, saturation and lightness as percentages.
+    Hsl,
+    /// `hwb()`: hue in degrees, whiteness and blackness as percentages.
+    Hwb,
+    /// `lab()`: lightness, and the two opponent axes.
+    Lab,
+    /// `lch()`: lightness, chroma, hue in degrees.
+    Lch,
+    /// `oklab()`.
+    Oklab,
+    /// `oklch()`.
+    Oklch,
+    /// `color(<space> ...)`: components are 0-1 in the named space.
+    Predefined(PredefinedSpace),
+}
+
+/// The colour spaces `color()` can name (css-color-4 §10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PredefinedSpace {
+    Srgb,
+    SrgbLinear,
+    DisplayP3,
+    DisplayP3Linear,
+    A98Rgb,
+    ProphotoRgb,
+    Rec2020,
+    XyzD50,
+    XyzD65,
+}
+
+impl PredefinedSpace {
+    /// The space's name as `color()` spells it.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            PredefinedSpace::Srgb => "srgb",
+            PredefinedSpace::SrgbLinear => "srgb-linear",
+            PredefinedSpace::DisplayP3 => "display-p3",
+            PredefinedSpace::DisplayP3Linear => "display-p3-linear",
+            PredefinedSpace::A98Rgb => "a98-rgb",
+            PredefinedSpace::ProphotoRgb => "prophoto-rgb",
+            PredefinedSpace::Rec2020 => "rec2020",
+            PredefinedSpace::XyzD50 => "xyz-d50",
+            PredefinedSpace::XyzD65 => "xyz-d65",
+        }
+    }
+
+    /// The conversion space this names.
+    #[must_use]
+    pub fn space(self) -> Space {
+        match self {
+            PredefinedSpace::Srgb => Space::Srgb,
+            PredefinedSpace::SrgbLinear => Space::SrgbLinear,
+            PredefinedSpace::DisplayP3 => Space::DisplayP3,
+            PredefinedSpace::DisplayP3Linear => Space::DisplayP3Linear,
+            PredefinedSpace::A98Rgb => Space::A98Rgb,
+            PredefinedSpace::ProphotoRgb => Space::ProphotoRgb,
+            PredefinedSpace::Rec2020 => Space::Rec2020,
+            PredefinedSpace::XyzD50 => Space::XyzD50,
+            PredefinedSpace::XyzD65 => Space::XyzD65,
+        }
+    }
+
+    /// Whether this is one of the XYZ spaces, whose components `color()` names `x y z` rather
+    /// than `r g b`.
+    #[must_use]
+    pub fn is_xyz(self) -> bool {
+        matches!(self, PredefinedSpace::XyzD50 | PredefinedSpace::XyzD65)
+    }
+
+    /// The space a `color()` keyword names, or `None` when it names none of them.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        let space = match name.cow_to_ascii_lowercase().as_ref() {
+            "srgb" => PredefinedSpace::Srgb,
+            "srgb-linear" => PredefinedSpace::SrgbLinear,
+            "display-p3" => PredefinedSpace::DisplayP3,
+            "display-p3-linear" => PredefinedSpace::DisplayP3Linear,
+            "a98-rgb" => PredefinedSpace::A98Rgb,
+            "prophoto-rgb" => PredefinedSpace::ProphotoRgb,
+            "rec2020" => PredefinedSpace::Rec2020,
+            // `xyz` is a synonym for `xyz-d65`, and serializes as the name it was given.
+            "xyz-d50" => PredefinedSpace::XyzD50,
+            "xyz" | "xyz-d65" => PredefinedSpace::XyzD65,
+            _ => return None,
+        };
+        Some(space)
+    }
+}
+
+/// A CSS colour: the notation it was written in, its three components, and its alpha.
+///
+/// A component is `None` when it was written `none`. css-color-4 §12.2 calls that a *missing*
+/// component, and it is not the same as zero: it says the colour has nothing to contribute on
+/// that axis, which matters when the colour is interpolated. sRGB has no way to write it, which
+/// is why a colour that has one keeps the notation it came in.
+///
+/// Storing the components in the notation's own units, rather than converting to sRGB up front,
+/// is the point of the type. A converted colour cannot say which space it was in, cannot say a
+/// component was missing, and cannot be given back the way it was written - and all three are
+/// things the CSSOM is required to report.
+#[derive(Clone, Copy)]
+pub struct CssColor {
+    pub syntax: ColorSyntax,
+    /// The three components followed by alpha, in the units of `syntax`.
+    ///
+    /// Held at the precision they were parsed with. Narrowing them to `f32` costs a digit that
+    /// the CSSOM reports: `128/255` is `0.50196078`, and an `f32` says `0.50196081`.
+    ///
+    /// Packed with [`Self::missing`] rather than stored as four `Option<f64>`, which cost 64
+    /// bytes to carry 32: every `Option` pays eight for a tag that says one bit. `CssColor` is
+    /// the largest variant of `CssValue`, so those spare bytes were charged to every value in
+    /// the engine, declared or computed, whether or not it was a colour.
+    values: [f64; 4],
+    /// Which of `values` are the CSS-wide `none`: bit 0-2 the components, bit 3 alpha.
+    missing: u8,
+    /// Whether this is a computed value rather than a specified one.
+    ///
+    /// The two serialize differently in one place: an `hsl()` or `hwb()` colour that has to keep
+    /// its own notation writes its saturation and lightness as bare numbers when specified and
+    /// as percentages once computed. `element.style.color = "hsl(120 80% none)"` reads back
+    /// `hsl(120 80 none)`, while `getComputedStyle` reports `hsl(120 80% none)`.
+    pub computed: bool,
+}
+
+/// Printed as the components and alpha it represents, not as the packed pair that holds them.
+///
+/// The packing is a storage decision; a reader of a debug dump wants to see `[Some(238.0), ...]`
+/// and an alpha, and the correctness gate compares those dumps across changes like this one.
+impl Debug for CssColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CssColor")
+            .field("syntax", &self.syntax)
+            .field("components", &self.components())
+            .field("alpha", &self.alpha())
+            .field("computed", &self.computed)
+            .finish()
+    }
+}
+
+impl CssColor {
+    /// The colour exactly as stored, for a caller that needs identity rather than equality.
+    ///
+    /// [`PartialEq`] answers whether two colours *are the same colour*, comparing converted
+    /// sRGB with a tolerance, which is the right question almost everywhere and the wrong one
+    /// for a pool: two colours a fraction of a channel apart would collapse into one, and the
+    /// one that survived would be the one serialised back to the page.
+    #[must_use]
+    pub(crate) fn exact_parts(&self) -> (ColorSyntax, [u64; 4], u8, bool) {
+        (
+            self.syntax,
+            [
+                self.values[0].to_bits(),
+                self.values[1].to_bits(),
+                self.values[2].to_bits(),
+                self.values[3].to_bits(),
+            ],
+            self.missing,
+            self.computed,
+        )
+    }
+
+    /// The three components, `None` where the colour says `none`.
+    #[must_use]
+    pub fn components(&self) -> [Option<f64>; 3] {
+        [self.component(0), self.component(1), self.component(2)]
+    }
+
+    /// Component `index` (0-2), or alpha at index 3. `None` means the CSS-wide `none`.
+    #[must_use]
+    pub fn component(&self, index: usize) -> Option<f64> {
+        if self.missing & (1 << index) == 0 {
+            Some(self.values[index])
+        } else {
+            None
+        }
+    }
+
+    /// Component `index` with `none` read as zero, which is what every conversion wants.
+    ///
+    /// Separate from [`Self::component`] because it is on the hot path: `to_rgb` runs for every
+    /// colour comparison (`PartialEq` converts both sides), and building an `Option` only to
+    /// unwrap it showed up as a 6% regression on the cascade of a colour-heavy sheet.
+    #[must_use]
+    fn channel(&self, index: usize) -> f64 {
+        if self.missing & (1 << index) == 0 {
+            self.values[index]
+        } else {
+            0.0
+        }
+    }
+
+    /// Alpha, 0 to 1, or `None` for `none`.
+    #[must_use]
+    pub fn alpha(&self) -> Option<f64> {
+        self.component(3)
+    }
+
+    /// A colour from its components and alpha, `None` for each `none`.
+    #[must_use]
+    pub fn from_parts(syntax: ColorSyntax, components: [Option<f64>; 3], alpha: Option<f64>, computed: bool) -> Self {
+        let mut values = [0.0; 4];
+        let mut missing = 0u8;
+        for (index, value) in components.iter().chain(std::iter::once(&alpha)).enumerate() {
+            match value {
+                Some(value) => values[index] = *value,
+                None => missing |= 1 << index,
+            }
+        }
+        Self {
+            syntax,
+            values,
+            missing,
+            computed,
+        }
+    }
+
+    /// Replace the components, keeping the syntax, alpha and computed flag.
+    pub fn set_components(&mut self, components: [Option<f64>; 3]) {
+        *self = Self::from_parts(self.syntax, components, self.alpha(), self.computed);
+    }
+
+    /// Replace alpha, keeping everything else.
+    pub fn set_alpha(&mut self, alpha: Option<f64>) {
+        *self = Self::from_parts(self.syntax, self.components(), alpha, self.computed);
+    }
+}
+
+/// Two colours are the same when they describe the same colour, whatever notation each was
+/// written in. Deriving this would make `red` and `#f00` different values.
+impl PartialEq for CssColor {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = (self.to_rgb(), other.to_rgb());
+        (a.r - b.r).abs() < 0.5 && (a.g - b.g).abs() < 0.5 && (a.b - b.b).abs() < 0.5 && (a.a - b.a).abs() < 0.5
+    }
+}
+
+impl CssColor {
+    /// An sRGB colour from 0-255 channels and a 0-255 alpha, which is how [`RgbColor`] holds it.
+    #[must_use]
+    pub fn srgb(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self::from_parts(
+            ColorSyntax::Rgb,
+            [Some(f64::from(r)), Some(f64::from(g)), Some(f64::from(b))],
+            Some(f64::from(a) / 255.0),
+            false,
+        )
+    }
+
+    /// Whether this colour serializes in the notation it was written in, rather than through
+    /// the legacy sRGB triple. Only such a colour can show a `calc()` a component was written
+    /// with, so only such a colour has to keep one unresolved.
+    #[must_use]
+    pub fn keeps_its_notation(&self) -> bool {
+        match self.syntax {
+            ColorSyntax::Rgb => false,
+            ColorSyntax::Hsl | ColorSyntax::Hwb => self.has_missing(),
+            _ => true,
+        }
+    }
+
+    /// Whether any component or the alpha was written `none`.
+    #[must_use]
+    pub fn has_missing(&self) -> bool {
+        self.alpha().is_none() || self.components().iter().any(Option::is_none)
+    }
+
+    /// The colour as sRGB, for everything downstream that paints rather than serializes.
+    ///
+    /// A missing component resolves to zero here, which is what css-color-4 §12.2 asks for when
+    /// a colour has to be used rather than carried: the value is not being interpolated any more,
+    /// so there is nothing left for "missing" to mean.
+    #[must_use]
+    pub fn to_rgb(&self) -> RgbColor {
+        // Narrowed here, at the boundary with the painting triple, rather than on the way in.
+        #[expect(clippy::cast_possible_truncation, reason = "a colour channel fits an f32")]
+        let [first, second, third] = [self.channel(0) as f32, self.channel(1) as f32, self.channel(2) as f32];
+        // A missing alpha is zero, like any other missing component: `none` is not "absent",
+        // which would be opaque, but "nothing to contribute" (css-color-4 §12.2).
+        #[expect(clippy::cast_possible_truncation, reason = "alpha is a fraction")]
+        let alpha = self.channel(3) as f32 * 255.0;
+        let (r, g, b) = match self.syntax {
+            ColorSyntax::Rgb => (first, second, third),
+            ColorSyntax::Hsl => hsl_to_srgb(first, second / 100.0, third / 100.0),
+            ColorSyntax::Hwb => hwb_to_srgb(first, second / 100.0, third / 100.0),
+            ColorSyntax::Oklab => oklab_to_srgb(first, second, third),
+            ColorSyntax::Oklch => oklch_to_srgb(first, second, third),
+            ColorSyntax::Lab => lab_to_srgb(first, second, third),
+            ColorSyntax::Lch => lch_to_srgb(first, second, third),
+            ColorSyntax::Predefined(PredefinedSpace::Srgb) => (first * 255.0, second * 255.0, third * 255.0),
+            // Every other predefined space is converted, and anything outside sRGB is clipped,
+            // since only sRGB is painted.
+            ColorSyntax::Predefined(space) => {
+                let srgb = space::convert(space.space(), Space::Srgb, self.space_components());
+                #[expect(clippy::cast_possible_truncation, reason = "a colour channel fits an f32")]
+                let channel = |c: f64| (c.clamp(0.0, 1.0) * 255.0) as f32;
+                (channel(srgb[0]), channel(srgb[1]), channel(srgb[2]))
+            }
+        };
+        RgbColor::new(r, g, b, alpha)
+    }
+}
+
+impl ColorSyntax {
+    /// The space this notation's components are in.
+    #[must_use]
+    pub fn space(self) -> Space {
+        match self {
+            ColorSyntax::Rgb => Space::Srgb,
+            ColorSyntax::Hsl => Space::Hsl,
+            ColorSyntax::Hwb => Space::Hwb,
+            ColorSyntax::Lab => Space::Lab,
+            ColorSyntax::Lch => Space::Lch,
+            ColorSyntax::Oklab => Space::Oklab,
+            ColorSyntax::Oklch => Space::Oklch,
+            ColorSyntax::Predefined(space) => space.space(),
+        }
+    }
+}
+
+impl CssColor {
+    /// The three components converted to `space`, in the units [`space`] converts in, with
+    /// missing components carried forward (see [`space::convert_missing`]).
+    #[must_use]
+    pub fn in_space(&self, to: Space) -> [Option<f64>; 3] {
+        let scale = if self.syntax == ColorSyntax::Rgb { 255.0 } else { 1.0 };
+        let own = self.components().map(|c| c.map(|v| v / scale));
+        space::convert_missing(self.syntax.space(), to, own)
+    }
+
+    /// The three components in the units [`space`] converts in, with a missing one read as zero.
+    ///
+    /// These are the notation's own units, except for `rgb()`, whose 0-255 channels are
+    /// converted as 0-1.
+    #[must_use]
+    pub fn space_components(&self) -> [f64; 3] {
+        let scale = if self.syntax == ColorSyntax::Rgb { 255.0 } else { 1.0 };
+        [
+            self.channel(0) / scale,
+            self.channel(1) / scale,
+            self.channel(2) / scale,
+        ]
+    }
+}
+
+impl From<RgbColor> for CssColor {
+    fn from(color: RgbColor) -> Self {
+        CssColor::srgb(color.r, color.g, color.b, color.a)
+    }
+}
+
+/// A component as css-color-4 writes it: up to eight decimals, with nothing trailing.
+fn component(value: Option<f64>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let text = format!("{value:.8}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text.is_empty() || text == "-0" {
+        "0".to_string()
+    } else {
+        text.to_string()
+    }
+}
+
+impl std::fmt::Display for CssColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // An sRGB colour, and an HSL or HWB one with nothing missing, go out through the legacy
+        // comma form - which is what every browser reports and what the CSSOM requires, whatever
+        // notation the author used (css-color-4 §15.2).
+        let legacy = match self.syntax {
+            ColorSyntax::Rgb => true,
+            ColorSyntax::Hsl | ColorSyntax::Hwb => !self.has_missing(),
+            _ => false,
+        };
+        if legacy {
+            // An sRGB colour that has a missing component cannot say so through `rgb()`, which
+            // predates the idea. Its *computed* value moves to the modern notation to keep it,
+            // where the specified value still goes out as the legacy triple with the missing
+            // component read as zero.
+            if self.computed && self.syntax == ColorSyntax::Rgb && self.has_missing() {
+                let channel = |c: Option<f64>| c.map(|v| v / 255.0);
+                let srgb = CssColor::from_parts(
+                    ColorSyntax::Predefined(PredefinedSpace::Srgb),
+                    self.components().map(channel),
+                    self.alpha(),
+                    true,
+                );
+                return write!(f, "{srgb}");
+            }
+            return write!(f, "{}", self.to_rgb());
+        }
+
+        let [first, second, third] = self.components();
+        let (name, second, third) = match self.syntax {
+            // Handled above, where it goes out as the legacy triple. Writing it again here
+            // rather than declaring it unreachable keeps the match total.
+            ColorSyntax::Rgb => return write!(f, "{}", self.to_rgb()),
+            // Saturation, lightness, whiteness and blackness are percentages, and say so.
+            ColorSyntax::Hsl => ("hsl", self.axis(second), self.axis(third)),
+            ColorSyntax::Hwb => ("hwb", self.axis(second), self.axis(third)),
+            ColorSyntax::Lab => ("lab", component(second), component(third)),
+            ColorSyntax::Lch => ("lch", component(second), component(third)),
+            ColorSyntax::Oklab => ("oklab", component(second), component(third)),
+            ColorSyntax::Oklch => ("oklch", component(second), component(third)),
+            ColorSyntax::Predefined(space) => {
+                let alpha = alpha_suffix(self.alpha());
+                return write!(
+                    f,
+                    "color({} {} {} {}{alpha})",
+                    space.name(),
+                    component(first),
+                    component(second),
+                    component(third)
+                );
+            }
+        };
+        write!(
+            f,
+            "{name}({} {second} {third}{})",
+            component(first),
+            alpha_suffix(self.alpha())
+        )
+    }
+}
+
+impl CssColor {
+    /// One of the two percentage axes of `hsl()` or `hwb()`, written the way this value's stage
+    /// writes it: bare when specified, with a percent sign once computed.
+    fn axis(&self, value: Option<f64>) -> String {
+        match (value, self.computed) {
+            (Some(_), true) => format!("{}%", component(value)),
+            (Some(_), false) => component(value),
+            (None, _) => "none".to_string(),
+        }
+    }
+}
+
+/// The ` / alpha` a modern colour notation ends with, left off when the colour is opaque.
+fn alpha_suffix(alpha: Option<f64>) -> String {
+    match alpha {
+        Some(alpha) if (alpha - 1.0).abs() < f64::EPSILON => String::new(),
+        Some(alpha) => format!(" / {}", component(Some(alpha))),
+        None => " / none".to_string(),
     }
 }
 
@@ -546,5 +1170,55 @@ mod tests {
         assert_eq!(color.g, 0.0);
         assert_eq!(color.b, 0.0);
         assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn non_colours_are_reported_rather_than_blackened() {
+        // These reach a colour slot through the `background` shorthand, whose non-colour
+        // components used to parse as opaque black and fill the element's box.
+        for keyword in ["none", "no-repeat", "center", "inherit", "", "notacolour"] {
+            assert_eq!(
+                super::RgbColor::try_from_str(keyword),
+                None,
+                "{keyword} is not a colour"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_values_are_reported() {
+        for value in ["#incorrect", "ff0000", "abcd", "#12345", "rgb(bogus)", "hsl(nope)"] {
+            assert_eq!(super::RgbColor::try_from_str(value), None, "{value} is not a colour");
+        }
+    }
+
+    #[test]
+    fn transparent_is_a_colour_with_zero_alpha() {
+        let color = super::RgbColor::try_from_str("transparent").expect("transparent is a colour");
+        assert_eq!((color.r, color.g, color.b, color.a), (0.0, 0.0, 0.0, 0.0));
+        // CSS keywords are ASCII case-insensitive.
+        assert_eq!(super::RgbColor::try_from_str("TRANSPARENT"), Some(color));
+    }
+
+    #[test]
+    fn colours_still_parse() {
+        assert_eq!(
+            super::RgbColor::try_from_str("#ff0000"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("red"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+        assert_eq!(
+            super::RgbColor::try_from_str("rgb(255, 0, 0)"),
+            Some(super::RgbColor::new(255.0, 0.0, 0.0, 255.0))
+        );
+    }
+
+    #[test]
+    fn the_lossy_conversion_keeps_its_black_default() {
+        // `From<&str>` is unchanged for callers that have nowhere to report a failure.
+        assert_eq!(super::RgbColor::from("none"), super::RgbColor::default());
     }
 }

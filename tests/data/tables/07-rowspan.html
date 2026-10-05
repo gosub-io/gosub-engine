@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>07 - rowspan</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .span { background-color: #ffd9b3; }
+  .tall { background-color: #d9ffb3; }
+</style>
+</head>
+<body>
+<h3>Rowspan - spanning cells, tall spanner, span past the last row</h3>
+<p>Expected: the first orange cell covers rows 1-2 of column 1; later cells
+in those rows shift right. The green cell has tall content spanning rows
+3-4 - those two rows together must be tall enough to contain it. The final
+rowspan=5 is clamped to the remaining single row.</p>
+<table>
+  <tr><td class="span" rowspan="2">rows 1-2</td><td>r1c2</td><td>r1c3</td></tr>
+  <tr><td>r2c2</td><td>r2c3</td></tr>
+  <tr><td>r3c1</td><td class="tall" rowspan="2"><div>tall content</div><div>line 2</div><div>line 3</div><div>line 4</div><div>line 5</div></td><td>r3c3</td></tr>
+  <tr><td>r4c1</td><td>r4c3</td></tr>
+  <tr><td>r5c1</td><td class="span" rowspan="5">rowspan 5 (clamped)</td><td>r5c3</td></tr>
+</table>
+</body>
+</html>

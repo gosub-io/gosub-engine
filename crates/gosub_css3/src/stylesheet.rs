@@ -1,3 +1,4 @@
+use crate::matcher::property_ids::PropertyId;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
@@ -5,33 +6,47 @@ use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
-use std::cell::Cell;
+use gosub_shared::node::NodeId;
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
-use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
+use crate::colors::{ColorSyntax, CssColor, PredefinedSpace, RgbColor};
+use crate::matcher::bloom::ancestor_keys;
+use crate::matcher::expansion::{expand_declarations, ExpandedDeclaration};
 use crate::matcher::index::{ElementKeys, SelectorIndex};
-
-thread_local! {
-    /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
-    /// during style computation. Set per layout pass via [`set_layout_viewport`]; defaults to a
-    /// 1280×800 fallback so units still resolve before any real viewport is known.
-    static LAYOUT_VIEWPORT: Cell<(f32, f32)> = const { Cell::new((1280.0, 800.0)) };
-}
+use crate::media_query::{media_environment, set_media_environment, MediaEnvironment, MediaQueryList};
+use crate::supports::SupportsCondition;
+use crate::tokenizer::NumberKind;
 
 /// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
 /// computations on this thread. The render flow calls this before building and laying out the
 /// render tree so viewport units (including those inside `clamp()`) track the real window size
 /// instead of a fixed fallback. Non-positive dimensions are ignored.
+///
+/// This updates the viewport half of the thread's [`MediaEnvironment`], which media queries
+/// read too - the two must never disagree. Callers that also care about colour scheme or
+/// resolution should build a whole environment and use [`set_media_environment`] instead.
 pub fn set_layout_viewport(width: f32, height: f32) {
     if width > 0.0 && height > 0.0 {
-        LAYOUT_VIEWPORT.with(|vp| vp.set((width, height)));
+        let mut env = media_environment();
+        env.width = width;
+        env.height = height;
+        set_media_environment(env);
     }
 }
 
-/// The current viewport (CSS px) for resolving viewport-relative units on this thread.
-fn layout_viewport() -> (f32, f32) {
-    LAYOUT_VIEWPORT.with(Cell::get)
+static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
+/// `@media (prefers-color-scheme: …)`. Process-wide, like the rest of the UA preferences.
+pub fn set_prefers_dark(dark: bool) {
+    PREFERS_DARK.store(dark, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn prefers_dark() -> bool {
+    PREFERS_DARK.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Severity of a CSS error
@@ -137,6 +152,25 @@ pub struct FontFace {
     pub unicode_range: Option<String>,
 }
 
+/// An `@import` rule: another stylesheet whose rules belong ahead of this one's own.
+///
+/// Recorded unresolved. Fetching is the host's job (only it has a network stack and a URL
+/// resolver); see [`CssStylesheet::splice_import`] for the merge back.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ImportRule {
+    /// The requested URL exactly as written, relative to the importing sheet's own URL.
+    pub url: String,
+    /// `layer` (as `Some(None)`) or `layer(name)` (as `Some(Some(name))`). Cascade layers are
+    /// flattened by this engine, so this is recorded for fidelity but does not affect order.
+    pub layer: Option<Option<String>>,
+    /// `supports(...)` condition. The import is skipped entirely when it does not hold, so
+    /// a sheet guarded on a feature this engine lacks is never fetched.
+    pub supports: Option<SupportsCondition>,
+    /// Trailing media query list. Every imported rule inherits it, so
+    /// `@import "print.css" print;` cannot leak into screen rendering.
+    pub media: Option<MediaQueryList>,
+}
+
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug)]
 pub struct CssStylesheet {
@@ -144,12 +178,40 @@ pub struct CssStylesheet {
     pub rules: Vec<CssRule>,
     /// `@font-face` rules found in this stylesheet (web fonts).
     pub font_faces: Vec<FontFace>,
+    /// `@import` rules, in source order, still unresolved.
+    pub imports: Vec<ImportRule>,
+    /// Whether any declaration in this sheet uses a viewport-relative unit (`vw`, `vh`,
+    /// `vmin`, `vmax` and their `s`/`l`/`d` variants).
+    ///
+    /// Those resolve against the layout viewport *at style-computation time*, so a sheet
+    /// that uses them has to be restyled on every resize, while one that does not can keep
+    /// its cached computed values. Recorded once when the stylesheet is built.
+    pub uses_viewport_units: bool,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
-    /// Url or file path where the stylesheet was found
-    pub url: String,
+    /// The tree scope this sheet was parsed into: `None` for the document, or the shadow root
+    /// whose shadow tree holds the `<style>` / `<link>` that produced it.
+    ///
+    /// A sheet only applies inside its own scope. The two exceptions are the shadow tree's
+    /// deliberate reach outwards - `:host` onto the host element, and `::slotted()` onto the
+    /// light-DOM nodes projected into its slots - both of which live in the tree *outside*.
+    /// User-agent sheets ignore scope entirely and apply everywhere.
+    pub scope: Option<NodeId>,
+    /// Url or file path where the stylesheet was found.
+    ///
+    /// Shared rather than owned outright: every declaration the cascade records keeps the URL it
+    /// came from, and on a page of a few thousand elements that was a few hundred thousand
+    /// copies of the same string.
+    pub url: std::sync::Arc<str>,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// Cascade layers this sheet declares, by full dotted name, in the order they were first
+    /// declared - which is the order that decides which of them wins (css-cascade-5 §6.4).
+    ///
+    /// A layer is named here whether it was given rules or only announced by a bare
+    /// `@layer a, b;`, because announcing it is how a sheet fixes the order up front, before
+    /// either block is written. A rule points into this list by index.
+    pub layers: Vec<String>,
     /// Rule index by rightmost compound, built on first style computation and rebuilt when
     /// `rules` changed size since; see [`CssStylesheet::invalidate_index`] for other edits.
     pub(crate) index: parking_lot::RwLock<Option<SelectorIndex>>,
@@ -159,6 +221,8 @@ impl PartialEq for CssStylesheet {
     fn eq(&self, other: &Self) -> bool {
         self.rules == other.rules
             && self.font_faces == other.font_faces
+            && self.imports == other.imports
+            && self.uses_viewport_units == other.uses_viewport_units
             && self.origin == other.origin
             && self.url == other.url
             && self.parse_log == other.parse_log
@@ -166,16 +230,96 @@ impl PartialEq for CssStylesheet {
 }
 
 impl CssStylesheet {
+    /// Hand back the capacity parsing claimed and never filled.
+    ///
+    /// A `Vec` grows by doubling, so a sheet of 18,241 rules ends up with 32,768 slots, and a
+    /// rule holding the one selector nearly every rule has got four. A parsed sheet is never
+    /// appended to again - the CSSOM rewrites the `style` attribute, which is parsed into a
+    /// sheet of its own - so every slot past the length is dead for as long as the page is open.
+    /// Only the rule list needs this. The lists inside a rule, and a selector's parts, are
+    /// sized as they are built, where it costs nothing; shrinking those afterwards meant 74,000
+    /// reallocations and 22 ms on that sheet, to save what sizing them saves for free.
+    pub fn shrink_to_fit(&mut self) {
+        self.rules.shrink_to_fit();
+        self.font_faces.shrink_to_fit();
+        self.imports.shrink_to_fit();
+        self.layers.shrink_to_fit();
+        self.parse_log.shrink_to_fit();
+    }
+
+    /// A stylesheet with no rules, for the cases where a sheet could not be produced and the
+    /// caller has to carry on without one.
+    #[must_use]
+    pub fn empty(origin: CssOrigin, url: &str) -> Self {
+        CssStylesheet {
+            rules: Vec::new(),
+            font_faces: Vec::new(),
+            imports: Vec::new(),
+            uses_viewport_units: false,
+            origin,
+            scope: None,
+            url: url.into(),
+            parse_log: Vec::new(),
+            layers: Vec::new(),
+            index: parking_lot::RwLock::new(None),
+        }
+    }
+
     #[must_use]
     pub fn new(origin: CssOrigin, url: &str) -> Self {
         Self {
             rules: vec![],
             font_faces: vec![],
+            imports: vec![],
+            uses_viewport_units: false,
             origin,
-            url: url.to_string(),
+            scope: None,
+            url: url.into(),
             parse_log: vec![],
+            layers: vec![],
             index: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Splice an imported stylesheet into this one, ahead of the rules already present.
+    ///
+    /// `@import` must precede every other rule, so an imported sheet's rules always cascade
+    /// below the importing sheet's own; prepending in import order reproduces that. Repeated
+    /// calls therefore have to append to the imported block rather than the front, which
+    /// `insert_at` tracks for the caller.
+    ///
+    /// `media` is the import's own media query list; it is pushed onto every incoming rule so
+    /// the condition travels with the rules rather than being lost at the seam. Font faces
+    /// come along unconditionally - they are not media-scoped.
+    pub fn splice_import(
+        &mut self,
+        imported: CssStylesheet,
+        media: Option<&Arc<MediaQueryList>>,
+        insert_at: usize,
+    ) -> usize {
+        let CssStylesheet {
+            rules,
+            font_faces,
+            uses_viewport_units,
+            ..
+        } = imported;
+
+        // An imported sheet's viewport-unit usage becomes the importing sheet's too: its
+        // rules now live here, and the resize fingerprint is computed per sheet.
+        self.uses_viewport_units |= uses_viewport_units;
+        let count = rules.len();
+        let rules = rules.into_iter().map(|mut rule| {
+            if let Some(media) = media {
+                // Outermost first: the import's condition gates everything inside it.
+                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            }
+            rule
+        });
+        self.rules.splice(insert_at..insert_at, rules);
+        self.font_faces.extend(font_faces);
+        // The index is keyed by rule position, so it has to be rebuilt.
+        self.invalidate_index();
+        insert_at + count
     }
 
     /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a
@@ -185,20 +329,22 @@ impl CssStylesheet {
         *self.index.get_mut() = None;
     }
 
-    /// The rules that can possibly match an element with these keys, in stylesheet order.
-    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>) -> Vec<usize> {
+    /// Write the rules that can possibly match an element with these keys into `out`, in
+    /// stylesheet order. The buffer is the caller's so that a lookup costs no allocation.
+    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>, out: &mut Vec<usize>) {
         if let Some(index) = self
             .index
             .read()
             .as_ref()
             .filter(|index| index.rule_count() == self.rules.len())
         {
-            return index.candidates(keys);
+            index.candidates(keys, out);
+            return;
         }
         self.index
             .write()
             .insert(SelectorIndex::build(&self.rules))
-            .candidates(keys)
+            .candidates(keys, out);
     }
 }
 
@@ -220,52 +366,345 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct CssRule {
     /// Selectors that must match for the declarations to apply
     pub selectors: Vec<CssSelector>,
-    /// Actual declarations that will be applied if the selectors match
-    pub declarations: Vec<CssDeclaration>,
+    /// Actual declarations that will be applied if the selectors match.
+    ///
+    /// Private, because [`CssRule::expanded`] is built from them once and kept: a caller that
+    /// edited them in place would leave the cascade reading the ones it replaced. Nothing does
+    /// once the rule is in a stylesheet - the parser fills them in through
+    /// [`CssRule::declarations_mut`] before then, and the CSSOM rewrites the `style` attribute's
+    /// text, which is parsed into a sheet of its own - and the only ways in, that method and
+    /// [`CssRule::set_declarations`], drop the expansion first, so it stays true of whatever
+    /// arrives later.
+    declarations: Vec<CssDeclaration>,
+    /// The `@media` conditions enclosing this rule, outermost first - all of them must match
+    /// before the rule applies. `None` for the overwhelmingly common unconditional rule, so
+    /// the check costs a null test. Each list is shared by every rule in its block.
+    ///
+    /// Conditions are kept unevaluated so that a viewport change is a restyle, not a re-parse.
+    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    /// The cascade layer this rule sits in, as an index into its sheet's
+    /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
+    /// declaration is the strongest place to be.
+    pub layer: Option<u32>,
+    /// The declarations validated and expanded, built the first time an element needs them;
+    /// see [`CssRule::expanded`].
+    expanded: OnceLock<Vec<ExpandedDeclaration>>,
+}
+
+/// The expansion is a function of the declarations and nothing else, so it plays no part in
+/// whether two rules are the same rule.
+impl PartialEq for CssRule {
+    fn eq(&self, other: &Self) -> bool {
+        self.selectors == other.selectors
+            && self.declarations == other.declarations
+            && self.media == other.media
+            && self.layer == other.layer
+    }
 }
 
 impl CssRule {
+    /// A rule as the parser builds it, with the declaration expansion still to be done.
+    #[must_use]
+    pub fn new(
+        selectors: Vec<CssSelector>,
+        declarations: Vec<CssDeclaration>,
+        media: Option<Vec<Arc<MediaQueryList>>>,
+        layer: Option<u32>,
+    ) -> Self {
+        Self {
+            selectors,
+            declarations,
+            media,
+            layer,
+            expanded: OnceLock::new(),
+        }
+    }
+
     #[must_use]
     pub fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
+    }
+
+    /// Whether any selector of this rule places a condition on an ancestor of the element. A
+    /// rule that does not can be matched without an ancestor filter, which is what keeps a page
+    /// whose sheets are all single-compound selectors from building one at all.
+    pub(crate) fn asks_about_ancestors(&self) -> bool {
+        self.selectors.iter().any(CssSelector::asks_about_ancestors)
     }
 
     #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
     }
+
+    /// The rule's declarations, to change. The expansion built from the old ones is dropped
+    /// here, before the caller can reach them, so the next [`CssRule::expanded`] is built from
+    /// whatever the rule says by then - however the caller went about editing it.
+    pub fn declarations_mut(&mut self) -> &mut Vec<CssDeclaration> {
+        self.expanded = OnceLock::new();
+        &mut self.declarations
+    }
+
+    /// Replace the rule's declarations, dropping the expansion built from the old ones.
+    pub fn set_declarations(&mut self, declarations: Vec<CssDeclaration>) {
+        self.declarations = declarations;
+        self.expanded = OnceLock::new();
+    }
+
+    /// The rule's declarations, each validated against its property definition and expanded
+    /// into the longhands it sets, in the same order as [`CssRule::declarations`].
+    ///
+    /// None of that depends on the element the rule is being applied to, so it is done once
+    /// here rather than once per matched element. It is built on first use rather than when the
+    /// rule is parsed, because rules arrive after parsing too: `@import` splices whole sheets
+    /// in, and an element's `style` attribute is a sheet built on its own.
+    #[must_use]
+    pub fn expanded(&self) -> &[ExpandedDeclaration] {
+        self.expanded.get_or_init(|| expand_declarations(&self.declarations))
+    }
+
+    /// The expanded declarations if some element has already made this rule matter, without
+    /// building them. For a memory report: asking through [`CssRule::expanded`] would expand
+    /// every rule on the page and report a cache the page never actually paid for.
+    #[must_use]
+    pub fn expanded_if_built(&self) -> Option<&Vec<ExpandedDeclaration>> {
+        self.expanded.get()
+    }
+
+    /// Whether this rule's enclosing `@media` conditions hold in `env`. Unconditional rules
+    /// always match.
+    #[must_use]
+    pub fn media_matches(&self, env: &MediaEnvironment) -> bool {
+        self.media
+            .as_ref()
+            .is_none_or(|conditions| conditions.iter().all(|list| list.matches(env)))
+    }
 }
 
 /// A CSS declaration, which contains a property, value and a flag for !important
+/// The property a declaration sets, resolved to an id where the engine knows the name.
+///
+/// A name used to be stored as a `String` on every declaration: one heap allocation each, on a
+/// real-world sheet nearly forty thousand of them, holding a name the engine has a generated
+/// `u16` for. The id is looked up once when the declaration is parsed rather than once per rule
+/// expansion and once per element for every declaration a `var()` makes pending.
+///
+/// The two string-carrying arms keep their spelling because it is part of their identity: a
+/// custom property *is* its name, and an unknown one has to be nameable in a log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropertyName {
+    /// A property the engine has a definition for.
+    Known(PropertyId),
+    /// A custom property (`--x`).
+    Custom(Arc<str>),
+    /// A name no definition covers: a misspelling, a property from a spec the definitions do
+    /// not carry, or one of the `-internal-` names the user-agent sheet sets.
+    Unknown(Arc<str>),
+}
+
+impl PropertyName {
+    /// The name as written, or the canonical spelling for a known property.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            PropertyName::Known(id) => id.name(),
+            PropertyName::Custom(name) | PropertyName::Unknown(name) => name,
+        }
+    }
+
+    /// The property's id, for the names the engine knows.
+    #[must_use]
+    pub fn id(&self) -> Option<PropertyId> {
+        match self {
+            PropertyName::Known(id) => Some(*id),
+            PropertyName::Custom(_) | PropertyName::Unknown(_) => None,
+        }
+    }
+
+    /// Whether this is a custom property, which cascades in a pass of its own.
+    #[must_use]
+    pub fn is_custom(&self) -> bool {
+        matches!(self, PropertyName::Custom(_))
+    }
+}
+
+impl From<&str> for PropertyName {
+    fn from(name: &str) -> Self {
+        if name.starts_with("--") {
+            return PropertyName::Custom(Arc::from(name));
+        }
+        match PropertyId::from_name(name) {
+            Some(id) => PropertyName::Known(id),
+            None => PropertyName::Unknown(Arc::from(name)),
+        }
+    }
+}
+
+impl From<String> for PropertyName {
+    fn from(name: String) -> Self {
+        PropertyName::from(name.as_str())
+    }
+}
+
+impl std::fmt::Display for PropertyName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl gosub_shared::memory::HeapSize for PropertyName {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        match self {
+            // A known property carries nothing: the id is the name.
+            PropertyName::Known(_) => {}
+            PropertyName::Custom(name) | PropertyName::Unknown(name) => name.heap_size(walk),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssDeclaration {
-    // Css property color
-    pub property: String,
-    // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc.)
-    // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
-    pub value: CssValue,
+    /// Which property this sets.
+    pub property: PropertyName,
+    /// The value as written, neither calculated nor converted (`red`, `50px`, `1px solid black`).
+    ///
+    /// Shared rather than owned, because a rule's value is copied into every element the rule
+    /// matches: on a real-world page that is tens of thousands of deep copies of a value the
+    /// stylesheet holds one of. Behind an `Arc` the copy is a refcount bump, and the element's
+    /// map points at the sheet's value instead of carrying its own.
+    pub value: Arc<CssValue>,
     // ie: !important
     pub important: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssSelector {
-    // List of parts that make up this selector
-    pub parts: Vec<Vec<CssSelectorPart>>,
+    /// Every complex selector's parts, one after another, with `entries` saying where each
+    /// begins (`a, b` is two complex selectors).
+    ///
+    /// One allocation for the lot rather than one per complex selector plus an outer `Vec`:
+    /// almost every selector in a stylesheet is a single complex selector, so the nesting spent
+    /// a `Vec` header and an allocation each to express a list of one.
+    parts: Vec<CssSelectorPart>,
+    /// One entry per complex selector: its slice of `parts`, its specificity, and what it needs
+    /// of the element's ancestors.
+    entries: Box<[SelectorEntry]>,
+    /// Whether any entry asks anything of an ancestor, so that a rule can be matched without an
+    /// ancestor filter being built at all.
+    asks_about_ancestors: bool,
+}
+
+/// One complex selector within a selector list.
+#[derive(Debug, PartialEq, Clone)]
+struct SelectorEntry {
+    /// Where this selector's parts start in [`CssSelector::parts`].
+    start: u32,
+    /// How many parts it has.
+    len: u32,
+    /// Counted once when the selector is built: a selector's specificity depends on nothing but
+    /// the selector, and it used to be recounted every time the selector matched an element.
+    specificity: Specificity,
+    /// What this selector needs of the element's ancestors, hashed here rather than per element;
+    /// see [`crate::matcher::bloom`]. Nearly every one is empty, and an empty boxed slice owns
+    /// nothing.
+    ancestor_keys: Box<[u32]>,
+}
+
+impl SelectorEntry {
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start as usize..(self.start + self.len) as usize
+    }
 }
 
 impl CssSelector {
-    /// Generate specificity for this selector
     #[must_use]
-    pub fn specificity(&self) -> Vec<Specificity> {
-        self.parts
+    pub fn new(parts: Vec<Vec<CssSelectorPart>>) -> Self {
+        let mut entries: Vec<SelectorEntry> = Vec::with_capacity(parts.len());
+        let mut asks_about_ancestors = false;
+
+        // A list of one is the overwhelming case - `a, b` is rare - and its parts are already a
+        // `Vec`, so take it whole rather than moving every part into a new one and freeing the
+        // old. Building a selector is on the per-element path: an inline `style` attribute is
+        // parsed as a one-rule sheet, and copying part by part measured as 10% on the render
+        // tree of a page that sets styles inline.
+        let flat = if parts.len() == 1 {
+            let complex = parts.into_iter().next().unwrap_or_default();
+            let keys = ancestor_keys(&complex);
+            asks_about_ancestors = !keys.is_empty();
+            entries.push(SelectorEntry {
+                start: 0,
+                len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
+                specificity: Specificity::from(complex.as_slice()),
+                ancestor_keys: keys,
+            });
+            complex
+        } else {
+            let mut flat: Vec<CssSelectorPart> = Vec::with_capacity(parts.iter().map(Vec::len).sum());
+            for complex in parts {
+                let keys = ancestor_keys(&complex);
+                asks_about_ancestors |= !keys.is_empty();
+                entries.push(SelectorEntry {
+                    start: u32::try_from(flat.len()).unwrap_or(u32::MAX),
+                    len: u32::try_from(complex.len()).unwrap_or(u32::MAX),
+                    specificity: Specificity::from(complex.as_slice()),
+                    ancestor_keys: keys,
+                });
+                flat.extend(complex);
+            }
+            flat
+        };
+        // Deliberately not shrunk: the parser's vector usually has spare capacity, and shrinking
+        // it would copy every part - exactly the cost this path exists to avoid.
+        Self {
+            parts: flat,
+            entries: entries.into(),
+            asks_about_ancestors,
+        }
+    }
+
+    /// What complex selector `index` needs of the element's ancestors.
+    pub(crate) fn ancestor_keys_at(&self, index: usize) -> &[u32] {
+        &self.entries[index].ancestor_keys
+    }
+
+    /// Whether this selector places any condition at all on an ancestor. `false` means the
+    /// ancestor filter would answer "maybe" whatever it held, so it need not exist.
+    pub(crate) fn asks_about_ancestors(&self) -> bool {
+        self.asks_about_ancestors
+    }
+
+    /// How many complex selectors this list holds.
+    #[must_use]
+    pub fn complex_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// The parts of complex selector `index`.
+    #[must_use]
+    pub fn complex_at(&self, index: usize) -> &[CssSelectorPart] {
+        &self.parts[self.entries[index].range()]
+    }
+
+    /// The specificity of complex selector `index`.
+    #[must_use]
+    pub fn specificity_at(&self, index: usize) -> Specificity {
+        self.entries[index].specificity
+    }
+
+    /// Each complex selector's parts.
+    pub fn complexes(&self) -> impl Iterator<Item = &[CssSelectorPart]> {
+        self.entries.iter().map(|entry| &self.parts[entry.range()])
+    }
+
+    /// Each complex selector paired with its specificity.
+    pub fn complex(&self) -> impl Iterator<Item = (&[CssSelectorPart], Specificity)> {
+        self.entries
             .iter()
-            .map(|part| Specificity::from(part.as_slice()))
-            .collect()
+            .map(|entry| (&self.parts[entry.range()], entry.specificity))
     }
 }
 
@@ -281,6 +720,16 @@ pub enum CssSelectorPart {
     PseudoElement(String),
     Combinator(Combinator),
     Type(String),
+    /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
+    /// selectors match the element.
+    Not(Vec<Vec<CssSelectorPart>>),
+    /// `:host` (as `None`) or `:host(<selector>)` (as `Some`). Matches the element a shadow
+    /// tree hangs off, and only from that tree's own stylesheets - the host itself lives in
+    /// the outer tree, so this is one of the two ways a shadow sheet reaches outwards.
+    Host(Option<Vec<Vec<CssSelectorPart>>>),
+    /// `::slotted(<selector>)`. Matches a light-DOM node projected into one of this shadow
+    /// tree's slots, and only the directly assigned node - never its descendants.
+    Slotted(Vec<Vec<CssSelectorPart>>),
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]
@@ -314,6 +763,19 @@ impl Display for Combinator {
     }
 }
 
+/// Writes a comma-separated selector list, as the functional pseudo-classes print their argument.
+fn write_selector_list(f: &mut std::fmt::Formatter<'_>, list: &[Vec<CssSelectorPart>]) -> std::fmt::Result {
+    for (i, compound) in list.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        for part in compound {
+            write!(f, "{part:?}")?;
+        }
+    }
+    Ok(())
+}
+
 impl Debug for CssSelectorPart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -344,6 +806,22 @@ impl Debug for CssSelectorPart {
             }
             CssSelectorPart::Type(name) => {
                 write!(f, "{name}")
+            }
+            CssSelectorPart::Not(inner) => {
+                write!(f, ":not(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Host(None) => write!(f, ":host"),
+            CssSelectorPart::Host(Some(inner)) => {
+                write!(f, ":host(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Slotted(inner) => {
+                write!(f, "::slotted(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
             }
         }
     }
@@ -399,6 +877,31 @@ impl Specificity {
     pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
+
+    #[must_use]
+    pub const fn id_count(&self) -> u32 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn class_count(&self) -> u32 {
+        self.1
+    }
+
+    #[must_use]
+    pub const fn element_count(&self) -> u32 {
+        self.2
+    }
+}
+
+/// Whether a serialized pseudo-class contributes no specificity at all - `:where()`, and only
+/// `:where()` (Selectors L4 §17).
+///
+/// Compares bytes rather than lowercasing: this runs inside `match_selector`, once per element
+/// per candidate rule, so it must not allocate.
+fn is_zero_specificity_pseudo(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() > 6 && bytes[..6].eq_ignore_ascii_case(b"where(")
 }
 
 impl From<&[CssSelectorPart]> for Specificity {
@@ -416,6 +919,61 @@ impl From<&[CssSelectorPart]> for Specificity {
                 }
                 CssSelectorPart::Type(_) => {
                     element_count += 1;
+                }
+                // An attribute selector counts as a class, same as `.foo` (Selectors L4 §17).
+                CssSelectorPart::Attribute(_) => {
+                    class_count += 1;
+                }
+                CssSelectorPart::PseudoClass(name) => {
+                    // `:where()` contributes nothing whatever it contains - that is the entire
+                    // point of it - while every other pseudo-class counts as a class.
+                    //
+                    // Known gap: `:is()` and `:has()` should take the specificity of their most
+                    // specific argument. Unlike `:not`, which has its own structured variant,
+                    // they are stored here as serialized text, so that is not computable without
+                    // giving them the same treatment. Counting them as one class is the
+                    // pre-Selectors-4 behaviour and errs low rather than high.
+                    if !is_zero_specificity_pseudo(name) {
+                        class_count += 1;
+                    }
+                }
+                // Legacy single-colon `:before`/`:after` are re-classified as pseudo-elements
+                // during AST conversion, so they land here and count as elements too.
+                CssSelectorPart::PseudoElement(_) => {
+                    element_count += 1;
+                }
+                // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
+                // argument counts as if it were written in place of the `:not()`.
+                CssSelectorPart::Not(inner) => {
+                    if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
+                }
+                // `:host` counts as a pseudo-class, plus the specificity of its argument
+                // (Scoping §6.1); `:host` alone is (0,1,0) and `:host(.a)` is (0,2,0).
+                CssSelectorPart::Host(inner) => {
+                    class_count += 1;
+                    if let Some(most) = inner
+                        .iter()
+                        .flatten()
+                        .map(|parts| Specificity::from(parts.as_slice()))
+                        .max()
+                    {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
+                }
+                // `::slotted()` is a pseudo-element, and its argument counts too.
+                CssSelectorPart::Slotted(inner) => {
+                    element_count += 1;
+                    if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
                 }
                 _ => {}
             }
@@ -453,12 +1011,15 @@ impl Ord for Specificity {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssValue {
     None,
-    Color(RgbColor),
+    Color(CssColor),
     Zero,
-    Number(f32),
-    Percentage(f32),
+    /// A number, with the type flag css-syntax gave it. `<integer>` reads the flag rather than
+    /// asking whether the value happens to be whole, so `1e1` is a `<number>` and not an
+    /// `<integer>` even though it is ten.
+    Number(f64, NumberKind),
+    Percentage(f64),
     String(String),
-    Unit(f32, String),
+    Unit(f64, String),
     Function(String, Vec<CssValue>),
     Initial,
     Inherit,
@@ -466,27 +1027,189 @@ pub enum CssValue {
     List(Vec<CssValue>),
 }
 
+impl gosub_shared::memory::HeapSize for AttributeSelector {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.name.heap_size(walk);
+        self.value.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssSelectorPart {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        fn parts_list(list: &[Vec<CssSelectorPart>], walk: &mut gosub_shared::memory::Walk) {
+            walk.bytes(size_of_val(list));
+            for parts in list {
+                parts.heap_size(walk);
+            }
+        }
+        match self {
+            CssSelectorPart::Attribute(selector) => {
+                walk.bytes(size_of::<AttributeSelector>());
+                selector.heap_size(walk);
+            }
+            CssSelectorPart::Class(name)
+            | CssSelectorPart::Id(name)
+            | CssSelectorPart::PseudoClass(name)
+            | CssSelectorPart::PseudoElement(name)
+            | CssSelectorPart::Type(name) => name.heap_size(walk),
+            CssSelectorPart::Not(list) | CssSelectorPart::Slotted(list) => parts_list(list, walk),
+            CssSelectorPart::Host(Some(list)) => parts_list(list, walk),
+            CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssSelector {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        walk.bytes(self.parts.capacity() * size_of::<CssSelectorPart>());
+        for part in &self.parts {
+            part.heap_size(walk);
+        }
+        walk.bytes(size_of_val(&*self.entries));
+        for entry in &self.entries {
+            walk.bytes(size_of_val(&*entry.ancestor_keys));
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssDeclaration {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.property.heap_size(walk);
+        self.value.heap_size(walk);
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssRule {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        self.selectors.heap_size(walk);
+        self.declarations.heap_size(walk);
+        // `media` is one shared list per `@media` block, not one per rule.
+        if let Some(media) = &self.media {
+            walk.bytes(media.capacity() * size_of::<std::sync::Arc<crate::media_query::MediaQueryList>>());
+            for query in media {
+                walk.shared_once(std::sync::Arc::as_ptr(query).cast::<u8>() as usize, |walk| {
+                    walk.bytes(size_of::<crate::media_query::MediaQueryList>() + 2 * size_of::<usize>());
+                });
+            }
+        }
+    }
+}
+
+impl gosub_shared::memory::HeapSize for CssValue {
+    fn heap_size(&self, walk: &mut gosub_shared::memory::Walk) {
+        match self {
+            CssValue::String(text) => text.heap_size(walk),
+            CssValue::Unit(_, unit) => unit.heap_size(walk),
+            CssValue::Function(name, args) => {
+                name.heap_size(walk);
+                args.heap_size(walk);
+            }
+            CssValue::List(values) => values.heap_size(walk),
+            // The rest are numbers, keywords and a parsed colour: nothing on the heap.
+            CssValue::None
+            | CssValue::Color(_)
+            | CssValue::Zero
+            | CssValue::Number(_, _)
+            | CssValue::Percentage(_)
+            | CssValue::Initial
+            | CssValue::Inherit
+            | CssValue::Comma => {}
+        }
+    }
+}
+
+impl CssValue {
+    /// Whether this value (or anything nested inside it) is expressed in a viewport-relative
+    /// unit, and so has to be recomputed when the viewport resizes.
+    #[must_use]
+    pub fn uses_viewport_units(&self) -> bool {
+        match self {
+            // Viewport-relative units resolve against the layout viewport when a declaration is
+            // computed, not when it is used; the conversion table decides which units those are.
+            CssValue::Unit(_, unit) => crate::functions::calc::is_viewport_unit(unit),
+            // A `calc()` body arrives parsed, so its units are `Unit` values and the recursion
+            // below sees them. The text arm covers a `calc()` built by hand with a raw body,
+            // which only tests do, and is scanned rather than ignored so such a value still
+            // reports its units.
+            //
+            // Only `calc()` is scanned, deliberately: a blanket string scan would also match
+            // `url(https://example.org/100vw.png)` or `content: "100vw"`, and every one of those
+            // false positives costs a full style recompute on each resize.
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("calc") => args.iter().any(|arg| match arg {
+                CssValue::String(body) => text_uses_viewport_units(body),
+                other => other.uses_viewport_units(),
+            }),
+            CssValue::Function(_, args) => args.iter().any(CssValue::uses_viewport_units),
+            CssValue::List(values) => values.iter().any(CssValue::uses_viewport_units),
+            _ => false,
+        }
+    }
+}
+
+/// Whether raw value text contains a viewport-relative unit token, for the `calc()` body that
+/// never gets parsed into [`CssValue::Unit`].
+///
+/// Splits on anything that cannot appear in a unit token, then strips the numeric part, so
+/// `100vw` yields `vw` while `overview` (no leading digits) is left whole and matches nothing.
+fn text_uses_viewport_units(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+        .any(|word| {
+            let unit = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.');
+            // A bare identifier is not a unit: it has to follow a number.
+            unit.len() != word.len() && crate::functions::calc::is_viewport_unit(unit)
+        })
+}
+
+/// Escape what a quoted CSS string cannot carry literally: the quote that delimits it, and the
+/// backslash that does the escaping.
+fn escape_url(url: &str) -> std::borrow::Cow<'_, str> {
+    if !url.contains(['"', '\\']) {
+        return std::borrow::Cow::Borrowed(url);
+    }
+    std::borrow::Cow::Owned(url.cow_replace('\\', "\\\\").cow_replace('"', "\\\"").into_owned())
+}
+
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CssValue::None => write!(f, "none"),
-            CssValue::Color(col) => {
-                write!(
-                    f,
-                    "#{:02x}{:02x}{:02x}{:02x}",
-                    col.r as u8, col.g as u8, col.b as u8, col.a as u8
-                )
-            }
+            // `rgb()` / `rgba()`, not `#rrggbbaa` - see the `Display` on `RgbColor`. The hex
+            // form is not a serialization any CSS consumer expects; it was a debug rendering.
+            CssValue::Color(col) => write!(f, "{col}"),
             CssValue::Zero => write!(f, "0"),
-            CssValue::Number(num) => write!(f, "{num}"),
-            CssValue::Percentage(p) => write!(f, "{p}%"),
+            // Values are carried at f64 so a sum does not accumulate error on the way, but they
+            // are *printed* at f32 width, which is the precision the value actually has by the
+            // time anything reads it. Printing at f64 width reports digits that are an artifact
+            // of binary fractions rather than of the value: `calc(0.1 + 0.2)` would serialize as
+            // `0.30000000000000004`.
+            CssValue::Number(num, _) => write!(f, "{}", *num as f32),
+            CssValue::Percentage(p) => write!(f, "{}%", *p as f32),
             CssValue::String(s) => write!(f, "{s}"),
-            CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
+            CssValue::Unit(val, unit) => write!(f, "{}{unit}", *val as f32),
+            // A `url()` always serializes with its argument quoted, whatever the author wrote.
+            // The unquoted `url(x)` form is a token the CSS syntax defines, not a string, and
+            // writing it back out unquoted loses the distinction for anything containing a
+            // character the unquoted form cannot carry.
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("url") => match args.as_slice() {
+                [CssValue::String(url)] => write!(f, "url(\"{}\")", escape_url(url)),
+                _ => write!(f, "url()"),
+            },
+            // A parenthesized group inside a math expression is held as a call with no name,
+            // so it writes back out as the `( ... )` the author wrote rather than as a
+            // `calc( ... )` that means the same thing but is not what the serialization rules
+            // ask for.
             CssValue::Function(name, args) => {
                 write!(f, "{name}(")?;
+                // The argument list carries its own separators: the parser keeps each `,` as a
+                // `CssValue::Comma` among the arguments. Joining with ", " as well emitted both,
+                // so `min(50%, 100px)` came back as `min(50%, ,, 100px)`. Write a space only
+                // where one belongs - after a comma, or between two arguments written side by
+                // side as in `translate(1px 2px)` - and never before a comma.
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                    let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
+                    let after_open = i > 0 && bracket(&args[i - 1], "[");
+                    if i > 0 && !matches!(arg, CssValue::Comma) && !after_open && !bracket(arg, "]") {
+                        write!(f, " ")?;
                     }
                     write!(f, "{arg}")?;
                 }
@@ -495,15 +1218,21 @@ impl Display for CssValue {
             CssValue::Initial => write!(f, "initial"),
             CssValue::Inherit => write!(f, "inherit"),
             CssValue::Comma => write!(f, ","),
+            // A list is how several values for one property are held - `margin: 1px 2px`, or the
+            // single-element list `resolve_functions` wraps its result in. `List(1px, 2px)` was a
+            // debug rendering that reached anything reading a computed value as text; the CSS is
+            // the values themselves, separated the way they were written.
             CssValue::List(v) => {
-                write!(f, "List(")?;
+                let bracket = |value: &CssValue, which: &str| matches!(value, CssValue::String(s) if s == which);
                 for (i, value) in v.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                    // No space inside a line-name list: `[a b]`, `[]`.
+                    let after_open = i > 0 && bracket(&v[i - 1], "[");
+                    if i > 0 && !matches!(value, CssValue::Comma) && !after_open && !bracket(value, "]") {
+                        write!(f, " ")?;
                     }
                     write!(f, "{value}")?;
                 }
-                write!(f, ")")
+                Ok(())
             }
         }
     }
@@ -513,50 +1242,51 @@ impl CssValue {
     #[must_use]
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
-            CssValue::Color(col) => Some(*col),
-            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
-            CssValue::Function(name, args) => parse_css_color_function(name, args),
+            CssValue::Color(col) => Some(col.to_rgb()),
+            // Fallible on purpose: a string that is not a colour (`none`, `no-repeat`, any
+            // keyword that lands in a colour slot) must leave the property unset rather than
+            // resolve to `RgbColor`'s opaque-black default and paint over the element.
+            CssValue::String(s) => RgbColor::try_from_str(s.as_str()),
+            CssValue::Function(name, args) => parse_css_color_function(name, args).map(|color| color.to_rgb()),
             _ => None,
         }
     }
 
+    /// The length in px, narrowed to `f32` because that is the width the layout and paint
+    /// side works in - see `gosub_interface::css3::CssProperty`. Values are carried at `f64`
+    /// up to here, which is where css-values says the arithmetic happens.
     #[must_use]
     pub fn unit_to_px(&self) -> f32 {
+        self.unit_to_px_f64() as f32
+    }
+
+    pub(crate) fn unit_to_px_f64(&self) -> f64 {
         match self {
-            CssValue::Unit(val, unit) => match unit.as_str() {
-                "px" => *val,
-                "em" => *val * 16.0,
-                "rem" => *val * 16.0,
-                // Absolute physical units - 1in = 96px
-                "pt" => *val * (96.0 / 72.0),
-                "pc" => *val * (96.0 / 6.0),
-                "in" => *val * 96.0,
-                "cm" => *val * (96.0 / 2.54),
-                "mm" => *val * (96.0 / 25.4),
-                "q" => *val * (96.0 / 101.6),
-                // Viewport units - resolved against the current layout viewport (CSS px),
-                // falling back to 1280×800 until the render flow sets the real size.
-                "vw" | "svw" | "lvw" | "dvw" => *val * layout_viewport().0 / 100.0,
-                "vh" | "svh" | "lvh" | "dvh" => *val * layout_viewport().1 / 100.0,
-                "vmin" => {
-                    let (w, h) = layout_viewport();
-                    *val * w.min(h) / 100.0
+            // Every conversion is in the one unit table the computed stage uses. What reaches here
+            // unresolved is read as it would be with no element to hand: 16px to an `em` and a
+            // `rem`, the current layout viewport for the viewport units.
+            CssValue::Unit(val, unit) => {
+                let units = crate::functions::calc::Units {
+                    em_px: Some(16.0),
+                    rem_px: Some(16.0),
+                    viewport: true,
+                    ..Default::default()
+                };
+                match crate::functions::calc::to_canonical(*val, &unit.cow_to_ascii_lowercase(), &units) {
+                    Some((canonical, px)) if canonical == "px" => px,
+                    // An angle or a time has no length; the number is all there is to give.
+                    _ => *val,
                 }
-                "vmax" => {
-                    let (w, h) = layout_viewport();
-                    *val * w.max(h) / 100.0
-                }
-                _ => *val,
-            },
+            }
             CssValue::String(value) => {
                 if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap_or(0.0)
+                    value.trim_end_matches("px").parse::<f64>().unwrap_or(0.0)
                 } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("rem").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("em").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else if value.ends_with("__qem") {
-                    value.trim_end_matches("__qem").parse::<f32>().unwrap_or(0.0) * 16.0
+                    value.trim_end_matches("__qem").parse::<f64>().unwrap_or(0.0) * 16.0
                 } else {
                     0.0
                 }
@@ -591,55 +1321,62 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
-    pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<CssValue> {
-        match *node.node_type.clone() {
+    pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
+        match node.node_type {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Number { value } => {
+            crate::node::NodeType::Number { value, kind } => {
                 if value == 0.0 {
                     // Zero is a special case since we need to do some pattern matching once in a while, and
-                    // this is not possible (anymore) with floating point 0.0 it seems
+                    // this is not possible (anymore) with floating point 0.0 it seems.
+                    //
+                    // It keeps no type flag, so `z-index: 0.0` is accepted where the spelling says
+                    // it should not be. Every `<length>`, `<time>` and `<angle>` arm recognises a
+                    // bare zero through this variant, so giving it a flag is a wider change than
+                    // the one case it would fix.
                     Ok(CssValue::Zero)
                 } else {
-                    Ok(CssValue::Number(value))
+                    Ok(CssValue::Number(value, kind))
                 }
             }
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
-            crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
+            // A unit identifier is ASCII case-insensitive, so it is folded here rather than at
+            // every point that reads one. Both the syntax matcher (which looks a unit up in a
+            // lowercase table) and `unit_to_px` (which matches it literally) took the author's
+            // spelling as written, so `width: 1PX` was rejected as an unknown unit.
+            crate::node::NodeType::Dimension { value, unit } => {
+                Ok(CssValue::Unit(value, unit.cow_to_ascii_lowercase().into_owned()))
+            }
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
-                Ok(CssValue::Color(RgbColor::from(value.as_str())))
+                Ok(CssValue::Color(RgbColor::from(value.as_str()).into()))
             }
             // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
             // as a string so it can match a `/` literal in a value grammar. Discarding
             // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
-            crate::node::NodeType::Operator(value) => Ok(CssValue::String(value)),
-            crate::node::NodeType::Calc { expr } => {
-                // Preserve the raw body of calc(...) so the layout engine can evaluate it later.
-                let body = match *expr.node_type {
-                    crate::node::NodeType::Raw { value } => value,
-                    _ => String::new(),
-                };
-                Ok(CssValue::Function("calc".to_string(), vec![CssValue::String(body)]))
+            crate::node::NodeType::Operator { value, .. } => Ok(CssValue::String(value)),
+            // A `calc()` body is its arguments, and is simplified as far as it can be without
+            // knowing the element: the arithmetic and the absolute lengths, which is why
+            // `calc(1in + 1px)` is stored as `calc(97px)`. `em`, the viewport units and
+            // percentages all need something only the cascade or layout has, so they survive to
+            // be finished in `resolve_computed`. A body this cannot make sense of (an
+            // unsubstituted `var()`, say) is kept as the values it was written with.
+            crate::node::NodeType::Calc { tokens } => {
+                let mut body = Vec::with_capacity(tokens.len());
+                for token in tokens {
+                    body.push(CssValue::parse_ast_node(token)?);
+                }
+                Ok(reduce_function("calc".to_string(), body))
             }
             crate::node::NodeType::Url { url } => {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
             }
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
-                for node in &arguments {
+                for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }
-                // Color functions (rgb/rgba/hsl/hsla/oklch/…) collapse to a concrete `Color`
-                // at parse time. This lets `<color>` syntax matching (which only recognises
-                // `Color`/hex) accept them inside shorthands like `border`/`background`, and
-                // avoids re-parsing the function on every style lookup.
-                if is_color_function(&name) {
-                    if let Some(color) = parse_css_color_function(&name, &list) {
-                        return Ok(CssValue::Color(color));
-                    }
-                }
-                Ok(CssValue::Function(name, list))
+                Ok(reduce_function(name, list))
             }
 
             crate::node::NodeType::Comma => Ok(CssValue::Comma),
@@ -655,25 +1392,27 @@ impl CssValue {
         match value {
             "initial" => return Ok(CssValue::Initial),
             "inherit" => return Ok(CssValue::Inherit),
-            "none" => return Ok(CssValue::None),
+            // The keyword, as the stylesheet parser produces it. `CssValue::None` is "no value";
+            // reading an initial value of `none` as that made `initial` resolve to nothing, and
+            // an inherited property then kept its parent's value.
+            "none" => return Ok(CssValue::String("none".to_string())),
             "" => return Ok(CssValue::String(String::new())),
             _ => {}
         }
 
-        if let Ok(num) = value.parse::<f32>() {
-            return Ok(CssValue::Number(num));
-        }
-
-        // Color values
-        if value.starts_with("color(") && value.ends_with(')') {
-            return Ok(CssValue::Color(RgbColor::from(
-                value[6..value.len() - 1].to_string().as_str(),
-            )));
+        if let Ok(num) = value.parse::<f64>() {
+            // This reads text, so it can see the spelling css-syntax keys the type flag on.
+            let kind = if value.contains(['.', 'e', 'E']) {
+                NumberKind::Number
+            } else {
+                NumberKind::Integer
+            };
+            return Ok(CssValue::Number(num, kind));
         }
 
         // Percentages
         if value.ends_with('%') {
-            if let Ok(num) = value[0..value.len() - 1].parse::<f32>() {
+            if let Ok(num) = value[0..value.len() - 1].parse::<f64>() {
                 return Ok(CssValue::Percentage(num));
             }
         }
@@ -688,7 +1427,7 @@ impl CssValue {
         }
         if let Some(index) = split_index {
             let (number_part, unit_part) = value.split_at(index);
-            if let Ok(number) = number_part.parse::<f32>() {
+            if let Ok(number) = number_part.parse::<f64>() {
                 return Ok(CssValue::Unit(number, unit_part.to_string()));
             }
         }
@@ -697,182 +1436,336 @@ impl CssValue {
     }
 }
 
-/// Parse a CSS color function like `oklch()`, `oklab()`, or `color()` into an RgbColor.
+/// A function call reduced as far as the parse can take it.
 ///
-/// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
-/// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
-/// True for CSS functional color notations that `parse_css_color_function` can resolve.
-fn is_color_function(name: &str) -> bool {
-    matches!(
-        name.cow_to_ascii_lowercase().as_ref(),
-        "rgb" | "rgba" | "hsl" | "hsla" | "oklch" | "oklab" | "color"
-    )
+/// Colour functions (`rgb`/`hsl`/`oklch`/…) collapse to a concrete `Color`, which is what lets
+/// `<color>` syntax matching (it only recognises `Color`/hex) accept one inside a shorthand like
+/// `border` or `background`, and saves re-parsing the function on every style lookup. A math
+/// function is simplified as far as knowing no element allows: what reduces serializes as
+/// `calc()` - `min(1px, 2px)` is `calc(1px)` - and what does not (`min(1em, 2px)`, before there
+/// is a font-size) stays exactly as written. Anything else is the call it was.
+///
+/// It is shared with `var()` substitution, which happens after the value was parsed and so
+/// leaves behind a call that never went past this point: `rgb(var(--r) 0 0)` would stay a
+/// function where `rgb(1 0 0)` is a `Color`. css-variables-1 §3 says the substituted value is
+/// read as if the author had written it, so it is reduced here the same way.
+pub(crate) fn reduce_function(name: String, args: Vec<CssValue>) -> CssValue {
+    // `-webkit-calc()` and `-moz-calc()` are older spellings of `calc()`, and browsers read and
+    // serialize them as the unprefixed function. Renaming one here, where every function is built,
+    // is what lets the rest of the engine - the evaluator, the typed style - see one name.
+    let name = match crate::matcher::syntax_matcher::strip_vendor_prefix(&name) {
+        Some(unprefixed) if crate::functions::registry::is_math(unprefixed) => {
+            unprefixed.cow_to_ascii_lowercase().into_owned()
+        }
+        _ => name,
+    };
+    if crate::functions::registry::is_color_notation(&name) {
+        if let Some(color) = parse_css_color_function(&name, &args) {
+            return CssValue::Color(color);
+        }
+    }
+    if let Some(reduced) =
+        crate::functions::calc::evaluate_call(&name, &args, &crate::functions::calc::Units::none(), false)
+    {
+        return reduced;
+    }
+    CssValue::Function(name, args)
 }
 
-fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
-    // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
-    // and any string tokens (like the color-space name in `color(srgb ...)`).
-    // CSS `none` keyword means "missing value" = 0.
-    let nums: Vec<f32> = args
-        .iter()
-        .filter_map(|v| match v {
-            CssValue::Number(n) => Some(*n),
-            CssValue::Percentage(p) => Some(*p),
-            CssValue::Zero => Some(0.0),
-            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(0.0),
-            _ => None,
-        })
-        .collect();
-
-    // Helper to resolve an L (lightness) argument: percentage 0-100 → 0.0-1.0, decimal as-is.
-    let resolve_l = |raw: f32, is_pct: bool| -> f32 {
-        if is_pct {
-            raw / 100.0
-        } else {
-            raw
-        }
+/// A `calc()` component of a colour function, reduced to the number it came down to. Anything
+/// else is returned as it was, so the caller can see what is still unresolved.
+fn reduce_color_component(value: &CssValue) -> CssValue {
+    let CssValue::Function(name, args) = value else {
+        return value.clone();
     };
+    if !name.eq_ignore_ascii_case("calc") {
+        return value.clone();
+    }
+    crate::functions::calc::evaluate(args, &crate::functions::calc::Units::none(), true)
+        .unwrap_or_else(|| value.clone())
+}
 
-    // Detect whether each positional arg was given as a percentage.
-    let is_pct: Vec<bool> = args
-        .iter()
-        .filter_map(|v| match v {
-            CssValue::Number(_) | CssValue::Zero => Some(false),
-            CssValue::Percentage(_) => Some(true),
-            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(false),
-            _ => None,
-        })
-        .collect();
-
-    match name.cow_to_ascii_lowercase().as_ref() {
-        "oklch" if nums.len() >= 3 => {
-            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
-            // Chroma: percentage 0-100 maps to ~0-0.4 max chroma.
-            let c = if *is_pct.get(1).unwrap_or(&false) {
-                nums[1] / 100.0 * 0.4
-            } else {
-                nums[1]
-            };
-            let h = nums[2];
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            let (r, g, b) = oklch_to_srgb(l, c, h);
-            Some(RgbColor::new(r, g, b, alpha))
-        }
-        "oklab" if nums.len() >= 3 => {
-            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
-            let a_ok = if *is_pct.get(1).unwrap_or(&false) {
-                nums[1] / 100.0 * 0.4
-            } else {
-                nums[1]
-            };
-            let b_ok = if *is_pct.get(2).unwrap_or(&false) {
-                nums[2] / 100.0 * 0.4
-            } else {
-                nums[2]
-            };
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            let (r, g, b) = oklab_to_srgb(l, a_ok, b_ok);
-            Some(RgbColor::new(r, g, b, alpha))
-        }
-        // color(srgb R G B) or color(display-p3 R G B) - treat as linear/sRGB for now.
-        "color" if nums.len() >= 3 => {
-            // First element of args is the color space name (a String), skip it.
-            let alpha = nums
-                .get(3)
-                .copied()
-                .map(|a| {
-                    if *is_pct.get(3).unwrap_or(&false) {
-                        a / 100.0 * 255.0
-                    } else {
-                        a * 255.0
-                    }
-                })
-                .unwrap_or(255.0);
-            Some(RgbColor::new(nums[0] * 255.0, nums[1] * 255.0, nums[2] * 255.0, alpha))
-        }
-        // rgb(R G B) / rgba(R G B A). Channels are 0-255 numbers or 0%-100% percentages.
-        "rgb" | "rgba" if nums.len() >= 3 => {
-            let chan = |i: usize| -> f32 {
-                if *is_pct.get(i).unwrap_or(&false) {
-                    nums[i] / 100.0 * 255.0
-                } else {
-                    nums[i]
-                }
-            };
-            Some(RgbColor::new(chan(0), chan(1), chan(2), parse_alpha(&nums, &is_pct, 3)))
-        }
-        // hsl(H S% L%) / hsla(...). Hue in degrees; saturation/lightness as percentages.
-        "hsl" | "hsla" if nums.len() >= 3 => {
-            let (r, g, b) = hsl_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
-            Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
-        }
+/// One component of a colour, in the units its notation uses.
+///
+/// `None` is a component written `none`, which css-color-4 §12.2 calls *missing* and which is
+/// not the same as zero. `scale` is what a percentage means here: 255 for an sRGB channel, 100
+/// for a percentage that stays a percentage, 1 for a `color()` component.
+pub(crate) fn color_component(value: &CssValue, scale: f64) -> Option<Option<f64>> {
+    match value {
+        // css-values-4 §10.9: NaN becomes zero and an infinity clamps to the end of the range.
+        CssValue::Number(number, _) => Some(Some(finite(*number, scale))),
+        CssValue::Zero => Some(Some(0.0)),
+        // Scaled by one factor rather than divided and multiplied: `30%` of an axis that is
+        // itself a percentage has to come out exactly 30, not 30.00000191.
+        CssValue::Percentage(percentage) => Some(Some(*percentage * (scale / 100.0))),
+        CssValue::String(word) if word.eq_ignore_ascii_case("none") => Some(None),
         _ => None,
     }
 }
 
-/// Resolves an optional alpha argument at `idx` into the 0-255 range. A bare number is a
-/// 0-1 ratio; a percentage is 0-100. Missing alpha is fully opaque.
-fn parse_alpha(nums: &[f32], is_pct: &[bool], idx: usize) -> f32 {
-    nums.get(idx)
-        .copied()
-        .map(|a| {
-            if *is_pct.get(idx).unwrap_or(&false) {
-                a / 100.0 * 255.0
-            } else {
-                a * 255.0
-            }
-        })
-        .unwrap_or(255.0)
+/// A hue, which may be written as a plain number or as any angle unit (css-color-4 §7).
+pub(crate) fn color_hue(value: &CssValue) -> Option<Option<f64>> {
+    match value {
+        CssValue::Unit(angle, unit) => {
+            let degrees = match unit.as_str() {
+                "deg" => *angle,
+                "grad" => *angle * 0.9,
+                "rad" => angle.to_degrees(),
+                "turn" => *angle * 360.0,
+                _ => return None,
+            };
+            Some(Some(finite(degrees, 0.0)))
+        }
+        _ => color_component(value, 360.0),
+    }
 }
 
-/// Converts HSL (hue in degrees, saturation/lightness in 0-1) to sRGB channels in 0-255.
-fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
-    let h = h.rem_euclid(360.0) / 360.0;
-    if s <= 0.0 {
-        let v = l * 255.0;
-        return (v, v, v);
-    }
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
-    let hue = |mut t: f32| -> f32 {
-        if t < 0.0 {
-            t += 1.0;
-        }
-        if t > 1.0 {
-            t -= 1.0;
-        }
-        let c = if t < 1.0 / 6.0 {
-            p + (q - p) * 6.0 * t
-        } else if t < 1.0 / 2.0 {
-            q
-        } else if t < 2.0 / 3.0 {
-            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+/// Bring a component that is not a number back into the range it belongs to: NaN is zero, and
+/// an infinity is as far as the component goes (css-values-4 §10.9).
+fn finite(value: f64, scale: f64) -> f64 {
+    if value.is_nan() {
+        0.0
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            scale
         } else {
-            p
+            0.0
+        }
+    } else {
+        value
+    }
+}
+
+/// Alpha is a fraction, and a value outside it is brought back in rather than rejected
+/// (css-color-4 §4.1): `lab(0 0 0 / 300%)` is opaque, not invalid.
+pub(crate) fn clamp_alpha(alpha: f64) -> f64 {
+    alpha.clamp(0.0, 1.0)
+}
+
+/// Alpha, which is a number from 0 to 1 or a percentage of it.
+fn color_alpha(value: &CssValue) -> Option<Option<f64>> {
+    color_component(value, 1.0)
+}
+
+/// Split a colour function's arguments into its components and its alpha.
+///
+/// Both notations are accepted: the legacy comma form, where the alpha is simply the fourth
+/// item, and the modern form, where it follows a solidus. Mixing them is not a colour, and
+/// neither is a comma form for a function that never had one.
+fn split_color_args<'a>(name: &str, args: &'a [CssValue]) -> Option<(Vec<&'a CssValue>, Option<&'a CssValue>)> {
+    let is = |value: &CssValue, text: &str| matches!(value, CssValue::String(word) if word == text);
+    let commas = args.iter().any(|value| matches!(value, CssValue::Comma));
+    let solidus = args.iter().position(|value| is(value, "/"));
+
+    if commas {
+        // `hwb()`, `lab()` and everything newer postdate the comma form and never had one.
+        if !matches!(name, "rgb" | "rgba" | "hsl" | "hsla") || solidus.is_some() {
+            return None;
+        }
+        // `none` postdates the comma form too, so `hsl(none, none, none)` is not a colour.
+        if args
+            .iter()
+            .any(|value| matches!(value, CssValue::String(word) if word.eq_ignore_ascii_case("none")))
+        {
+            return None;
+        }
+        let mut items: Vec<&CssValue> = Vec::with_capacity(4);
+        for value in args {
+            if !matches!(value, CssValue::Comma) {
+                items.push(value);
+            }
+        }
+        // A comma form gives every component or none of them; `rgb(1, 2)` is not a colour.
+        let alpha = if items.len() == 4 { items.pop() } else { None };
+        if items.len() != 3 {
+            return None;
+        }
+        return Some((items, alpha));
+    }
+
+    match solidus {
+        Some(at) => {
+            let alpha = args.get(at + 1)?;
+            if args.len() != at + 2 {
+                return None;
+            }
+            Some((args[..at].iter().collect(), Some(alpha)))
+        }
+        None => Some((args.iter().collect(), None)),
+    }
+}
+
+/// Build a colour from one of the colour functions, keeping its components in that function's
+/// own units. Returns `None` when the arguments are not a colour, which leaves the function
+/// alone for a stage that knows more - or drops the declaration, if none does.
+fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<CssColor> {
+    fold_color_function(name, args, ColorStage::Specified)
+}
+
+/// Which stage is folding a colour function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ColorStage {
+    /// The specified value, read back from `element.style`: a `calc()` inside a component stays
+    /// a `calc()`, and a colour built from other colours keeps its own notation.
+    Specified,
+    /// The computed value, where the arithmetic is done and every colour that can be worked out
+    /// is.
+    Computed,
+}
+
+/// Whether `name` is one of the colour functions and `args` make a colour of it.
+///
+/// `stage` says which stage is asking. A `calc()` inside a colour component stays a
+/// `calc()` in the *specified* value - `lab(calc(50 * 3) 0 0)` reads back from `element.style`
+/// as `lab(calc(150) 0 0)`, not as `lab(100 0 0)` - so the parse refuses to fold such a colour
+/// at all and leaves the function standing. The computed value is where the arithmetic is done.
+pub(crate) fn fold_color_function(name: &str, args: &[CssValue], stage: ColorStage) -> Option<CssColor> {
+    // A colour built from other colours, and the relative colour syntax (including
+    // `alpha(from ...)`), keep their specified form as written. Only the computed stage can
+    // resolve the colour.
+    let resolve_math = stage == ColorStage::Computed;
+    if let Some(operation) = crate::functions::registry::color_operation(name) {
+        return if resolve_math { (operation.resolve)(args) } else { None };
+    }
+    if crate::colors::relative::is_relative(args) {
+        return if resolve_math {
+            crate::colors::relative::resolve(name, args)
+        } else {
+            None
         };
-        c * 255.0
+    }
+    if !crate::functions::registry::is_color_notation(name) {
+        return None;
+    }
+    let has_calc = args
+        .iter()
+        .any(|value| matches!(value, CssValue::Function(inner, _) if inner.eq_ignore_ascii_case("calc")));
+    // A component that is itself a function has to reduce to a number before this can fold the
+    // colour, and a `calc()` that came down to one term does. Anything still a function after
+    // that - `var()`, `sibling-index()`, a `calc()` over one of them - means the colour is not
+    // knowable here, so refuse rather than fold.
+    let reduced: Vec<CssValue> = args.iter().map(reduce_color_component).collect();
+    if reduced.iter().any(|v| matches!(v, CssValue::Function(..))) {
+        return None;
+    }
+    let name = name.cow_to_ascii_lowercase();
+    let name = name.as_ref();
+
+    // `color()` names its space first, and its components are 0 to 1 within that space. It
+    // always keeps its own notation, so a `calc()` inside it stays unresolved until computed.
+    if name == "color" {
+        if !resolve_math && has_calc {
+            return None;
+        }
+        let space = match reduced.first() {
+            Some(CssValue::String(word)) => PredefinedSpace::from_name(word)?,
+            _ => return None,
+        };
+        let (components, alpha) = split_color_args(name, &reduced[1..])?;
+        let [first, second, third] = components.as_slice() else {
+            return None;
+        };
+        return Some(CssColor::from_parts(
+            ColorSyntax::Predefined(space),
+            [
+                color_component(first, 1.0)?,
+                color_component(second, 1.0)?,
+                color_component(third, 1.0)?,
+            ],
+            alpha.map_or(Some(Some(1.0)), color_alpha)?.map(clamp_alpha),
+            false,
+        ));
+    }
+
+    let (components, alpha) = split_color_args(name, &reduced)?;
+    let [first, second, third] = components.as_slice() else {
+        return None;
     };
-    (hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0))
+    let alpha = alpha.map_or(Some(Some(1.0)), color_alpha)?;
+
+    // Each notation reads its components in its own units: a percentage is a channel of 255 in
+    // `rgb()`, a percentage of the axis in `lab()`, and simply itself in `hsl()`.
+    let (syntax, components) = match name {
+        "rgb" | "rgba" => (
+            ColorSyntax::Rgb,
+            [
+                color_component(first, 255.0)?,
+                color_component(second, 255.0)?,
+                color_component(third, 255.0)?,
+            ],
+        ),
+        "hsl" | "hsla" => (
+            ColorSyntax::Hsl,
+            [
+                color_hue(first)?,
+                color_component(second, 100.0)?,
+                color_component(third, 100.0)?,
+            ],
+        ),
+        "hwb" => (
+            ColorSyntax::Hwb,
+            [
+                color_hue(first)?,
+                color_component(second, 100.0)?,
+                color_component(third, 100.0)?,
+            ],
+        ),
+        "lab" => (
+            ColorSyntax::Lab,
+            [
+                color_component(first, 100.0)?,
+                color_component(second, 125.0)?,
+                color_component(third, 125.0)?,
+            ],
+        ),
+        "lch" => (
+            ColorSyntax::Lch,
+            [
+                color_component(first, 100.0)?,
+                color_component(second, 150.0)?,
+                color_hue(third)?,
+            ],
+        ),
+        "oklab" => (
+            ColorSyntax::Oklab,
+            [
+                color_component(first, 1.0)?,
+                color_component(second, 0.4)?,
+                color_component(third, 0.4)?,
+            ],
+        ),
+        "oklch" => (
+            ColorSyntax::Oklch,
+            [
+                color_component(first, 1.0)?,
+                color_component(second, 0.4)?,
+                color_hue(third)?,
+            ],
+        ),
+        _ => return None,
+    };
+    // Lightness has ends, and chroma has a floor. css-color-4 §11 brings a value outside them
+    // back in rather than rejecting it, so `lab(400 0 10)` is simply the lightest lab there is.
+    let mut components = components;
+    match syntax {
+        ColorSyntax::Lab | ColorSyntax::Lch => components[0] = components[0].map(|l| l.clamp(0.0, 100.0)),
+        ColorSyntax::Oklab | ColorSyntax::Oklch => components[0] = components[0].map(|l| l.clamp(0.0, 1.0)),
+        _ => {}
+    }
+    if matches!(syntax, ColorSyntax::Lch | ColorSyntax::Oklch) {
+        components[1] = components[1].map(|chroma| chroma.max(0.0));
+        // A hue is an angle, and serializes normalized to `[0, 360)`.
+        components[2] = components[2].map(crate::colors::space::normalize_hue);
+    }
+
+    let color = CssColor::from_parts(syntax, components, alpha.map(clamp_alpha), false);
+    // A colour that goes out through the legacy sRGB triple has nowhere to show a `calc()`, so
+    // the arithmetic is done whatever stage is asking. One that keeps its own notation does have
+    // somewhere, and the specified value has to show it.
+    if !resolve_math && has_calc && color.keeps_its_notation() {
+        return None;
+    }
+    Some(color)
 }
 
 impl gosub_interface::css3::CssValue for CssValue {
@@ -881,19 +1774,19 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn new_percentage(value: f32) -> Self {
-        CssValue::Percentage(value)
+        CssValue::Percentage(f64::from(value))
     }
 
     fn new_unit(value: f32, unit: String) -> Self {
-        CssValue::Unit(value, unit)
+        CssValue::Unit(f64::from(value), unit)
     }
 
     fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self {
-        CssValue::Color(RgbColor::new(r, g, b, a))
+        CssValue::Color(RgbColor::new(r, g, b, a).into())
     }
 
     fn new_number(value: f32) -> Self {
-        CssValue::Number(value)
+        CssValue::Number(f64::from(value), NumberKind::Integer)
     }
 
     fn new_list(value: Vec<Self>) -> Self {
@@ -914,7 +1807,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_percentage(&self) -> Option<f32> {
         if let CssValue::Percentage(percent) = &self {
-            Some(*percent)
+            Some(*percent as f32)
         } else {
             None
         }
@@ -922,7 +1815,7 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_unit(&self) -> Option<(f32, &str)> {
         if let CssValue::Unit(value, unit) = &self {
-            Some((*value, unit))
+            Some((*value as f32, unit))
         } else {
             None
         }
@@ -930,15 +1823,20 @@ impl gosub_interface::css3::CssValue for CssValue {
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
         if let CssValue::Color(color) = &self {
+            let color = color.to_rgb();
             Some((color.r, color.g, color.b, color.a))
         } else {
             None
         }
     }
 
+    fn used_color(&self, current: gosub_interface::style::Color) -> Option<gosub_interface::style::Color> {
+        crate::matcher::computed_style::used_color(self, current)
+    }
+
     fn as_number(&self) -> Option<f32> {
         match self {
-            CssValue::Number(num) => Some(*num),
+            CssValue::Number(num, _) => Some(*num as f32),
             // Bare `0` (no unit) is a valid zero value for any numeric property.
             CssValue::Zero => Some(0.0),
             _ => None,
@@ -977,73 +1875,371 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_css_rule() {
-        let rule = CssRule {
-            selectors: vec![CssSelector {
-                parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
-            }],
-            declarations: vec![CssDeclaration {
-                property: "color".to_string(),
-                value: CssValue::String("red".to_string()),
-                important: false,
-            }],
+    fn a_colour_serializes_as_rgb_not_as_hex() {
+        // `#rrggbbaa` was a debug rendering. Every CSS consumer - `getComputedStyle`, a
+        // round-trip through `element.style` - is defined to see the legacy `rgb()` form.
+        assert_eq!(
+            CssValue::Color(RgbColor::from("#ff0000").into()).to_string(),
+            "rgb(255, 0, 0)"
+        );
+        assert_eq!(
+            CssValue::Color(RgbColor::from("red").into()).to_string(),
+            "rgb(255, 0, 0)"
+        );
+        assert_eq!(
+            CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 127.5).into()).to_string(),
+            "rgba(0, 0, 0, 0.5)"
+        );
+        // An alpha that came from a hex byte is not a round number; three decimals is what
+        // tells two of the 256 steps apart without printing f32 noise.
+        assert_eq!(
+            CssValue::Color(RgbColor::new(1.0, 2.0, 3.0, 128.0).into()).to_string(),
+            "rgba(1, 2, 3, 0.502)"
+        );
+    }
+
+    #[test]
+    fn a_url_serializes_with_its_argument_quoted() {
+        let url = |u: &str| CssValue::Function("url".to_string(), vec![CssValue::String(u.to_string())]);
+        assert_eq!(url("a/b.png").to_string(), r#"url("a/b.png")"#);
+        // The quote that delimits the string, and the backslash that escapes it, cannot appear
+        // raw inside it.
+        assert_eq!(url(r#"a"b"#).to_string(), r#"url("a\"b")"#);
+        assert_eq!(url(r"a\b").to_string(), r#"url("a\\b")"#);
+    }
+
+    #[test]
+    fn a_colour_function_with_an_unresolved_component_is_not_folded() {
+        // The component filter drops what it does not recognise, so a `calc()` it cannot
+        // evaluate used to vanish and leave a fully opaque colour nobody wrote. The colour is
+        // not knowable at parse time, so the function has to survive instead.
+        let unresolved = CssValue::Function(
+            "calc".to_string(),
+            vec![
+                CssValue::Number(0.1, NumberKind::Integer),
+                CssValue::String("*".to_string()),
+                CssValue::Function("sibling-index".to_string(), vec![]),
+            ],
+        );
+        let args = vec![
+            CssValue::Number(0.5, NumberKind::Integer),
+            CssValue::Number(0.2, NumberKind::Integer),
+            CssValue::Number(180.0, NumberKind::Integer),
+            unresolved,
+        ];
+        assert_eq!(parse_css_color_function("oklch", &args), None);
+
+        // A `calc()` that does come down to a number is folded straight away when the colour
+        // serializes through the legacy sRGB triple, because that form has nowhere to show the
+        // arithmetic anyway.
+        let resolvable = CssValue::Function(
+            "calc".to_string(),
+            vec![
+                CssValue::Number(100.0, NumberKind::Integer),
+                CssValue::String("+".to_string()),
+                CssValue::Number(55.0, NumberKind::Integer),
+            ],
+        );
+        let args = vec![
+            resolvable,
+            CssValue::Number(0.0, NumberKind::Integer),
+            CssValue::Number(0.0, NumberKind::Integer),
+        ];
+        assert_eq!(
+            parse_css_color_function("rgb", &args).map(|color| color.to_rgb()),
+            Some(RgbColor::new(155.0, 0.0, 0.0, 255.0))
+        );
+
+        // `lab()` keeps the notation it was written in, so it can show the `calc()` - and the
+        // specified value has to. Only the computed stage does the sum.
+        assert_eq!(parse_css_color_function("lab", &args), None);
+        assert_eq!(
+            fold_color_function("lab", &args, ColorStage::Computed).map(|color| color.components()[0]),
+            Some(Some(100.0))
+        );
+    }
+
+    #[test]
+    fn a_function_does_not_double_its_comma_separators() {
+        // The argument list carries its own `,` as a `CssValue::Comma`, so joining with ", "
+        // as well wrote both: `min(50%, 100px)` came back as `min(50%, ,, 100px)`. Anything
+        // reading a computed value as text got that.
+        let value = CssValue::Function(
+            "min".to_string(),
+            vec![
+                CssValue::Percentage(50.0),
+                CssValue::Comma,
+                CssValue::Unit(100.0, "px".to_string()),
+            ],
+        );
+        assert_eq!(value.to_string(), "min(50%, 100px)");
+    }
+
+    #[test]
+    fn space_separated_arguments_keep_their_space() {
+        // `translate(1px 2px)` has no comma at all; the arguments must not run together.
+        let value = CssValue::Function(
+            "translate".to_string(),
+            vec![
+                CssValue::Unit(1.0, "px".to_string()),
+                CssValue::Unit(2.0, "px".to_string()),
+            ],
+        );
+        assert_eq!(value.to_string(), "translate(1px 2px)");
+    }
+
+    #[test]
+    fn a_list_serializes_as_css_rather_than_as_a_debug_wrapper() {
+        // `margin: 1px 2px` is held as a list. `List(1px, 2px)` was a debug rendering that
+        // reached every consumer reading a computed value as text.
+        let value = CssValue::List(vec![
+            CssValue::Unit(1.0, "px".to_string()),
+            CssValue::Unit(2.0, "px".to_string()),
+        ]);
+        assert_eq!(value.to_string(), "1px 2px");
+
+        let commas = CssValue::List(vec![
+            CssValue::String("a".to_string()),
+            CssValue::Comma,
+            CssValue::String("b".to_string()),
+        ]);
+        assert_eq!(commas.to_string(), "a, b");
+    }
+
+    /// A `calc()` built with a raw text body, as only a test does, has no `CssValue::Unit` in it.
+    /// Missing them leaves `uses_viewport_units` false, the style fingerprint then omits the
+    /// viewport, and a resize never invalidates the values resolved against the old one.
+    #[test]
+    fn calc_bodies_are_scanned_for_viewport_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
         };
 
+        assert!(calc("100vw - 2rem"));
+        assert!(calc("100% - 10DVH"), "unit matching is case-insensitive");
+        assert!(calc("(50vmin + 1px) / 2"));
+        assert!(!calc("100% - 2rem"));
+    }
+
+    /// Only `calc()` is scanned. A blanket string scan would fire on these, and each false
+    /// positive costs a full style recompute on every resize.
+    #[test]
+    fn other_functions_do_not_scan_raw_text() {
+        let url = CssValue::Function(
+            "url".to_string(),
+            vec![CssValue::String("https://example.org/100vw.png".to_string())],
+        );
+        assert!(!url.uses_viewport_units());
+
+        assert!(!CssValue::String("100vw".to_string()).uses_viewport_units());
+    }
+
+    /// A viewport unit has to follow a number; a bare identifier that merely contains those
+    /// letters is not one.
+    #[test]
+    fn identifiers_containing_unit_letters_are_not_units() {
+        let calc = |body: &str| {
+            CssValue::Function("calc".to_string(), vec![CssValue::String(body.to_string())]).uses_viewport_units()
+        };
+        assert!(!calc("var(--overview) + 1px"));
+        assert!(!calc("vh"));
+    }
+
+    /// Every unit the conversion table resolves against the viewport has to report it, or a
+    /// value in that unit is not recomputed when the viewport resizes. `cqw` and the logical and
+    /// `s`/`l`/`d` extremes were converted but not reported.
+    #[test]
+    fn every_unit_resolved_against_the_viewport_is_reported() {
+        for unit in [
+            "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svi", "svb", "svmin", "svmax", "lvw", "lvh", "lvi",
+            "lvb", "lvmin", "lvmax", "dvw", "dvh", "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh", "cqi", "cqb", "cqmin",
+            "cqmax",
+        ] {
+            assert!(CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+            assert!(
+                CssValue::Function("calc".to_string(), vec![CssValue::String(format!("50{unit} - 1px"))])
+                    .uses_viewport_units(),
+                "calc body with {unit}"
+            );
+        }
+        for unit in ["px", "em", "rem", "lh", "ch", "cm"] {
+            assert!(!CssValue::Unit(50.0, unit.to_string()).uses_viewport_units(), "{unit}");
+        }
+    }
+
+    /// Functions whose arguments are parsed properly still work through the recursion.
+    #[test]
+    fn parsed_function_arguments_still_match() {
+        let clamp = CssValue::Function(
+            "clamp".to_string(),
+            vec![
+                CssValue::Unit(1.0, "rem".to_string()),
+                CssValue::Unit(50.0, "vw".to_string()),
+                CssValue::Unit(9.0, "rem".to_string()),
+            ],
+        );
+        assert!(clamp.uses_viewport_units());
+    }
+
+    #[test]
+    fn test_css_rule() {
+        let rule = CssRule::new(
+            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            vec![CssDeclaration {
+                property: "color".into(),
+                value: CssValue::String("red".to_string()).into(),
+                important: false,
+            }],
+            None,
+            None,
+        );
+
         assert_eq!(rule.selectors().len(), 1);
-        let part = rule
-            .selectors()
-            .first()
-            .unwrap()
-            .parts
-            .first()
-            .unwrap()
-            .first()
-            .unwrap();
+        let part = rule.selectors().first().unwrap().complex_at(0).first().unwrap();
 
         assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
-        assert_eq!(rule.declarations().first().unwrap().property, "color");
+        assert_eq!(rule.declarations().first().unwrap().property.as_str(), "color");
+    }
+
+    /// Changing a rule's declarations after something has already expanded them must not leave
+    /// the cascade reading the ones it replaced. Both ways in drop the expansion, so the next
+    /// read rebuilds it.
+    #[test]
+    fn editing_declarations_drops_the_expansion() {
+        let declaration = |name: &str| CssDeclaration {
+            property: name.into(),
+            value: CssValue::String("red".to_string()).into(),
+            important: false,
+        };
+        let expanded_property = |rule: &CssRule| match rule.expanded().first() {
+            Some(ExpandedDeclaration::Resolved { entries, .. }) => entries[0].0,
+            other => panic!("expected one resolved declaration, got {other:?}"),
+        };
+
+        let mut rule = CssRule::new(
+            vec![CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]])],
+            vec![declaration("color")],
+            None,
+            None,
+        );
+
+        let color = expanded_property(&rule);
+        assert_eq!(rule.expanded().len(), 1);
+
+        // In place, through the mutable accessor.
+        rule.declarations_mut().push(declaration("background-color"));
+        assert_eq!(
+            rule.expanded().len(),
+            2,
+            "the expansion still describes one declaration"
+        );
+
+        // Wholesale, through the setter.
+        rule.set_declarations(vec![declaration("background-color")]);
+        assert_eq!(rule.expanded().len(), 1);
+        assert_ne!(
+            expanded_property(&rule),
+            color,
+            "the expansion still names the property the rule no longer sets"
+        );
+    }
+
+    /// Everything that carries specificity, at each of the three levels.
+    ///
+    /// Pseudo-classes, pseudo-elements and attribute selectors were all being ignored, so
+    /// `div:hover` scored the same as bare `div` and could lose a cascade it should win.
+    #[test]
+    fn specificity_counts_pseudos_and_attributes() {
+        let spec = |parts: Vec<CssSelectorPart>| Specificity::from(parts.as_slice());
+
+        // `div:hover` - one element, one class-level pseudo-class.
+        assert_eq!(
+            spec(vec![
+                CssSelectorPart::Type("div".into()),
+                CssSelectorPart::PseudoClass("hover".into()),
+            ]),
+            Specificity::new(0, 1, 1)
+        );
+
+        // `p::after` - two element-level components. Legacy `:after` converts to a
+        // pseudo-element upstream, so it lands on this same arm.
+        assert_eq!(
+            spec(vec![
+                CssSelectorPart::Type("p".into()),
+                CssSelectorPart::PseudoElement("after".into()),
+            ]),
+            Specificity::new(0, 0, 1 + 1)
+        );
+
+        // `[type="text"]` counts as a class.
+        assert_eq!(
+            spec(vec![CssSelectorPart::Attribute(Box::new(AttributeSelector {
+                name: "type".into(),
+                matcher: MatcherType::Equals,
+                value: "text".into(),
+                case_insensitive: false,
+            }))]),
+            Specificity::new(0, 1, 0)
+        );
+    }
+
+    /// `:not()` contributes the specificity of its most specific argument, and now that
+    /// pseudo-classes count, that argument may itself be one.
+    #[test]
+    fn specificity_of_not_sees_inner_pseudo_classes() {
+        let selector = vec![
+            CssSelectorPart::Type("div".into()),
+            CssSelectorPart::Not(vec![vec![CssSelectorPart::PseudoClass("hover".into())]]),
+        ];
+        assert_eq!(Specificity::from(selector.as_slice()), Specificity::new(0, 1, 1));
+    }
+
+    /// `:where()` exists precisely so that it adds nothing, however specific its argument.
+    #[test]
+    fn where_pseudo_class_adds_no_specificity() {
+        assert_eq!(
+            Specificity::from([CssSelectorPart::PseudoClass("where(#id .cls)".into())].as_slice()),
+            Specificity::new(0, 0, 0)
+        );
+        // Case-insensitively, and without mistaking a differently-named pseudo-class for it.
+        assert_eq!(
+            Specificity::from([CssSelectorPart::PseudoClass("WHERE(.a)".into())].as_slice()),
+            Specificity::new(0, 0, 0)
+        );
+        assert_eq!(
+            Specificity::from([CssSelectorPart::PseudoClass("wherever".into())].as_slice()),
+            Specificity::new(0, 1, 0)
+        );
     }
 
     #[test]
     fn test_specificity() {
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Type("h1".to_string()),
-                CssSelectorPart::Class("myclass".to_string()),
-                CssSelectorPart::Id("myid".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Type("h1".to_string()),
+            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Id("myid".to_string()),
+        ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(1, 1, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(1, 1, 1));
 
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Type("h1".to_string()),
-                CssSelectorPart::Class("myclass".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Type("h1".to_string()),
+            CssSelectorPart::Class("myclass".to_string()),
+        ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 1, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 1, 1));
 
-        let selector = CssSelector {
-            parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
-        };
+        let selector = CssSelector::new(vec![vec![CssSelectorPart::Type("h1".to_string())]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 0, 1)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 0, 1));
 
-        let selector = CssSelector {
-            parts: vec![vec![
-                CssSelectorPart::Class("myclass".to_string()),
-                CssSelectorPart::Class("otherclass".to_string()),
-            ]],
-        };
+        let selector = CssSelector::new(vec![vec![
+            CssSelectorPart::Class("myclass".to_string()),
+            CssSelectorPart::Class("otherclass".to_string()),
+        ]]);
 
-        let specificity = selector.specificity();
-        assert_eq!(specificity, vec![Specificity::new(0, 2, 0)]);
+        assert_eq!(selector.specificity_at(0), Specificity::new(0, 2, 0));
     }
 
     #[test]
@@ -1072,40 +2268,48 @@ mod test {
         let c = parse_css_color_function(
             "rgba",
             &[
-                CssValue::Number(14.0),
+                CssValue::Number(14.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(42.0),
+                CssValue::Number(42.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(54.0),
+                CssValue::Number(54.0, NumberKind::Integer),
                 CssValue::Comma,
-                CssValue::Number(0.5),
+                CssValue::Number(0.5, NumberKind::Integer),
             ],
         )
         .expect("rgba should parse");
+        let c = c.to_rgb();
         assert_eq!((c.r, c.g, c.b), (14.0, 42.0, 54.0));
         assert!((c.a - 127.5).abs() < 0.5);
 
         // rgb() without alpha is fully opaque.
         let c = parse_css_color_function(
             "rgb",
-            &[CssValue::Number(255.0), CssValue::Number(0.0), CssValue::Number(0.0)],
+            &[
+                CssValue::Number(255.0, NumberKind::Integer),
+                CssValue::Number(0.0, NumberKind::Integer),
+                CssValue::Number(0.0, NumberKind::Integer),
+            ],
         )
         .unwrap();
+        let c = c.to_rgb();
         assert_eq!((c.r, c.g, c.b, c.a), (255.0, 0.0, 0.0, 255.0));
 
         // hsl(0 100% 50%) == red.
         let c = parse_css_color_function(
             "hsl",
             &[
-                CssValue::Number(0.0),
+                CssValue::Number(0.0, NumberKind::Integer),
                 CssValue::Percentage(100.0),
                 CssValue::Percentage(50.0),
             ],
         )
         .unwrap();
+        let c = c.to_rgb();
         assert!((c.r - 255.0).abs() < 1.0 && c.g < 1.0 && c.b < 1.0, "hsl red got {c:?}");
 
         // A color function collapses to CssValue::Color at AST conversion time.
-        assert!(is_color_function("rgba") && !is_color_function("calc"));
+        assert!(crate::functions::registry::is_color_notation("rgba"));
+        assert!(!crate::functions::registry::is_color_notation("calc"));
     }
 }

@@ -29,7 +29,7 @@ impl<'a> Walker<'a> {
 fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::io::Error> {
     let prefix = " ".repeat(depth * 2);
 
-    match &*node.node_type {
+    match &node.node_type {
         NodeType::StyleSheet { children } => {
             writeln!(f, "{}[Stylesheet ({})]", prefix, children.len())?;
             for child in children {
@@ -75,7 +75,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::Ident { value } => {
             writeln!(f, "{prefix}[Ident] {value}")?;
         }
-        NodeType::Number { value } => {
+        NodeType::Number { value, .. } => {
             writeln!(f, "{prefix}[Number] {value}")?;
         }
         NodeType::Percentage { value } => {
@@ -123,8 +123,13 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::PseudoElementSelector { value } => {
+        NodeType::PseudoElementSelector { value, arguments } => {
             writeln!(f, "{prefix}[PseudoElementSelector] {value}")?;
+            // `::slotted()`'s selector list is a child of the node, so a walk that stops here
+            // reports the same tree for `::slotted(.item)` and for a bare `::slotted`.
+            if let Some(arguments) = arguments {
+                inner_walk(arguments, depth + 1, f)?;
+            }
         }
         NodeType::PseudoClassSelector { value } => {
             writeln!(f, "{prefix}[PseudoClassSelector]")?;
@@ -182,7 +187,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::Operator(value) => {
+        NodeType::Operator { value, .. } => {
             writeln!(f, "{prefix}[Operator] {value}")?;
         }
         NodeType::Nth { nth, selector } => {
@@ -202,9 +207,11 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::MSIdent { value, default_value } => {
             writeln!(f, "{prefix}[MSIdent] value: {value} default_value: {default_value}")?;
         }
-        NodeType::Calc { expr } => {
+        NodeType::Calc { tokens } => {
             writeln!(f, "{prefix}[Calc]")?;
-            inner_walk(expr, depth + 1, f)?;
+            for token in tokens {
+                inner_walk(token, depth + 1, f)?;
+            }
         }
         NodeType::SupportsDeclaration { term } => {
             writeln!(f, "{prefix}[SupportsDeclaration]")?;

@@ -118,7 +118,7 @@ mod tests {
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: 28.0,
+            line_height: Some(28.0),
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: true,
@@ -127,7 +127,7 @@ mod tests {
         let mut style = TextStyle::new("sans-serif", 24.0);
         style.line_height = Some(28.0);
         style.max_width = Some(180.0);
-        let shaped = fs.shape("Hello", &style);
+        let shaped = std::sync::Arc::new(fs.shape("Hello", &style));
         let cmd = Text::new(
             GeoRect::new(10.0, 10.0, 180.0, 40.0),
             "Hello",

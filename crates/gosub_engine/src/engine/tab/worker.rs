@@ -1,16 +1,18 @@
-use crate::cookies::SameSiteContext;
 use crate::engine::errors::{LoadError, NavigationError};
+use crate::engine::events::IoCommand;
+use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
-use crate::engine::events::{DownloadOfferId, Modifiers, PendingDownload};
+use crate::engine::events::{DownloadOfferId, PendingDownload};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::TabCommand;
+use crate::fork_server::protocol::InputEvent;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
-    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
+    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, RequestBody, ResourceKind,
 };
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
@@ -37,6 +39,9 @@ use tokio::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+/// An icon larger than this is not an icon.
+const MAX_FAVICON_BYTES: usize = 512 * 1024;
 
 /// Move an accepted offer's spooled body to `target_path`, returning the bytes written.
 /// Blocking; callers run it on the blocking pool.
@@ -130,8 +135,17 @@ fn scopeguard<F: FnMut()>(f: F) -> impl Drop {
 }
 
 /// Fallback URL used when a navigation has no usable URL.
+///
+/// The one `unwrap` left in this crate, and deliberately: both callers need a concrete `Url` for
+/// the navigation event API, so making this fallible would push an `Option` out through
+/// `NavigationEvent` and `NavigationResult` to every consumer of a navigation event - a long way
+/// to carry a case that cannot happen. `url` offers no infallible constructor, so parsing is the
+/// only way to build one.
+///
+/// What makes "cannot happen" more than a comment is `about_blank_parses` below, which is the
+/// test the old `// PANIC-SAFE: literal URL` was implicitly claiming existed.
+#[allow(clippy::unwrap_used)]
 fn about_blank() -> Url {
-    #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
     Url::parse("about:blank").unwrap()
 }
 
@@ -141,7 +155,11 @@ pub enum NavigationResult<C: RenderConfiguration> {
         nav_id: NavigationId,
         final_url: Url,
         title: Option<String>,
-        doc: Arc<crate::html::EngineDocument<C>>,
+        /// `None` when a renderer process parses the document instead.
+        doc: Option<Arc<crate::html::EngineDocument<C>>>,
+        /// The document's source text, captured when this engine renders
+        /// out-of-process (the renderer re-parses it there).
+        source: Option<Arc<str>>,
     },
     Err {
         nav_id: NavigationId,
@@ -238,16 +256,27 @@ pub struct TabWorker<C: RenderConfiguration> {
     scroll: ScrollState,
     /// Timestamp of the last scroll-animation step, for computing `dt`. `None` when not animating.
     scroll_anim_last: Option<std::time::Instant>,
+    /// Last cursor shape sent to the embedder, so moves only emit on change.
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
     load: Option<NavJoin<C>>,
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
+    /// Timing scope for the navigation currently being loaded or displayed.
+    timing_scope: Option<gosub_shared::timing::ScopeId>,
+    /// Whether `page.first_paint` has been marked for `timing_scope` yet. First paint is
+    /// once per navigation, and `tick_draw` runs on every frame.
+    first_paint_marked: bool,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
-    /// Last cursor shape reported to the embedder (CursorChanged is emitted on change only).
     reported_cursor: CursorShape,
+    /// A resident renderer holds the pointer (a drag, an open dropdown): moves
+    /// and wheel go to it rather than through hover and page scrolling.
+    remote_capture: bool,
+    /// What a resident renderer last said about focus on its page: `Some(editable)`
+    /// while something is focused. Decides which keys scroll the page here.
+    remote_focus: Option<bool>,
     /// Scroll to apply once the just-committed document has laid out (positions and page
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
@@ -257,6 +286,14 @@ pub struct TabWorker<C: RenderConfiguration> {
     pending_offers: std::collections::VecDeque<PendingOffer>,
     /// Source of [`DownloadOfferId`]s; unique within the tab.
     next_offer: u64,
+    /// The icon last fetched for the document a renderer process reported, so
+    /// the renders that follow do not fetch it again. Cleared when a navigation
+    /// commits a new document.
+    remote_favicon: Option<Url>,
+    /// The history entry the shown document was committed to. A traversal
+    /// moves the cursor before its load commits, and a title the renderer
+    /// reports meanwhile is still this document's, not the cursor's.
+    document_entry: Option<HistoryEntryId>,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -266,160 +303,6 @@ enum PendingScroll {
     Offset(i32, i32),
     /// Scroll to the element the URL fragment indicates (fresh load of `…#anchor`).
     Fragment(String),
-}
-
-/// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
-/// Basic-Latin letter `U+0041` ('A') - our proxy for "covers Latin-script text".
-fn unicode_range_covers_basic_latin(range: &str) -> bool {
-    const TARGET: u32 = 0x41; // 'A'
-    for token in range.split([',', ' ', '\t', '\n', '\r']).filter(|t| !t.is_empty()) {
-        let Some(hex) = token
-            .trim()
-            .strip_prefix("U+")
-            .or_else(|| token.trim().strip_prefix("u+"))
-        else {
-            continue;
-        };
-        let (lo, hi) = match hex.split_once('-') {
-            Some((a, b)) => (parse_hex_bound(a, false), parse_hex_bound(b, true)),
-            None => (parse_hex_bound(hex, false), parse_hex_bound(hex, true)),
-        };
-        if let (Some(lo), Some(hi)) = (lo, hi) {
-            if lo <= TARGET && TARGET <= hi {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Unwrap a downloaded web-font payload into raw SFNT bytes the font backends can decode.
-///
-/// WOFF2 (magic `wOF2`) is a Brotli-compressed wrapper around an OpenType/TrueType font,
-/// with the `glyf`/`loca` tables stored in a transformed form. Skia and fontconfig don't
-/// decode it (e.g. Google Fonts serves WOFF2 to modern UAs like ours), so we decompress it
-/// to a flat SFNT here. Bare SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't
-/// recognise are returned unchanged - including WOFF1, which the backends already handle.
-/// On a decode error we log and return the original bytes so the subsequent `register_font`
-/// surfaces a single, consistent failure path.
-fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
-    const WOFF2_MAGIC: &[u8; 4] = b"wOF2";
-    if bytes.len() < 4 || &bytes[0..4] != WOFF2_MAGIC {
-        return bytes;
-    }
-    match woff2_to_sfnt(&bytes) {
-        Ok(sfnt) => {
-            log::debug!(
-                "Decoded WOFF2 web font from {font_url} ({} → {} bytes)",
-                bytes.len(),
-                sfnt.len()
-            );
-            sfnt
-        }
-        Err(e) => {
-            log::warn!("Failed to decode WOFF2 web font from {font_url}: {e}");
-            bytes
-        }
-    }
-}
-
-/// Decompress a WOFF2 font to a flat SFNT (TTF/OTF) byte buffer. allsorts handles the Brotli
-/// decompression and the `glyf`/`loca` transform reconstruction; we then re-assemble the
-/// reconstructed tables into the on-disk SFNT layout (offset table + table directory + 4-byte
-/// aligned table data) that font backends expect.
-fn woff2_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    use allsorts::binary::read::ReadScope;
-    use allsorts::woff2::Woff2Font;
-
-    let font = ReadScope::new(bytes)
-        .read::<Woff2Font<'_>>()
-        .map_err(|e| format!("parse: {e:?}"))?;
-    let sfnt_version = font.flavor();
-    let tables = font
-        .table_provider(0)
-        .map_err(|e| format!("reconstruct: {e:?}"))?
-        .into_tables();
-
-    Ok(assemble_sfnt(sfnt_version, tables))
-}
-
-/// Pack a set of font tables into an SFNT byte buffer per the OpenType spec: a 12-byte offset
-/// table, a 16-byte directory entry per table (sorted by tag), then each table's data padded to
-/// a 4-byte boundary. Per-table checksums are computed; the `head` table's `checkSumAdjustment`
-/// is left as-is (font backends parse without validating it).
-fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Vec<u8> {
-    let mut entries: Vec<(u32, Box<[u8]>)> = tables.into_iter().collect();
-    entries.sort_by_key(|(tag, _)| *tag);
-    let num_tables = entries.len() as u16;
-
-    // Binary-search hint fields: largest power of two <= num_tables.
-    let mut entry_selector = 0u16;
-    while (1u16 << (entry_selector + 1)) <= num_tables {
-        entry_selector += 1;
-    }
-    let search_range = (1u16 << entry_selector) * 16;
-    let range_shift = num_tables.wrapping_mul(16).wrapping_sub(search_range);
-
-    let mut directory = Vec::with_capacity(16 * entries.len());
-    let mut data = Vec::new();
-    let mut offset = 12 + 16 * entries.len();
-    for (tag, table) in &entries {
-        directory.extend_from_slice(&tag.to_be_bytes());
-        directory.extend_from_slice(&sfnt_table_checksum(table).to_be_bytes());
-        directory.extend_from_slice(&(offset as u32).to_be_bytes());
-        directory.extend_from_slice(&(table.len() as u32).to_be_bytes());
-        data.extend_from_slice(table);
-        while data.len() % 4 != 0 {
-            data.push(0);
-        }
-        offset += (table.len() + 3) & !3;
-    }
-
-    let mut out = Vec::with_capacity(12 + directory.len() + data.len());
-    out.extend_from_slice(&sfnt_version.to_be_bytes());
-    out.extend_from_slice(&num_tables.to_be_bytes());
-    out.extend_from_slice(&search_range.to_be_bytes());
-    out.extend_from_slice(&entry_selector.to_be_bytes());
-    out.extend_from_slice(&range_shift.to_be_bytes());
-    out.extend_from_slice(&directory);
-    out.extend_from_slice(&data);
-    out
-}
-
-/// SFNT table checksum: the sum of the table's contents read as big-endian `u32`s, with the
-/// final partial word zero-padded, in wrapping (mod 2^32) arithmetic.
-fn sfnt_table_checksum(data: &[u8]) -> u32 {
-    let mut sum = 0u32;
-    for chunk in data.chunks(4) {
-        let mut word = [0u8; 4];
-        word[..chunk.len()].copy_from_slice(chunk);
-        sum = sum.wrapping_add(u32::from_be_bytes(word));
-    }
-    sum
-}
-
-/// Parse a `unicode-range` hex bound, expanding `?` wildcards to `0` (low bound) or `F`
-/// (high bound), e.g. `U+00??` → `0x0000..=0x00FF`.
-fn parse_hex_bound(s: &str, high: bool) -> Option<u32> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    let filled: String = s
-        .chars()
-        .map(|c| {
-            if c == '?' {
-                if high {
-                    'F'
-                } else {
-                    '0'
-                }
-            } else {
-                c
-            }
-        })
-        .collect();
-    u32::from_str_radix(&filled, 16).ok()
 }
 
 impl<C: RenderConfiguration> TabWorker<C> {
@@ -433,7 +316,56 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(config_store.clone());
+        #[allow(unused_mut)] // mut only used on the isolation-capable platform below
+        let mut context = BrowsingContext::with_loader(
+            config_store.clone(),
+            crate::net::brokered_loader::BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone())
+                .with_accept_language(services.accept_language.clone())
+                .shared(),
+        );
+
+        // Install this tab's remote-render mode per the configured font
+        // system's (static) confinement tier: `Full` renders through the
+        // engine's warmed fork server, `FontPathsReadable` spawns a throwaway
+        // exec'd renderer per render, `Unsupported` stays in-process. A remote
+        // render hands back CPU tiles for the host to composite, so a backend
+        // that presents a GPU texture instead (Vello) stays in-process too.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if zone_context.render_backend.renders_to_gpu_texture() {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                log::info!(
+                    "renderer process off: the {} backend presents a GPU texture, and remote renders \
+                     produce CPU tiles",
+                    zone_context.render_backend.name()
+                )
+            });
+        } else {
+            use crate::engine::context::RemoteRenderer;
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {
+                    if let Some(pool) = zone_context.engine_context.renderer_pool.get() {
+                        context.set_remote_renderer(
+                            RemoteRenderer::Resident {
+                                pool: Arc::clone(pool),
+                                zone: zone_id,
+                                tab: tab_id,
+                            },
+                            tab_id.to_string(),
+                        );
+                    } else if let Some(server) = zone_context.engine_context.renderer_process.get() {
+                        context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)), tab_id.to_string());
+                    }
+                }
+                Confinement::FontPathsReadable => {
+                    if config_store.get_bool("security.renderer_process") {
+                        context.set_remote_renderer(RemoteRenderer::ExecPerRender, tab_id.to_string());
+                    }
+                }
+                Confinement::Unsupported(_) => {}
+            }
+        }
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -462,20 +394,46 @@ impl<C: RenderConfiguration> TabWorker<C> {
             runtime,
             load: None,
             active_nav: None,
+            timing_scope: None,
+            first_paint_marked: false,
             history: History::default(),
             reported_cursor: CursorShape::Default,
+            remote_capture: false,
+            remote_focus: None,
             pending_scroll: None,
             pending_offers: std::collections::VecDeque::new(),
             next_offer: 0,
+            remote_favicon: None,
+            document_entry: None,
         }
     }
 
     /// Spawns the tab worker into a new task and returns the join handle
+    /// Give the media store somewhere to send the requests it cannot make itself.
+    ///
+    /// Here rather than in [`Self::new`], which is a synchronous public constructor: the
+    /// source needs a runtime handle to spawn its fetches on -- its callers are plain threads
+    /// waiting on the hand-off, with no runtime of their own -- and `Handle::current()`
+    /// panics outside a runtime. `run_worker` is a future, so by definition something is
+    /// polling it, and it runs before the first layout can ask for an image.
+    fn wire_media_source(&mut self) {
+        self.context.set_media_source(std::sync::Arc::new(
+            crate::engine::media_source::EngineMediaSource::new(
+                self.zone_id,
+                self.tab_id,
+                self.zone_context.io_tx.clone(),
+                tokio::runtime::Handle::current(),
+                self.services.accept_language.clone(),
+            ),
+        ));
+    }
+
     pub fn spawn_worker(self) -> anyhow::Result<JoinHandle<()>> {
         let name = format!("Tab Worker {}", self.tab_id);
         let tab_id = self.tab_id;
         let zone_id = self.zone_id;
         let event_tx = self.zone_context.event_tx.clone();
+        let tab_identities = self.zone_context.tab_identities.clone();
         let worker = spawn_named(&name, self.run_worker());
 
         // Crash containment (in-process): a panic anywhere in the worker kills only its
@@ -497,15 +455,42 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 "worker task was cancelled".into()
             };
             log::error!("Tab[{tab_id:?}] worker crashed: {error}");
+            // The run loop's own cleanup never ran: drop the jar reference here,
+            // so a fetch the dead tab left behind goes out without cookies.
+            tab_identities.remove(tab_id);
             let _ = event_tx.send(EngineEvent::TabCrashed { tab_id, zone_id, error });
         });
 
         Ok(join_handle)
     }
 
+    /// One frame onto the telemetry firehose: how it was produced and what it
+    /// cost, so a viewer can see stalls as they happen.
+    fn report_frame(&self, path: &str, started: std::time::Instant) {
+        if !crate::telemetry::enabled() {
+            return;
+        }
+        crate::telemetry::emit(
+            "tab.frame",
+            serde_json::json!({
+                "tab": self.tab_id.to_string(),
+                "path": path,
+                "frame_us": started.elapsed().as_micros() as u64,
+                "scroll_y": self.context.scroll_xy().1,
+            }),
+        );
+    }
+
     // Main loop of the tab worker
     async fn run_worker(mut self) {
         self.sink.set_worker_started_now();
+        self.wire_media_source();
+
+        // Publish this tab's jar to the I/O side, which attaches cookies on its
+        // behalf from now on - the tab itself never handles a cookie value.
+        self.zone_context
+            .tab_identities
+            .register(self.tab_id, self.services.cookie_jar.clone());
 
         // Announce creation
         self.send_event(EngineEvent::TabCreated {
@@ -574,6 +559,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         }
 
+        // Drop the jar reference before announcing closure: a fetch that outlives
+        // the tab then goes out without cookies rather than against a stale jar.
+        self.zone_context.tab_identities.remove(self.tab_id);
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.context.release_remote_renderer();
+
         // Receiver may already be gone at shutdown; that is expected.
         let _ = self.zone_context.event_tx.send(EngineEvent::TabClosed {
             tab_id: self.tab_id,
@@ -582,54 +573,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
-    /// Resolve the document's icon URL: the first `<link>` whose `rel` contains `icon`
-    /// (covers `icon`, `shortcut icon`, `apple-touch-icon`) with an `href`, resolved against
-    /// the document URL; else the well-known `/favicon.ico` for http(s) documents.
-    fn favicon_url(doc: &C::Document, base_url: &Url) -> Option<Url> {
-        use gosub_interface::document::Document as _;
-
-        fn walk<C: RenderConfiguration>(
-            doc: &C::Document,
-            node: gosub_shared::node::NodeId,
-            base: &Url,
-        ) -> Option<Url> {
-            for &child in doc.children(node) {
-                if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
-                    // `icon`, `shortcut icon` (space-separated tokens) and the hyphenated
-                    // `apple-touch-icon` / `apple-touch-icon-precomposed`.
-                    let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
-                        rel.split_ascii_whitespace().any(|t| {
-                            t.eq_ignore_ascii_case("icon")
-                                || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
-                        })
-                    });
-                    if is_icon {
-                        if let Some(url) = doc.attribute(child, "href").and_then(|h| base.join(h).ok()) {
-                            return Some(url);
-                        }
-                    }
-                }
-                if let Some(found) = walk::<C>(doc, child, base) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-
-        walk::<C>(doc, doc.root(), base_url).or_else(|| {
-            matches!(base_url.scheme(), "http" | "https")
-                .then(|| base_url.join("/favicon.ico").ok())
-                .flatten()
-        })
-    }
-
     /// Fetch the document's icon through the zone fetcher (so it carries the UA, cookies and
     /// shows up in resource events) and emit `FavIconChanged` with its bytes on success.
     /// Fire-and-forget: runs on its own task, cancelled with the navigation.
-    fn fetch_favicon(&self, doc: &C::Document, base_url: &Url, nav_cancel: &CancellationToken) {
-        let Some(icon_url) = Self::favicon_url(doc, base_url) else {
+    fn fetch_favicon(&self, icon_url: Url, nav_cancel: &CancellationToken) {
+        let Some(base_url) = self.context.document_url().cloned() else {
             return;
         };
+        // The icon URL is the page's (via the renderer): web schemes only,
+        // plus a file page's own files.
+        let allowed = matches!(icon_url.scheme(), "http" | "https")
+            || (icon_url.scheme() == "file" && base_url.scheme() == "file");
+        if !allowed {
+            log::debug!("favicon {icon_url}: scheme not allowed, ignored");
+            return;
+        }
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::Other);
         let mut headers = HeaderMap::new();
@@ -655,7 +613,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let cancel = nav_cancel.child_token();
         spawn_named("tab-favicon", async move {
-            let Ok((handle, rx)) = submit_to_io(zone_id, req, io_tx, Some(cancel.clone())).await else {
+            let Ok((handle, rx)) = submit_to_io(zone_id, Some(tab_id), req, io_tx, Some(cancel.clone())).await else {
                 return;
             };
             let result = tokio::select! {
@@ -668,12 +626,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let Ok(FetchResult::Buffered { meta, body }) = result else {
                 return;
             };
-            if meta.status != 200 || body.is_empty() {
+            if meta.status != 200 || body.is_empty() || body.len() > MAX_FAVICON_BYTES {
                 log::debug!(
                     "favicon {icon_url}: status {} ({} bytes), ignored",
                     meta.status,
                     body.len()
                 );
+                return;
+            }
+            // The embedder will hand these bytes to an image decoder in its
+            // own process: at least require the response to say it is an image.
+            // A missing or unreadable type says nothing of the kind.
+            let is_image = meta
+                .headers
+                .get(http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|ct| {
+                    // Media types are case-insensitive: `Image/PNG` is an image.
+                    ct.trim_start()
+                        .get(..6)
+                        .is_some_and(|t| t.eq_ignore_ascii_case("image/"))
+                });
+            if !is_image {
+                log::debug!("favicon {icon_url}: not an image content type, ignored");
                 return;
             }
             let _ = event_tx.send(EngineEvent::FavIconChanged {
@@ -683,66 +658,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
-    /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
-    /// so the first layout/paint can use them. Runs once per navigation, before the first
-    /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
-    /// worker briefly during initial load); each face is registered under its CSS family so
-    /// the font system selects the right weight/style from the font's own metadata.
-    fn load_web_fonts(&self, doc: &C::Document, base_url: &Url) {
-        use gosub_interface::css3::CssStylesheet as _;
-        use gosub_interface::document::Document as _;
-        use gosub_interface::font_system::FontSystem as _;
-
-        let mut fetched: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for sheet in doc.stylesheets() {
-            let sheet_url = Url::parse(sheet.url()).ok();
-            for (family, sources, unicode_range) in sheet.font_faces() {
-                // Google-style web fonts split a family into many `unicode-range` subsets
-                // (latin, cyrillic, greek, …). We don't do per-glyph subset fallback, so
-                // register only subsets covering Basic Latin (and ranges with no descriptor),
-                // which covers Latin-script content without piling unusable subsets onto the
-                // same family.
-                if let Some(range) = &unicode_range {
-                    if !unicode_range_covers_basic_latin(range) {
-                        continue;
-                    }
-                }
-                for src in &sources {
-                    let resolved = sheet_url
-                        .as_ref()
-                        .unwrap_or(base_url)
-                        .join(src)
-                        .or_else(|_| base_url.join(src));
-                    let Ok(font_url) = resolved else { continue };
-                    if !fetched.insert(font_url.to_string()) {
-                        break; // this exact font file is already registered
-                    }
-                    match gosub_sonar::net::simple::sync_fetch(&font_url) {
-                        Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
-                            // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
-                            // negotiates WOFF2 for modern UAs like ours). The font backends
-                            // (Skia/fontconfig) only decode raw SFNT (TTF/OTF), so unwrap WOFF2
-                            // to TTF first. Other formats pass through unchanged.
-                            let font_bytes = decode_web_font(resp.body, &font_url);
-                            match self
-                                .zone_context
-                                .font_system
-                                .lock()
-                                .register_font(font_bytes, Some(&family))
-                            {
-                                Ok(()) => {
-                                    log::debug!("Registered web font '{family}' from {font_url}");
-                                    break; // family face loaded; skip remaining sources
-                                }
-                                Err(e) => log::warn!("Failed to register web font '{family}': {e:?}"),
-                            }
-                        }
-                        Ok(resp) => log::warn!("Web font fetch {font_url} returned status {}", resp.status),
-                        Err(e) => log::warn!("Web font fetch {font_url} failed: {e}"),
-                    }
-                }
-            }
-        }
+    /// Whether this tab's full renders go out-of-process (fork server or
+    /// exec-per-render). Decides both the routing and whether navigation
+    /// captures the document source (the renderer re-parses it there).
+    fn remote_render_available(&self) -> bool {
+        // What `new` installed for this tab, not what the engine could offer:
+        // a backend that presents a GPU texture gets no renderer although the
+        // engine has one, and a tab without one must parse its documents here.
+        self.context.has_remote_renderer()
     }
 
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
@@ -752,18 +675,54 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 final_url,
                 title,
                 doc,
+                source,
             } => {
-                self.context.set_document(Arc::clone(&doc));
-                self.load_web_fonts(&doc, &final_url);
-                if let Some(cancel) = self
+                // A new document: whatever icon the last one had is not this one's.
+                self.remote_favicon = None;
+                // Everything the pipeline records from here belongs to this navigation.
+                // Set before the document so the first rebuild is already attributed.
+                let scope = gosub_shared::timing::ScopeId(nav_id.0);
+                self.context.set_timing_scope(Some(scope));
+                self.timing_scope = Some(scope);
+                // Explicit scope rather than the thread-local one: this is the worker's
+                // async loop, where a thread-local scope is not reliable.
+                gosub_shared::timing::mark_in(
+                    scope,
+                    gosub_shared::timing::Timing::PageDomComplete,
+                    Some(final_url.to_string()),
+                );
+                self.context.set_media_navigation(
+                    Some(final_url.clone()),
+                    crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
+                );
+                let nav_cancel = self
                     .active_nav
                     .as_ref()
                     .filter(|a| a.nav_id == nav_id)
-                    .map(|a| a.cancel.clone())
-                {
-                    self.fetch_favicon(&doc, &final_url, &cancel);
+                    .map(|a| a.cancel.clone());
+                match (doc, source) {
+                    (Some(doc), source) => {
+                        self.context.set_document(Arc::clone(&doc), source);
+                        if let Some(cancel) = &nav_cancel {
+                            if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
+                                self.fetch_favicon(icon, cancel);
+                            }
+                        }
+                    }
+                    // The renderer process parses; title and icon arrive with
+                    // its first render (see `apply_remote_document_meta`).
+                    (None, Some(source)) => self.context.set_document_source(final_url.clone(), source),
+                    (None, None) => {
+                        log::error!(
+                            "Tab[{:?}] navigation produced neither a document nor its source",
+                            self.tab_id
+                        );
+                    }
                 }
                 self.current_url = Some(final_url.clone());
+                // The document's own title, if it has one yet: `self.title` may
+                // still be the last page's (a remote page's comes later).
+                let visit_title = title.clone().unwrap_or_default();
                 if let Some(t) = title.clone() {
                     self.title = t;
                 }
@@ -796,6 +755,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.history.entry(entry).map(|e| e.scroll)
                     }
                 };
+                self.document_entry = self.history.current();
                 // Where to land once layout exists: a saved offset wins (returning to an entry
                 // the user scrolled), otherwise the URL's fragment, otherwise the top.
                 self.pending_scroll = match restore_scroll {
@@ -810,7 +770,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // web pages: internal pages and LoadHtml stand-ins are not "places".
                 if let Some(places) = &self.services.places {
                     if matches!(final_url.scheme(), "http" | "https") {
-                        places.record_visit(final_url.as_str(), &self.title);
+                        places.record_visit(final_url.as_str(), &visit_title);
                     }
                 }
 
@@ -821,6 +781,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.emit_history_changed();
                 // set_document cleared hover state; the next mouse move re-derives it.
                 self.report_cursor(CursorShape::Default);
+                // A new page: whatever the old one's renderer held or focused is gone.
+                self.remote_capture = false;
+                self.remote_focus = None;
             }
             NavigationResult::Download { nav_id, meta, spooled } => {
                 // Not an error and not a page change: the tab stays on its current document
@@ -884,7 +847,55 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Handle a key press. Keys act on the page (focus traversal, link activation,
     /// scrolling); the shell has already consumed its own shortcuts before forwarding.
     /// Text editing is not here yet - that arrives with the editing slice of M1.
+    /// Where a page's link may take the tab, clicked or activated from the
+    /// keyboard alike: to the web, or from a file page to another file - never
+    /// to an internal page. `None` when it may not, or `href` does not resolve.
+    fn page_link_target(&self, href: &str) -> Option<Url> {
+        let current = self.current_url.as_ref()?;
+        let url = current.join(href).ok()?;
+        let allowed =
+            matches!(url.scheme(), "http" | "https") || (url.scheme() == "file" && current.scheme() == "file");
+        if !allowed {
+            log::debug!("link to {href} not followed: scheme not allowed from a page");
+            return None;
+        }
+        Some(url)
+    }
+
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
+        // A page a resident renderer retains gets every key its focus might want:
+        // all of them while something is focused there, and all but the page-scrolling
+        // ones otherwise. Those scroll here, as they would with nothing focused.
+        if self.remote_input_available() {
+            let scrolls = matches!(
+                key,
+                "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "PageDown" | "PageUp" | " " | "Home" | "End"
+            );
+            if self.remote_focus.is_some() || !scrolls {
+                self.forward_input(InputEvent::KeyDown {
+                    key: key.to_string(),
+                    modifiers: modifiers.bits(),
+                });
+                self.runtime.dirty = true;
+                return ControlFlow::Continue;
+            }
+        }
+        // The focused control gets non-Tab keys first (typing; more editing follows).
+        if key != "Tab" {
+            let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
+            let alt = modifiers.contains(Modifiers::ALT);
+            let shift = modifiers.contains(Modifiers::SHIFT);
+            if self.context.edit_key(key, chord, alt, shift) {
+                self.runtime.dirty = true;
+                self.runtime.render_now = true;
+                self.run_pending_submission();
+                self.run_clipboard_traffic();
+                self.run_picker_request();
+                return ControlFlow::Continue;
+            }
+            // A clipboard chord can ask for a paste without consuming the key visibly.
+            self.run_clipboard_traffic();
+        }
         match key {
             // Focus traversal.
             "Tab" => {
@@ -895,7 +906,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             "Escape" => {
-                if self.context.set_focus(None) {
+                if self.context.set_focus(None, false) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
                     self.emit_focus_changed();
@@ -904,14 +915,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             // Activate a focused link.
             "Enter" => {
-                if let Some(href) = self.context.focused_link() {
-                    let resolved = self
-                        .current_url
-                        .as_ref()
-                        .and_then(|base| base.join(&href).ok())
-                        .map(|u| u.to_string())
-                        .unwrap_or(href);
-                    self.navigate_to(resolved, false, HistoryIntent::Push);
+                if let Some(url) = self
+                    .context
+                    .focused_link()
+                    .and_then(|href| self.page_link_target(&href))
+                {
+                    self.navigate_to(url.to_string(), false, HistoryIntent::Push);
                 }
                 ControlFlow::Continue
             }
@@ -926,16 +935,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let page = (self.desired_viewport.height as f32 - LINE).max(LINE);
                 let shift = modifiers.contains(Modifiers::SHIFT);
                 match key {
-                    "ArrowDown" => self.scroll_page_by(0.0, LINE),
-                    "ArrowUp" => self.scroll_page_by(0.0, -LINE),
-                    "ArrowRight" => self.scroll_page_by(LINE, 0.0),
-                    "ArrowLeft" => self.scroll_page_by(-LINE, 0.0),
-                    "PageDown" => self.scroll_page_by(0.0, page),
-                    "PageUp" => self.scroll_page_by(0.0, -page),
-                    " " if shift => self.scroll_page_by(0.0, -page),
-                    " " => self.scroll_page_by(0.0, page),
-                    "Home" => self.scroll_page_by(0.0, -FAR),
-                    "End" => self.scroll_page_by(0.0, FAR),
+                    "ArrowDown" => self.scroll_page_by(0.0, LINE, false),
+                    "ArrowUp" => self.scroll_page_by(0.0, -LINE, false),
+                    "ArrowRight" => self.scroll_page_by(LINE, 0.0, false),
+                    "ArrowLeft" => self.scroll_page_by(-LINE, 0.0, false),
+                    "PageDown" => self.scroll_page_by(0.0, page, false),
+                    "PageUp" => self.scroll_page_by(0.0, -page, false),
+                    " " if shift => self.scroll_page_by(0.0, -page, false),
+                    " " => self.scroll_page_by(0.0, page, false),
+                    "Home" => self.scroll_page_by(0.0, -FAR, false),
+                    "End" => self.scroll_page_by(0.0, FAR, false),
                     _ => ControlFlow::Continue,
                 }
             }
@@ -1089,7 +1098,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
             };
 
-            let result = match submit_to_io(zone_id, req, io_tx, None).await {
+            let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
                 Ok((_handle, rx)) => match rx.await {
                     Ok(result) => result,
                     Err(_) => return fail("fetch channel closed".into()),
@@ -1154,7 +1163,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Scroll the page by a CSS-px delta - shared by wheel scrolling and keyboard
     /// scrolling. Uses the zero-copy TileCache fast path when only the offset changed.
-    fn scroll_page_by(&mut self, delta_x: f32, delta_y: f32) -> ControlFlow {
+    fn scroll_page_by(&mut self, delta_x: f32, delta_y: f32, precise: bool) -> ControlFlow {
         // When page height is known, clamp to the real maximum so worker and context
         // stay in sync. When the page hasn't rendered yet, allow free scrolling (the
         // context will clamp to the actual page height on its own).
@@ -1167,10 +1176,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         };
 
-        match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
+        match self
+            .scroll
+            .scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y, precise)
+        {
             // Instant behavior: apply the new offset now and keep the immediate-submit fast
             // path (avoids up to 1/fps of latency per scroll event).
             Some((x, y)) => {
+                // A precise delta may have cut a wheel animation short; the next one must not
+                // start from that animation's stale timestamp.
+                self.scroll_anim_last = None;
                 let moved = x != self.scroll_x || y != self.scroll_y;
                 self.scroll_x = x;
                 self.scroll_y = y;
@@ -1182,6 +1197,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     && !self.zone_context.render_backend.gpu_tile_compositing()
                 {
                     let dpr = self.zone_context.render_backend.device_pixel_ratio();
+                    // Same DPR guard as the render path: cached tiles rasterized at a different
+                    // DPR are the wrong physical size for this frame.
+                    self.context.invalidate_raster_if_dpr_changed(dpr);
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
                         self.submit_frame(handle);
@@ -1283,7 +1301,36 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseScroll { delta_x, delta_y } => self.scroll_page_by(delta_x, delta_y),
+            TabCommand::MouseScroll {
+                delta_x,
+                delta_y,
+                precise,
+            } => {
+                // A resident renderer holding the pointer (an open dropdown) takes the wheel.
+                if self.remote_capture {
+                    if let Some((px, py)) = self.context.pointer() {
+                        if self.forward_input(InputEvent::Wheel {
+                            x: px,
+                            y: py,
+                            delta_y: delta_y as f64,
+                        }) {
+                            self.runtime.dirty = true;
+                            return ControlFlow::Continue;
+                        }
+                    }
+                }
+                // An open dropdown, or a scrolling textarea, under the pointer takes the wheel.
+                if let Some((px, py)) = self.context.pointer() {
+                    if self.context.popup_scroll(px, py, delta_y as f64)
+                        || self.context.area_scroll(px, py, delta_y as f64)
+                    {
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                        return ControlFlow::Continue;
+                    }
+                }
+                self.scroll_page_by(delta_x, delta_y, precise)
+            }
             TabCommand::MouseMove { x, y } => {
                 // Process the hit-test immediately so hover doesn't wait for the next tick.
                 let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);
@@ -1293,44 +1340,114 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         url: link_url,
                     });
                 }
-                self.report_cursor(self.context.hover_cursor());
-                if visual_dirty {
+                // A resident renderer holding the pointer gets the move; the page's own
+                // gestures and popups live there, and it answers with the cursor.
+                if self.remote_capture
+                    && self.forward_input(InputEvent::PointerMove {
+                        x: x as f64,
+                        y: y as f64,
+                    })
+                {
                     self.runtime.dirty = true;
-                    self.runtime.render_now = true;
+                    return ControlFlow::Continue;
+                }
+                // Each of these must run: a drag doesn't get to skip a move because hover changed.
+                let popup_dirty = self.context.popup_hover_at(x as f64, y as f64);
+                let drag_dirty = self.context.drag_move(x as f64, y as f64);
+                let cursor = self.context.cursor_at(x as f64, y as f64);
+                self.report_cursor(cursor);
+                if visual_dirty || popup_dirty || drag_dirty {
+                    self.runtime.dirty = true;
+                    // A resize re-layouts the page; let the frame tick pace it so a burst of
+                    // pointer events collapses into one render instead of one each.
+                    self.runtime.render_now = !self.context.is_resizing();
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseDown { button, x, y } => {
+            TabCommand::MouseDown { x, y, button } => {
                 if matches!(button, crate::events::MouseButton::Left) {
-                    // Click-to-focus: focus the nearest focusable ancestor of the hit element
-                    // (or blur), before any link activation.
-                    if self.context.focus_at(x as f64, y as f64) {
+                    // A page a resident renderer retains takes the press there, every
+                    // press: focus and blur, a link under the pointer, activation, and
+                    // what they ask for come back as effects the broker judges. Nothing
+                    // here has a document to focus, and a link followed from here would
+                    // leave the renderer's focus where it was.
+                    if self.forward_input(InputEvent::PointerDown {
+                        x: x as f64,
+                        y: y as f64,
+                        button,
+                    }) {
                         self.runtime.dirty = true;
+                        return ControlFlow::Continue;
+                    }
+                    // Click-to-focus (or blur when the click lands on nothing focusable),
+                    // before any link activation.
+                    let focused = self.context.focus_at(x as f64, y as f64);
+                    if focused {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
-                        let resolved = self
-                            .current_url
-                            .as_ref()
-                            .and_then(|base| base.join(&href).ok())
-                            .map(|u| u.to_string())
-                            .unwrap_or(href);
-                        self.navigate_to(resolved, false, HistoryIntent::Push);
+                        if let Some(url) = self.page_link_target(&href) {
+                            self.navigate_to(url.to_string(), false, HistoryIntent::Push);
+                        }
                         return ControlFlow::Continue;
                     }
+                    // Activation (checkbox/radio toggles) lands in the same render as the focus.
+                    let toggled = self.context.activate_at(x as f64, y as f64);
+                    if focused || toggled {
+                        self.runtime.render_now = true;
+                    }
+                    self.run_pending_submission();
+                    self.run_picker_request();
                 }
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
-            // Key releases need no handling yet; text input arrives with the editing
-            // slice of M1.
-            TabCommand::KeyUp { .. } => ControlFlow::Continue,
+            TabCommand::TextInput { text } => {
+                if self.forward_input(InputEvent::Text { text: text.clone() }) {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
+                }
+                if self.context.insert_text(&text) {
+                    self.runtime.render_now = true;
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::PickerChanged { value } => {
+                if self.forward_input(InputEvent::PickerChanged { value: value.clone() }) {
+                    self.runtime.dirty = true;
+                    return ControlFlow::Continue;
+                }
+                if self.context.set_picker_value(&value) {
+                    self.runtime.dirty = true;
+                    self.runtime.render_now = true;
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::PickerClosed => {
+                if !self.forward_input(InputEvent::PickerClosed) {
+                    self.context.end_picker();
+                }
+                ControlFlow::Continue
+            }
             TabCommand::SetScroll { x, y } => {
                 self.apply_scroll(x, y);
                 ControlFlow::Continue
             }
-            TabCommand::MouseUp { .. } => {
+            TabCommand::MouseUp { x, y, button } => {
+                // Ends a gesture on either side; a resident renderer answers with the
+                // capture released.
+                self.forward_input(InputEvent::PointerUp {
+                    x: x as f64,
+                    y: y as f64,
+                    button,
+                });
+                self.context.end_drag();
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::KeyUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
@@ -1406,6 +1523,133 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The cursor moved even though the load is still in flight: tell the shell now so
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
+    }
+
+    /// Forward Ctrl+C/X text to the embedder and relay a Ctrl+V as a paste request; the
+    /// embedder answers the latter with `TabCommand::TextInput`.
+    fn run_clipboard_traffic(&mut self) {
+        if let Some(text) = self.context.take_clipboard_write() {
+            self.send_event(EngineEvent::ClipboardWrite {
+                tab_id: self.tab_id,
+                text,
+            });
+        }
+        if self.context.take_paste_request() {
+            self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id });
+        }
+    }
+
+    /// Tell the embedder an input wants its picker, if the last click/key activated one.
+    fn run_picker_request(&mut self) {
+        if let Some(req) = self.context.take_picker_request() {
+            self.send_event(EngineEvent::PickerRequested {
+                tab_id: self.tab_id,
+                kind: req.kind,
+                x: req.anchor.x as f32,
+                y: req.anchor.y as f32,
+                width: req.anchor.width as f32,
+                height: req.anchor.height as f32,
+                value: req.value,
+                min: req.min,
+                max: req.max,
+                step: req.step,
+            });
+        }
+    }
+
+    /// Run a form submission the browsing context queued for the last click/key. Pushes a
+    /// history entry like any fresh navigation.
+    /// Whether this tab's input goes to a resident renderer's retained page.
+    fn remote_input_available(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            self.context.remote_input_available()
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            false
+        }
+    }
+
+    /// Send one input event to the resident renderer retaining this tab's page.
+    /// False when there is none, so the caller handles the input in-process.
+    fn forward_input(&mut self, event: InputEvent) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            self.context.remote_input(event)
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            let _ = event;
+            false
+        }
+    }
+
+    /// Act on what input passes asked for, each judged first (see
+    /// [`remote_effects`](crate::engine::tab::remote_effects)).
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_effects(&mut self) {
+        use crate::engine::tab::remote_effects::{action_for, Action};
+        let viewport = (self.desired_viewport.width as f64, self.desired_viewport.height as f64);
+        for (provenance, effect) in self.context.take_remote_effects() {
+            match action_for(effect, provenance, self.current_url.as_ref(), viewport) {
+                Ok(Action::Focus { focused, editable }) => {
+                    self.remote_focus = focused.then_some(editable);
+                    self.send_event(EngineEvent::FocusChanged {
+                        tab_id: self.tab_id,
+                        focused,
+                        editable,
+                    });
+                }
+                Ok(Action::Cursor(cursor)) => self.report_cursor(cursor),
+                Ok(Action::Navigate { url, method, body }) => {
+                    self.navigate_request(
+                        url.to_string(),
+                        method,
+                        body.map(RequestBody::form),
+                        HistoryIntent::Push,
+                    );
+                }
+                Ok(Action::Picker {
+                    kind,
+                    bounds,
+                    value,
+                    min,
+                    max,
+                    step,
+                }) => self.send_event(EngineEvent::PickerRequested {
+                    tab_id: self.tab_id,
+                    kind,
+                    x: bounds.x as f32,
+                    y: bounds.y as f32,
+                    width: bounds.width as f32,
+                    height: bounds.height as f32,
+                    value,
+                    min,
+                    max,
+                    step,
+                }),
+                Ok(Action::ClipboardWrite(text)) => self.send_event(EngineEvent::ClipboardWrite {
+                    tab_id: self.tab_id,
+                    text,
+                }),
+                Ok(Action::PasteRequested) => self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id }),
+                Ok(Action::Capture(pointer)) => self.remote_capture = pointer,
+                Err(why) => log::warn!("the renderer asked for {why}; ignored"),
+            }
+        }
+    }
+
+    fn run_pending_submission(&mut self) {
+        let Some(sub) = self.context.take_submission() else {
+            return;
+        };
+        let (method, body) = if sub.post {
+            (Method::POST, sub.body.map(RequestBody::form))
+        } else {
+            (Method::GET, None)
+        };
+        self.navigate_request(sub.url.to_string(), method, body, HistoryIntent::Push);
     }
 
     /// Emit `CursorChanged` if the shape differs from the last one reported.
@@ -1503,7 +1747,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
-    fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool, history: HistoryIntent) {
+    fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
+        let _ = ignore_cache;
+        self.navigate_request(url, Method::GET, None, history);
+    }
+
+    /// Navigate with an explicit method and optional body (form POSTs), cancelling any
+    /// in-flight navigation.
+    fn navigate_request(
+        &mut self,
+        url: impl Into<String>,
+        method: Method,
+        body: Option<RequestBody>,
+        history: HistoryIntent,
+    ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
             Err(_) => return,
@@ -1567,6 +1824,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         let nav_id = NavigationId::new();
+
+        // Start this navigation's clock. Every page.* mark is measured from here, so it
+        // must be stamped before any work, not when the document arrives.
+        let scope = gosub_shared::timing::ScopeId(nav_id.0);
+        gosub_shared::timing::begin_scope(scope);
+        self.timing_scope = Some(scope);
+        self.first_paint_marked = false;
+
         let parent_cancel = CancellationToken::new();
         self.active_nav = Some(ActiveNav {
             nav_id,
@@ -1595,18 +1860,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             },
         });
 
-        // Attach cookies for the navigation request.
+        // This tab is now loading `url`, so requests it makes are attributed to
+        // that document. Announced before submitting, so the navigation request
+        // itself is already attributed. Cookies are attached I/O-side from here on -
+        // see `net::tab_identity`.
+        self.announce_top_level(&url);
+
         let mut fetch_headers = HeaderMap::new();
-        if let Some(cookie_str) =
-            self.services
-                .cookie_jar
-                .read()
-                .get_request_cookies(&url, Some(&url), SameSiteContext::SameSite)
-        {
-            if let Ok(val) = cookie_str.parse() {
-                fetch_headers.insert(http::header::COOKIE, val);
-            }
-        }
         if let Some(langs) = &self.services.accept_language {
             if let Ok(val) = langs.parse() {
                 fetch_headers.insert(http::header::ACCEPT_LANGUAGE, val);
@@ -1618,7 +1878,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
-        let req = FetchRequest::builder(Method::GET, url.clone())
+        let mut req = FetchRequest::builder(method, url.clone())
             .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav_id)))
             .with_req_id(req_id)
             .with_headers(fetch_headers)
@@ -1629,8 +1889,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The streaming path has a race where SharedBody can close before parse_stream
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
-            .with_auto_decode(true)
-            .build();
+            .with_auto_decode(true);
+        if let Some(body) = body {
+            req = req.with_body(body);
+        }
+        let req = req.build();
 
         let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
 
@@ -1638,10 +1901,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
-        let cookie_jar = self.services.cookie_jar.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let font_system = self.zone_context.font_system.clone();
+        // Capture the document source only when a renderer process may need it
+        // (it re-parses there); otherwise skip the copy.
+        let capture_source = self.remote_render_available();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -1658,7 +1924,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         spawn_named("tab-fetcher", async move {
             let _enter = span.enter();
 
-            let submit = submit_to_io(zone_id, req.clone(), io_tx.clone(), Some(parent_cancel_clone.clone())).await;
+            let submit = submit_to_io(
+                zone_id,
+                Some(tab_id),
+                req.clone(),
+                io_tx.clone(),
+                Some(parent_cancel_clone.clone()),
+            )
+            .await;
 
             let (handle, rx) = match submit {
                 Ok(ok) => ok,
@@ -1692,13 +1965,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
             };
 
-            // Store Set-Cookie headers from the navigation response.
-            if let Some(meta) = fetch_result.meta() {
-                cookie_jar
-                    .write()
-                    .store_response_cookies(&meta.final_url, &meta.headers, Some(&url));
-            }
-
             let ua_policy = UaPolicy {
                 enable_sniffing: false,
                 enable_sniffing_navigation_upgrade: false,
@@ -1708,12 +1974,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
             let mut hooks = ResourcePipelines::<C>::new(
                 zone_id,
+                tab_id,
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
                 max_download_spool_bytes,
+                font_system.clone(),
+                capture_source,
+                capture_source,
             );
 
+            // The URL a source-only document lands on: the response's, after redirects.
+            let document_final_url = fetch_result
+                .meta()
+                .map(|meta| meta.final_url.clone())
+                .unwrap_or_else(about_blank);
             let outcome = route_response_for(
                 RequestDestination::Document,
                 handle,
@@ -1725,15 +2000,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .await;
 
             match outcome {
-                Ok(RoutedOutcome::MainDocument(doc)) => {
+                Ok(RoutedOutcome::MainDocument { doc, source }) => {
                     use gosub_interface::document::Document as _;
-                    let final_url = doc.url().unwrap_or_else(about_blank);
-                    let title = crate::html::document_title(&doc);
+                    let final_url = doc
+                        .as_ref()
+                        .and_then(|doc| doc.url())
+                        .unwrap_or_else(|| document_final_url.clone());
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Ok(RoutedOutcome::DownloadOffer { meta, spooled }) => {
@@ -1751,12 +2030,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 // Subresource outcomes need no main-frame navigation handling.
-                Ok(
-                    RoutedOutcome::CssLoaded(_)
-                    | RoutedOutcome::ScriptExecuted(_)
-                    | RoutedOutcome::ImageDecoded(_)
-                    | RoutedOutcome::FontLoaded(_),
-                ) => {
+                Ok(RoutedOutcome::CssLoaded(_) | RoutedOutcome::ScriptExecuted(_) | RoutedOutcome::FontLoaded(_)) => {
                     log::trace!("Tab[{:?}] subresource outcome; nothing to do for navigation", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {
@@ -1830,6 +2104,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// deciding what the commit does to session history. Shared by `LoadHtml` (always a push)
     /// and `gosub://` internal pages (push, reload or traversal like any navigation). The
     /// caller has already reset scroll and cancelled the previous navigation.
+    /// Tell the I/O side which document this tab's requests now belong to. Queued
+    /// behind the fetches already submitted, so those keep the document they were
+    /// made for; set directly only when the I/O side is gone and nothing is queued.
+    fn announce_top_level(&self, url: &Url) {
+        let announced = self.zone_context.io_tx.send(IoCommand::SetTopLevel {
+            tab_id: self.tab_id,
+            url: url.clone(),
+        });
+        if announced.is_err() {
+            self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+        }
+    }
+
     fn load_html_document(&mut self, html: String, url: Url, history: HistoryIntent) {
         self.load_document_source(HtmlSource::Text(html), url, history);
     }
@@ -1850,7 +2137,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         let nav_id = NavigationId::new();
+
+        // Start this navigation's clock. Every page.* mark is measured from here, so it
+        // must be stamped before any work, not when the document arrives.
+        let scope = gosub_shared::timing::ScopeId(nav_id.0);
+        gosub_shared::timing::begin_scope(scope);
+        self.timing_scope = Some(scope);
+        self.first_paint_marked = false;
+
         let parent_cancel = CancellationToken::new();
+        // Its subresources are this document's, not whatever the tab showed before:
+        // the same announcement a network navigation makes.
+        self.announce_top_level(&url);
+
         self.active_nav = Some(ActiveNav {
             nav_id,
             cancel: parent_cancel.clone(),
@@ -1900,6 +2199,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
         let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
+        let font_system = self.zone_context.font_system.clone();
+        // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
+        let capture_source = self.remote_render_available();
+        // The engine's own pages are parsed here too: they are the ones allowed to
+        // fall back to in-process rendering, which needs a document. `LoadHtml`
+        // content is the embedder's page and goes to the renderer like any other.
+        let source_only = capture_source && !matches!(url.scheme(), "gosub" | "about");
 
         let span = tracing::info_span!(
             "tab_load_html",
@@ -1943,35 +2249,39 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 }
             };
-            let meta = FetchResultMeta {
-                final_url: url.clone(),
-                status: 200,
-                status_text: "OK".into(),
-                headers: HeaderMap::new(),
-                content_length: Some(html.len() as u64),
-                content_type: Some("text/html".into()),
-                has_body: true,
+            let meta = {
+                let mut meta = FetchResultMeta::synthetic(url.clone());
+                meta.content_length = Some(html.len() as u64);
+                meta.content_type = Some("text/html".into());
+                meta.has_body = true;
+                meta
             };
 
             let mut hooks = ResourcePipelines::<C>::new(
                 zone_id,
+                tab_id,
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
                 max_download_spool_bytes,
+                font_system.clone(),
+                capture_source,
+                source_only,
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
-                Ok(doc) => {
+                Ok(parsed) => {
                     use gosub_interface::document::Document as _;
-                    let doc = Arc::new(doc);
-                    let final_url = doc.url().unwrap_or(url);
-                    let title = crate::html::document_title(&doc);
+                    let (doc, source) = parsed.into_parts();
+                    let doc = doc.map(Arc::new);
+                    let final_url = doc.as_ref().and_then(|doc| doc.url()).unwrap_or(url);
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Err(e) => {
@@ -1989,9 +2299,57 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// Title and icon of a document the renderer process parsed, once its
+    /// first render reports them.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_document_meta(&mut self) {
+        let Some((title, favicon)) = self.context.take_remote_document_meta() else {
+            return;
+        };
+        if let Some(title) = title {
+            // The history entry was committed before anything was parsed, so it
+            // learns its title here - also when the tab's title does not change
+            // (the last page may have had the same one) - and the embedder gets
+            // the snapshot that has it. The document's entry, not the cursor's:
+            // a traversal moves the cursor before its own load commits.
+            let untitled = self.document_entry.filter(|id| {
+                self.history
+                    .entry(*id)
+                    .is_some_and(|e| e.title.as_deref() != Some(title.as_str()))
+            });
+            if let Some(id) = untitled {
+                self.history.set_entry_title(id, Some(title.clone()));
+                // The visit was counted at the commit; only its title is new.
+                if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
+                    if matches!(url.scheme(), "http" | "https") {
+                        places.set_visit_title(url.as_str(), &title);
+                    }
+                }
+                self.emit_history_changed();
+            }
+            if title != self.title {
+                self.title = title.clone();
+                self.send_event(EngineEvent::TitleChanged {
+                    tab_id: self.tab_id,
+                    title,
+                });
+            }
+        }
+        // Every full remote render reports the icon again; only a new one is fetched.
+        if let Some(icon) = favicon.and_then(|f| Url::parse(&f).ok()) {
+            if self.remote_favicon.as_ref() != Some(&icon) {
+                self.remote_favicon = Some(icon.clone());
+                let cancel = self.active_nav.as_ref().map(|a| a.cancel.clone()).unwrap_or_default();
+                self.fetch_favicon(icon, &cancel);
+            }
+        }
+    }
+
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.apply_remote_document_meta();
         // Deferred scroll for a freshly committed document (history restore or URL fragment),
         // once it has laid out: page height and element positions are only known then. The
         // first dirty tick after `set_document` runs layout; this applies on the tick after
@@ -2038,6 +2396,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.runtime.dirty = true;
         }
 
+        // Out-of-process work landing - an image the renderer went without, a
+        // scroll or hover pass, a renderer that died - must wake the loop too.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            if let Some(pool) = self.zone_context.engine_context.renderer_pool.get() {
+                pool.sweep_dead();
+            }
+            if self.context.poll_remote_passes() {
+                self.runtime.dirty = true;
+            }
+            self.apply_remote_effects();
+        }
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());
@@ -2069,27 +2439,52 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // through to the display-list path below so the backend draws those tiles into a GPU
         // texture and the host presents a `WgpuTextureId` instead of compositing CPU tiles.
         //
-        // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
-        // Skia and Vello rasterize at CSS pixels (DPR = 1).
-        if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
+        // DPR comes from the backend: every backend that honours it rasterizes at physical
+        // pixels on a HiDPI host. Only the null backend stays at 1.
+        let remote_render = self.context.remote_render_active();
+        if remote_render
+            || (render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture())
+        {
             let dpr = render_backend.device_pixel_ratio();
+            let frame_started = std::time::Instant::now();
+
+            // The host can change the DPR behind our back (page zoom writes the global atomic),
+            // which invalidates every cached tile's pixel size. Do this before the scroll fast
+            // path, which would otherwise hand back old tiles stamped with the new DPR.
+            self.context.invalidate_raster_if_dpr_changed(dpr);
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
                 self.submit_frame(handle);
+                self.report_frame("scroll", frame_started);
                 return Ok(());
             }
 
             // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
             self.context.set_viewport(self.desired_viewport);
             self.context.rebuild_pipeline_cache_if_needed();
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            if let Some(error) = self.context.take_remote_failure() {
+                let site = self
+                    .current_url
+                    .as_ref()
+                    .map(crate::fork_server::site::site_of)
+                    .unwrap_or_default();
+                self.send_event(EngineEvent::RendererCrashed {
+                    zone_id: self.zone_id,
+                    site,
+                    tabs: vec![self.tab_id],
+                    error,
+                });
+            }
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
                 self.submit_frame(handle);
             }
             self.sink.inc_frame();
+            self.report_frame("rebuild", frame_started);
             return Ok(());
         }
 
@@ -2100,8 +2495,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
         // translate (no rebuild); only content/hover/size changes rebuild the command list.
         if render_backend.renders_to_gpu_texture() {
-            let surface_recreated =
-                self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
+            // The viewport is CSS pixels, the texture is physical ones. Sizing the texture in
+            // CSS pixels leaves the host to upscale it, which reads as blurry text rather than
+            // as the scaling bug it is. The backend scales its scene to match, so the page is
+            // re-rendered at this resolution instead of stretched.
+            //
+            // The GPU tile path is excluded: `composite_tiles` takes the CSS viewport and
+            // places CSS-sized tiles, so it stays at 1 until it learns about DPR too.
+            let dpr = if render_backend.gpu_tile_compositing() {
+                1
+            } else {
+                render_backend.device_pixel_ratio().max(1)
+            };
+            let mut surface_size = self.desired_viewport.as_size();
+            surface_size.width *= dpr;
+            surface_size.height *= dpr;
+
+            let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), surface_size)?;
             self.context.set_viewport(self.desired_viewport);
 
             // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run
@@ -2113,7 +2523,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 {
                     // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
                     // re-rasterized (it should not be - scroll only re-composites cached tiles).
-                    let _t = gosub_shared::timing_guard!("gputile.rebuild");
+                    let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileRebuild);
                     self.context.rebuild_pipeline_cache_if_needed();
                 }
                 let scene_epoch = self.context.scene_epoch();
@@ -2121,7 +2531,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     return Ok(());
                 }
                 if let Some(ref mut surf) = self.surface {
-                    let _t = gosub_shared::timing_guard!("gputile.composite");
+                    let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileComposite);
                     let tiles = self.context.placed_gpu_tiles();
                     let vp = (self.desired_viewport.width, self.desired_viewport.height);
                     let (sx, sy) = self.context.scroll_xy();
@@ -2230,6 +2640,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         self.sink.inc_frame();
 
+        // First frame this navigation has actually produced. `tick_draw` runs every frame,
+        // so the flag is what makes this a mark ("when did the page first appear") rather
+        // than a per-frame sample; it is cleared when a navigation starts.
+        if !self.first_paint_marked {
+            if let Some(scope) = self.timing_scope {
+                gosub_shared::timing::mark_in(scope, gosub_shared::timing::Timing::PageFirstPaint, None);
+                self.first_paint_marked = true;
+            }
+        }
+
         let now = std::time::Instant::now();
         let elapsed = now - self.runtime.last_tick_draw;
         self.runtime.last_tick_draw = now;
@@ -2245,7 +2665,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     /// Set a new viewport and schedule a re-render by transitioning to [`TabState::PendingRendering`].
+    ///
+    /// Zero-sized viewports are ignored rather than applied: they are never a state worth
+    /// rendering (a minimized or not-yet-allocated host window reports one), and applying one
+    /// would drop the whole tile cache and re-layout the page at `MAX_CONTENT`. Keeping the last
+    /// good viewport means the tab still holds a valid frame when the host comes back.
     pub fn set_viewport(&mut self, vp: Viewport) {
+        if vp.width == 0 || vp.height == 0 {
+            log::debug!("[render] ignoring zero-sized viewport {vp:?} for tab {:?}", self.tab_id);
+            return;
+        }
         // Already at the viewport we want, then we can skip
         if vp == self.desired_viewport {
             return;
@@ -2288,6 +2717,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 active.nav_id
             );
             active.cancel.cancel();
+            // Whatever that navigation preloaded is now for a page nobody will see. Its own
+            // entries only: the hand-off is process-wide, and every other tab's preloads are
+            // in there too.
+            gosub_shared::subresource::clear_scope(active.nav_id.as_scope());
         }
     }
 
@@ -2435,15 +2868,21 @@ mod tests {
     use bytes::Bytes;
     use futures_util::TryStreamExt;
 
+    /// `about_blank()` keeps an `unwrap`, so the claim that it cannot fail is checked rather
+    /// than asserted in a comment.
+    #[test]
+    fn about_blank_parses() {
+        assert_eq!(super::about_blank().as_str(), "about:blank");
+    }
+
     mod favicon_url {
         use crate::html::DefaultRenderConfig;
-        use crate::tab::worker::TabWorker;
         use url::Url;
 
         fn resolve(html: &str, base: &str) -> Option<String> {
             let doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             let base = Url::parse(base).unwrap();
-            TabWorker::<DefaultRenderConfig>::favicon_url(&doc, &base).map(|u| u.to_string())
+            crate::html::favicon_url::<DefaultRenderConfig>(&doc, &base).map(|u| u.to_string())
         }
 
         #[test]
@@ -2452,6 +2891,17 @@ mod tests {
             assert_eq!(
                 resolve(html, "https://example.com/dir/page.html").as_deref(),
                 Some("https://example.com/dir/img/fav.png")
+            );
+        }
+
+        /// A `rel` token whose 16th byte falls inside a multi-byte character is
+        /// not an icon, and must not panic the tab working that out.
+        #[test]
+        fn a_multibyte_rel_token_is_no_icon_and_no_panic() {
+            let html = r#"<html><head><link rel="apple-touch-icoé" href="/a.png"></head></html>"#;
+            assert_eq!(
+                resolve(html, "https://example.com/").as_deref(),
+                Some("https://example.com/favicon.ico")
             );
         }
 
@@ -2481,36 +2931,6 @@ mod tests {
         #[test]
         fn no_fallback_for_non_http_documents() {
             assert_eq!(resolve("<html></html>", "gosub://home"), None);
-        }
-    }
-
-    /// Verify `decode_web_font` turns a real WOFF2 payload into an SFNT the font stack can
-    /// parse. Reads the fixture path from `GOSUB_WOFF2_FIXTURE` so we neither hit the network
-    /// nor commit a binary font; skips when unset.
-    #[test]
-    fn decode_web_font_woff2_roundtrips_to_sfnt() {
-        let Ok(path) = std::env::var("GOSUB_WOFF2_FIXTURE") else {
-            eprintln!("skipping: set GOSUB_WOFF2_FIXTURE to a .woff2 file to run");
-            return;
-        };
-        let woff2 = std::fs::read(&path).expect("read fixture");
-        assert_eq!(&woff2[0..4], b"wOF2", "fixture must be WOFF2");
-
-        let url = url::Url::parse("https://example.test/font.woff2").unwrap();
-        let sfnt = super::decode_web_font(woff2, &url);
-
-        // Output must be a different, valid SFNT (TrueType `0x00010000` or OpenType `OTTO`).
-        let magic = u32::from_be_bytes([sfnt[0], sfnt[1], sfnt[2], sfnt[3]]);
-        assert!(magic == 0x0001_0000 || magic == 0x4F54_544F, "not SFNT: {magic:#010x}");
-
-        // It must re-parse and expose the core tables a backend reads.
-        use allsorts::binary::read::ReadScope;
-        use allsorts::font_data::FontData;
-        use allsorts::tables::FontTableProvider;
-        let font = ReadScope::new(&sfnt).read::<FontData<'_>>().expect("parse SFNT");
-        let provider = font.table_provider(0).expect("table provider");
-        for tag in [allsorts::tag::HEAD, allsorts::tag::CMAP, allsorts::tag::GLYF] {
-            assert!(provider.has_table(tag), "missing table {tag:#010x}");
         }
     }
 

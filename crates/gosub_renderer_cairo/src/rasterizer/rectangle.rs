@@ -1,7 +1,7 @@
 use crate::rasterizer::brush::set_brush;
 use cairo::{Context, Operator};
 use gosub_render_pipeline::common::media::MediaStore;
-use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
 
@@ -60,7 +60,9 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
         return;
     }
 
-    setup_rectangle_path(cr, rectangle);
+    // Stroke a path inset by half the border width so the whole border lies
+    // inside the border box (see setup_inset_path).
+    setup_inset_path(cr, rectangle, rectangle.border().width() as f64 / 2.0);
 
     cr.set_line_width(rectangle.border().width() as f64);
     set_brush(cr, &rectangle.border().brush(), rectangle.rect(), media_store);
@@ -81,19 +83,18 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
             _ = cr.stroke();
         }
         BorderStyle::Double => {
-            if rectangle.border().width() >= 3.0 {
-                let width = (rectangle.border().width() / 2.0).floor();
-                cr.set_line_width(width as f64);
+            let total = rectangle.border().width() as f64;
+            if total >= 3.0 {
+                // The path above is inset for the FULL width; each strand needs its own
+                // inset (half its own width) or the outer band stays unpainted. Thirds
+                // split keeps strands + gap within the declared width.
+                let strand = (total / 3.0).floor();
+                let gap = total - 2.0 * strand;
+                cr.new_path();
+                cr.set_line_width(strand);
+                setup_inset_path(cr, rectangle, strand / 2.0);
                 _ = cr.stroke();
-
-                let gap_size = 1.0;
-
-                cr.rectangle(
-                    rectangle.rect().x + width as f64 + gap_size,
-                    rectangle.rect().y + width as f64 + gap_size,
-                    rectangle.rect().width - 2.0 * (width as f64 + gap_size),
-                    rectangle.rect().height - 2.0 * (width as f64 + gap_size),
-                );
+                setup_inset_path(cr, rectangle, strand + gap + strand / 2.0);
                 _ = cr.stroke();
             } else {
                 _ = cr.stroke();
@@ -117,84 +118,75 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
 /// solid fill per side, which is the common case for single-side borders.
 fn paint_per_side_border(cr: &Context, rectangle: &Rectangle, media_store: &MediaStore) {
     let rect = rectangle.rect();
-    let widths = rectangle.border().widths();
-    let styles = rectangle.border().styles();
     let brushes = rectangle.border().brushes();
+    let strips = per_side_strips(rect, rectangle.border().widths(), &rectangle.border().styles());
 
-    // (x, y, w, h) for each side's edge rectangle.
-    let edges = [
-        (rect.x, rect.y, rect.width, widths[0] as f64), // top
-        (
-            rect.x + rect.width - widths[1] as f64,
-            rect.y,
-            widths[1] as f64,
-            rect.height,
-        ), // right
-        (
-            rect.x,
-            rect.y + rect.height - widths[2] as f64,
-            rect.width,
-            widths[2] as f64,
-        ), // bottom
-        (rect.x, rect.y, widths[3] as f64, rect.height), // left
-    ];
-
-    for i in 0..4 {
-        if widths[i] <= 0.0 || styles[i].is_invisible() {
+    for (i, side) in strips.iter().enumerate() {
+        if side.is_empty() {
             continue;
         }
-        let (x, y, w, h) = edges[i];
         cr.new_path();
-        cr.rectangle(x, y, w, h);
+        for strip in side {
+            cr.rectangle(strip.x, strip.y, strip.width, strip.height);
+        }
         set_brush(cr, &brushes[i], rect, media_store);
         _ = cr.fill();
     }
 }
 
 fn setup_rectangle_path(cr: &Context, rect: &Rectangle) {
+    setup_inset_path(cr, rect, 0.0);
+}
+
+/// Builds the rectangle path inset by `inset` on every side. Cairo centers a
+/// stroke's pen on the path, so a border of width `w` must stroke a path inset
+/// by `w / 2` to stay entirely inside the border box (CSS borders never paint
+/// outside it - a centered stroke bleeds into the neighbouring element and
+/// gets painted over, which visibly halved collapsed table borders).
+fn setup_inset_path(cr: &Context, rect: &Rectangle, inset: f64) {
     let (r_tl, r_tr, r_br, r_bl) = rect.radius_x();
 
+    let x = rect.rect().x + inset;
+    let y = rect.rect().y + inset;
+    let width = (rect.rect().width - 2.0 * inset).max(0.0);
+    let height = (rect.rect().height - 2.0 * inset).max(0.0);
+    let r_tl = (r_tl - inset).max(0.0);
+    let r_tr = (r_tr - inset).max(0.0);
+    let r_br = (r_br - inset).max(0.0);
+    let r_bl = (r_bl - inset).max(0.0);
+
     if r_tl == 0.0 && r_tr == 0.0 && r_br == 0.0 && r_bl == 0.0 {
-        cr.rectangle(rect.rect().x, rect.rect().y, rect.rect().width, rect.rect().height);
+        cr.rectangle(x, y, width, height);
         return;
     }
 
-    cr.move_to(rect.rect().x + r_tl, rect.rect().y);
+    cr.move_to(x + r_tl, y);
 
-    cr.line_to(rect.rect().x + rect.rect().width - r_tr, rect.rect().y);
-    cr.arc(
-        rect.rect().x + rect.rect().width - r_tr,
-        rect.rect().y + r_tr,
-        r_tr,
-        -0.5 * std::f64::consts::PI,
-        0.0,
-    );
+    cr.line_to(x + width - r_tr, y);
+    cr.arc(x + width - r_tr, y + r_tr, r_tr, -0.5 * std::f64::consts::PI, 0.0);
 
-    cr.line_to(
-        rect.rect().x + rect.rect().width,
-        rect.rect().y + rect.rect().height - r_br,
-    );
+    cr.line_to(x + width, y + height - r_br);
     cr.arc(
-        rect.rect().x + rect.rect().width - r_br,
-        rect.rect().y + rect.rect().height - r_br,
+        x + width - r_br,
+        y + height - r_br,
         r_br,
         0.0,
         0.5 * std::f64::consts::PI,
     );
 
-    cr.line_to(rect.rect().x + r_bl, rect.rect().y + rect.rect().height);
+    cr.line_to(x + r_bl, y + height);
     cr.arc(
-        rect.rect().x + r_bl,
-        rect.rect().y + rect.rect().height - r_bl,
+        x + r_bl,
+        y + height - r_bl,
         r_bl,
         0.5 * std::f64::consts::PI,
         std::f64::consts::PI,
     );
 
-    cr.line_to(rect.rect().x, rect.rect().y + r_tl);
+    cr.line_to(x, y + r_tl);
     cr.arc(
-        rect.rect().x + r_tl,
-        rect.rect().y + r_tl,
+        x + r_tl,
+        y + r_tl,
         r_tl,
         std::f64::consts::PI,
         1.5 * std::f64::consts::PI,

@@ -46,12 +46,12 @@ impl FieldProperty {
                     executor: Executor::Both,
                 };
 
-                //rename = "____", js => rename to name, and it is a js only property
-                //rename = "____", wasm => rename to name, and it is a wasm only property
-                //rename = "____" => rename to name, and it is a property for both, js and wasm
-                //js => name is the same, and it is a js only property
-                //wasm => name is the same, and it is a wasm only property
-                //<nothing> => name is the same, and it is a property for both, js and wasm
+                // rename = "____", js => rename to name, and it is a js only property
+                // rename = "____", wasm => rename to name, and it is a wasm only property
+                // rename = "____" => rename to name, and it is a property for both, js and wasm
+                // js => name is the same, and it is a js only property
+                // wasm => name is the same, and it is a wasm only property
+                // <nothing> => name is the same, and it is a property for both, js and wasm
 
                 match &attr.meta {
                     Meta::Path(_) => {}

@@ -10,6 +10,7 @@ impl Css3<'_> {
         let mut children = Vec::new();
 
         let t = self.consume_any()?;
+        let loc = t.location;
         if let TokenType::Ident(value) = &t.token_type {
             // An optional container name may precede the query condition. The condition
             // keywords are not valid names, so anything else is treated as the name.
@@ -18,11 +19,11 @@ impl Css3<'_> {
             }
         } else {
             // No container name: put the token back so it is parsed as part of the condition.
-            self.tokenizer.reconsume();
+            self.tokenizer.reconsume(t);
         }
 
         children.push(self.parse_condition(FeatureKind::Container)?);
 
-        Ok(Node::new(NodeType::Container { children }, t.location))
+        Ok(Node::new(NodeType::Container { children }, loc))
     }
 }

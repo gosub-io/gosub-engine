@@ -64,7 +64,7 @@ pub struct Data {
     pub selectors: Vec<Selector>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Property {
     pub name: String,
     pub syntax: String,

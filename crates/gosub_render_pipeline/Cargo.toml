@@ -6,7 +6,13 @@ license = "MIT"
 autobins = false
 
 [dependencies]
-taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+# `calc` is deliberately OFF. gosub_css3 folds calc() to px, or to a px + percent sum that the
+# converter lays out as undeclared, and taffy's own tree resolves every calc to 0 anyway (see
+# docs/css.md, "Known gaps"). Leaving it off is also what makes the `unsafe impl Send` on
+# `SendTaffyTree` (layouter/taffy.rs) provable rather than merely probable: without it
+# `CompactLength::calc` does not exist, so taffy's tagged word can never hold a real pointer.
+# Do not re-enable without reading that safety comment.
+taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 log = { workspace = true }
 image = { workspace = true, features = ["png", "jpeg", "gif"] }
 png = { workspace = true }
@@ -14,9 +20,9 @@ sha2 = "0.11.0"
 serde_json = { workspace = true }
 csscolorparser = "0.8.3"
 rstar = "0.13.0"
-gosub-sonar = "0.2.0"
 url = { workspace = true }
 resvg = { workspace = true }
+stacker = { workspace = true }
 bytes = { workspace = true }
 bytemuck = { workspace = true }
 base64 = { workspace = true }
@@ -30,9 +36,24 @@ gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry
 gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }
 
 [dev-dependencies]
+# For the examples only. The library itself fetches nothing: media reaches it through the
+# resource handoff, which is what keeps every request on the engine's one observed path.
+gosub-sonar = "0.9.0"
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
+# Only to build an SVGZ fixture for the depth-limit regression test.
+flate2 = "1"
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
+tempfile = { workspace = true }
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+name = "style"
+harness = false
+
+[[bench]]
+name = "scroll"
+harness = false
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,

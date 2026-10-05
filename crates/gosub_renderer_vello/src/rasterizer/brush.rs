@@ -47,7 +47,13 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
             (VelloBrush::Gradient(gradient), None)
         }
         Brush::Image(media_id, tiling) => {
-            let media = media_store.get_image(*media_id);
+            // No image and no placeholder to stand in for it: a fully transparent
+            // solid brush paints nothing, which is what the zero-dimension paths in
+            // this function already do.
+            let Some(media) = media_store.get_image(*media_id) else {
+                let clear = Rgba8::from_u8_array([0, 0, 0, 0]);
+                return (VelloBrush::Solid(AlphaColor::from(clear)), None);
+            };
             let (iw, ih) = (media.image.width(), media.image.height());
             let image_data = ImageData {
                 data: Blob::<u8>::from(media.image.as_raw().to_vec()),

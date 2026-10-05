@@ -19,7 +19,6 @@ use gosub_interface::document::Document as _;
 use image::{ImageBuffer, Rgba, RgbaImage};
 
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_render_pipeline::common::document::style::{StyleProperty, Value};
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::{CanLayout, ElementContext};
@@ -100,9 +99,11 @@ fn main() {
                 let bg = layout_tree
                     .render_tree
                     .doc
-                    .get_style(el.dom_node_id, &StyleProperty::BackgroundColor);
-                if let Value::Color(r, g, b, a) = bg {
-                    let rgba = [r, g, b, a];
+                    .computed_style(el.dom_node_id)
+                    .background
+                    .color;
+                {
+                    let rgba = [bg.r, bg.g, bg.b, bg.a];
                     if rgba[3] > 0 {
                         let bb = &el.box_model.border_box;
                         fill_rect(
@@ -116,22 +117,20 @@ fn main() {
                     }
                 }
             }
-            ElementContext::Text(ctx) => {
-                if !ctx.text.trim().is_empty() {
-                    // Approximate text as a dark semi-transparent bar sized to the font.
-                    let bb = &el.box_model.content_box;
-                    let bar_h = (ctx.font_info.size as f32 * 0.6).max(4.0);
-                    fill_rect(
-                        &mut img,
-                        bb.x as f32,
-                        (bb.y + ctx.text_offset.y) as f32,
-                        (bb.width as f32).max(8.0),
-                        bar_h,
-                        [40, 40, 40, 200],
-                    );
-                }
+            ElementContext::Text(ctx) if !ctx.text.trim().is_empty() => {
+                // Approximate text as a dark semi-transparent bar sized to the font.
+                let bb = &el.box_model.content_box;
+                let bar_h = (ctx.font_info.size as f32 * 0.6).max(4.0);
+                fill_rect(
+                    &mut img,
+                    bb.x as f32,
+                    (bb.y + ctx.text_offset.y) as f32,
+                    (bb.width as f32).max(8.0),
+                    bar_h,
+                    [40, 40, 40, 200],
+                );
             }
-            ElementContext::Image(_) | ElementContext::Svg(_) => {}
+            _ => {}
         }
 
         for &child_id in el.children.iter().rev() {

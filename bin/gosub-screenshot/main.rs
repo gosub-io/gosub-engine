@@ -7,12 +7,13 @@
 //! GPU texture-size limit and pages of any height can be captured.
 
 use clap::Parser;
-use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::TabId;
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
+use gosub_engine::NavigationId;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
 #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
@@ -22,11 +23,16 @@ use image::ColorType;
 #[cfg(feature = "backend_cairo")]
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
+
+/// Cap on the composited RGBA buffer (1 GiB): keeps a runaway `--min-height` from
+/// wrapping the size arithmetic or exhausting memory.
+const MAX_CAPTURE_BYTES: usize = 1 << 30;
 
 const BUILD_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
@@ -66,16 +72,189 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
+    /// Interactions to replay after the first render, before capturing: `click:X,Y`,
+    /// `dblclick:X,Y`, `move:X,Y`, `press:X,Y` / `release:X,Y` (drags; page px), `tab`,
+    /// `shift-tab`, `key:NAME` (e.g. `key:Backspace`, `key:ctrl+shift+ArrowLeft`), `type:TEXT`,
+    /// `scroll:DX,DY` (wheel) or `wait:MS`. Repeatable. Ctrl+C/X/V use a clipboard local to
+    /// this run.
+    #[arg(short = 'i', long = "interact")]
+    interact: Vec<String>,
+    /// Minimum capture height in CSS pixels. The image is normally cut at the page's flow
+    /// height; absolutely-positioned content below it (common in WPT reftest references)
+    /// would be lost, so reftest runners pass the comparison-canvas height here.
+    #[arg(long, default_value = "0")]
+    min_height: u32,
+    /// Viewport height in CSS pixels used for layout and rasterization. The default lays the
+    /// page out in one tall viewport, so every tile is rastered up front and a replayed scroll
+    /// never has to extend the raster window. Pass a realistic height (e.g. 800) to exercise
+    /// the scroll/extend path; regions the engine never rastered stay the background white of
+    /// the capture buffer.
+    #[arg(long, default_value_t = INITIAL_VIEWPORT_HEIGHT)]
+    viewport_height: u32,
     /// Print the aggregated pipeline timing table (per stage) after the capture
     #[arg(long)]
     timings: bool,
+    /// Render with the dark colour scheme (prefers-color-scheme: dark, dark native controls)
+    #[arg(long)]
+    dark: bool,
+}
+
+#[derive(Clone)]
+enum Step {
+    Send(TabCommand),
+    Wait(Duration),
+}
+
+/// Navigation kicked off by a *replayed* interaction - a form submit, a link click. The capture
+/// must not composite until it has finished and repainted, or Phase 2 reads the tile cache of the
+/// page we navigated away from (the forms fixture would show the form, not `Echo: GET /echo`).
+#[derive(Default)]
+struct NavTracker {
+    in_flight: HashSet<NavigationId>,
+    /// A navigation completed here, so a render of the *new* document is still owed.
+    completed: bool,
+}
+
+impl NavTracker {
+    fn observe(&mut self, event: &NavigationEvent) {
+        match event {
+            NavigationEvent::Started { nav_id, .. } => {
+                self.in_flight.insert(*nav_id);
+            }
+            NavigationEvent::Finished { nav_id, .. } => {
+                self.in_flight.remove(nav_id);
+                self.completed = true;
+            }
+            NavigationEvent::Cancelled { nav_id, .. } => {
+                self.in_flight.remove(nav_id);
+            }
+            NavigationEvent::Failed { nav_id, .. } | NavigationEvent::FailedUrl { nav_id, .. } => {
+                if let Some(nav_id) = nav_id {
+                    self.in_flight.remove(nav_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Nothing is loading and nothing is waiting to be drawn.
+    fn idle(&self) -> bool {
+        self.in_flight.is_empty() && !self.completed
+    }
+}
+
+fn parse_interaction(spec: &str) -> Vec<Step> {
+    let key = |k: &str, modifiers: Modifiers| {
+        Step::Send(TabCommand::KeyDown {
+            key: k.to_string(),
+            code: k.to_string(),
+            modifiers,
+        })
+    };
+    match spec.split_once(':') {
+        None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
+        None if spec.eq_ignore_ascii_case("shift-tab") => vec![key("Tab", Modifiers::SHIFT)],
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => {
+            // `ctrl+shift+ArrowLeft`: modifier prefixes, the key name last.
+            let mut modifiers = Modifiers::empty();
+            let mut name = rest;
+            while let Some((m, tail)) = name.split_once('+').filter(|(_, t)| !t.is_empty()) {
+                modifiers |= if m.eq_ignore_ascii_case("ctrl") || m.eq_ignore_ascii_case("control") {
+                    Modifiers::CONTROL
+                } else if m.eq_ignore_ascii_case("shift") {
+                    Modifiers::SHIFT
+                } else if m.eq_ignore_ascii_case("alt") {
+                    Modifiers::ALT
+                } else if ["meta", "cmd", "super"].iter().any(|k| m.eq_ignore_ascii_case(k)) {
+                    Modifiers::META
+                } else {
+                    // Don't fold it into the key name - the engine would silently ignore the
+                    // resulting `KeyDown` and the replay would do nothing.
+                    eprintln!("Unknown modifier '{m}' in '{spec}': expected ctrl | shift | alt | meta");
+                    std::process::exit(2);
+                };
+                name = tail;
+            }
+            vec![key(name, modifiers)]
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
+            rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("scroll") => {
+            let parsed = rest
+                .split_once(',')
+                .and_then(|(x, y)| Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?)));
+            let Some((delta_x, delta_y)) = parsed else {
+                eprintln!("Bad scroll spec '{spec}': expected scroll:DX,DY");
+                std::process::exit(2);
+            };
+            // A scripted scroll wants the offset it names, now: a precise delta lands at
+            // once, so the capture that follows never catches the wheel animation midway.
+            vec![Step::Send(TabCommand::MouseScroll {
+                delta_x,
+                delta_y,
+                precise: true,
+            })]
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("wait") => match rest.trim().parse::<u64>() {
+            Ok(ms) => vec![Step::Wait(Duration::from_millis(ms))],
+            Err(_) => {
+                eprintln!("Bad wait spec '{spec}': expected wait:MILLISECONDS");
+                std::process::exit(2);
+            }
+        },
+        Some((kind, rest))
+            if ["click", "dblclick", "move", "press", "release"]
+                .iter()
+                .any(|k| kind.eq_ignore_ascii_case(k)) =>
+        {
+            let Some((x, y)) = rest.split_once(',') else {
+                eprintln!("Bad spec '{spec}': expected {kind}:X,Y");
+                std::process::exit(2);
+            };
+            let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                eprintln!("Bad coordinates in '{spec}'");
+                std::process::exit(2);
+            };
+            let down = Step::Send(TabCommand::MouseDown {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
+            let up = Step::Send(TabCommand::MouseUp {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
+            // Hover first: link activation piggybacks on hover state.
+            let mut steps = vec![Step::Send(TabCommand::MouseMove { x, y })];
+            if kind.eq_ignore_ascii_case("click") {
+                steps.extend([down, up]);
+            } else if kind.eq_ignore_ascii_case("dblclick") {
+                steps.extend([down.clone(), up.clone(), down, up]);
+            } else if kind.eq_ignore_ascii_case("press") {
+                steps.push(down);
+            } else if kind.eq_ignore_ascii_case("release") {
+                steps.push(up);
+            }
+            steps
+        }
+        _ => {
+            eprintln!(
+                "Unknown interaction '{spec}' (expected click:X,Y | dblclick:X,Y | move:X,Y | press:X,Y | release:X,Y | scroll:DX,DY | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
+            );
+            std::process::exit(2);
+        }
+    }
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
-/// Initial viewport height used for layout, in CSS pixels. Tall enough to trigger
-/// below-the-fold / lazily-loaded content; the captured image uses the page's *true*
-/// height, not this value. CPU rasterization has no GPU texture limit, so there is no
-/// cap on how tall the final screenshot can be.
+
+/// Default viewport height used for layout, in CSS pixels; `--viewport-height` overrides it.
+/// Tall enough to trigger below-the-fold / lazily-loaded content, and tall enough that the
+/// raster window covers the whole page, so the capture holds every tile. The captured image
+/// uses the page's *true* height, not this value. CPU rasterization has no GPU texture limit,
+/// so there is no cap on how tall the final screenshot can be.
 const INITIAL_VIEWPORT_HEIGHT: u32 = 16384;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -88,6 +267,8 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 fn main() {
+    // First, before any thread: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<AppConfig>();
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()
@@ -102,6 +283,7 @@ fn main() {
     };
     let output = args.output;
     let viewport_w = args.width;
+    let viewport_h = args.viewport_height.max(1);
 
     eprintln!("gosub-screenshot {BUILD_VERSION} — headless full-page screenshot via the gosub render pipeline (CPU rasterization)");
 
@@ -123,6 +305,12 @@ fn main() {
     }));
 
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    if args.dark {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
     let mut event_rx = engine.subscribe_events();
 
@@ -160,7 +348,7 @@ fn main() {
                 x: 0,
                 y: 0,
                 width: viewport_w,
-                height: INITIAL_VIEWPORT_HEIGHT,
+                height: viewport_h,
             })
             .await;
         let _ = tab_nav.send(TabCommand::Navigate { url: url.to_string() }).await;
@@ -173,7 +361,7 @@ fn main() {
     let mut nav_done = false;
     let mut first_render_done = false;
 
-    eprintln!("Loading {url_str} (viewport width={viewport_w})…");
+    eprintln!("Loading {url_str} (viewport {viewport_w}x{viewport_h})…");
 
     // ── Phase 1: wait for navigation + first full render ─────────────────────
     loop {
@@ -228,6 +416,169 @@ fn main() {
     if args.settle > 0 {
         std::thread::sleep(Duration::from_secs(args.settle));
         while rx_redraw.try_recv().is_ok() {}
+    } else {
+        // Quiescence wait: async media (images) decode after the first render and
+        // trigger reflows. Capturing between first render and that reflow races -
+        // e.g. an image-only table captures as zero-size. Wait until no redraw has
+        // arrived for a quiet window (capped, so pages that keep animating still
+        // capture promptly).
+        let quiet_window = Duration::from_millis(300);
+        let cap = Instant::now() + Duration::from_secs(3);
+        let mut last_redraw = Instant::now();
+        while Instant::now() < cap {
+            let mut saw = false;
+            while rx_redraw.try_recv().is_ok() {
+                saw = true;
+            }
+            if saw {
+                last_redraw = Instant::now();
+            } else if last_redraw.elapsed() >= quiet_window {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    // ── Phase 1b: replay interactions, waiting for each repaint ──────────────
+    if !args.interact.is_empty() {
+        let steps: Vec<Step> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
+        eprintln!("Replaying {} interaction(s)…", args.interact.len());
+        // Ctrl+C/X/V in the page go through the embedder; here that is a string.
+        let mut clipboard = String::new();
+        let mut nav = NavTracker::default();
+        for step in steps {
+            let cmd = match step {
+                Step::Wait(d) => {
+                    std::thread::sleep(d);
+                    while rx_redraw.try_recv().is_ok() {}
+                    continue;
+                }
+                Step::Send(cmd) => cmd,
+            };
+            // MouseUp is in here too: checkbox toggles, submits and drag completion commit on
+            // release, so without the wait the capture can race ahead of the effect.
+            let is_input = matches!(
+                cmd,
+                TabCommand::MouseDown { .. }
+                    | TabCommand::MouseUp { .. }
+                    | TabCommand::KeyDown { .. }
+                    | TabCommand::MouseScroll { .. }
+            );
+            let is_move = matches!(cmd, TabCommand::MouseMove { .. });
+            // Ctrl+C/X/V: wait for the clipboard event (not a possibly stale repaint) first.
+            let clip_chord = match &cmd {
+                TabCommand::KeyDown { key, modifiers, .. }
+                    if modifiers.intersects(Modifiers::CONTROL | Modifiers::META) =>
+                {
+                    match key.as_str() {
+                        "c" | "C" => Some("c"),
+                        "x" | "X" => Some("x"),
+                        "v" | "V" => Some("v"),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            let tab_i = tab.clone();
+            TOKIO_RT.block_on(async move {
+                let _ = tab_i.send(cmd).await;
+            });
+            if is_move {
+                // Swallow the hover repaint so it isn't mistaken for the click's.
+                std::thread::sleep(Duration::from_millis(200));
+                while rx_redraw.try_recv().is_ok() {}
+                continue;
+            }
+            if !is_input {
+                continue;
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut repainted = false;
+            let mut clip_pending = clip_chord.is_some();
+            while Instant::now() < deadline {
+                while let Ok(ev) = event_rx.try_recv() {
+                    match ev {
+                        EngineEvent::ClipboardWrite { text, .. } => {
+                            clipboard = text;
+                            clip_pending = false;
+                        }
+                        EngineEvent::PasteRequested { .. } => {
+                            let tab_i = tab.clone();
+                            let text = clipboard.clone();
+                            TOKIO_RT.block_on(async move {
+                                let _ = tab_i.send(TabCommand::TextInput { text }).await;
+                            });
+                            clip_pending = false;
+                        }
+                        EngineEvent::Navigation { tab_id: tid, event } if tid == tab_id => nav.observe(&event),
+                        _ => {}
+                    }
+                }
+                if clip_pending {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                // A copy changes nothing on screen; cut/paste repaint.
+                if clip_chord == Some("c") {
+                    repainted = true;
+                    break;
+                }
+                if rx_redraw.try_recv().is_ok() {
+                    repainted = true;
+                    std::thread::sleep(Duration::from_millis(100));
+                    while rx_redraw.try_recv().is_ok() {}
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if !repainted {
+                eprintln!("(no repaint observed after interaction - focus state may be unchanged)");
+            }
+        }
+
+        // A submit or link click navigates. `Started` is queued asynchronously, so it can trail
+        // the repaint accepted above (the button's own active state); give it a moment to land
+        // before concluding that nothing is loading.
+        let grace = Instant::now() + Duration::from_millis(300);
+        while nav.idle() && Instant::now() < grace {
+            while let Ok(ev) = event_rx.try_recv() {
+                if let EngineEvent::Navigation { tab_id: tid, event } = ev {
+                    if tid == tab_id {
+                        nav.observe(&event);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        if !nav.idle() {
+            eprintln!("Replayed interaction navigated; waiting for it to finish…");
+            let nav_deadline = Instant::now() + Duration::from_secs(args.nav_timeout);
+            while !nav.in_flight.is_empty() {
+                if Instant::now() >= nav_deadline {
+                    eprintln!("Timeout waiting for the replayed navigation ({}s)", args.nav_timeout);
+                    std::process::exit(1);
+                }
+                while let Ok(ev) = event_rx.try_recv() {
+                    if let EngineEvent::Navigation { tab_id: tid, event } = ev {
+                        if tid == tab_id {
+                            nav.observe(&event);
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            // Let a trailing repaint land if one is still coming, but don't *require* it: a fast
+            // navigation (anything local) is already painted by the time `Finished` arrives, so
+            // no further redraw is owed and waiting for one would stall until the render timeout.
+            let settle = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < settle && rx_redraw.try_recv().is_err() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            while rx_redraw.try_recv().is_ok() {}
+            eprintln!("Replayed navigation settled.");
+        }
     }
 
     let phase1_handle = compositor.frame_for(tab_id);
@@ -243,6 +594,7 @@ fn main() {
             .send(TabCommand::MouseScroll {
                 delta_x: 0.0,
                 delta_y: 1.0,
+                precise: false,
             })
             .await;
     });
@@ -270,7 +622,7 @@ fn main() {
     };
 
     let page_w = viewport_w;
-    let page_h = (page_height_f.ceil() as u32).max(1);
+    let page_h = (page_height_f.ceil() as u32).max(1).max(args.min_height);
 
     eprintln!(
         "Page size: {}×{} px. Compositing {} tile(s)…",
@@ -279,8 +631,37 @@ fn main() {
         tiles.len()
     );
 
-    // Fill with opaque white, then alpha-blend each tile (premultiplied).
-    let mut pixels = vec![255u8; (page_w * page_h * 4) as usize];
+    // With a realistic `--viewport-height` the engine only rasters a window around the scroll
+    // position, so the tile cache covers part of the page. Composite what exists; the rest of
+    // the buffer keeps the opaque white it is initialised to below, and the line here says how
+    // far the tiles reach, so a short capture is never mistaken for a blank page.
+    let covered = tiles
+        .iter()
+        .map(|t| f64::from(t.page_y) + f64::from(t.height))
+        .fold(0.0_f64, f64::max);
+    if covered.ceil() < f64::from(page_h) {
+        eprintln!(
+            "Only the rastered window is present: tiles reach y={} of {page_h} px; the rest stays blank.",
+            covered.ceil() as u32
+        );
+    }
+
+    // Fill with opaque white, then alpha-blend each tile (premultiplied). The height can now
+    // come from the command line, so the size arithmetic is checked: `page_w * page_h * 4`
+    // silently wraps in release for a large enough --min-height, and the wrapped length would
+    // hand every tile copy below an out-of-bounds slice.
+    let Some(buf_len) = (page_w as usize)
+        .checked_mul(page_h as usize)
+        .and_then(|n| n.checked_mul(4))
+        .filter(|&n| n <= MAX_CAPTURE_BYTES)
+    else {
+        eprintln!(
+            "Capture of {page_w}x{page_h} px exceeds the supported size ({} MiB); lower the width or --min-height.",
+            MAX_CAPTURE_BYTES / (1024 * 1024)
+        );
+        std::process::exit(1);
+    };
+    let mut pixels = vec![255u8; buf_len];
 
     for tile in tiles.iter() {
         let tx = tile.page_x as u32;

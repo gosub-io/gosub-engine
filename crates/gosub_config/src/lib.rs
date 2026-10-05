@@ -36,10 +36,8 @@ pub trait StorageAdapter: Send + Sync {
     /// setting.
     fn all(&self) -> Result<HashMap<String, Setting>>;
 
-    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every `set`
-    /// (or that do not persist at all, like the in-memory adapter) treat this as a no-op. It exists so
-    /// callers can request an explicit durability point and so adapters can later batch writes without
-    /// changing the trait.
+    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every
+    /// `set` (or not at all, like the in-memory adapter) treat this as a no-op.
     fn flush(&self) -> Result<()> {
         Ok(())
     }
@@ -64,8 +62,7 @@ struct Subscription {
 
 /// A shareable handle to a configuration store. Cloning is cheap (an `Arc` bump); all clones refer
 /// to the same underlying store, so subscriptions and writes made through one clone are visible to
-/// the others. This is the per-engine entry point to configuration - construct one and hand clones
-/// to whichever components need it.
+/// the others.
 #[derive(Clone)]
 pub struct Config(Arc<RwLock<ConfigStore>>);
 
@@ -95,15 +92,11 @@ impl Config {
 
     /// Merges every setting from `other` into this config under an optional namespace.
     ///
-    /// Each of `other`'s settings is registered here with key `"{namespace}.{key}"` (or just
-    /// `key` when `namespace` is empty), carrying over its description, default, constraint and
-    /// *current* value. For example, merging a user-agent config under `"user_agent"` turns its
-    /// `tabs.close_position` into `user_agent.tabs.close_position`.
-    ///
-    /// This is a one-time snapshot copy, not a live link: later changes in `other` are not
-    /// reflected here. Keys that already exist are left untouched (and logged). Merged settings
-    /// live in memory only; they are not written to this config's storage adapter unless later
-    /// `set`. Returns the number of settings actually merged.
+    /// Each of `other`'s settings is registered here as `"{namespace}.{key}"` (or bare `key` when
+    /// `namespace` is empty), carrying over its description, default, constraint and current value.
+    /// One-time snapshot, not a live link: later changes in `other` are not reflected here. Keys
+    /// that already exist are left untouched (and logged). Merged settings are not written to this
+    /// config's storage adapter unless later `set`. Returns the number of settings merged.
     pub fn merge(&self, other: &Config, namespace: &str) -> usize {
         // Snapshot `other` first (its read guard is released at the end of this statement) so that
         // acquiring our own write lock can never overlap with it - safe even if `other` is a clone
@@ -125,6 +118,25 @@ impl Config {
         let fire = {
             let store = self.0.write();
             store.set(key, value)?.map(|value| {
+                let callbacks = store.matching_callbacks(key);
+                (value, callbacks)
+            })
+        };
+        if let Some((value, callbacks)) = fire {
+            for callback in callbacks {
+                callback(key, &value);
+            }
+        }
+        Ok(())
+    }
+
+    /// Sets a setting for this run only: validated and subscribers notified like [`set`](Self::set),
+    /// but never written to storage. For values the engine resolves per process/platform, which
+    /// must not become the user's persisted choice.
+    pub fn set_transient(&self, key: &str, value: Setting) -> Result<()> {
+        let fire = {
+            let store = self.0.write();
+            store.set_transient(key, value)?.map(|value| {
                 let callbacks = store.matching_callbacks(key);
                 (value, callbacks)
             })
@@ -164,6 +176,13 @@ impl Config {
     #[must_use]
     pub fn has(&self, key: &str) -> bool {
         self.0.read().has(key)
+    }
+
+    /// Returns true when the given key was explicitly set (or loaded from
+    /// storage), even to a value equal to its default.
+    #[must_use]
+    pub fn is_overridden(&self, key: &str) -> bool {
+        self.0.read().is_overridden(key)
     }
 
     /// Returns the keys matching the given wildcard search (`*`/`?`).
@@ -246,9 +265,6 @@ impl Config {
 /// Grants access to a [`Config`] handle. Subsystems that only need to read or watch settings
 /// should bound on `T: HasConfig` rather than taking a concrete context type, so they stay
 /// decoupled from how the engine is assembled.
-///
-/// A bare [`Config`] implements this (returning itself), and a runtime context that owns a
-/// `Config` implements it by returning a reference to that field.
 pub trait HasConfig {
     /// Returns the configuration handle.
     fn config(&self) -> &Config;
@@ -317,6 +333,14 @@ impl ConfigStore {
         self.settings.lock().contains_key(key)
     }
 
+    /// Returns true when the given key holds a value that was set (or loaded
+    /// from storage), not just its schema default. `get` and `has` cannot tell
+    /// the two apart: every default is seeded into the live settings, and an
+    /// explicit value can equal the default.
+    pub fn is_overridden(&self, key: &str) -> bool {
+        matches!(self.storage.get(key), Ok(Some(_)))
+    }
+
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
     /// wildcards.
     pub fn find(&self, search: &str) -> Vec<String> {
@@ -364,7 +388,25 @@ impl ConfigStore {
     /// settings-info entry and satisfy its type and constraint, otherwise an error is returned.
     /// Returns `Ok(Some(value))` when the value actually changed (so the caller should notify
     /// subscribers), or `Ok(None)` when the value was already set to `value`.
+    ///
+    /// Storage is written before the live value changes: when it fails, nothing changed, so
+    /// no caller reads a value that was never persisted and that subscribers never heard of.
     pub fn set(&self, key: &str, value: Setting) -> Result<Option<Setting>> {
+        self.validate(key, &value)?;
+        self.storage.set(key, value.clone())?;
+        Ok(self.set_in_memory(key, value))
+    }
+
+    /// [`set`](Self::set) without the write to storage: the value holds until the process exits
+    /// or the key is set again.
+    pub fn set_transient(&self, key: &str, value: Setting) -> Result<Option<Setting>> {
+        self.validate(key, &value)?;
+        Ok(self.set_in_memory(key, value))
+    }
+
+    /// Whether `value` may be stored under `key`: a known key, the right type, and within
+    /// its constraint.
+    fn validate(&self, key: &str, value: &Setting) -> Result<()> {
         let info = if let Some(info) = self.settings_info.get(key) {
             info
         } else {
@@ -372,7 +414,7 @@ impl ConfigStore {
             return Err(Error::Config(format!("Setting {key} is not known")));
         };
 
-        if mem::discriminant(&info.default) != mem::discriminant(&value) {
+        if mem::discriminant(&info.default) != mem::discriminant(value) {
             warn!("config: Setting {key} is of different type than setting expects");
             return Err(Error::Config(format!(
                 "Setting {key} is of different type than expected"
@@ -380,7 +422,7 @@ impl ConfigStore {
         }
 
         if let Some(constraint) = &info.constraint {
-            if !constraint.allows(&value) {
+            if !constraint.allows(value) {
                 warn!("config: Setting {key} value {value} violates its constraint");
                 return Err(Error::Config(format!(
                     "Setting {key} value is not allowed by its constraint"
@@ -388,15 +430,18 @@ impl ConfigStore {
             }
         }
 
+        Ok(())
+    }
+
+    /// Install an already validated value; `Some(value)` when it differs from what was there.
+    fn set_in_memory(&self, key: &str, value: Setting) -> Option<Setting> {
         let changed = {
             let mut settings = self.settings.lock();
             let changed = settings.get(key) != Some(&value);
             settings.insert(key.to_owned(), value.clone());
             changed
         };
-        self.storage.set(key, value.clone())?;
-
-        Ok(changed.then_some(value))
+        changed.then_some(value)
     }
 
     /// Removes the stored override for the given key, reverting it back to its default value. The key
@@ -542,6 +587,79 @@ mod test {
         ])
     }
 
+    /// A transient value is live for this process and notifies subscribers, but a store
+    /// attached to the same storage afterwards must not see it: it was never persisted.
+    #[test]
+    fn set_transient_does_not_reach_storage() {
+        let storage = Arc::new(MemoryStorageAdapter::new());
+        let cfg = Config::with_storage(
+            [info("dns.local.enabled", "b:true", None)],
+            Box::new(SharedStorage(storage.clone())),
+        );
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_cb = seen.clone();
+        cfg.subscribe("dns.*", move |key, value| {
+            seen_cb.lock().push((key.to_string(), value.clone()))
+        });
+
+        cfg.set_transient("dns.local.enabled", Setting::Bool(false)).unwrap();
+        assert_eq!(cfg.get("dns.local.enabled").unwrap().unwrap(), Setting::Bool(false));
+        assert_eq!(seen.lock().len(), 1);
+        assert!(storage.get("dns.local.enabled").unwrap().is_none(), "must not persist");
+
+        // Still validated like a real set.
+        assert!(cfg.set_transient("dns.local.enabled", Setting::UInt(1)).is_err());
+    }
+
+    /// A failed write to storage changes nothing: the live value stays what it was, and no
+    /// subscriber hears of a value that was never persisted.
+    #[test]
+    fn a_failed_storage_write_leaves_the_setting_unchanged() {
+        struct FailingStorage;
+        impl StorageAdapter for FailingStorage {
+            fn get(&self, _key: &str) -> Result<Option<Setting>> {
+                Ok(None)
+            }
+            fn set(&self, _key: &str, _value: Setting) -> Result<()> {
+                Err(Error::Config("disk full".into()))
+            }
+            fn remove(&self, _key: &str) -> Result<()> {
+                Ok(())
+            }
+            fn all(&self) -> Result<HashMap<String, Setting>> {
+                Ok(HashMap::new())
+            }
+        }
+
+        let cfg = Config::with_storage([info("dns.local.enabled", "b:true", None)], Box::new(FailingStorage));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_cb = seen.clone();
+        cfg.subscribe("dns.*", move |key, value| {
+            seen_cb.lock().push((key.to_string(), value.clone()))
+        });
+
+        assert!(cfg.set("dns.local.enabled", Setting::Bool(false)).is_err());
+        assert_eq!(cfg.get("dns.local.enabled").unwrap().unwrap(), Setting::Bool(true));
+        assert!(seen.lock().is_empty());
+    }
+
+    /// Forwards to a shared adapter so a test can inspect what a store persisted.
+    struct SharedStorage(Arc<MemoryStorageAdapter>);
+    impl StorageAdapter for SharedStorage {
+        fn get(&self, key: &str) -> Result<Option<Setting>> {
+            self.0.get(key)
+        }
+        fn set(&self, key: &str, value: Setting) -> Result<()> {
+            self.0.set(key, value)
+        }
+        fn remove(&self, key: &str) -> Result<()> {
+            self.0.remove(key)
+        }
+        fn all(&self) -> Result<HashMap<String, Setting>> {
+            self.0.all()
+        }
+    }
+
     #[test]
     fn get_and_set() {
         let cfg = test_config();
@@ -551,6 +669,27 @@ mod test {
 
         cfg.set("dns.local.enabled", Setting::Bool(false)).unwrap();
         assert_eq!(cfg.get("dns.local.enabled").unwrap().unwrap(), Setting::Bool(false));
+    }
+
+    #[test]
+    fn an_explicit_value_equal_to_the_default_is_an_override() {
+        let cfg = test_config();
+        assert!(
+            !cfg.is_overridden("dns.local.enabled"),
+            "a schema default is not an override"
+        );
+
+        cfg.set("dns.local.enabled", Setting::Bool(true)).unwrap();
+        assert!(
+            cfg.is_overridden("dns.local.enabled"),
+            "set to its default, still chosen"
+        );
+
+        cfg.remove("dns.local.enabled").unwrap();
+        assert!(
+            !cfg.is_overridden("dns.local.enabled"),
+            "removed reverts to the default"
+        );
     }
 
     #[test]

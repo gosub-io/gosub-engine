@@ -76,7 +76,7 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 │                    NETWORK LAYER                               │
 │                                                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐   │
-│  │    fetch     │  │ shared_body  │  │   decision_hub      │   │
+│  │    fetch     │  │ shared_body  │  │      decision       │   │
 │  │  (HTTP I/O)  │  │ (Streaming)  │  │ (Content sniffing)  │   │
 │  └──────────────┘  └──────────────┘  └─────────────────────┘   │
 │                                                                │

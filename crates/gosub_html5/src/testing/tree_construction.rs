@@ -1,5 +1,5 @@
 pub mod fixture;
-mod generator;
+pub mod generator;
 pub mod parser;
 pub mod result;
 

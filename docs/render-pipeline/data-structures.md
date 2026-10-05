@@ -35,11 +35,10 @@ pub trait PipelineDocument: Send + Sync {
     fn tag_name(&self, id: NodeId) -> Option<String>;
     fn is_display_none(&self, id: NodeId) -> bool;
     fn parent(&self, id: NodeId) -> Option<NodeId>;
-    /// Own (non-inherited) value — the trait's style primitive.
-    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
-    // Provided methods layered on top of get_own_style:
-    fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value;      // + inheritance, initial values, em/rem→px
-    fn get_style_f32(&self, id: NodeId, prop: &StyleProperty) -> f32;
+    /// The node's whole computed style: one typed field per property, every one of them
+    /// holding a value (own, inherited, or the property's initial). `ComputedStyle::has`
+    /// answers whether the element's own cascade said anything about a property.
+    fn computed_style(&self, id: NodeId) -> Arc<ComputedStyle>;
     fn html_node_id(&self) -> Option<NodeId>;
     fn body_node_id(&self) -> Option<NodeId>;
     fn base_url(&self) -> String;
@@ -81,7 +80,7 @@ pub struct RenderNode {
 ```
 
 The render tree is a lightweight mirror of the visible DOM. It holds no style
-data itself — style queries go through `doc.get_style()` on demand.
+data itself — style queries go through `doc.computed_style()` on demand.
 
 ---
 

@@ -26,7 +26,7 @@ impl Css3<'_> {
                     list.push(Node::new(NodeType::Ident { value: ident }, t.location));
                 }
                 TokenType::LParen => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
 
                     let term = match kind {
                         FeatureKind::Media => self.parse_media_feature_or_range(kind.clone()),
@@ -53,7 +53,7 @@ impl Css3<'_> {
                     list.push(term);
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
             }

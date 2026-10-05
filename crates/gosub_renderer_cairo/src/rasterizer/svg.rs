@@ -15,7 +15,10 @@ pub(crate) fn do_paint_svg(
     dpr: i32,
 ) {
     log::debug!("Painting SVG: {:?}", media_id);
-    let media = media_store.get_svg(media_id);
+    // No SVG and no placeholder to stand in for it, so there is nothing to draw.
+    let Some(media) = media_store.get_svg(media_id) else {
+        return;
+    };
 
     let target_dim = rect.rect().dimension();
 

@@ -54,7 +54,7 @@ pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf_map! {
     0x95_u32 => '\u{2022}',
     // EN DASH (–)
     0x96_u32 => '\u{2013}',
-    // EM DASH (—)
+    // EM DASH (-)
     0x97_u32 => '\u{2014}',
     // SMALL TILDE (˜)
     0x98_u32 => '\u{02DC}',

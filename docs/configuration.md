@@ -1,6 +1,6 @@
 # Configuration: choosing your components
 
-`GosubEngine` is generic over a single *configuration* type that names every pluggable component at compile time. There is no runtime registry --- naming a component (e.g. `CairoBackend`) is what pulls that crate into your build. This page explains how to pick the right config when you embed the engine.
+`GosubEngine` is generic over a single *configuration* type that names every pluggable component at compile time. There is no runtime registry — naming a component (e.g. `CairoBackend`) is what pulls that crate into your build. This page explains how to pick the right config when you embed the engine.
 
 ## The two layers
 
@@ -25,7 +25,7 @@ You almost never implement those traits by hand. `DefaultRenderConfig<B, F, S>` 
 | `F`   | font system     | `ParleyFontSystem`  |
 | `S`   | compositor sink | `DefaultCompositor` |
 
-With no parameters, `DefaultRenderConfig` is the headless `DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>` --- that's why headless examples need no backend choice.
+With no parameters, `DefaultRenderConfig` is the headless `DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>` — that's why headless examples need no backend choice.
 
 ## Starting a browser that renders
 
@@ -42,7 +42,7 @@ type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
 let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor);
 ```
 
-Every GUI example follows this pattern --- see `examples/winit-cairo/main.rs`, `examples/egui-vello/main.rs`, etc., and [`examples.md`](examples.md) for the full list.
+Every GUI example follows this pattern — see `examples/winit-cairo/main.rs`, `examples/egui-vello/main.rs`, etc., and [`examples.md`](examples.md) for the full list.
 
 ## Available backends
 
@@ -53,10 +53,8 @@ Every GUI example follows this pattern --- see `examples/winit-cairo/main.rs`, `
 | `SkiaBackend`  | `gosub_renderer_skia`   | CPU or GPU; pairs with `SkiaFontSystem`             |
 | `VelloBackend` | `gosub_renderer_vello`  | GPU via wgpu; generic over a `WgpuContextProvider`  |
 
-> **Skia build times.** `skia-safe` downloads a prebuilt Skia only when the enabled feature set matches a published binary bundle exactly; any other union silently compiles Skia's C++ from source (~15 minutes). Depending on `gosub_renderer_skia` alone gives you the in-tree set (`svg`, `wayland`, `x11`, `textlayout`). If you add `skia-safe` to your own `Cargo.toml`, don't enable extra features (`gl`, `vulkan`, …) unless you've checked the bundle list.
-
 ## Going fully custom
 
 If you need a different CSS/DOM/parser stack (not just a different backend), implement `ModuleConfiguration` + `RenderConfiguration` on your own zero-sized marker type instead of using `DefaultRenderConfig`. See the trait definitions in `crates/gosub_engine/src/html.rs`.
 
-> The authoritative API reference lives in the `gosub_engine` crate docs --- run `cargo doc -p gosub_engine --open` and read the crate-level "Configuration" section.
+> The authoritative API reference lives in the `gosub_engine` crate docs — run `cargo doc -p gosub_engine --open` and read the crate-level "Configuration" section.

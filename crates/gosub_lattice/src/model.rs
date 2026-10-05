@@ -15,7 +15,7 @@ pub struct TableModel<N> {
     pub sizing: TableSizing,
     pub border_collapse: BorderCollapse,
     /// `border-spacing` horizontal and vertical values in pixels.
-    pub border_spacing: (f32, f32),
+    pub border_spacing: (f64, f64),
 }
 
 pub struct ColGroup<N> {
@@ -40,7 +40,9 @@ pub struct SourceCell<N> {
     pub node: N,
     /// Effective colspan (always >= 1).
     pub colspan: usize,
-    /// Effective rowspan (always >= 1, clamped per section by the grid builder).
+    /// Rowspan as authored: `0` is the HTML sentinel for "span all remaining
+    /// rows of the row group". The grid builder resolves it and clamps every
+    /// span to the section boundary (spans never cross into another section).
     pub rowspan: usize,
 }
 
@@ -62,6 +64,10 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
         border_spacing: parse_border_spacing(tree, table_node),
     };
 
+    // Consecutive non-table children share one anonymous cell, so only the first of a run
+    // opens one; the rest are already inside it.
+    let mut in_anonymous_run = false;
+
     for child in tree.children(table_node) {
         match tree.table_role(child) {
             TableRole::Caption => {
@@ -81,20 +87,58 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             TableRole::FooterGroup => {
                 model.footer_groups.push(build_row_group(tree, child));
             }
-            // Bare row directly inside the table → anonymous tbody
+            // Bare row directly inside the table -> anonymous tbody
             TableRole::Row => {
-                let group = anon_body_group(&mut model.row_groups);
-                group.rows.push(build_row(tree, child));
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    group.rows.push(build_row(tree, child));
+                }
             }
-            // Bare cell directly inside the table → anonymous row inside anonymous tbody
+            // Bare cell directly inside the table -> anonymous row inside anonymous tbody
             TableRole::Cell => {
-                let group = anon_body_group(&mut model.row_groups);
-                let row = anon_row(&mut group.rows);
-                row.cells.push(build_source_cell(tree, child));
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    ensure_anon_row(&mut group.rows);
+                    if let Some(row) = group.rows.last_mut() {
+                        row.cells.push(build_source_cell(tree, child));
+                    }
+                }
             }
-            // Column, Other - not direct children of the table box
-            TableRole::Table | TableRole::Column | TableRole::Other => {}
+            // Content that is not part of the table structure: CSS 2.1 §17.2.1 wraps each
+            // consecutive run of it in one anonymous cell, inside an anonymous row and body
+            // group. That is what makes `display: table` usable as a plain shrink-to-fit box -
+            // Wikipedia thumbnails are `figure { display: table }` around a link and a caption,
+            // and without the fixup such a table has no columns at all and computes to 0x0.
+            //
+            // An anonymous cell has no node of its own, and the layout tree is addressed by
+            // node, so the run's first child stands in for it. That is exact for a run of one,
+            // which is the shape that occurs in practice.
+            //
+            // KNOWN LIMIT: for a longer run only that first child is measured and positioned by
+            // the table - the rest keep whatever the layout engine gave them inside the table's
+            // box. Representing the whole run needs either a synthetic node id, which the
+            // `TableTree` contract has no way to mint, or a cell that carries several nodes.
+            TableRole::Other => {
+                ensure_anon_body_group(&mut model.row_groups);
+                if let Some(group) = model.row_groups.last_mut() {
+                    ensure_anon_row(&mut group.rows);
+                    if in_anonymous_run {
+                        continue;
+                    }
+                    if let Some(row) = group.rows.last_mut() {
+                        row.cells.push(SourceCell {
+                            node: child,
+                            colspan: 1,
+                            rowspan: 1,
+                        });
+                    }
+                }
+                in_anonymous_run = true;
+                continue;
+            }
+            TableRole::Table | TableRole::Column => {}
         }
+        in_anonymous_run = false;
     }
 
     model
@@ -121,10 +165,12 @@ fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeI
     for child in tree.children(node) {
         match tree.table_role(child) {
             TableRole::Row => group.rows.push(build_row(tree, child)),
-            // Cell directly inside row group → anonymous row
+            // Cell directly inside row group -> anonymous row
             TableRole::Cell => {
-                let row = anon_row(&mut group.rows);
-                row.cells.push(build_source_cell(tree, child));
+                ensure_anon_row(&mut group.rows);
+                if let Some(row) = group.rows.last_mut() {
+                    row.cells.push(build_source_cell(tree, child));
+                }
             }
             _ => {}
         }
@@ -147,33 +193,33 @@ fn build_row<T: TableTree>(tree: &T, node: T::NodeId) -> TableRow<T::NodeId> {
 
 fn build_source_cell<T: TableTree>(tree: &T, node: T::NodeId) -> SourceCell<T::NodeId> {
     let colspan = tree.attr_usize(node, "colspan").unwrap_or(1).max(1);
-    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1).max(1);
+    // rowspan=0 is kept as-is: HTML's "span all remaining rows of the group".
+    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1);
     SourceCell { node, colspan, rowspan }
 }
 
-/// Returns the last anonymous body group, creating one if needed.
-fn anon_body_group<N>(groups: &mut Vec<RowGroup<N>>) -> &mut RowGroup<N> {
-    if groups.last().map(|g| g.node.is_none()).unwrap_or(false) {
-        groups.last_mut().unwrap_or_else(|| unreachable!())
-    } else {
+/// Makes the last group an anonymous body group, starting one if it is not.
+///
+/// These used to *return* the group, which meant fetching it back out of the vector after
+/// pushing it and answering the `Option` that comes back with an `unreachable!()` - four of
+/// them across two functions. Ensuring and then reading are separate steps now, so the caller
+/// does the read it was going to do anyway and there is nothing left to assert.
+fn ensure_anon_body_group<N>(groups: &mut Vec<RowGroup<N>>) {
+    if !groups.last().is_some_and(|group| group.node.is_none()) {
         groups.push(RowGroup {
             node: None,
             rows: Vec::new(),
         });
-        groups.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
-/// Returns the last anonymous row in `rows`, creating one if needed.
-fn anon_row<N>(rows: &mut Vec<TableRow<N>>) -> &mut TableRow<N> {
-    if rows.last().map(|r| r.node.is_none()).unwrap_or(false) {
-        rows.last_mut().unwrap_or_else(|| unreachable!())
-    } else {
+/// Makes the last row in `rows` an anonymous row, starting one if it is not.
+fn ensure_anon_row<N>(rows: &mut Vec<TableRow<N>>) {
+    if !rows.last().is_some_and(|row| row.node.is_none()) {
         rows.push(TableRow {
             node: None,
             cells: Vec::new(),
         });
-        rows.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
@@ -193,7 +239,7 @@ fn parse_border_collapse<T: TableTree>(tree: &T, node: T::NodeId) -> BorderColla
     }
 }
 
-fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f32, f32) {
+fn parse_border_spacing<T: TableTree>(tree: &T, node: T::NodeId) -> (f64, f64) {
     let x = tree.css_length(node, CssProp::BorderSpacingX).px_or(2.0);
     let y = tree.css_length(node, CssProp::BorderSpacingY).px_or(2.0);
     (x, y)

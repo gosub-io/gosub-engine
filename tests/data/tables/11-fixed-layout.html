@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>11 - table-layout: fixed</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; table-layout: fixed; width: 600px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .w150 { width: 150px; background-color: #ffd9b3; }
+</style>
+</head>
+<body>
+<h3>table-layout: fixed - widths from row 1 only, content ignored</h3>
+<p>Expected: column 1 is 150px, columns 2 and 3 split the remaining space
+equally. The very long word in row 2 must NOT widen its column (it
+overflows or clips instead) - under fixed layout content never affects
+column width. The 900px width on the row-2 cell must be ignored (only row
+1 counts).</p>
+<table>
+  <tr><td class="w150">150px</td><td>auto</td><td>auto</td></tr>
+  <tr>
+    <td>short</td>
+    <td>Supercalifragilisticexpialidocious-antidisestablishmentarianism</td>
+    <td style="width: 900px;">900px here is ignored</td>
+  </tr>
+</table>
+</body>
+</html>

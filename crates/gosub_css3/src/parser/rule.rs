@@ -14,7 +14,7 @@ impl Css3<'_> {
         match self.parse_rule_internal() {
             Ok(rule_node) => Ok(Some(rule_node)),
             Err(err) if self.config.ignore_errors => {
-                self.parse_until_rule_end();
+                self.recover_from_rule_error();
                 log::warn!("Ignoring error in parse_rule: {err:?}");
                 Ok(None)
             }
@@ -36,8 +36,8 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::Rule {
-                prelude: Some(prelude),
-                block: Some(block),
+                prelude: Some(Box::new(prelude)),
+                block: Some(Box::new(block)),
             },
             loc,
         ))

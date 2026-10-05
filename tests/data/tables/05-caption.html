@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>05 - captions</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  caption { background-color: #fff3c4; padding: 4px; }
+  .bottom caption { caption-side: bottom; }
+</style>
+</head>
+<body>
+<h3>Captions - default (top) and caption-side: bottom</h3>
+<p>Expected: first table shows the yellow caption above the grid, second
+shows it below. The caption spans the table width and is part of the
+table's total height.</p>
+
+<table>
+  <caption>Caption on top (default)</caption>
+  <tr><td>one</td><td>two</td></tr>
+  <tr><td>three</td><td>four</td></tr>
+</table>
+
+<br>
+
+<table class="bottom">
+  <caption>Caption on the bottom</caption>
+  <tr><td>one</td><td>two</td></tr>
+  <tr><td>three</td><td>four</td></tr>
+</table>
+</body>
+</html>

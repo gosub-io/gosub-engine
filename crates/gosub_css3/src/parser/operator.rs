@@ -14,7 +14,7 @@ impl Css3<'_> {
         if let TokenType::Delim(c) = operator.token_type {
             match &c {
                 '/' | '*' | ',' | ':' | '+' | '-' | '=' => {
-                    return Ok(Node::new(NodeType::Operator(c.to_string()), loc));
+                    return Ok(Node::new(NodeType::operator(c.to_string()), loc));
                 }
                 _ => {}
             }

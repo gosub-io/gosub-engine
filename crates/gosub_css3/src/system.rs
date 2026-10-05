@@ -1,13 +1,18 @@
 use crate::functions::attr::resolve_attr;
-use crate::functions::math::resolve_math;
-use crate::functions::var::resolve_var;
+use crate::functions::env::resolve_env;
+use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
+use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
+use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
+use crate::matcher::property_ids::{LonghandId, PropertyId};
 use crate::matcher::shorthands::{FixList, FixListInfo};
-use crate::matcher::styling::{cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty};
-use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
-use crate::{load_default_useragent_stylesheet, Css3};
-use cow_utils::CowUtils;
+use crate::matcher::styling::{
+    cascade_rank, css_wide_keyword, match_selector, CssProperties, CssProperty, CssWide, DeclarationProperty,
+    InheritedLineHeight, ScopeContext, ScopeMatch, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT_PX,
+};
+use crate::stylesheet::{reduce_function, CssDeclaration, CssStylesheet, CssValue, Specificity};
+use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
@@ -20,24 +25,41 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
-/// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
-/// the unprefixed form. E.g. "-webkit-match-parent" → "match-parent".
-fn strip_vendor_prefix(s: &str) -> &str {
-    for prefix in &["-webkit-", "-moz-", "-ms-", "-o-"] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            return rest;
-        }
-    }
-    s
+/// Where a custom property declaration sorts: the cascade's steps, in order, as one key.
+type CustomRank = (u8, u16, bool, u32, Specificity);
+
+/// A rule that matched the element, with everything the cascade needs to rank it.
+struct MatchedRule<'a> {
+    sheet: &'a CssStylesheet,
+    rule: &'a crate::stylesheet::CssRule,
+    /// The highest specificity among the rule's selectors that matched.
+    specificity: Specificity,
+    /// How many shadow boundaries deep the declaring sheet sits.
+    depth: u16,
+    /// The rule's cascade layer, as an index into its own sheet's list.
+    layer: Option<u32>,
+    /// Whether this is the element's `style` attribute rather than a stylesheet rule.
+    attached: bool,
 }
 
-/// Recursively normalize vendor-prefixed string values to their standard form.
-fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
-    match value {
-        CssValue::String(s) => CssValue::String(strip_vendor_prefix(&s).to_string()),
-        CssValue::List(values) => CssValue::List(values.into_iter().map(normalize_vendor_prefixes).collect()),
-        other => other,
+/// A layer rank as the cascade sorts it: unlayered is the top of the order for a normal
+/// declaration and the bottom for an important one, and the layers run in opposite directions
+/// for the two (css-cascade-5 §6.4.1).
+fn layer_sort_key(layer: Option<u32>, important: bool) -> u32 {
+    match (layer, important) {
+        (None, false) => u32::MAX,
+        (None, true) => 0,
+        (Some(layer), false) => layer.saturating_add(1),
+        (Some(layer), true) => u32::MAX.saturating_sub(layer).saturating_sub(1),
     }
+}
+
+thread_local! {
+    /// The buffer [`compute_properties`] hands the selector index, kept between elements so
+    /// that styling a page allocates it once rather than once per element and sheet. Taken
+    /// out and put back rather than borrowed, so that a re-entrant call would merely get a
+    /// buffer of its own instead of failing.
+    static CANDIDATES: std::cell::Cell<Vec<usize>> = const { std::cell::Cell::new(Vec::new()) };
 }
 
 /// Specificity of the `style` attribute: above any selector.
@@ -48,6 +70,78 @@ fn inline_parser_config() -> ParserConfig {
         ignore_errors: true,
         ..Default::default()
     }
+}
+
+/// How many parsed `style` attributes to keep per thread. A page that reaches this many
+/// *distinct* attribute texts is one where the cache has stopped paying for itself, so the
+/// table is emptied rather than grown or evicted piecemeal.
+const INLINE_SHEET_CACHE_LIMIT: usize = 4096;
+
+thread_local! {
+    /// Parsed `style` attributes, by the attribute's text.
+    ///
+    /// The text is the whole input to the parse, so identical text gives an identical sheet:
+    /// the cache is content-addressed, and script rewriting an attribute simply asks a
+    /// different question. Nothing mutates a sheet once parsed, so one `Arc` serves every
+    /// element that carries the same `style` - and, with it, one expansion of its declarations.
+    ///
+    /// Per thread, like the media environment: a style computation reads the thread's
+    /// environment, so its results belong to that thread.
+    static INLINE_SHEETS: std::cell::RefCell<HashMap<String, Arc<CssStylesheet>>> =
+        std::cell::RefCell::new(HashMap::new());
+
+    /// Parsed presentational hints, by the declaration text the document produced.
+    ///
+    /// A sibling of `INLINE_SHEETS` rather than the same table: the two are the same kind of
+    /// thing - a declaration block parsed once per distinct text - but a page has a handful of
+    /// distinct hint texts against thousands of `style` attributes, and sharing the table would
+    /// let the attributes evict the hints.
+    static HINT_SHEETS: std::cell::RefCell<HashMap<String, Arc<CssStylesheet>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Specificity of a presentational hint: zero, so any selector at all outranks it
+/// (HTML §15.3.1).
+const HINT_SPECIFICITY: Specificity = Specificity::new(0, 0, 0);
+
+/// The `style` attribute as a one-rule stylesheet, so it can join the cascade like any other
+/// rule. Parsed once per distinct attribute text.
+fn inline_stylesheet(style: &str) -> Option<Arc<CssStylesheet>> {
+    INLINE_SHEETS.with(|cache| {
+        if let Some(sheet) = cache.borrow().get(style) {
+            return Some(Arc::clone(sheet));
+        }
+        let sheet =
+            Arc::new(Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()?);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= INLINE_SHEET_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(style.to_string(), Arc::clone(&sheet));
+        Some(sheet)
+    })
+}
+
+/// An element's presentational hints as a one-rule stylesheet, so they join the cascade like
+/// any other rule.
+///
+/// The document writes them as CSS and the real parser reads them back, which is what keeps the
+/// HTML mapping table out of here: this only has to rank what it is handed. Parsed once per
+/// distinct text, of which a page has very few - every `<td>` in a table produces the same one.
+fn hint_stylesheet(hints: &str) -> Option<Arc<CssStylesheet>> {
+    HINT_SHEETS.with(|cache| {
+        if let Some(sheet) = cache.borrow().get(hints) {
+            return Some(Arc::clone(sheet));
+        }
+        let sheet =
+            Arc::new(Css3::parse_str(&format!("*{{{hints}}}"), inline_parser_config(), CssOrigin::Author, "").ok()?);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= INLINE_SHEET_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(hints.to_string(), Arc::clone(&sheet));
+        Some(sheet)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -92,13 +186,71 @@ impl CssSystem for Css3System {
         Some(map)
     }
 
+    fn resolve_imports(sheet: &mut Self::Stylesheet, fetch: &mut gosub_interface::css3::ImportFetcher<'_>) {
+        crate::imports::resolve_imports(sheet, fetch);
+    }
+
+    fn set_stylesheet_scope(sheet: &mut Self::Stylesheet, scope: Option<NodeId>) {
+        sheet.scope = scope;
+    }
+
+    fn style_environment_fingerprint(sheets: &[Self::Stylesheet]) -> Option<u64> {
+        Some(style_environment_fingerprint_impl(sheets))
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
+    }
+
+    fn load_quirks_useragent_stylesheet() -> Option<Self::Stylesheet> {
+        Some(load_quirks_useragent_stylesheet())
     }
 
     fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints {
         hover_fingerprints_impl(sheets)
     }
+}
+
+/// Hash the parts of the environment the cascade reads, so a caller can tell whether a
+/// viewport change actually invalidates computed styles.
+///
+/// Two inputs matter. Media conditions: a resize only restyles if some `@media` condition
+/// flipped. Viewport units: `vw`/`vh` resolve when a declaration is computed, so a sheet
+/// using them is stale after any resize at all.
+///
+/// Distinct `MediaQueryList`s are shared by every rule in their block, so they are evaluated
+/// once each by address rather than once per rule - on a real-world sheet that is ~590
+/// evaluations instead of ~7500.
+fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
+    use std::collections::HashSet;
+    use std::hash::{Hash, Hasher};
+
+    let env = crate::media_query::media_environment();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    let mut uses_viewport_units = false;
+
+    for sheet in sheets {
+        uses_viewport_units |= sheet.uses_viewport_units;
+        for rule in &sheet.rules {
+            let Some(conditions) = &rule.media else {
+                continue;
+            };
+            for list in conditions {
+                // Hash each distinct condition once, in first-seen (rule) order, so the
+                // result is deterministic across runs.
+                if seen.insert(Arc::as_ptr(list) as usize) {
+                    list.matches(&env).hash(&mut hasher);
+                }
+            }
+        }
+    }
+
+    if uses_viewport_units {
+        env.width.to_bits().hash(&mut hasher);
+        env.height.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Shared style-collection core for both real elements (`pseudo == None`) and pseudo-elements
@@ -116,11 +268,27 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 ) -> Option<CssProperties> {
     let mut css_map_entry = CssProperties::new();
 
+    // The element's presentational attributes, as CSS the document wrote. Declared before
+    // `matched`, which borrows from it, and before the unrenderable check, which it survives.
+    let hint_sheet = pseudo
+        .is_none()
+        .then(|| doc.presentational_hints(id))
+        .flatten()
+        .and_then(|hints| hint_stylesheet(&hints));
+
     // The unrenderable check applies to real elements only; a pseudo-element is generated
     // content hanging off a (renderable) originating element.
-    if pseudo.is_none() && node_is_unrenderable::<C>(doc, id) {
+    //
+    // A hint outlives it. What the check skips is *selector matching* - no rule is expected to
+    // reach a `<head>` or a `<title>` - but an element's own attributes describe it whatever
+    // the sheets say, and `<svg>` is on the list while still being laid out. That used to work
+    // because the presentational attributes were applied to the computed style after the
+    // cascade had run, so an element with no map at all still got them.
+    let matches_rules = pseudo.is_some() || !node_is_unrenderable::<C>(doc, id);
+    if !matches_rules && hint_sheet.is_none() {
         return None;
     }
+    let sheets: &[CssStylesheet] = if matches_rules { sheets } else { &[] };
 
     let definitions = get_css_definitions();
 
@@ -130,91 +298,214 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         id: doc.attribute(id, "id"),
         classes: doc.attribute(id, "class").unwrap_or(""),
         tag: doc.tag_name(id),
+        attributes: doc.attributes(id),
+        pseudo,
     };
-    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity)> = Vec::new();
+    // The `style` attribute, parsed as a one-rule stylesheet so it can join the cascade as a
+    // rule like any other. Declared before `matched` so it outlives the borrows taken of it.
+    //
+    // It used to be parsed only when it contained a `--`, and only its custom properties were
+    // read: the render pipeline layered the ordinary declarations on afterwards, outside the
+    // cascade entirely. Anything else asking the cascade what an element computes to - which is
+    // to say `getComputedStyle` - therefore could not see a single thing set through
+    // `element.style`.
+    let inline_sheet = matches_rules
+        .then(|| doc.attribute(id, "style"))
+        .flatten()
+        .filter(|style| !style.trim().is_empty())
+        .and_then(inline_stylesheet);
+
+    let mut matched: Vec<MatchedRule<'_>> = Vec::new();
+    // Media conditions hold for the whole pass, so read the environment once rather than per
+    // rule. Unconditional rules never look at it.
+    let media_env = crate::media_query::media_environment();
+    // Which tree this element lives in decides which sheets may reach it at all.
+    let element_scope = tree_scope::<C>(doc, id);
+    // What the elements above this one carry, so that a selector requiring an ancestor class or
+    // id that none of them has is dropped before the matcher walks the chain to find that out.
+    //
+    // Built at most once per element, and only when some candidate rule actually asks about an
+    // ancestor: on a page whose sheets are all single-compound selectors the filter would answer
+    // "maybe" whatever it held, and building it would be pure cost. `inherited` is what lets the
+    // build be a copy and one node's keys rather than a walk of the whole chain.
+    let known = inherited.and_then(|map| Some((map.node?, map.ancestors.as_ref()?)));
+    let mut ancestors: Option<Arc<AncestorFilter>> = None;
+
+    // Presentational hints go in first, and nothing else has been collected yet, so they take
+    // the lowest document-order positions of the pass. That is where HTML §15.3.1 puts them:
+    // author-origin declarations at specificity zero, ordered as if they stood at the start of
+    // the first author sheet. Origin alone settles the user-agent sheet, which they beat, and
+    // any author declaration for the same property ties on specificity at best and comes later
+    // in the order, so it wins.
+    if let Some((sheet, rule)) = hint_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
+        matched.push(MatchedRule {
+            sheet,
+            rule,
+            specificity: HINT_SPECIFICITY,
+            depth: shadow_depth::<C>(doc, element_scope),
+            layer: None,
+            attached: false,
+        });
+    }
+
+    // One buffer for the index lookups of every sheet, borrowed from the thread rather than
+    // allocated: the list is read and forgotten inside the loop, so nothing but its capacity
+    // needs to outlive an element.
+    let mut candidates = CANDIDATES.take();
     for sheet in sheets {
-        for rule_idx in sheet.candidate_rules(&keys) {
+        // A sheet from another tree contributes nothing, except through the two selectors
+        // that are defined to reach across (`:host`, `::slotted()`).
+        let Some(scope) = sheet_scope_for::<C>(doc, id, element_scope, sheet) else {
+            continue;
+        };
+        let depth = shadow_depth::<C>(doc, sheet.scope);
+        sheet.candidate_rules(&keys, &mut candidates);
+        for &rule_idx in &candidates {
             let rule = &sheet.rules[rule_idx];
+            // Cheaper than selector matching, so it goes first: a rule inside a `@media` block
+            // that does not apply to this device contributes nothing to the cascade.
+            if !rule.media_matches(&media_env) {
+                continue;
+            }
+            // The filter is only worth having for a rule that asks about an ancestor, and the
+            // first such rule is what builds it.
+            let filter = rule
+                .asks_about_ancestors()
+                .then(|| &**ancestors.get_or_insert_with(|| ancestor_filter::<C>(doc, id, known)));
             // A rule applies with the highest specificity among its matching selectors.
             let best = rule
                 .selectors()
                 .iter()
-                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo) {
-                    (true, specificity) => Some(specificity),
-                    (false, _) => None,
-                })
+                .filter_map(
+                    |selector| match match_selector::<C>(doc, id, selector, pseudo, scope, filter) {
+                        (true, specificity) => Some(specificity),
+                        (false, _) => None,
+                    },
+                )
                 .max();
             if let Some(specificity) = best {
-                matched.push((sheet, rule, specificity));
+                matched.push(MatchedRule {
+                    sheet,
+                    rule,
+                    specificity,
+                    depth,
+                    layer: rule.layer,
+                    attached: false,
+                });
             }
         }
     }
+    CANDIDATES.set(candidates);
+    // Hand the filter on. The element below this one gets its own by copying this and adding
+    // this element's keys, instead of walking and re-hashing the chain from the top.
+    css_map_entry.node = Some(id);
+    css_map_entry.ancestors = ancestors;
+
+    // The `style` attribute outranks every selector, which `INLINE_SPECIFICITY` says. It belongs
+    // to the element's own tree, so it ranks at that tree's depth rather than the document's.
+    if let Some((sheet, rule)) = inline_sheet.as_ref().and_then(|s| s.rules.first().map(|r| (s, r))) {
+        matched.push(MatchedRule {
+            sheet,
+            rule,
+            specificity: INLINE_SPECIFICITY,
+            depth: shadow_depth::<C>(doc, element_scope),
+            layer: None,
+            attached: true,
+        });
+    }
+
+    // Where each cascade layer sorts, merged across the sheets of each origin. Built only when
+    // some sheet actually declares one, which no page that does not use `@layer` ever does -
+    // and the test for that comes first, so such a page does not even collect the sheets.
+    let layer_order = sheets
+        .iter()
+        .any(|sheet| !sheet.layers.is_empty())
+        .then(|| {
+            let sheet_refs: Vec<&CssStylesheet> = sheets.iter().collect();
+            crate::layers::LayerOrder::build(&sheet_refs)
+        })
+        .flatten();
+    let layer_rank = |matched: &MatchedRule<'_>| -> Option<u32> {
+        let order = layer_order.as_ref()?;
+        let name = matched.sheet.layers.get(matched.layer? as usize)?;
+        Some(order.rank(matched.sheet.origin, name))
+    };
 
     // Custom properties: the parent's scope with this node's own declarations cascaded on
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
     // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
-    let mut own_custom: HashMap<&str, ((u8, Specificity), &CssValue)> = HashMap::new();
-    for (sheet, rule, specificity) in &matched {
-        let rank = (cascade_rank(sheet.origin, false), *specificity);
+    let mut own_custom: HashMap<&str, (CustomRank, &CssValue)> = HashMap::new();
+    for matched_rule in &matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
         for decl in rule.declarations() {
-            if !decl.property.starts_with("--") {
+            if !decl.property.is_custom() {
                 continue;
             }
-            let rank = if decl.important {
-                (cascade_rank(sheet.origin, true), *specificity)
-            } else {
-                rank
+            // Same ordering as the regular cascade: origin/importance, then the cross-tree
+            // tiebreak, then element-attached, then layer, then specificity.
+            let rank = (
+                cascade_rank(sheet.origin, decl.important),
+                tree_rank(*depth, decl.important),
+                matched_rule.attached,
+                layer_sort_key(layer_rank(matched_rule), decl.important),
+                *specificity,
+            );
+            match own_custom.entry(decl.property.as_str()) {
+                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
+                    slot.insert((rank, &decl.value));
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(slot) => {
+                    slot.insert((rank, &decl.value));
+                }
+            }
+        }
+    }
+    // The `style` attribute needs no pass of its own here: it is one of the rules in `matched`,
+    // so the loop above already cascaded its custom properties at inline specificity.
+    //
+    // A CSS-wide keyword is not a value of its own (css-variables-1 §2). `initial` is the
+    // guaranteed-invalid value, which is what an undefined custom property holds, so the name
+    // leaves the scope and a `var()` of it takes its fallback; the csstools `light-dark()`
+    // polyfill depends on exactly that. Custom properties inherit, so `inherit`, `unset` and
+    // `revert` all keep the parent's value (no user or user-agent sheet declares one to revert
+    // to). `revert-layer` does the same, which is only right when no earlier layer set it.
+    let own_values: Vec<(&str, Option<&CssValue>)> = own_custom
+        .into_iter()
+        .map(|(name, (_, value))| {
+            let value = match css_wide_keyword(value) {
+                Some(CssWide::Initial) => None,
+                Some(CssWide::Inherit | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => {
+                    inherited_custom.get(name)
+                }
+                None => Some(value),
             };
-            match own_custom.entry(decl.property.as_str()) {
-                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
-                    slot.insert((rank, &decl.value));
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(slot) => {
-                    slot.insert((rank, &decl.value));
-                }
-            }
-        }
-    }
-    // The `style` attribute cascades above every stylesheet rule; it is parsed here only
-    // when it can carry a custom property (it usually cannot), through the real parser.
-    let inline_sheet = pseudo
-        .is_none()
-        .then(|| doc.attribute(id, "style"))
-        .flatten()
-        .filter(|style| style.contains("--"))
-        .and_then(|style| {
-            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
-        });
-    if let Some(rule) = inline_sheet.as_ref().and_then(|sheet| sheet.rules.first()) {
-        for decl in rule.declarations() {
-            if !decl.property.starts_with("--") {
-                continue;
-            }
-            let rank = (cascade_rank(CssOrigin::Author, decl.important), INLINE_SPECIFICITY);
-            match own_custom.entry(decl.property.as_str()) {
-                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
-                    slot.insert((rank, &decl.value));
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(slot) => {
-                    slot.insert((rank, &decl.value));
-                }
-            }
-        }
-    }
-    let changes_scope = own_custom
+            (name, value)
+        })
+        .collect();
+    let changes_scope = own_values
         .iter()
-        .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
+        .any(|(name, value)| inherited_custom.get(*name) != *value);
     let custom_props = if changes_scope {
         let mut merged = (*inherited_custom).clone();
-        merged.extend(
-            own_custom
-                .into_iter()
-                .map(|(name, (_, value))| (name.to_string(), value.clone())),
-        );
+        for (name, value) in own_values {
+            match value {
+                Some(value) => {
+                    merged.insert(name.to_string(), value.clone());
+                }
+                None => {
+                    merged.remove(name);
+                }
+            }
+        }
         Arc::new(merged)
     } else {
         inherited_custom
@@ -223,164 +514,144 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     let mut fix_list = FixList::new();
 
-    for (sheet, rule, specificity) in matched {
+    // Document-order position of each declaration, the cascade's last tiebreak. `matched` is in
+    // stylesheet order and `declarations()` in source order, so a simple running counter is
+    // exactly the order the author wrote.
+    let mut order: u32 = 0;
+
+    for matched_rule in matched {
+        let MatchedRule {
+            sheet,
+            rule,
+            specificity,
+            depth,
+            ..
+        } = matched_rule;
+        let layer = layer_rank(&matched_rule);
+        let attached = matched_rule.attached;
         // Selector matched, so we add all declared values to the map
-        for declaration in rule.declarations() {
-            // Custom property declarations were consumed above; keep them out of
-            // the regular cascade.
-            if declaration.property.starts_with("--") {
-                continue;
+        for (declaration, expanded) in rule.declarations().iter().zip(rule.expanded()) {
+            order += 1;
+            match expanded {
+                // Custom property declarations were consumed above; keep them out of the
+                // regular cascade.
+                ExpandedDeclaration::Custom => continue,
+                // Unknown property, or a value its grammar rejects. Which of the two it was,
+                // and why, was logged when the rule was expanded.
+                ExpandedDeclaration::Invalid => continue,
+                ExpandedDeclaration::Resolved { entries, important } => {
+                    // The declaration and every longhand it expands to, already worked out.
+                    // All that is left is the element's own cascade facts.
+                    for (id, value) in entries {
+                        push_declaration(
+                            &mut css_map_entry,
+                            *id,
+                            value,
+                            sheet,
+                            *important,
+                            specificity,
+                            depth,
+                            order,
+                            layer,
+                            attached,
+                        );
+                    }
+                    continue;
+                }
+                // A substitution function reads the element or the environment, so what this
+                // declaration says - and whether it says anything valid at all - is only known
+                // here. It takes the per-element path below.
+                ExpandedDeclaration::Pending => {}
             }
             let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
-            // Normalize vendor-prefixed values (-webkit-X → X) so they match
-            // against the standard keyword definitions.
-            let value = normalize_vendor_prefixes(value);
 
-            // `content` carries arbitrary tokens (strings, `attr()`, counters,
-            // quotes) that the property-syntax matcher cannot validate - notably the
-            // empty string `content: ""`. Pass it through verbatim; the render
-            // pipeline resolves it into generated text itself.
-            if declaration.property == "content" {
-                add_property_to_map(
-                    &mut css_map_entry,
-                    sheet,
-                    specificity,
-                    &CssDeclaration {
-                        property: "content".to_string(),
-                        value,
-                        important: declaration.important,
-                    },
-                );
-                continue;
-            }
-
-            // If the property has a definition, validate and expand shorthands.
-            // If not (e.g. margin-top, padding-bottom - longhand properties not yet
-            // in the definition list), insert the value directly without validation.
-            match definitions.find_property(&declaration.property) {
-                Some(definition) => {
-                    let match_value = if let CssValue::List(value) = &value {
-                        &**value
-                    } else {
-                        slice::from_ref(&value)
-                    };
-
+            // `content` used to be passed through here without validation, because its
+            // grammar could not be matched against the tokens the parser produced - the empty
+            // string of `::before { content: "" }` most of all. It can now, so it goes through
+            // the same path as everything else and a `content: 10px` is dropped.
+            match declaration
+                .property
+                .id()
+                .and_then(|id| Some((id, definitions.definition(id)?)))
+            {
+                Some((id, definition)) => {
                     // Tag the expanded longhands with this declaration's cascade origin
                     // and specificity, so e.g. an author `margin: 0` outranks the UA
                     // `body { margin: 8px }` instead of losing to it on processing order.
                     fix_list.set_info(FixListInfo::new(
                         sheet.origin,
                         declaration.important,
-                        sheet.url.clone(),
+                        Arc::clone(&sheet.url),
                         specificity,
+                        depth,
+                        order,
+                        layer,
+                        attached,
                     ));
 
                     // Each CSS declaration starts with a fresh TRBL multiplier
                     // counter for this shorthand name. Without this reset, a prior
                     // rule's `margin: 0` (count→1) would corrupt a later rule's
                     // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
-                    fix_list.reset_multiplier(&declaration.property);
-                    if !definition.matches_and_shorthands(match_value, &mut fix_list) {
-                        // Special-case: the full `background` shorthand grammar
-                        // (comma-separated `<bg-layer>` lists) is stricter than the
-                        // matcher supports, so common forms like
-                        // `background: url(x) no-repeat` or `background: #fff` fail
-                        // validation and would be dropped entirely. Recover the parts
-                        // the consumer understands - `background-image` (a `url()`)
-                        // and `background-color` (a color) - and emit them as the
-                        // corresponding longhands. Position/repeat/size are still
-                        // ignored.
-                        if declaration.property == "background" {
-                            let mut recovered = false;
-                            // `url(...)` or a `*-gradient(...)` both become the
-                            // `background-image` longhand the consumer reads.
-                            if let Some(image_value) =
-                                find_background_url(&value).or_else(|| find_background_gradient(&value))
-                            {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-image".to_string(),
-                                        value: image_value,
-                                        important: declaration.important,
-                                    },
-                                );
-                                recovered = true;
-                            }
-                            if let Some(color_value) = find_background_color(&value) {
-                                add_property_to_map(
-                                    &mut css_map_entry,
-                                    sheet,
-                                    specificity,
-                                    &CssDeclaration {
-                                        property: "background-color".to_string(),
-                                        value: color_value,
-                                        important: declaration.important,
-                                    },
-                                );
-                                recovered = true;
-                            }
-                            if recovered {
-                                continue;
-                            }
-                        }
+                    fix_list.reset_multiplier(declaration.property.as_str());
+
+                    // One match does both jobs in the common case: it validates the substituted
+                    // value and expands it. Only a declaration that fails it is matched again, to
+                    // tell the two ways of failing apart - and checking validity with a separate
+                    // match up front made every `var()` declaration pay for two, which on a page
+                    // built from utility classes was a 40% slower cascade.
+                    let value = if definition.matches_and_shorthands(as_tokens(&value), &mut fix_list) {
+                        value
+                    } else if definition.matches(as_tokens(&value)) {
+                        // Valid, but a shorthand whose longhands the expansion cannot place.
                         log::debug!("Declaration does not match definition: {declaration:?}");
                         continue;
-                    }
-
-                    let value = if let CssValue::List(mut values) = value {
-                        match values.pop() {
-                            Some(single) if values.is_empty() => single,
-                            Some(last) => {
-                                values.push(last);
-                                CssValue::List(values)
-                            }
-                            None => CssValue::List(values),
-                        }
                     } else {
-                        value
+                        // A declaration that only turns invalid now, once its substitutions are
+                        // made, is invalid at computed-value time (css-variables-1 §3.1). It
+                        // already won its place in the cascade on its parse-time validity, so it
+                        // is not dropped - that would let an earlier rule show through - but
+                        // computes as `unset`, exactly as though the author had written that.
+                        log::debug!("Invalid at computed-value time, so unset: {declaration:?}");
+                        let unset = CssValue::String("unset".to_string());
+                        definition.matches_and_shorthands(slice::from_ref(&unset), &mut fix_list);
+                        unset
                     };
+                    let match_value = as_tokens(&value);
+                    // A shorthand sets every one of its longhands; the ones it left out are
+                    // reset to their initial value.
+                    fix_list.reset_unmentioned(definition, match_value, definitions);
+                    let value = canonical_if_changed(definition, match_value).unwrap_or(value);
 
-                    add_property_to_map(
+                    push_declaration(
                         &mut css_map_entry,
+                        id,
+                        // This value was produced per element by substitution, so it is new
+                        // here and gets its own allocation; it is then shared with the map.
+                        &Arc::new(single_value(value)),
                         sheet,
+                        declaration.important,
                         specificity,
-                        &CssDeclaration {
-                            property: declaration.property.clone(),
-                            value,
-                            important: declaration.important,
-                        },
+                        depth,
+                        order,
+                        layer,
+                        attached,
                     );
                 }
                 None => {
-                    // No definition: pass the value through as-is so that properties
-                    // like margin-top, padding-left, font-size etc. (which are valid
-                    // CSS but happen not to have their own PropertyDefinition entry)
-                    // still reach the style consumer.
-                    let value = if let CssValue::List(mut values) = value {
-                        match values.pop() {
-                            Some(single) if values.is_empty() => single,
-                            Some(last) => {
-                                values.push(last);
-                                CssValue::List(values)
-                            }
-                            None => CssValue::List(values),
-                        }
-                    } else {
-                        value
-                    };
-                    add_property_to_map(
-                        &mut css_map_entry,
-                        sheet,
-                        specificity,
-                        &CssDeclaration {
-                            property: declaration.property.clone(),
-                            value,
-                            important: declaration.important,
-                        },
-                    );
+                    // A property this engine has no definition for is a property it does not
+                    // support, and a declaration for one is invalid (css-syntax-3 §9). It is
+                    // dropped rather than passed through: an unvalidated value reaching the
+                    // style consumer is how `dsiplay: block` used to be recorded and answered
+                    // by `getComputedStyle` as though it were a real declaration.
+                    //
+                    // The comment here used to say this path carried the common longhands,
+                    // which have had their own definitions for a long time. What reaches it now
+                    // is misspellings, properties from specs the definitions data does not
+                    // cover, and the few `-internal-` names the user-agent sheet sets and
+                    // nothing reads.
+                    log::debug!("Unknown property, declaration dropped: {}", declaration.property);
+                    continue;
                 }
             }
         }
@@ -390,7 +661,145 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     fix_list.apply(&mut css_map_entry);
 
+    if let Some(parent) = inherited {
+        css_map_entry.inherit_from(parent);
+    }
+
+    resolve_font_size_basis(&mut css_map_entry, inherited);
+
     Some(css_map_entry)
+}
+
+/// A declaration's value as the token list the grammar matches: a list's items, or the one value.
+fn as_tokens(value: &CssValue) -> &[CssValue] {
+    match value {
+        CssValue::List(values) => values,
+        other => slice::from_ref(other),
+    }
+}
+
+/// Work out what an `em` and a `rem` mean on this element, and tell every property.
+///
+/// `font-size` has to go first and is the only one measured against the *parent*: `font-size:
+/// 2em` doubles what it inherits, not itself. Every other property then resolves against this
+/// element's own size. The result is stored on the map so a child can read its parent's basis
+/// without recomputing the parent's cascade.
+fn resolve_font_size_basis(map: &mut CssProperties, inherited: Option<&CssProperties>) {
+    let parent_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.font_size_px);
+    // No parent map means no element above this one, so this is the root - and the root is what
+    // a `rem` is measured against. Its own `font-size` is therefore the one declaration a `rem`
+    // cannot refer to without circularity, so there it means the initial size.
+    let parent_root_px = inherited.map_or(DEFAULT_FONT_SIZE_PX, |parent| parent.root_font_size_px);
+    // An `lh` in `font-size` is the parent's line-height too (css-values-4 §6.1.1), and it has
+    // to be in place before the size is worked out, or `font-size: 2lh` computes against the
+    // estimate and every `em` on this element with it.
+    let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
+    let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
+
+    let own_px = match map.get_id_mut(FONT_SIZE) {
+        Some(font_size) => {
+            font_size.font_size_basis = parent_px;
+            font_size.root_font_size_basis = parent_root_px;
+            font_size.line_height_basis = Some(parent_lh);
+            font_size.root_line_height_basis = Some(parent_root_lh);
+            font_size.mark_dirty();
+            match font_size.compute_value() {
+                CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => *px as f32,
+                // A percentage font-size is a fraction of the *parent's* computed font-size
+                // (css-fonts-4 §3.5), which is a basis this already has - unlike every other
+                // percentage, which needs a containing block and so has to wait for layout.
+                // `html { font-size: 62.5% }` is the idiom that makes 1rem equal 10px.
+                #[expect(clippy::cast_possible_truncation, reason = "a font-size fits an f32")]
+                CssValue::Percentage(pct) => parent_px * (*pct as f32) / 100.0,
+                // A keyword (`larger`), or anything else this does not resolve: inheriting the
+                // parent's size is closer than falling back to the initial one.
+                _ => parent_px,
+            }
+        }
+        // Undeclared, so inherited - which is what `font-size` does by default.
+        None => parent_px,
+    };
+    map.font_size_px = own_px;
+
+    let root_px = if inherited.is_some() { parent_root_px } else { own_px };
+    map.root_font_size_px = root_px;
+
+    for (id, property) in map.iter_ids_mut() {
+        if id != FONT_SIZE {
+            property.font_size_basis = own_px;
+            property.root_font_size_basis = root_px;
+            // The basis changed after the property was built, so any value computed before now
+            // used the default and has to be recomputed.
+            property.mark_dirty();
+        }
+    }
+
+    resolve_line_height_basis(map, inherited, own_px);
+}
+
+/// Work out what an `lh` and an `rlh` mean on this element, and tell every property.
+///
+/// Runs once the font-size is known, because a `line-height` of `2`, `150%` or `1.5em` is worth
+/// that much of this element's own font-size. Inside `line-height` and `font-size` an `lh` is
+/// the parent's (css-values-4 §6.1.1), which is what lets `line-height: 2lh` have a value at
+/// all; every other property sees this element's. `font-size` was given its basis before it was
+/// computed, in [`resolve_font_size_basis`].
+fn resolve_line_height_basis(map: &mut CssProperties, inherited: Option<&CssProperties>, font_px: f32) {
+    let parent_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.line_height_px);
+    let parent_root_lh = inherited.map_or(DEFAULT_LINE_HEIGHT_PX, |parent| parent.root_line_height_px);
+
+    if let Some(line_height) = map.get_id_mut(LINE_HEIGHT) {
+        line_height.line_height_basis = Some(parent_lh);
+        line_height.root_line_height_basis = Some(parent_root_lh);
+        line_height.mark_dirty();
+    }
+
+    // Inherited, `line-height` takes the parent's computed value: a length as the length, and a
+    // unitless number as the number, which then multiplies this element's own font-size.
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let normal = InheritedLineHeight::FontSizeMultiple(crate::functions::calc::NORMAL_LINE_HEIGHT as f32);
+    #[expect(clippy::cast_possible_truncation, reason = "a line-height fits an f32")]
+    let inherits = match map.get_id_mut(LINE_HEIGHT) {
+        // Explicitly inherited: the value handed down is the parent's *declared* one, and a
+        // percentage in it was worth the parent's font-size, not this element's. `unset` is the
+        // same thing here, because `line-height` inherits.
+        Some(line_height)
+            if line_height
+                .cascaded_value()
+                .is_none_or(|value| matches!(css_wide_keyword(&value), Some(CssWide::Inherit | CssWide::Unset))) =>
+        {
+            inherited.map_or(normal, |parent| parent.line_height_inherits)
+        }
+        Some(line_height) => match line_height.compute_value() {
+            CssValue::Unit(px, unit) if unit.eq_ignore_ascii_case("px") => InheritedLineHeight::Px(*px as f32),
+            // A bare `0` is parsed as its own value rather than as a number or a length; as a
+            // line-height either reading is zero.
+            CssValue::Zero => InheritedLineHeight::Px(0.0),
+            CssValue::Number(factor, _) => InheritedLineHeight::FontSizeMultiple(*factor as f32),
+            // A percentage computes to the length it is worth here, and inherits as that.
+            CssValue::Percentage(pct) => InheritedLineHeight::Px(font_px * *pct as f32 / 100.0),
+            // `normal`, or anything this does not resolve.
+            _ => normal,
+        },
+        None => inherited.map_or(normal, |parent| parent.line_height_inherits),
+    };
+    map.line_height_inherits = inherits;
+    let own_lh = match inherits {
+        InheritedLineHeight::Px(px) => px,
+        InheritedLineHeight::FontSizeMultiple(factor) => font_px * factor,
+    };
+    map.line_height_px = own_lh;
+
+    let root_lh = if inherited.is_some() { parent_root_lh } else { own_lh };
+    map.root_line_height_px = root_lh;
+
+    for (id, property) in map.iter_ids_mut() {
+        if id != FONT_SIZE && id != LINE_HEIGHT {
+            property.line_height_basis = Some(own_lh);
+            property.root_line_height_basis = Some(root_lh);
+            property.mark_dirty();
+        }
+    }
 }
 
 fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
@@ -401,7 +810,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     for sheet in sheets {
         for rule in &sheet.rules {
             for selector in &rule.selectors {
-                for part_list in &selector.parts {
+                for part_list in selector.complexes() {
                     // Split the part list into compounds (groups between Combinators).
                     // :hover belongs to the compound it appears in; that compound's
                     // Type/Class/Id parts are the hover-subject fingerprint.
@@ -448,128 +857,520 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     fp
 }
 
+/// `font-size` is the one property every other property's `em` resolves against.
+const FONT_SIZE: PropertyId = PropertyId::Longhand(LonghandId::FontSize);
+const LINE_HEIGHT: PropertyId = PropertyId::Longhand(LonghandId::LineHeight);
+
+/// Whether the property `name` denotes inherits by default.
 #[must_use]
 pub fn prop_is_inherit(name: &str) -> bool {
-    get_css_definitions()
-        .find_property(name)
-        .is_some_and(|def| def.inherited)
+    PropertyId::from_name(name).is_some_and(PropertyId::inherited)
 }
 
+#[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
 pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &crate::stylesheet::CssStylesheet,
     specificity: Specificity,
     declaration: &CssDeclaration,
+    shadow_depth: u16,
+    order: u32,
+    layer: Option<u32>,
+    attached: bool,
 ) {
-    let property_name = declaration.property.clone();
-
-    let declaration = DeclarationProperty {
-        // @todo: this seems wrong. We only get the first values from the declared values
-        value: declaration.value.clone(),
-        origin: sheet.origin,
-        important: declaration.important,
-        location: sheet.url.clone(),
-        specificity,
+    let Some(id) = declaration.property.id() else {
+        return;
     };
-
-    css_map_entry
-        .properties
-        .entry(property_name.clone())
-        .or_insert_with(|| CssProperty::new(property_name.as_str()))
-        .declared
-        .push(declaration);
+    push_declaration(
+        css_map_entry,
+        id,
+        &declaration.value,
+        sheet,
+        declaration.important,
+        specificity,
+        shadow_depth,
+        order,
+        layer,
+        attached,
+    );
 }
 
+/// Record one declared value for `name`, with the cascade facts of the element it was declared
+/// on. Takes the property and value by reference: a pre-expanded shorthand hands over a dozen of
+/// these, and building a `CssDeclaration` for each only to copy it out again is a dozen
+/// allocations per element.
+#[allow(clippy::too_many_arguments, reason = "one cascade fact per argument")]
+fn push_declaration(
+    css_map_entry: &mut CssProperties,
+    id: PropertyId,
+    value: &Arc<CssValue>,
+    sheet: &crate::stylesheet::CssStylesheet,
+    important: bool,
+    specificity: Specificity,
+    shadow_depth: u16,
+    order: u32,
+    layer: Option<u32>,
+    attached: bool,
+) {
+    let declaration = DeclarationProperty {
+        // Shared with the rule this came from: a refcount bump per element rather than a
+        // deep copy of the value into every map the rule reaches.
+        value: Arc::clone(value),
+        origin: sheet.origin,
+        important,
+        location: Arc::clone(&sheet.url),
+        specificity,
+        shadow_depth,
+        order,
+        layer,
+        attached,
+    };
+
+    css_map_entry.entry(id).declared.push(declaration);
+}
+
+/// The tree scope `id` lives in: the shadow root at the top of its ancestor chain, or `None`
+/// when that chain reaches the document.
+///
+/// A shadow root has no parent, so the walk stops there by itself - the same property that
+/// keeps a descendant combinator from crossing the boundary.
+pub fn tree_scope<C: HasDocument>(doc: &C::Document, id: NodeId) -> Option<NodeId> {
+    let mut root = id;
+    while let Some(parent) = doc.parent(root) {
+        root = parent;
+    }
+    (doc.node_type(root) == NodeType::ShadowRootNode).then_some(root)
+}
+
+/// How many shadow boundaries lie between `scope` and the document.
+fn shadow_depth<C: HasDocument>(doc: &C::Document, scope: Option<NodeId>) -> u16 {
+    let mut depth = 0u16;
+    let mut current = scope;
+    while let Some(root) = current {
+        depth = depth.saturating_add(1);
+        let Some(host) = doc.shadow_host(root) else {
+            break;
+        };
+        current = tree_scope::<C>(doc, host);
+    }
+    depth
+}
+
+/// The cross-tree cascade tiebreak for a declaration at `depth`; mirrors
+/// `DeclarationProperty::tree_rank`, for the custom-property cascade which ranks by hand.
+fn tree_rank(depth: u16, important: bool) -> u16 {
+    if important {
+        depth
+    } else {
+        u16::MAX - depth
+    }
+}
+
+/// Whether `sheet` may style `id` at all, and if so how it reaches it.
+///
+/// A sheet applies inside its own tree scope. A shadow tree's sheet also reaches one step
+/// outwards, but only through the two selectors defined for it: `:host` onto the host, and
+/// `::slotted()` onto the light-DOM children projected into its slots. User-agent sheets are
+/// not scoped - they describe the engine's defaults for every element in the document.
+fn sheet_scope_for<C: HasDocument>(
+    doc: &C::Document,
+    id: NodeId,
+    element_scope: Option<NodeId>,
+    sheet: &CssStylesheet,
+) -> Option<ScopeContext> {
+    if sheet.origin == CssOrigin::UserAgent || sheet.scope == element_scope {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Same,
+            tree: sheet.scope,
+        });
+    }
+
+    // Different trees. The only sheets that may still reach are a shadow tree's own, and only
+    // onto its host or onto what is projected into it.
+    let tree = sheet.scope?;
+    let host = doc.shadow_host(tree)?;
+
+    if id == host {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Host,
+            tree: Some(tree),
+        });
+    }
+    // A slottable is a direct child of the host. Whether it was actually assigned is left to
+    // `::slotted()` itself - an unassigned node renders nowhere, so styling it changes nothing.
+    if doc.parent(id) == Some(host) {
+        return Some(ScopeContext {
+            mode: ScopeMatch::Slotted,
+            tree: Some(tree),
+        });
+    }
+    None
+}
+
+/// Elements whose styles are never worth computing because they never render.
+///
+/// Careful: an element listed here gets *no* computed style at all, so a `display: none` rule in
+/// the user-agent stylesheet can never apply to it. Anything named here must therefore also be
+/// pruned by the render tree's own list, or it will render after all - `noscript` used to be
+/// listed here and nowhere else, which is exactly how its raw text ended up on the page.
 pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
-    const REMOVABLE_ELEMENTS: [&str; 6] = ["head", "script", "style", "svg", "noscript", "title"];
+    const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "title"];
 
     match doc.node_type(id) {
         NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),
-        NodeType::TextNode => doc.text_value(id).is_some_and(|v| v.chars().all(char::is_whitespace)),
+        // Only *collapsible* whitespace makes a text node unrenderable. `char::is_whitespace` is
+        // the Unicode set, which includes U+00A0 NO-BREAK SPACE and the other fixed-width spaces -
+        // characters CSS renders like any other, and which exist precisely to be kept. Parsoid
+        // wraps every entity in its own element, so `Designed<span>&nbsp;</span>by` had the whole
+        // span dropped and Wikipedia's infoboxes read "Designedby", "Firstappeared", "May1, 1964".
+        NodeType::TextNode => doc
+            .text_value(id)
+            .is_some_and(|v| v.chars().all(|c: char| c.is_ascii_whitespace())),
         _ => false,
     }
 }
 
-/// Recursively find the first `url(...)` function inside a (possibly nested/list) CSS value.
-/// Used to recover `background-image` from a `background` shorthand that fails strict matching.
-fn find_background_url(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.eq_ignore_ascii_case("url") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_url),
-        _ => None,
-    }
-}
-
-/// Recursively find the first `*-gradient(...)` function inside a (possibly nested/list)
-/// CSS value. Used to recover the image part of a `background` shorthand whose full
-/// `<bg-layer>` grammar the value matcher does not yet support.
-fn find_background_gradient(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Function(name, _) if name.cow_to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_gradient),
-        _ => None,
-    }
-}
-
-/// Recursively find the first color inside a (possibly nested/list) CSS value.
-/// Used to recover `background-color` from a `background` shorthand. The `currentColor`
-/// keyword is a valid color too; it is preserved as a string and resolved to the element's
-/// `color` later in the render bridge.
-fn find_background_color(value: &CssValue) -> Option<CssValue> {
-    match value {
-        CssValue::Color(_) => Some(value.clone()),
-        CssValue::String(s) if s.eq_ignore_ascii_case("currentcolor") => Some(value.clone()),
-        CssValue::List(list) => list.iter().find_map(find_background_color),
-        _ => None,
-    }
-}
-
+/// Resolve every substitution function in a declaration's value against this element.
+///
+/// css-variables-1 §3 substitutes a `var()` on the token stream *before* the value is parsed, so
+/// a reference anywhere in the value - including inside another function's arguments - is
+/// replaced by the custom property's tokens and the result is then read as if the author had
+/// written it that way. `attr()` (css-values-5 §12.1) and `light-dark()` substitute the same way.
+///
+/// An empty result is the guaranteed-invalid value: the declaration matches no grammar, and the
+/// caller computes it as `unset` (invalid at computed-value time, css-variables-1 §3.1).
 pub fn resolve_functions<C: HasDocument>(
     value: &CssValue,
     doc: &C::Document,
     id: NodeId,
     custom_props: &HashMap<String, CssValue>,
 ) -> CssValue {
-    fn resolve<C: HasDocument>(
-        val: &CssValue,
-        doc: &C::Document,
-        id: NodeId,
-        custom_props: &HashMap<String, CssValue>,
-    ) -> CssValue {
-        match val {
-            CssValue::Function(func, values) => {
-                let resolved = match func.as_str() {
-                    "attr" => resolve_attr::<C>(values, doc, id),
-                    "var" => resolve_var(values, custom_props),
-                    "clamp" | "min" | "max" => {
-                        resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
-                    }
-                    _ => vec![val.clone()],
-                };
+    resolve_substitutions(value, custom_props, &|args| resolve_attr::<C>(args, doc, id))
+}
 
-                CssValue::List(resolved)
+/// How an `attr()` is answered: what its arguments stand for on this element. Taking it as a
+/// callback keeps the substitution walk itself free of the document, so what a value substitutes
+/// to can be asked without building one.
+type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Vec<CssValue>;
+
+fn resolve_substitutions(
+    value: &CssValue,
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+) -> CssValue {
+    match value {
+        // Only a function or a list can hold a reference; a plain token substitutes to itself,
+        // and is handed back in the shape it arrived in.
+        CssValue::Function(..) | CssValue::List(_) => {
+            CssValue::List(resolve_value(value, custom_props, attr, 0).unwrap_or_default())
+        }
+        other => other.clone(),
+    }
+}
+
+/// The tokens `value` substitutes to, or `None` when a substitution function in it is invalid at
+/// computed-value time - which makes the whole declaration invalid (css-variables-1 §3.1).
+///
+/// A result is a list of tokens rather than a single value because a `var()` may stand for
+/// several (`--rule: 1px solid red`). They are spliced into the surrounding list or argument
+/// list rather than nested as a sub-list: the grammar matcher reads a flat sequence, so
+/// `border: 1px solid var(--rule)` has to arrive as the five tokens it would have been written
+/// as, not as three with a list in the middle.
+///
+/// `depth` bounds how many rounds of substitution feed each other - a custom property holding an
+/// `attr()` whose fallback holds a `var()`, and so on - and shares its bound with the chain of
+/// custom-property references [`resolve_var`] follows.
+fn resolve_value(
+    value: &CssValue,
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+    depth: usize,
+) -> Option<Vec<CssValue>> {
+    match value {
+        CssValue::List(list) => resolve_list(list, custom_props, attr, depth),
+        CssValue::Function(name, args) => {
+            if depth >= MAX_VAR_DEPTH {
+                return None;
             }
-            _ => val.clone(),
+            // `var()` and `env()` can tell an invalid reference from one that substitutes to
+            // nothing (`var(--nope,)`, `env(nope,)`, an empty `--x:;`), which splices no tokens and
+            // keeps the rest of the declaration.
+            if name.eq_ignore_ascii_case("var") {
+                return resolve_list(&resolve_var(args, custom_props)?, custom_props, attr, depth + 1);
+            }
+            if name.eq_ignore_ascii_case("env") {
+                return resolve_list(&resolve_env(args)?, custom_props, attr, depth + 1);
+            }
+            let substituted = if name.eq_ignore_ascii_case("attr") {
+                Some(attr(args))
+            } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
+                // Unresolved, the whole declaration fails validation - the UA sheet uses it on
+                // form controls.
+                Some(
+                    args.split(|v| matches!(v, CssValue::Comma))
+                        .nth(usize::from(crate::stylesheet::prefers_dark()))
+                        .map_or_else(Vec::new, <[CssValue]>::to_vec),
+                )
+            } else {
+                None
+            };
+
+            match substituted {
+                // Nothing to substitute: an `attr()` with no usable value or fallback, or a
+                // `light-dark()` without the branch asked for. The declaration is invalid at
+                // computed-value time.
+                Some(tokens) if tokens.is_empty() => None,
+                // What one substitution produced may itself hold another - a custom property
+                // holding `attr(data-w px)`, an `attr()` fallback holding a `var()`.
+                Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
+                // Any other function keeps its own meaning and is rebuilt around its substituted
+                // arguments, so that `rgb(var(--r) 0 0)` and `calc(var(--w) * 2)` reach the
+                // grammar as the colour and the length they name.
+                //
+                // `min`/`max`/`clamp` are still not *evaluated* against this element. Their
+                // operands may be font-relative, and this runs while declarations are still being
+                // collected - before the element's font-size is known - so an `em` would be
+                // measured against the default 16px. `min(2em, 50px)` came out as 32px on an
+                // element with `font-size: 20px`, where it should be 40px. The computed stage
+                // evaluates them instead, once the basis exists; `reduce_function` reduces only
+                // what the parser itself could have, knowing no more than it did.
+                None => {
+                    let args = resolve_list(args, custom_props, attr, depth)?;
+                    Some(vec![reduce_function(name.clone(), args)])
+                }
+            }
+        }
+        other => Some(vec![other.clone()]),
+    }
+}
+
+/// Resolve every value in a sequence, splicing what each one substitutes to into one flat list.
+fn resolve_list(
+    values: &[CssValue],
+    custom_props: &HashMap<String, CssValue>,
+    attr: AttrResolver<'_>,
+    depth: usize,
+) -> Option<Vec<CssValue>> {
+    let mut resolved = Vec::with_capacity(values.len());
+    for value in values {
+        resolved.extend(resolve_value(value, custom_props, attr, depth)?);
+    }
+    Some(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::colors::RgbColor;
+
+    /// The value of the one declaration in `a { <declaration> }`, as the parser produces it - so
+    /// a test is written against the text an author types and reads the shapes a stylesheet
+    /// really carries.
+    fn declared(declaration: &str) -> CssValue {
+        let sheet = Css3::parse_str(
+            &format!("a {{ {declaration} }}"),
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "",
+        )
+        .expect("the test declaration parses");
+        (*sheet.rules[0].declarations()[0].value).clone()
+    }
+
+    /// The custom properties `pairs` declares, each written as it would be in a rule.
+    fn custom(pairs: &[(&str, &str)]) -> HashMap<String, CssValue> {
+        pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), declared(&format!("{name}: {value}"))))
+            .collect()
+    }
+
+    /// `attr()` as a document with `data-w="4"` would answer it, which is all these tests need
+    /// of one: the walk is what is under test, not the reading of an attribute.
+    fn attr(args: &[CssValue]) -> Vec<CssValue> {
+        match args.first() {
+            Some(CssValue::String(name)) if name == "data-w" => vec![CssValue::Unit(4.0, "px".to_string())],
+            _ => vec![],
         }
     }
 
-    if let CssValue::List(list) = value {
-        // Flatten each element's resolution back into this list. `resolve` wraps a function's
-        // result in a `CssValue::List`, so without this a `var()`/`attr()` used *inside* a
-        // multi-token value (e.g. `border: 1px solid var(--rule)`) would nest as
-        // `[1px, solid, [color]]`. The `<color>` component of the shorthand matcher only sees a
-        // top-level `Color`, so the nested list is dropped and the border falls back to black.
-        // Splicing the inner tokens in keeps `border-color` (and any other shorthand part that
-        // comes from a variable) matchable.
-        let mut resolved = Vec::with_capacity(list.len());
-        for val in list {
-            match resolve::<C>(val, doc, id, custom_props) {
-                CssValue::List(inner) => resolved.extend(inner),
-                other => resolved.push(other),
-            }
+    fn resolve(declaration: &str, props: &[(&str, &str)]) -> CssValue {
+        single_value(resolve_substitutions(&declared(declaration), &custom(props), &attr))
+    }
+
+    #[test]
+    fn a_var_inside_a_colour_function_makes_a_colour() {
+        // The substituted value is read as if it had been written that way (css-variables-1 §3),
+        // so what comes back is the colour, not a function the `<color>` grammar cannot match.
+        let value = resolve("color: rgb(var(--r) 0 0)", &[("--r", "59")]);
+        assert_eq!(value, CssValue::Color(RgbColor::from("#3b0000").into()));
+    }
+
+    #[test]
+    fn a_var_inside_a_calc_is_folded() {
+        // `calc()` reaches here as a call with its body as arguments, so the substitution goes
+        // into the body and the arithmetic is done on the way out.
+        let value = resolve("width: calc(var(--w) * 2)", &[("--w", "10px")]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(20.0, "px")]));
+    }
+
+    #[test]
+    fn a_var_two_functions_deep_is_substituted() {
+        let value = resolve(
+            "background: linear-gradient(rgb(var(--r) 0 0), white)",
+            &[("--r", "59")],
+        );
+        let CssValue::Function(name, args) = value else {
+            panic!("expected the gradient to survive as a function");
+        };
+        assert_eq!(name, "linear-gradient");
+        assert_eq!(args[0], CssValue::Color(RgbColor::from("#3b0000").into()));
+    }
+
+    #[test]
+    fn a_fallback_inside_a_function_is_used() {
+        let value = resolve("width: calc(var(--missing, 10px) * 2)", &[]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(20.0, "px")]));
+    }
+
+    #[test]
+    fn an_unresolvable_var_inside_a_function_invalidates_the_declaration() {
+        // No fallback and nothing to substitute is the guaranteed-invalid value, and that makes
+        // the whole declaration invalid at computed-value time (css-variables-1 §3.1) - not just
+        // the function it sits in.
+        assert_eq!(resolve("color: rgb(var(--nope) 0 0)", &[]), CssValue::List(vec![]));
+    }
+
+    #[test]
+    fn a_cycle_inside_a_function_terminates() {
+        let props = custom(&[("--a", "var(--b)"), ("--b", "var(--a)")]);
+        let value = resolve_substitutions(&declared("color: rgb(var(--a) 0 0)"), &props, &attr);
+        assert_eq!(value, CssValue::List(vec![]));
+    }
+
+    /// `env()` is substituted like a `var()`, with the engine's environment in place of the
+    /// custom properties - so the common safe-area idiom survives instead of dropping the
+    /// declaration (css-env-1 §3).
+    #[test]
+    fn an_env_is_substituted_from_the_environment() {
+        assert_eq!(resolve("padding-top: env(safe-area-inset-top)", &[]), unit(0.0, "px"));
+        let value = resolve("padding-top: max(1rem, env(safe-area-inset-top))", &[]);
+        assert_eq!(
+            value,
+            CssValue::Function(
+                "max".to_string(),
+                vec![unit(1.0, "rem"), CssValue::Comma, unit(0.0, "px")]
+            )
+        );
+        // An unknown name takes its fallback, which may itself hold a `var()`.
+        assert_eq!(
+            resolve("height: env(titlebar-area-height, var(--bar))", &[("--bar", "33px")]),
+            unit(33.0, "px")
+        );
+        assert_eq!(
+            resolve("height: env(titlebar-area-height)", &[]),
+            CssValue::List(vec![])
+        );
+    }
+
+    /// `env()` needs a name before its fallback. Without one the reference is malformed and the
+    /// declaration invalid - it must not fall through to the fallback and override an earlier
+    /// declaration that was fine.
+    #[test]
+    fn an_env_without_a_name_invalidates_the_declaration() {
+        assert_eq!(resolve("padding-top: env(, 10px)", &[]), CssValue::List(vec![]));
+    }
+
+    /// A fallback may be empty (css-env-1 §3: `<declaration-value>?`). `env(nope,)` then
+    /// substitutes to nothing, which is not the same as `env(nope)` with no fallback at all.
+    #[test]
+    fn an_env_with_an_empty_fallback_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px env(titlebar-area-height,)", &[]), unit(1.0, "px"));
+    }
+
+    /// The same holds for `var()` (css-variables-1 §3: `<declaration-value>?`): `var(--nope,)`
+    /// substitutes to nothing, where `var(--nope)` makes the declaration invalid. Chromium
+    /// agrees on every case here.
+    #[test]
+    fn a_var_with_an_empty_fallback_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px var(--nope,)", &[]), unit(1.0, "px"));
+        assert_eq!(resolve("margin: var(--nope, var(--nope2,)) 1px", &[]), unit(1.0, "px"));
+        assert_eq!(resolve("margin: 1px var(--nope)", &[]), CssValue::List(vec![]));
+    }
+
+    /// A custom property may be empty (`--x:;`), and that is a value like any other: it
+    /// substitutes to nothing, and a fallback is not used for it.
+    #[test]
+    fn an_empty_custom_property_substitutes_to_nothing() {
+        assert_eq!(resolve("margin: 1px var(--empty)", &[("--empty", "")]), unit(1.0, "px"));
+        assert_eq!(
+            resolve("margin: var(--empty, 2px) 1px", &[("--empty", "")]),
+            unit(1.0, "px")
+        );
+    }
+
+    /// `--a` and `--b` reference each other, so both are invalid at computed-value time and only
+    /// the fallback outside the cycle applies - whatever fallback `--a`'s own reference holds
+    /// (css-variables-1 §2.3). Chromium gives 20px for all three.
+    #[test]
+    fn a_cycle_is_not_rescued_by_a_fallback_inside_it() {
+        for inner in ["var(--b)", "var(--b,)", "var(--b, 5px)"] {
+            assert_eq!(
+                resolve("width: var(--a, 20px)", &[("--a", inner), ("--b", "var(--a)")]),
+                unit(20.0, "px"),
+                "--a: {inner}"
+            );
         }
-        CssValue::List(resolved)
-    } else {
-        resolve::<C>(value, doc, id, custom_props)
+    }
+
+    /// Every function the registry calls a substitution is substituted here. One that fell
+    /// through to the generic arm would be rebuilt around its arguments and handed to the grammar
+    /// as though it were a value - which is how `env()` used to validate and then mean nothing.
+    #[test]
+    fn every_registered_substitution_function_is_substituted() {
+        use crate::functions::registry::{FunctionKind, FUNCTIONS};
+        for (name, kind) in FUNCTIONS {
+            if !matches!(kind, FunctionKind::Substitution { .. }) {
+                continue;
+            }
+            let call = CssValue::Function((*name).to_string(), vec![CssValue::String("x".to_string())]);
+            let substituted = single_value(resolve_substitutions(&call, &HashMap::new(), &attr));
+            assert_ne!(substituted, call, "{name}() was not substituted");
+        }
+    }
+
+    #[test]
+    fn an_attr_inside_a_function_is_substituted() {
+        let value = resolve("width: calc(attr(data-w px) * 2)", &[]);
+        assert_eq!(value, CssValue::Function("calc".to_string(), vec![unit(8.0, "px")]));
+    }
+
+    #[test]
+    fn a_var_holding_several_tokens_splices_into_an_argument_list() {
+        // The tokens go into the argument list flat: a nested list would be a single argument,
+        // which is not what `rgb(59 130 246)` is.
+        let value = resolve("color: rgb(var(--channels))", &[("--channels", "59 130 246")]);
+        assert_eq!(value, CssValue::Color(RgbColor::from("#3b82f6").into()));
+    }
+
+    /// The indices after the name must be non-negative integers (css-env-1 §3); anything else
+    /// makes the reference malformed, and its fallback does not rescue it.
+    #[test]
+    fn an_env_with_a_malformed_index_invalidates_the_declaration() {
+        assert_eq!(
+            resolve("padding-top: env(safe-area-inset-top bogus, 10px)", &[]),
+            CssValue::List(vec![])
+        );
+        assert_eq!(
+            resolve("padding-top: env(viewport-segment-width 0 1, 10px)", &[]),
+            unit(10.0, "px")
+        );
+    }
+
+    fn unit(value: f64, unit: &str) -> CssValue {
+        CssValue::Unit(value, unit.to_string())
     }
 }

@@ -15,7 +15,7 @@
 //! - Zones own their own cookies and storage.
 //! - Tabs are controlled via a `TabHandle`.
 //! - Tabs emit events (navigation, resource loading, rendering) that you can handle in your UA.
-//! - The engine is built on **Tokio**; render backend, storage backend, and cookie store are pluggable.
+//! - The engine is built on Tokio; render backend, storage backend, and cookie store are pluggable.
 //! - The engine is still a work in progress and is not yet production-ready.
 //!
 //! ## The `unstable-api` feature
@@ -172,7 +172,7 @@
 //! - `F` - font system (defaults to `ParleyFontSystem`)
 //! - `S` - compositor sink (defaults to [`DefaultCompositor`](gosub_render_pipeline::render::DefaultCompositor))
 //!
-//! **To start a browser that renders**, alias your chosen stack once and hand it to the engine:
+//! To start a browser that renders, alias your chosen stack once and hand it to the engine:
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
@@ -199,9 +199,36 @@ extern crate core;
 
 mod engine;
 
+/// Child-role dispatch. An embedder that wants process isolation must call
+/// [`child_process::dispatch`] as the first statement of its `main`.
+#[cfg(feature = "process-isolation")]
+pub mod child_process;
+
+/// Image decoding in a throwaway, sandboxed process.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod cookie_vault;
+#[cfg(feature = "process-isolation")]
+pub mod decoder_process;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod storage_service;
+
+/// The fork server renderers are forked from: warmed fonts, tier-chosen
+/// sandbox. The processes are Linux only - no other platform has a fork to
+/// serve - but the wire protocol is plain data and stays available everywhere,
+/// so the tab's remotely-rendered page state need not be gated.
+pub mod fork_server;
+
+/// Exec-fresh, throwaway renderer processes - how `FontPathsReadable`
+/// configurations render out-of-process. Linux only.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod render_process;
+
 pub mod net;
 
 pub mod util;
+
+/// The engine's event firehose for external tooling; see the module docs.
+pub mod telemetry;
 
 pub mod html;
 
@@ -209,7 +236,7 @@ pub mod html;
 pub mod metrics;
 
 pub use engine::zone::TabBuilder;
-pub use engine::{BrowsingContext, EngineError, GosubEngine, LoadError, ZoneBuilder};
+pub use engine::{BrowsingContext, Damage, DamageLevel, EngineError, GosubEngine, LoadError, ZoneBuilder};
 
 /// The engine's ready-made config: a marker that implements both
 /// [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) (parse/style stack) and
@@ -226,6 +253,13 @@ pub use engine::internal_pages;
 
 /// Bookmarks + visited history ("places"), per zone: the store type shells share.
 pub use engine::places;
+
+/// Switch response-body capture on or off for the developer panel.
+///
+/// Re-exported rather than making the whole `net::emitter` module public: a shell needs this
+/// one switch, not the observer plumbing behind it.
+pub use net::emitter::{body_capture_limit, capture_body_previews, set_body_capture_limit, set_capture_body_previews};
+pub use net::emitter::{send_sensitive_headers, set_send_sensitive_headers, REDACTED};
 
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
@@ -251,7 +285,6 @@ pub use engine::cookies;
 /// Storage APIs for local/session data.
 pub use engine::storage;
 
-// EngineConfig at crate root:
 #[doc(inline)]
 pub use crate::engine::config::EngineConfig;
 
@@ -263,7 +296,7 @@ pub use crate::engine::cookies::ThirdPartyCookiePolicy;
 pub mod events {
     pub use crate::engine::events::{
         CursorShape, DownloadId, DownloadOfferId, EngineEvent, HitTestResponse, HitTestToken, Modifiers, MouseButton,
-        PendingDownload, TabCommand,
+        PendingDownload, PickerKind, TabCommand,
     };
     pub use crate::engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
     pub use crate::engine::LoadError;

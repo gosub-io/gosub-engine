@@ -70,6 +70,27 @@ the matcher tests:
 cargo test -p gosub_css3
 ```
 
+## Property ids
+
+The cascade is keyed by a small integer per property rather than by its name, and the enums and
+tables that define those ids are generated from the JSON above:
+
+```sh
+cargo run -p generate_definitions -- --property-ids
+```
+
+That mode downloads nothing. It reads the checked-in
+`crates/gosub_css3/resources/definitions/definitions_properties.json` and writes
+`crates/gosub_css3/src/matcher/property_ids.rs`, so it has to be re-run whenever the definition
+JSON changes - `property_ids_match_the_definitions` in `gosub_css3` re-derives the ids from the
+embedded JSON at test time and fails until it has been. Both paths can be overridden by giving
+them as arguments after the flag.
+
+The module holds only what the JSON itself says: each property's name, whether it inherits, its
+initial value as the source string, whether a percentage computes to a number, and for a
+shorthand the properties its `computed` list names. Anything that needs the resolved value
+grammar stays with the `PropertyDefinition`, reachable by id.
+
 ## History
 
 This tool is a Rust port of an earlier Go implementation that lived in this

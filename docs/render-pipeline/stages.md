@@ -41,7 +41,7 @@ Computes the final position and size of every render node using the [Taffy](http
 ### Steps
 
 1. **Tree conversion** — `generate_tree()` walks the `RenderTree` and builds a parallel `TaffyTree<TaffyContext>`. Each node carries a `TaffyContext` that tells the measure callback what kind of content it holds. Inline children (text, inline elements, `<br>`-separated line boxes) are wrapped in anonymous flex containers to emulate inline formatting, which Taffy lacks.
-2. **CSS → Taffy** — `CssTaffyConverter` maps `StylePropertyList` values to Taffy's `Style` struct (flex, grid, box model, sizing, positioning, overflow, typography).
+2. **CSS → Taffy** — `CssTaffyConverter` maps the node's `ComputedStyle` fields onto Taffy's `Style` struct (flex, grid, box model, sizing, positioning, overflow, typography).
 3. **Measurement callbacks** — Taffy calls back for intrinsic sizes: text nodes measure through the shared [font system](../fonts.md) (memoized, since Taffy probes each node 2–4×); image/SVG nodes honour CSS-constrained dimensions and derive the rest from their intrinsic aspect ratio. Image fetches are non-blocking — layout proceeds with placeholder sizes and a reflow lands when the media arrives.
 4. **`populate_boxmodel()`** — Taffy's parent-relative results are converted to absolute page-space `BoxModel`s (margin / border / padding / content rects); after this the pipeline is layout-engine agnostic.
 5. **Table post-processing** — `display: table` subtrees are re-laid-out by `gosub_lattice` in two passes (widths top-down, heights bottom-up for nested tables) and written back over the Taffy results.

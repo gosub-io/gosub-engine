@@ -3,6 +3,10 @@
 This directory contains runnable examples for the Gosub engine. They are split into two groups:
 engine examples (headless, no GUI required) and GUI examples (need system graphics libraries).
 
+**In a hurry?** Run `make examples` from the repository root for a menu of every example with a
+ready-to-paste command, then `make run-<name>` to start one (`URL=`, `ARGS=` and `RELEASE=1` are
+forwarded). The rest of this file explains what each one actually does.
+
 
 ## Engine examples
 
@@ -78,7 +82,18 @@ These open a real window. Each is its own package with a single binary, so they 
 `cargo run -p example-<name>`, and all accept a URL as the first argument. They require system
 graphics libraries — see the [installation instructions](../docs/examples.md#installing-dependencies) in
 `docs/examples.md`. The full toolkit × backend matrix (winit / GTK4 / egui × Cairo / Skia /
-Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md):
+Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md).
+
+The GUI examples deliberately stay simple: load the URL given on the command line, scroll,
+hover, click links. No persistence (in-memory cookies/storage), no hand-drawn window chrome;
+the GTK/egui ones keep a toolkit-native address bar. The full interactive
+embedder (keyboard editing in forms, clipboard, cursor shapes, kinetic scrolling, dark scheme,
+persistent cookies) is [`bin/gosub-mini-browser`](../bin/gosub-mini-browser):
+
+```bash
+cargo run --release -p gosub-mini-browser -- https://example.com
+```
+
 
 ```bash
 cargo run -p example-winit-vello    # winit window, Vello/wgpu GPU rendering
@@ -91,6 +106,16 @@ cargo run -p example-gtk4-skia-gpu  # GTK4 window, Skia GPU (OpenGL/GLArea) rend
 cargo run -p example-egui-vello     # egui window, Vello/wgpu GPU rendering
 cargo run -p example-egui-skia      # egui window, Skia CPU rendering
 cargo run -p example-egui-cairo     # egui window, Cairo CPU rendering
+```
+
+One GUI example is different in kind rather than toolkit: `mini-browser` runs with every
+process-isolation setting on — sandboxed network process, throwaway image decoders, and pages
+rendered by forked renderer processes whose tiles arrive over sealed shared memory. It exists
+to *watch* the process model work: multiple tabs, an address bar, and Ctrl+P to print the live
+process tree (or `pstree -ap <broker pid>` from outside):
+
+```bash
+cargo run -p example-mini-browser -- https://example.com https://gosub.io
 ```
 
 

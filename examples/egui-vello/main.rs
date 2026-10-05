@@ -424,6 +424,7 @@ impl eframe::App for BrowserApp {
                     .send(TabCommand::MouseScroll {
                         delta_x: dx,
                         delta_y: dy,
+                        precise: false,
                     })
                     .await;
             });
@@ -533,6 +534,8 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
+    // First, before any window or thread: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<AppConfig>();
     eprintln!(
         "{} v{} — egui browser window, Vello/wgpu (GPU) rendering",
         env!("CARGO_BIN_NAME"),
