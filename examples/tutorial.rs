@@ -14,9 +14,8 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
-    tab::{TabDefaults, TabHandle},
     zone::ZoneServices,
-    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use std::sync::Arc;
@@ -66,20 +65,16 @@ async fn run() -> Result<(), EngineError> {
         partition_policy: PartitionPolicy::None,
         places: None,
     };
-    let mut zone = engine.create_zone(None, services, None)?;
+    let mut zone = engine.zone_builder().services(services).create()?;
 
     // ── Step 3: Open a tab ───────────────────────────────────────────────────────
     //
     // A Tab is a single browsing context (like a browser tab). You control it
     // through the returned TabHandle by sending TabCommands.
     let tab = zone
-        .create_tab(
-            TabDefaults {
-                viewport: Some(Viewport::new(0, 0, 1280, 800)),
-                ..Default::default()
-            },
-            None,
-        )
+        .tab_builder()
+        .viewport(Viewport::new(0, 0, 1280, 800))
+        .create()
         .await
         .expect("cannot create tab");
 
@@ -98,7 +93,7 @@ async fn run() -> Result<(), EngineError> {
     loop {
         tokio::select! {
             Ok(ev) = events.recv() => {
-                if handle_event(ev, &tab).await {
+                if handle_event(ev).await {
                     break;
                 }
             }
@@ -122,26 +117,11 @@ async fn run() -> Result<(), EngineError> {
 }
 
 /// Handles one engine event. Returns `true` when the event loop should stop.
-async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
+async fn handle_event(ev: EngineEvent) -> bool {
     match ev {
         EngineEvent::Navigation { event, .. } => match event {
             NavigationEvent::Started { url, .. } => {
                 println!("  [nav] started:   {url}");
-                false
-            }
-            NavigationEvent::Committed { url, .. } => {
-                println!("  [nav] committed: {url}");
-                false
-            }
-            NavigationEvent::Progress {
-                received_bytes,
-                expected_length,
-                ..
-            } => {
-                let total = expected_length
-                    .map(|n| format!("{} KB", n / 1024))
-                    .unwrap_or_else(|| "?".into());
-                println!("  [nav] progress:  {} KB / {total}", received_bytes / 1024);
                 false
             }
             NavigationEvent::Finished { url, .. } => {
@@ -151,21 +131,6 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
             NavigationEvent::Failed { url, error, .. } => {
                 println!("  [nav] FAILED:    {url}  ({error})");
                 true
-            }
-            NavigationEvent::DecisionRequired {
-                nav_id, decision_token, ..
-            } => {
-                // The engine fetched response headers and needs the UA to decide:
-                // render the page, or download the file? We always render here.
-                let _ = tab
-                    .cmd_tx
-                    .send(TabCommand::SubmitDecision {
-                        nav_id,
-                        decision_token,
-                        action: Action::Render,
-                    })
-                    .await;
-                false
             }
             _ => false,
         },

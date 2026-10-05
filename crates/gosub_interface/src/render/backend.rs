@@ -2,7 +2,6 @@ use crate::render::render_context::RenderContext;
 use crate::render::viewport::Viewport;
 use gosub_shared::tab_id::TabId;
 use std::any::Any;
-use std::ptr::NonNull;
 use std::sync::Arc;
 
 /// A surface rect has the same properties as a viewport, but computed with DevicePixelRatio.
@@ -292,13 +291,10 @@ pub struct PlacedGpuTile {
     pub anchor: TileAnchor,
 }
 
-/// Safety: `ExternalHandle` can be sent between threads, but not shared.
-#[allow(unsafe_code)]
-unsafe impl Send for ExternalHandle {}
-#[allow(unsafe_code)]
-unsafe impl Sync for ExternalHandle {}
-
 /// Handle that the host/browser can use to composite a surface.
+///
+/// Crosses from the tab worker to the host thread, so every variant must be `Send + Sync`
+/// on its own - checked below, so a raw-pointer variant cannot creep back in.
 #[derive(Clone, Debug)]
 pub enum ExternalHandle {
     NullHandle {
@@ -313,14 +309,6 @@ pub enum ExternalHandle {
         stride: u32,
         pixels: Vec<u8>,
         format: PixelFormat,
-    },
-
-    /// UNSAFE: caller must respect lifetime/size/stride.
-    CpuPixelsPtr {
-        width: u32,
-        height: u32,
-        stride: u32,
-        pixel_buf: NonNull<u8>,
     },
 
     /// Pre-rasterized tile cache for zero-copy smooth scrolling.
@@ -363,6 +351,11 @@ pub enum ExternalHandle {
         frame_id: u64,
     },
 }
+
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<ExternalHandle>();
+};
 
 /// Small RGBA image, typically used for thumbnails or previews.
 #[derive(Clone)]

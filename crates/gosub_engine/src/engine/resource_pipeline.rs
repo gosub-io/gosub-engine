@@ -32,6 +32,9 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     pub css: Box<dyn CssPipeline + Send>,
     pub js: Box<dyn JsPipeline + Send>,
     pub fonts: Box<dyn FontPipeline + Send>,
+    /// `net.download.max_spool_bytes`: cap on a download body spooled before the embedder
+    /// accepts it. 0 = unlimited.
+    pub(crate) max_download_spool_bytes: u64,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
     // pub external: &'a mut dyn ExternalOpener,
@@ -39,12 +42,13 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
     #[allow(clippy::too_many_arguments)] // one per pipeline setting, all set per navigation
-    pub fn new(
+    pub(crate) fn new(
         zone_id: ZoneId,
         tab_id: TabId,
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
+        max_download_spool_bytes: u64,
         font_system: Arc<Mutex<C::FontSystem>>,
         capture_source: bool,
         source_only: bool,
@@ -54,6 +58,7 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         // engine's own pages (`source_only` false), which may still render
         // in-process when the renderer cannot, and need a document for that.
         Self {
+            max_download_spool_bytes,
             html: Box::new(
                 HtmlPipelineImpl::new(
                     zone_id,

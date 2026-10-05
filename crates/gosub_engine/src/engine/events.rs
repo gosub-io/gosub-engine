@@ -1,22 +1,28 @@
 //! The engine's message vocabulary: commands flowing in ([`TabCommand`], [`EngineCommand`])
 //! and events flowing out ([`EngineEvent`]), plus the input types they carry.
+//!
+//! Variants the engine declares but does not yet emit or handle sit behind the non-default
+//! `unstable-api` feature; see the crate docs. The event enums are `#[non_exhaustive]` for
+//! that reason: the variant set an embedder sees depends on features, so matches need a `_` arm.
 
+#[cfg(feature = "unstable-api")]
 use crate::cookies::Cookie;
-use crate::engine::types::{Action, NavigationId, RequestId};
+use crate::engine::errors::LoadError;
+use crate::engine::types::{NavigationId, RequestId};
 use crate::net::req_ref_tracker::RequestReference;
-use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, Priority, ResourceKind};
-use crate::net::DecisionToken;
+#[cfg(feature = "unstable-api")]
+use crate::net::types::Priority;
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, Initiator, ResourceKind};
 use crate::storage::event::StorageScope;
 use crate::tab::history::{HistoryEntryId, HistorySnapshot};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use crate::EngineError;
 use bitflags::bitflags;
-use gosub_render_pipeline::render::backend::ExternalHandle;
+#[cfg(feature = "unstable-api")]
 use gosub_render_pipeline::render::Viewport;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
@@ -52,6 +58,27 @@ pub struct HitTestToken(pub u64);
 /// embedder when it starts the download (like [`HitTestToken`]); the engine echoes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DownloadId(pub u64);
+
+/// Identifies one pending download offer. Minted by the engine when it emits
+/// [`EngineEvent::DownloadRequested`]; the shell passes it back to accept
+/// ([`TabCommand::StartDownload`]) or override ([`TabCommand::RenderDownload`]) that offer.
+/// Unique per tab, so two offers for the same URL never collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DownloadOfferId(pub u64);
+
+/// A download offer the tab is still holding the body for. Read via
+/// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads), which is the
+/// recovery path when a [`DownloadRequested`](EngineEvent::DownloadRequested) was lost to a
+/// lagging receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingDownload {
+    pub offer: DownloadOfferId,
+    pub url: Url,
+    /// From `Content-Disposition` when present, else the URL's last path segment.
+    pub suggested_filename: String,
+    pub content_type: Option<String>,
+    pub total_bytes: Option<u64>,
+}
 
 /// What is under a point of the page - the input for a shell's native context menu.
 /// Fields are independent: a linked image yields both `link_url` and `image_url`. URLs are
@@ -117,10 +144,11 @@ impl Display for Modifiers {
     }
 }
 
-// Commands sent to the IO / network layer
+// Commands sent to the IO / network layer. Engine-internal plumbing: embedders never
+// construct one, and the types it carries are the network layer's, not the API's.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum IoCommand {
+pub(crate) enum IoCommand {
     Fetch {
         zone_id: ZoneId,
         tab_id: Option<TabId>,
@@ -134,9 +162,6 @@ pub enum IoCommand {
     /// queued after it gets the new one - the registry is only ever read in that
     /// order (see `net::tab_identity`).
     SetTopLevel { tab_id: TabId, url: url::Url },
-    /// Return a decision on a pending request. Tokens are process-wide unique,
-    /// so no zone id is needed to route them.
-    Decision { token: DecisionToken, action: Action },
     /// Ask IO to shut down a specific zone; replies when fully stopped.
     ShutdownZone {
         zone_id: ZoneId,
@@ -211,13 +236,33 @@ pub enum TabCommand {
     GoToHistoryEntry {
         entry: HistoryEntryId,
     },
-    /// Save `url` to `target_path` through the zone's fetcher (cookies and UA apply).
-    /// Sent to accept an [`EngineEvent::DownloadRequested`] offer, or directly
-    /// (save-link-as). Progress arrives as `Download*` events carrying the same `id`.
+    /// Save a download to `target_path`. Progress arrives as `Download*` events carrying
+    /// the same `id`.
+    ///
+    /// With `offer` set, this accepts an [`EngineEvent::DownloadRequested`]: the body captured
+    /// during the navigation is placed, and `url` is never requested again - a second request
+    /// would be wrong when the navigation was a POST or the URL is single-use. Such a
+    /// download finishes at once, with no intervening
+    /// [`DownloadProgress`](EngineEvent::DownloadProgress). An `offer` that is no longer
+    /// pending fails with [`DownloadFailed`](EngineEvent::DownloadFailed) rather than
+    /// silently fetching.
+    ///
+    /// With `offer: None` (save-link-as), `url` is fetched through the zone's fetcher,
+    /// cookies and UA applying, and does report progress.
     StartDownload {
         id: DownloadId,
         url: String,
         target_path: std::path::PathBuf,
+        offer: Option<DownloadOfferId>,
+    },
+    /// Load a pending [`EngineEvent::DownloadRequested`] offer as the page instead of saving
+    /// it - the override for a response the engine misclassified (an HTML page served as
+    /// `application/octet-stream`, or with `Content-Disposition: attachment`). The spooled
+    /// body is parsed as HTML with the offer's URL as the document URL, bounded by
+    /// `net.document.max_bytes`. An offer that is no longer pending fails the navigation
+    /// with [`LoadError::Content`].
+    RenderDownload {
+        offer: DownloadOfferId,
     },
     /// Ask what is at viewport point `(x, y)` (CSS px), e.g. on right-click, to build a native
     /// context menu. Answered with [`EngineEvent::HitTestResult`] carrying the same `token`.
@@ -230,12 +275,6 @@ pub enum TabCommand {
     /// release builds.
     #[cfg(test)]
     CrashForTest,
-    /// Answer a pending [`NavigationEvent::DecisionRequired`].
-    SubmitDecision {
-        nav_id: NavigationId,
-        decision_token: DecisionToken,
-        action: Action,
-    },
     CloseTab,
 
     // ****************************************
@@ -250,6 +289,16 @@ pub enum TabCommand {
         y: i32,
         width: u32,
         height: u32,
+    },
+    /// Set the tab's scroll offset to an absolute position in CSS px, clamped to the page.
+    /// Use this when the shell owns the scroll position (smooth scrolling, a scrollbar drag,
+    /// a restored session) and needs to tell the engine where it is - as opposed to
+    /// [`Self::MouseScroll`], which hands the engine a delta and lets it animate. Applying it
+    /// cancels any scroll animation in flight. See the scroll-ownership section in the crate
+    /// docs.
+    SetScroll {
+        x: i32,
+        y: i32,
     },
 
     // ****************************************
@@ -274,6 +323,9 @@ pub enum TabCommand {
         y: f32,
         button: MouseButton,
     },
+    /// A wheel/trackpad delta in CSS px. The engine owns the resulting position and may
+    /// animate toward it (see the zone's scroll behaviour); use [`Self::SetScroll`] to
+    /// assert an absolute offset instead.
     MouseScroll {
         delta_x: f32,
         delta_y: f32,
@@ -293,13 +345,10 @@ pub enum TabCommand {
         modifiers: Modifiers,
     },
     /// Committed text for the focused control: IME output, or the clipboard contents in answer
-    /// to [`EngineEvent::PasteRequested`].
+    /// to [`EngineEvent::PasteRequested`]. This is the only text-input path - there is no
+    /// per-character command.
     TextInput {
         text: String,
-    },
-    /// @TODO: needed since we have TextInput?
-    CharInput {
-        ch: char,
     },
     /// The shell's picker moved: apply `value` to the input that asked for it (see
     /// [`EngineEvent::PickerRequested`]). The value is sanitised the way the HTML spec
@@ -317,49 +366,59 @@ pub enum TabCommand {
 
     // ****************************************
     // ** Session / zone state
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     SetCookie {
         cookie: Cookie,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ClearCookies,
+    #[cfg(feature = "unstable-api")]
     /// @TODO: local / session??
-    /// Not yet handled: the tab worker logs and drops it.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     SetStorageItem {
         key: String,
         value: String,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     RemoveStorageItem {
         key: String,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ClearStorage,
 
     // ****************************************
     // ** Media / scripting
+    #[cfg(feature = "unstable-api")]
     /// Execute given javascript (how about lua?)
-    /// Not yet handled: the tab worker logs and drops it.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ExecuteScript {
         source: String,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     PlayMedia {
         element_id: u64,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     PauseMedia {
         element_id: u64,
     },
 
     // ****************************************
     // ** Debug / devtools
-    /// Not yet handled: the tab worker logs and drops it.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     DumpDomTree,
 }
 
+/// Engine-internal: the run loop's inbox. Embedders use [`GosubEngine::shutdown`](crate::GosubEngine::shutdown).
 #[derive(Debug)]
-pub enum EngineCommand {
+pub(crate) enum EngineCommand {
     Shutdown {
         reply: oneshot::Sender<anyhow::Result<(), EngineError>>,
     },
@@ -368,12 +427,18 @@ pub enum EngineCommand {
 /// Navigation events. These are the "top" events that will trigger load and resource events. All
 /// events triggered in this navigation will have the same navigation id.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum NavigationEvent {
     Started {
         nav_id: NavigationId,
         url: Url,
     },
-    /// A new document will replace the current one
+    /// A new document will replace the current one.
+    ///
+    /// Declared but never emitted: the engine has no separate commit point yet - a load
+    /// goes straight from `Started` to `Finished`.
+    /// Behind `unstable-api`.
+    #[cfg(feature = "unstable-api")]
     Committed {
         nav_id: NavigationId,
         url: Url,
@@ -385,8 +450,9 @@ pub enum NavigationEvent {
     Failed {
         nav_id: Option<NavigationId>,
         url: Url,
-        error: Arc<anyhow::Error>,
+        error: LoadError,
     },
+    /// Load progress of the main document, throttled.
     Progress {
         nav_id: NavigationId,
         received_bytes: u64,
@@ -397,19 +463,12 @@ pub enum NavigationEvent {
     FailedUrl {
         nav_id: Option<NavigationId>,
         url: String,
-        error: Arc<anyhow::Error>,
+        error: LoadError,
     },
     Cancelled {
         nav_id: NavigationId,
         url: Url,
         reason: CancelReason,
-    },
-    /// The navigation requires a decision on how to proceed (e.g., auth, certificate, block, allow);
-    /// answered via [`TabCommand::SubmitDecision`]
-    DecisionRequired {
-        nav_id: NavigationId,
-        meta: FetchResultMeta,
-        decision_token: DecisionToken,
     },
     /// The tab's session history changed (entry added, back/forward moved, title learned).
     /// Carries the full snapshot so shells can update back/forward buttons and menus without
@@ -419,32 +478,16 @@ pub enum NavigationEvent {
     },
 }
 
-/// Why a request failed, in a form a shell can act on.
+/// One [`ResourceEvent`], tagged with the tab it belongs to.
 ///
-/// A single "it failed" string is no use to someone staring at a page that will not
-/// load: "the certificate expired" and "the server accepted the connection and sent
-/// nothing" call for completely different responses. Derived from the network stack's
-/// own typed error rather than by reading its message, so it says only what is known.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureKind {
-    /// Refused by policy before it was sent -- mixed content, URL policy, CORS.
-    Blocked,
-    /// The TLS handshake failed.
-    Tls,
-    /// The request ran out of time.
-    Timeout,
-    /// The connection could not be established. Name resolution failures arrive this
-    /// way too: the client does not separate them, and guessing which it was would be
-    /// worse than saying it could not connect.
-    Connect,
-    /// The transfer broke part way.
-    Transfer,
-    /// A redirect could not be followed.
-    Redirect,
-    /// Something gave up on the request deliberately.
-    Cancelled,
-    /// Anything the stack did not classify.
-    Other,
+/// Delivered on its own opt-in stream, not the main event bus - see
+/// [`subscribe_resource_events`](crate::GosubEngine::subscribe_resource_events).
+#[derive(Debug, Clone)]
+pub struct ResourceUpdate {
+    /// The tab whose load produced this event.
+    pub tab_id: TabId,
+    /// What happened.
+    pub event: ResourceEvent,
 }
 
 /// Events triggered by load resources for a main document. Note that resources can trigger other
@@ -454,7 +497,11 @@ pub enum FailureKind {
 /// redirects?) and its `reference` - what the resource belongs to (navigation id, document id,
 /// background task id etc.).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ResourceEvent {
+    /// Declared but never emitted: requests currently go straight to `Started`.
+    /// Behind `unstable-api`.
+    #[cfg(feature = "unstable-api")]
     Queued {
         request_id: RequestId,
         reference: RequestReference,
@@ -503,10 +550,8 @@ pub enum ResourceEvent {
         reference: RequestReference,
         /// URL that failed
         url: String,
-        /// What kind of failure it was, for a shell that wants to say something useful
-        kind: FailureKind,
-        /// The full error, for a shell that wants to show everything
-        error: Arc<anyhow::Error>,
+        /// Why it failed, classified; `Display` gives the message to show
+        error: LoadError,
     },
     Cancelled {
         request_id: RequestId,
@@ -608,20 +653,24 @@ impl Display for CancelReason {
 
 /// Engine events
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum EngineEvent {
     // ****************************************
     // ** Engine lifecycle
     EngineStarted,
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     BackendChanged {
         old: String,
         new: String,
     },
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     Warning {
         message: String,
     },
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     EngineShutdown {
         reason: String,
     },
@@ -637,12 +686,16 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Rendering
+    /// A new frame for this tab has been handed to the compositor sink. This is the
+    /// wakeup, not the frame: the pixels went to
+    /// [`CompositorSink::submit_frame`](gosub_render_pipeline::render::backend::CompositorSink::submit_frame),
+    /// and the shell should ask its sink for the tab's current frame and present it.
     Redraw {
         tab_id: TabId,
-        handle: ExternalHandle,
     },
+    #[cfg(feature = "unstable-api")]
     /// Frame has been completed (@TODO: do we need this?)
-    /// Not yet emitted by the engine.
+    /// Not yet emitted; behind `unstable-api`.
     FrameComplete {
         tab_id: TabId,
         frame_id: u64,
@@ -676,17 +729,30 @@ pub enum EngineEvent {
         hit: HitTestResponse,
     },
     /// A navigation turned out to be a download (binary content or an attachment). The
-    /// navigation itself was cancelled (the page stays); the shell decides where to save
-    /// and answers with [`TabCommand::StartDownload`] - or ignores the offer.
+    /// navigation itself was cancelled (the page stays); the shell decides what to do and
+    /// answers with [`TabCommand::StartDownload`] or [`TabCommand::RenderDownload`] carrying
+    /// `offer` - or ignores it.
+    ///
+    /// The body has already been transferred and spooled to a temp file by the time this
+    /// arrives, so accepting is a local move rather than a second request. Ignoring the
+    /// event does not release the file: the tab keeps an offer until it is accepted or
+    /// rendered, evicted by newer offers (eight are kept per tab, oldest out first), or the
+    /// tab closes. The bytes move during the *navigation*, so there is no per-download
+    /// progress on accept. This event travels the bounded control bus; a receiver that lagged can list
+    /// what is still pending with
+    /// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads).
     DownloadRequested {
         tab_id: TabId,
+        offer: DownloadOfferId,
         url: Url,
         /// From `Content-Disposition` when present, else the URL's last path segment.
         suggested_filename: String,
         content_type: Option<String>,
         total_bytes: Option<u64>,
     },
-    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`].
+    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`]. Only emitted for
+    /// downloads the engine had to fetch (save-link-as); an accepted offer is already on
+    /// disk and jumps straight to [`DownloadFinished`](Self::DownloadFinished).
     DownloadProgress {
         tab_id: TabId,
         id: DownloadId,
@@ -737,7 +803,8 @@ pub enum EngineEvent {
         max: Option<String>,
         step: Option<String>,
     },
-    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
+    /// The document's title was learned or changed: `<title>` parsed in-process, or a
+    /// renderer process reported one.
     TitleChanged {
         tab_id: TabId,
         title: String,
@@ -750,12 +817,15 @@ pub enum EngineEvent {
         tab_id: TabId,
         favicon: Vec<u8>,
     },
-    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
+    #[cfg(feature = "unstable-api")]
+    /// Declared but never emitted; emission arrives with the pending mac-app patches.
+    /// Behind `unstable-api`.
     LocationChanged {
         tab_id: TabId,
         url: String,
     },
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     TabResized {
         tab_id: TabId,
         viewport: Viewport,
@@ -769,18 +839,14 @@ pub enum EngineEvent {
         tab_id: TabId,
         event: NavigationEvent,
     },
-    /// Lowlevel resource events for all resources loaded
-    Resource {
-        tab_id: TabId,
-        event: ResourceEvent,
-    },
 
     // /// Redirect occurred
     // Redirect { tab_id: TabId, from: String, to: String },
 
     // ********************************************
     // ** Networking
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     ConnectionEstablished {
         tab_id: TabId,
         url: String,
@@ -800,7 +866,8 @@ pub enum EngineEvent {
     // ** Tab
 
     // ** Session / zone state
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     CookieAdded {
         tab_id: TabId,
         cookie: Cookie,
@@ -816,18 +883,21 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Media / scripting
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     MediaStarted {
         tab_id: TabId,
         element_id: u64,
     },
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     MediaPaused {
         tab_id: TabId,
         element_id: u64,
     },
+    #[cfg(feature = "unstable-api")]
     /// Result of a script is returned (console stuff?)
-    /// Not yet emitted by the engine.
+    /// Not yet emitted; behind `unstable-api`.
     ScriptResult {
         tab_id: TabId,
         result: serde_json::Value,
@@ -835,13 +905,15 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Errors / diagnostics
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     NetworkError {
         tab_id: TabId,
         url: Url,
         message: String,
     },
-    /// Not yet emitted by the engine.
+    #[cfg(feature = "unstable-api")]
+    /// Not yet emitted; behind `unstable-api`.
     JavaScriptError {
         tab_id: TabId,
         message: String,

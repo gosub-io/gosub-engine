@@ -191,14 +191,14 @@ async fn run(urls: Vec<String>) {
         partition_policy: PartitionPolicy::None,
         places: None,
     };
-    let mut zone = engine.create_zone(None, services, None).expect("create zone");
+    let mut zone = engine.zone_builder().services(services).create().expect("create zone");
 
     // Several tabs in one zone, all fetching through the single network process.
     // A viewport and a draw loop are what make renderers happen: a tab that
     // never draws never renders, and the fork server would sit idle.
     let mut tabs = Vec::new();
     for url in &urls {
-        let tab = zone.create_tab(Default::default(), None).await.expect("create tab");
+        let tab = zone.tab_builder().create().await.expect("create tab");
         println!("tab {} -> {url}", tab.tab_id);
         tab.send(TabCommand::SetViewport {
             x: 0,

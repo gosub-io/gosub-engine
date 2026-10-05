@@ -63,6 +63,8 @@ mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
+# Download bodies are spooled to a temp file while the embedder decides (see net::router).
+tempfile = { workspace = true }
 
 # Exercises the isolated components from a binary that dispatches child roles the
 # way an embedder must; `tests/process_isolation.rs` runs it. Pointless without
@@ -73,13 +75,15 @@ path = "src/bin/isolation-harness.rs"
 required-features = ["process-isolation"]
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [features]
 default = ["sqlite_cookie_store", "process-isolation"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
+# Aspirational message vocabulary: variants the engine declares but does not yet emit or
+# handle. Off by default so the default surface is only what works.
+unstable-api = []
 # Records fetch timings (net.fetch.*, net.ttfb) into the shared timing table by
 # wrapping the per-request net observer. Off by default: it is opt-in instrumentation,
 # and with it off no wrapper is constructed at all.

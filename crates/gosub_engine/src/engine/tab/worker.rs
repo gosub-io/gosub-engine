@@ -1,11 +1,13 @@
-use crate::engine::errors::NavigationError;
+use crate::engine::errors::{LoadError, NavigationError};
+use crate::engine::events::IoCommand;
 use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
+use crate::engine::events::{DownloadOfferId, PendingDownload};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
-use crate::events::{IoCommand, TabCommand};
+use crate::events::TabCommand;
 use crate::fork_server::protocol::InputEvent;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
@@ -24,7 +26,9 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize};
+use gosub_render_pipeline::render::backend::{
+    CompositorSink, ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
+};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
@@ -39,48 +43,33 @@ use url::Url;
 /// An icon larger than this is not an icon.
 const MAX_FAVICON_BYTES: usize = 512 * 1024;
 
-/// Filename to suggest for downloading `meta`'s resource: the `Content-Disposition`
-/// `filename` parameter when present, else the final URL's last path segment, else
-/// "download". Path separators are stripped so a hostile header cannot escape the
-/// directory the embedder picks.
-fn suggested_filename(meta: &FetchResultMeta) -> String {
-    let from_disposition = meta
-        .headers
-        .get(http::header::CONTENT_DISPOSITION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            v.split(';').find_map(|part| {
-                let part = part.trim();
-                part.strip_prefix("filename=")
-                    .map(|f| f.trim_matches('"').to_string())
-                    .filter(|f| !f.is_empty())
-            })
-        });
-    let name = from_disposition.or_else(|| {
-        meta.final_url
-            .path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .filter(|segment| !segment.is_empty())
-            .map(|segment| {
-                percent_encoding::percent_decode_str(segment)
-                    .decode_utf8_lossy()
-                    .into_owned()
-            })
-    });
-    let name = name.unwrap_or_default();
-    let name: String = name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("")
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect();
-    let name = name.trim().to_string();
-    if name.is_empty() || name == "." || name == ".." {
-        "download".to_string()
-    } else {
-        name
+/// Move an accepted offer's spooled body to `target_path`, returning the bytes written.
+/// Blocking; callers run it on the blocking pool.
+///
+/// `persist` renames first (same filesystem, no copy) and falls back to a copy across mount
+/// points - the common case when the temp dir and the download directory differ.
+fn place_spooled_download(spooled: tempfile::TempPath, target_path: &std::path::Path) -> anyhow::Result<u64> {
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
+    if let Err(e) = spooled.persist(target_path) {
+        std::fs::copy(&e.path, target_path).with_context(|| format!("copy to {}", target_path.display()))?;
+        // `e.path` is still a TempPath, so the source is removed when it drops.
+    }
+    Ok(std::fs::metadata(target_path).map(|m| m.len()).unwrap_or(0))
+}
+
+/// A download offer whose body is on disk, awaiting the embedder's answer.
+struct PendingOffer {
+    info: PendingDownload,
+    body: tempfile::TempPath,
+}
+
+/// Where a locally loaded document's HTML comes from.
+enum HtmlSource {
+    Text(String),
+    /// A spooled download body, read (bounded) on the load task rather than the worker.
+    Spooled(tempfile::TempPath),
 }
 
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
@@ -177,10 +166,12 @@ pub enum NavigationResult<C: RenderConfiguration> {
         error: NavigationError,
     },
     /// The response is non-renderable content: the navigation ends (page stays) and the
-    /// metadata becomes a `DownloadRequested` offer to the embedder.
+    /// metadata becomes a `DownloadRequested` offer to the embedder; `spooled` holds the
+    /// body already fetched.
     Download {
         nav_id: NavigationId,
         meta: FetchResultMeta,
+        spooled: tempfile::TempPath,
     },
 }
 
@@ -290,6 +281,11 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
+    /// Download offers whose body is still held, oldest first; looked up by
+    /// [`DownloadOfferId`]. Bounded by `remember_offer`.
+    pending_offers: std::collections::VecDeque<PendingOffer>,
+    /// Source of [`DownloadOfferId`]s; unique within the tab.
+    next_offer: u64,
     /// The icon last fetched for the document a renderer process reported, so
     /// the renders that follow do not fetch it again. Cleared when a navigation
     /// commits a new document.
@@ -405,6 +401,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             remote_capture: false,
             remote_focus: None,
             pending_scroll: None,
+            pending_offers: std::collections::VecDeque::new(),
+            next_offer: 0,
             remote_favicon: None,
             document_entry: None,
         }
@@ -787,7 +785,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.remote_capture = false;
                 self.remote_focus = None;
             }
-            NavigationResult::Download { nav_id, meta } => {
+            NavigationResult::Download { nav_id, meta, spooled } => {
                 // Not an error and not a page change: the tab stays on its current document
                 // and the shell gets a download offer. The Cancelled event stops spinners.
                 self.is_loading = false;
@@ -802,12 +800,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         reason: crate::engine::events::CancelReason::Custom("download".into()),
                     },
                 });
+                let info = crate::net::types::ResponseInfo::from(&meta);
+                self.next_offer += 1;
+                let pending = PendingDownload {
+                    offer: DownloadOfferId(self.next_offer),
+                    suggested_filename: info.suggested_filename(),
+                    content_type: info.content_type,
+                    total_bytes: info.content_length,
+                    url: info.final_url,
+                };
+                self.remember_offer(pending.clone(), spooled);
                 self.send_event(EngineEvent::DownloadRequested {
                     tab_id: self.tab_id,
-                    suggested_filename: suggested_filename(&meta),
-                    content_type: meta.content_type.clone(),
-                    total_bytes: meta.content_length,
-                    url: meta.final_url,
+                    offer: pending.offer,
+                    url: pending.url,
+                    suggested_filename: pending.suggested_filename,
+                    content_type: pending.content_type,
+                    total_bytes: pending.total_bytes,
                 });
             }
             NavigationResult::Err { nav_id, error } => {
@@ -828,7 +837,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::Failed {
                         nav_id: Some(nav_id),
                         url,
-                        error: Arc::new(error.into()),
+                        error: error.into(),
                     },
                 });
             }
@@ -943,15 +952,67 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
-    /// Save `url` to `target_path` through the zone fetcher, with progress/finished/failed
-    /// events carrying `id`. Runs on its own task; tab shutdown does not cancel it (a
+    /// Hold an offer's body until the embedder answers or the tab goes away. Bounded, so an
+    /// embedder that ignores offers cannot accumulate temp files without limit; the oldest
+    /// offer is evicted first. Dropping a `TempPath` deletes its file.
+    fn remember_offer(&mut self, info: PendingDownload, body: tempfile::TempPath) {
+        const MAX_PENDING: usize = 8;
+        self.pending_offers.push_back(PendingOffer { info, body });
+        while self.pending_offers.len() > MAX_PENDING {
+            self.pending_offers.pop_front();
+        }
+        self.publish_pending_downloads();
+    }
+
+    fn take_offer(&mut self, offer: DownloadOfferId) -> Option<PendingOffer> {
+        let idx = self.pending_offers.iter().position(|p| p.info.offer == offer)?;
+        let taken = self.pending_offers.remove(idx);
+        self.publish_pending_downloads();
+        taken
+    }
+
+    /// Mirror the pending offers onto the sink so a shell that missed a
+    /// `DownloadRequested` can still find them.
+    fn publish_pending_downloads(&self) {
+        self.sink
+            .set_pending_downloads(self.pending_offers.iter().map(|p| p.info.clone()).collect());
+    }
+
+    /// Load a spooled download offer as the page. The override for a misclassified
+    /// response; see [`TabCommand::RenderDownload`].
+    fn render_download(&mut self, offer: DownloadOfferId) {
+        let Some(PendingOffer { info, body }) = self.take_offer(offer) else {
+            self.send_event(EngineEvent::Navigation {
+                tab_id: self.tab_id,
+                event: NavigationEvent::Failed {
+                    nav_id: None,
+                    url: self.current_url.clone().unwrap_or_else(about_blank),
+                    error: LoadError::Content {
+                        message: format!("download offer {} is no longer pending", offer.0),
+                    },
+                },
+            });
+            return;
+        };
+        self.begin_local_load(HtmlSource::Spooled(body), info.url);
+    }
+
+    /// Save a download to `target_path`: an accepted offer's spooled body (moved into place),
+    /// or `url` fetched through the zone fetcher (save-link-as), with progress/finished/failed
+    /// events carrying `id`. The fetch runs on its own task; tab shutdown does not cancel it (a
     /// deliberate v1 simplification - there is no cancel command yet).
     ///
     /// V1 fetches in **buffered** mode (whole body in memory before writing): sonar's
     /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
     /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
     /// needs replay support in gosub-sonar (see the board).
-    fn start_download(&self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
+    fn start_download(
+        &mut self,
+        id: crate::engine::events::DownloadId,
+        url: String,
+        target_path: std::path::PathBuf,
+        offer: Option<DownloadOfferId>,
+    ) {
         let Ok(url) = Url::parse(&url) else {
             self.send_event(EngineEvent::DownloadFailed {
                 tab_id: self.tab_id,
@@ -961,6 +1022,48 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         };
 
+        if let Some(offer) = offer {
+            let Some(PendingOffer { body, .. }) = self.take_offer(offer) else {
+                // Never fall back to a fetch: the body the shell accepted is gone.
+                self.send_event(EngineEvent::DownloadFailed {
+                    tab_id: self.tab_id,
+                    id,
+                    error: format!("download offer {} is no longer pending", offer.0),
+                });
+                return;
+            };
+            // Placement is a rename at best and a full copy across filesystems at worst
+            // (temp dir vs. download dir is the common case), so it must not run on the
+            // worker: that would stall every command and frame tick for the tab.
+            let tab_id = self.tab_id;
+            let event_tx = self.zone_context.event_tx.clone();
+            spawn_named("tab-download-place", async move {
+                let dest = target_path.clone();
+                let placed = tokio::task::spawn_blocking(move || place_spooled_download(body, &dest)).await;
+                let event = match placed {
+                    Ok(Ok(received_bytes)) => EngineEvent::DownloadFinished {
+                        tab_id,
+                        id,
+                        path: target_path,
+                        received_bytes,
+                    },
+                    Ok(Err(e)) => EngineEvent::DownloadFailed {
+                        tab_id,
+                        id,
+                        error: format!("{e:#}"),
+                    },
+                    Err(e) => EngineEvent::DownloadFailed {
+                        tab_id,
+                        id,
+                        error: format!("placing the download failed: {e}"),
+                    },
+                };
+                let _ = event_tx.send(event);
+            });
+            return;
+        }
+
+        // Save-link-as: no captured body, fetch it now.
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
         // A Download reference routes the transport's per-chunk progress to the shell as
@@ -1099,7 +1202,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     self.context.invalidate_raster_if_dpr_changed(dpr);
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                        self.submit_frame(handle);
                         return ControlFlow::Continue;
                     }
                 }
@@ -1124,6 +1227,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             TabCommand::CloseTab => ControlFlow::Break,
             TabCommand::SetTitle { title } => {
                 self.title = title;
+                self.publish_tab_state();
                 ControlFlow::Continue
             }
             TabCommand::Navigate { url } => {
@@ -1167,8 +1271,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::StartDownload { id, url, target_path } => {
-                self.start_download(id, url, target_path);
+            TabCommand::StartDownload {
+                id,
+                url,
+                target_path,
+                offer,
+            } => {
+                self.start_download(id, url, target_path, offer);
                 ControlFlow::Continue
             }
             #[cfg(test)]
@@ -1305,17 +1414,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::CharInput { ch } => {
-                if self.forward_input(InputEvent::Text { text: ch.to_string() }) {
-                    self.runtime.dirty = true;
-                    return ControlFlow::Continue;
-                }
-                if self.context.insert_text(&ch.to_string()) {
-                    self.runtime.render_now = true;
-                }
-                self.runtime.dirty = true;
-                ControlFlow::Continue
-            }
             TabCommand::PickerChanged { value } => {
                 if self.forward_input(InputEvent::PickerChanged { value: value.clone() }) {
                     self.runtime.dirty = true;
@@ -1331,6 +1429,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 if !self.forward_input(InputEvent::PickerClosed) {
                     self.context.end_picker();
                 }
+                ControlFlow::Continue
+            }
+            TabCommand::SetScroll { x, y } => {
+                self.apply_scroll(x, y);
                 ControlFlow::Continue
             }
             TabCommand::MouseUp { x, y, button } => {
@@ -1371,23 +1473,34 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::SubmitDecision {
-                decision_token, action, ..
-            } => {
-                // Proxy the submit decision to the I/O thread
-                let _ = self.zone_context.io_tx.send(IoCommand::Decision {
-                    token: decision_token,
-                    action,
-                });
-
-                // Decisions are handled in the fetcher/io thread, so we can ignore this here
+            TabCommand::RenderDownload { offer } => {
+                self.render_download(offer);
                 ControlFlow::Continue
             }
+            #[cfg(feature = "unstable-api")]
             _ => {
                 log::warn!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd);
                 ControlFlow::Continue
             }
         }
+    }
+
+    /// Hand a finished frame to the zone's compositor sink and ring the wakeup.
+    ///
+    /// The sink is the data channel (it holds the pixels); [`EngineEvent::Redraw`] is only
+    /// the wakeup. Shells present by asking the sink for the tab's current frame.
+    fn submit_frame(&self, handle: ExternalHandle) {
+        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+        self.send_event(EngineEvent::Redraw { tab_id: self.tab_id });
+    }
+
+    /// Republish the tab's externally-readable state (URL, title, back/forward availability)
+    /// so [`TabHandle`](crate::tab::TabHandle) accessors answer without replaying events.
+    fn publish_tab_state(&self) {
+        self.sink.set_url(self.current_url.clone());
+        self.sink.set_title(self.title.clone());
+        self.sink
+            .set_history_flags(self.history.can_go_back(), self.history.can_go_forward());
     }
 
     /// Send an engine event upwards to the UA
@@ -1552,6 +1665,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Broadcast the current history snapshot to the embedder.
     fn emit_history_changed(&self) {
+        self.publish_tab_state();
         self.send_event(EngineEvent::Navigation {
             tab_id: self.tab_id,
             event: NavigationEvent::HistoryChanged {
@@ -1701,7 +1815,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 event: NavigationEvent::Failed {
                     nav_id: None,
                     url: url.clone(),
-                    error: Arc::new(e),
+                    error: LoadError::Io {
+                        message: format!("{e:#}"),
+                    },
                 },
             });
             return;
@@ -1787,6 +1903,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
         let font_system = self.zone_context.font_system.clone();
         // Capture the document source only when a renderer process may need it
         // (it re-parses there); otherwise skip the copy.
@@ -1861,6 +1978,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
+                max_download_spool_bytes,
                 font_system.clone(),
                 capture_source,
                 capture_source,
@@ -1897,8 +2015,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         source,
                     });
                 }
-                Ok(RoutedOutcome::DownloadOffer(meta)) => {
-                    let _ = tx_done.send(NavigationResult::Download { nav_id, meta: *meta });
+                Ok(RoutedOutcome::DownloadOffer { meta, spooled }) => {
+                    let _ = tx_done.send(NavigationResult::Download {
+                        nav_id,
+                        meta: *meta,
+                        spooled,
+                    });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
                     log::warn!("Tab[{:?}] viewer rendering not supported yet", tab_id);
@@ -1924,16 +2046,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         event: NavigationEvent::Failed {
                             nav_id: Some(nav_id),
                             url: final_url.clone(),
-                            error: Arc::new(anyhow!("Reason: {}", reason)),
+                            error: LoadError::Blocked { reason },
                         },
                     });
                 }
                 Err(e) => {
-                    let err = format!("Routing error: {e}");
-                    let _ = tx_done.send(NavigationResult::Err {
-                        nav_id,
-                        error: NavigationError::NetworkError(err),
-                    });
+                    // The router wraps a `NetError` in `anyhow` on the fetch-failure path;
+                    // recover it so the classification (blocked, timeout, cancelled, I/O)
+                    // survives instead of becoming a message string.
+                    let error = match e.downcast_ref::<NetError>() {
+                        Some(net) => NavigationError::Net(net.clone()),
+                        None => NavigationError::NetworkError(format!("Routing error: {e}")),
+                    };
+                    let _ = tx_done.send(NavigationResult::Err { nav_id, error });
                 }
             }
         });
@@ -1954,11 +2079,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             Ok(u) => u,
             Err(_) => return,
         };
+        self.begin_local_load(HtmlSource::Text(html), url);
+    }
+
+    /// A fresh navigation to locally supplied HTML (LoadHtml, or a rendered download offer).
+    fn begin_local_load(&mut self, source: HtmlSource, url: Url) {
         self.history.set_current_scroll(self.scroll_x, self.scroll_y);
         self.pending_scroll = None;
         self.reset_scroll_for_navigation();
         self.cancel_current_nav();
-        self.load_html_document(html, url, HistoryIntent::Push);
+        self.load_document_source(source, url, HistoryIntent::Push);
     }
 
     /// Reset scroll state at the start of a navigation.
@@ -1988,13 +2118,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     fn load_html_document(&mut self, html: String, url: Url, history: HistoryIntent) {
+        self.load_document_source(HtmlSource::Text(html), url, history);
+    }
+
+    fn load_document_source(&mut self, source: HtmlSource, url: Url, history: HistoryIntent) {
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
                 tab_id: self.tab_id,
                 event: NavigationEvent::Failed {
                     nav_id: None,
                     url: url.clone(),
-                    error: Arc::new(e),
+                    error: LoadError::Io {
+                        message: format!("{e:#}"),
+                    },
                 },
             });
             return;
@@ -2062,6 +2198,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
         let font_system = self.zone_context.font_system.clone();
         // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
         let capture_source = self.remote_render_available();
@@ -2085,16 +2222,40 @@ impl<C: RenderConfiguration> TabWorker<C> {
             req_id,
             cancel: parent_cancel.child_token(),
         };
-        let meta = {
-            let mut meta = FetchResultMeta::synthetic(url.clone());
-            meta.content_length = Some(html.len() as u64);
-            meta.content_type = Some("text/html".into());
-            meta.has_body = true;
-            meta
-        };
-
         spawn_named("tab-load-html", async move {
             let _enter = span.enter();
+
+            // A spooled body is read here, off the worker, and capped like a fetched document.
+            let html = match source {
+                HtmlSource::Text(html) => html,
+                HtmlSource::Spooled(path) => {
+                    use tokio::io::AsyncReadExt;
+                    let read = async {
+                        let file = tokio::fs::File::open(&path).await?;
+                        let mut bytes = Vec::new();
+                        file.take(max_document_bytes as u64).read_to_end(&mut bytes).await?;
+                        Ok::<_, std::io::Error>(bytes)
+                    };
+                    match read.await {
+                        // Unknown encoding; the parser's own sniffing would be better.
+                        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                        Err(e) => {
+                            let _ = tx_done.send(NavigationResult::Err {
+                                nav_id,
+                                error: NavigationError::Io(e),
+                            });
+                            return;
+                        }
+                    }
+                }
+            };
+            let meta = {
+                let mut meta = FetchResultMeta::synthetic(url.clone());
+                meta.content_length = Some(html.len() as u64);
+                meta.content_type = Some("text/html".into());
+                meta.has_body = true;
+                meta
+            };
 
             let mut hooks = ResourcePipelines::<C>::new(
                 zone_id,
@@ -2102,6 +2263,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
+                max_download_spool_bytes,
                 font_system.clone(),
                 capture_source,
                 source_only,
@@ -2294,7 +2456,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.submit_frame(handle);
                 self.report_frame("scroll", frame_started);
                 return Ok(());
             }
@@ -2319,7 +2481,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
-                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.submit_frame(handle);
             }
             self.sink.inc_frame();
             self.report_frame("rebuild", frame_started);
@@ -2379,7 +2541,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
-                                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                                self.submit_frame(handle);
                             }
                             Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
                         },
@@ -2402,7 +2564,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 match render_backend.external_handle(surf.as_mut()) {
                     Ok(handle) => {
                         self.runtime.committed_scene_epoch = scene_epoch;
-                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                        self.submit_frame(handle);
                     }
                     Err(e) => log::warn!("[tick_draw] gpu external_handle error: {e}"),
                 }
@@ -2463,17 +2625,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                                 stride,
                                 pixels.len()
                             ),
-                            gosub_render_pipeline::render::backend::ExternalHandle::CpuPixelsPtr {
-                                width,
-                                height,
-                                stride,
-                                ..
-                            } => format!("CpuPixelsPtr({}x{} stride={})", width, height, stride),
                             _ => "Other".to_string(),
                         }
                     );
                     self.runtime.committed_scene_epoch = scene_epoch;
-                    self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                    self.submit_frame(handle);
                 }
                 Err(e) => {
                     log::warn!("[tick_draw] external_handle error: {e}");
@@ -2582,7 +2738,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::FailedUrl {
                         nav_id: None,
                         url: unvalidated_url.to_string(),
-                        error: Arc::new(e.into()),
+                        error: LoadError::InvalidUrl { message: e.to_string() },
                     },
                 });
 
@@ -2603,7 +2759,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::Failed {
                         nav_id: None,
                         url: url.clone(),
-                        error: Arc::new(e),
+                        error: LoadError::Io {
+                            message: format!("{e:#}"),
+                        },
                     },
                 });
 
@@ -2651,6 +2809,61 @@ impl ControlFlow {
 
 #[cfg(test)]
 mod tests {
+    /// Accepting an offer places the already-fetched body; it never re-requests the URL.
+    mod spooled_downloads {
+        use super::super::place_spooled_download;
+        use std::io::Write;
+
+        fn spooled(contents: &[u8]) -> tempfile::TempPath {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(contents).unwrap();
+            f.flush().unwrap();
+            f.into_temp_path()
+        }
+
+        #[test]
+        fn places_the_body_and_reports_its_size() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("file.bin");
+            let src = spooled(b"downloaded bytes");
+            let src_path = src.to_path_buf();
+
+            let n = place_spooled_download(src, &target).unwrap();
+
+            assert_eq!(n, 16);
+            assert_eq!(std::fs::read(&target).unwrap(), b"downloaded bytes");
+            assert!(!src_path.exists(), "spooled file should not be left behind");
+        }
+
+        #[test]
+        fn creates_missing_parent_directories() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("nested/deeper/file.bin");
+            place_spooled_download(spooled(b"x"), &target).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"x");
+        }
+
+        #[test]
+        fn overwrites_an_existing_target() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("file.bin");
+            std::fs::write(&target, b"stale contents").unwrap();
+            place_spooled_download(spooled(b"new"), &target).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        }
+
+        /// The offer holds a `TempPath`, so an offer the embedder never accepts must not
+        /// leave its body in the temp directory.
+        #[test]
+        fn unaccepted_offer_deletes_its_spooled_body() {
+            let src = spooled(b"never accepted");
+            let path = src.to_path_buf();
+            assert!(path.exists());
+            drop(src);
+            assert!(!path.exists());
+        }
+    }
+
     use crate::net::SharedBody;
     use bytes::Bytes;
     use futures_util::TryStreamExt;

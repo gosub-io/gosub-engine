@@ -7,7 +7,7 @@
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -36,9 +36,12 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 enum UiEvent {
-    LocationChanged { url: String },
     NavigationStarted,
-    NavigationFinished,
+    /// The navigation ended without a new document (download offer, bad URL); keep the URL bar.
+    NavigationCancelled,
+    NavigationFinished {
+        url: String,
+    },
     HoverUrl(Option<String>),
 }
 
@@ -82,15 +85,18 @@ impl BrowserApp {
                 match event_rx.recv().await {
                     Ok(ev) => {
                         let out = match ev {
-                            EngineEvent::LocationChanged { url, .. } => Some(UiEvent::LocationChanged { url }),
                             EngineEvent::Navigation {
                                 event: NavigationEvent::Started { .. },
                                 ..
                             } => Some(UiEvent::NavigationStarted),
                             EngineEvent::Navigation {
-                                event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                                event: NavigationEvent::Finished { url, .. } | NavigationEvent::Failed { url, .. },
                                 ..
-                            } => Some(UiEvent::NavigationFinished),
+                            } => Some(UiEvent::NavigationFinished { url: url.to_string() }),
+                            EngineEvent::Navigation {
+                                event: NavigationEvent::Cancelled { .. } | NavigationEvent::FailedUrl { .. },
+                                ..
+                            } => Some(UiEvent::NavigationCancelled),
                             EngineEvent::HoverUrl { url, .. } => Some(UiEvent::HoverUrl(url)),
                             _ => None,
                         };
@@ -99,7 +105,10 @@ impl BrowserApp {
                             ctx_ev.request_repaint();
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        // Dropped events can include TabCrashed, so do not swallow this.
+                        log::warn!("event receiver lagged, {n} engine events dropped");
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -118,18 +127,15 @@ impl BrowserApp {
         };
 
         let mut zone = engine
-            .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+            .zone_builder()
+            .config(zone_cfg)
+            .id(ZoneId::from(DEFAULT_ZONE))
+            .services(zone_services)
+            .create()
             .expect("create_zone");
 
         let tab = TOKIO_RT
-            .block_on(zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("Gosub".to_string()),
-                    viewport: None,
-                },
-                None,
-            ))
+            .block_on(zone.tab_builder().title("Gosub").create())
             .expect("create_tab");
 
         let tab_id = tab.tab_id;
@@ -280,9 +286,12 @@ impl eframe::App for BrowserApp {
 
         while let Ok(ev) = self.ui_rx.try_recv() {
             match ev {
-                UiEvent::LocationChanged { url } => self.url_input = url,
                 UiEvent::NavigationStarted => self.is_loading = true,
-                UiEvent::NavigationFinished => self.is_loading = false,
+                UiEvent::NavigationCancelled => self.is_loading = false,
+                UiEvent::NavigationFinished { url } => {
+                    self.is_loading = false;
+                    self.url_input = url;
+                }
                 UiEvent::HoverUrl(url) => self.status_url = url.unwrap_or_default(),
             }
         }

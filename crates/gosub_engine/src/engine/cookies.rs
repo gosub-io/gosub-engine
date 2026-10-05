@@ -30,7 +30,7 @@
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();
-//! let _zone = engine.create_zone(Some(zone_cfg), services, None)?;
+//! let _zone = engine.zone_builder().config(zone_cfg).services(services).create()?;
 //! # Ok(()) }
 //! ```
 //!
@@ -61,7 +61,7 @@
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();
-//! let _zone = engine.create_zone(Some(zone_cfg), services, None)?;
+//! let _zone = engine.zone_builder().config(zone_cfg).services(services).create()?;
 //! # Ok(()) }
 //! ```
 mod cookie_jar;

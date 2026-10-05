@@ -248,7 +248,7 @@ impl BrowserApp {
     }
 
     fn new_tab(&mut self, url: Option<String>) {
-        let handle = match TOKIO_RT.block_on(self.zone.create_tab(Default::default(), None)) {
+        let handle = match TOKIO_RT.block_on(self.zone.tab_builder().create()) {
             Ok(h) => h,
             Err(e) => {
                 log::error!("create_tab failed: {e}");
@@ -1004,7 +1004,7 @@ fn main() {
         partition_policy: PartitionPolicy::None,
         places: None,
     };
-    let zone = engine.create_zone(None, services, None).expect("create zone");
+    let zone = engine.zone_builder().services(services).create().expect("create zone");
     println!("storage and cookies under {}", data_dir.display());
 
     let mut app = BrowserApp {

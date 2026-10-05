@@ -9,9 +9,9 @@
 //! times out after [`BROKER_REPLY_TIMEOUT`]. Call it from a blocking-pool thread or a plain
 //! thread.
 
+use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::types::RequestId;
-use crate::events::IoCommand;
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::tab::TabId;
@@ -51,7 +51,7 @@ pub struct BrokeredLoader {
 }
 
 impl BrokeredLoader {
-    pub fn new(zone_id: ZoneId, tab_id: Option<TabId>, io_tx: IoChannel) -> Self {
+    pub(crate) fn new(zone_id: ZoneId, tab_id: Option<TabId>, io_tx: IoChannel) -> Self {
         Self {
             zone_id,
             tab_id,
@@ -259,7 +259,7 @@ mod tests {
             event_tx,
             ..Default::default()
         });
-        let io = crate::net::io_runtime::spawn_io_thread(crate::net::fetcher::FetcherConfig::default(), ctx);
+        let io = crate::net::io_runtime::spawn_io_thread(ctx);
         let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
 
         let loaded = loader

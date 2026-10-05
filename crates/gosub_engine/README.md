@@ -2,17 +2,22 @@
 
 The primary public API of the Gosub browser engine — the crate you depend on to build a
 user agent or embed the engine. It ties the parser, CSS, layout, and rendering crates
-together behind an async, channel-driven surface: the engine emits `EngineEvent`s, and
-the embedder drives it with `EngineCommand` (engine/zone level) and `TabCommand` (per
-tab, via `TabHandle`). Work in progress; not yet production-ready.
+together behind an async, channel-driven surface: the engine emits `EngineEvent`s, and the
+embedder drives it with `TabCommand` (per tab, via `TabHandle`) and methods on
+`GosubEngine` itself. Work in progress; not yet production-ready.
 
 ## The model
 
-- **`GosubEngine`** — create, `start()`/`run()`, `subscribe_events()`, `create_zone()`.
+- **`GosubEngine`** — create, `start()`/`run()`, `zone_builder()`, and two event streams:
+  `subscribe_events()` for the control bus and `subscribe_resource_events()` for the
+  high-volume per-resource detail.
 - **Zones** — separate profiles. Each `Zone` owns its cookie jar and storage isolation;
   tabs live inside a zone.
 - **Tabs** — browsing contexts driven through `TabHandle`; per-tab runtime state
-  (DOM, render pipeline caches) lives in a `BrowsingContext`.
+  (DOM, render pipeline caches) lives in a `BrowsingContext`. Commands go in asynchronously;
+  current URL, title and back/forward availability read back synchronously off the handle.
+- **Failures** — navigation and resource errors arrive as a typed `LoadError`
+  (blocked / invalid URL / network / timeout / I/O / cancelled / content), not an error string.
 - **`EngineConfig`** — set-once engine configuration via `EngineConfig::builder()`;
   the dynamic settings store (`default_settings()`, backed by `gosub_config`) handles
   runtime-changeable values.
@@ -31,8 +36,10 @@ tab, via `TabHandle`). Work in progress; not yet production-ready.
 | `resource_pipeline` | Per-asset-kind fetch/parse pipelines (html, css, js, image, font) |
 | `html` | `DefaultRenderConfig`, `RenderConfiguration`, document parsing entry points |
 
-Other features: `metrics` (engine metrics module), `ui_eframe` / `winit` / `wayland` /
-`x11` (GUI-toolkit integration glue).
+Other features: `sqlite_places` (SQLite-backed visited history), `metrics` (engine metrics
+module), and `unstable-api` — off by default, and only needed to reach the message variants
+the engine declares but does not yet emit or handle. Everything reachable in a default build
+is wired up.
 
 ## Getting started
 

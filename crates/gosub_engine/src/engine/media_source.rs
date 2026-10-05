@@ -36,7 +36,7 @@ pub struct EngineMediaSource {
 }
 
 impl EngineMediaSource {
-    pub fn new(
+    pub(crate) fn new(
         zone_id: ZoneId,
         tab_id: TabId,
         io_tx: IoChannel,

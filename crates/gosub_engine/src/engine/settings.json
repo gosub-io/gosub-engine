@@ -75,6 +75,12 @@
       "description": "Maximum size in bytes of a main document; larger documents are truncated (with a warning) before parsing."
     },
     {
+      "key": "download.max_spool_bytes",
+      "type": "u",
+      "default": "u:1073741824",
+      "description": "Maximum size in bytes of a download body the engine spools to a temp file while the embedder decides on a DownloadRequested offer; larger responses fail the navigation. 0 means no limit."
+    },
+    {
       "key": "user_agent",
       "type": "s",
       "default": "s:",

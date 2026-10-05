@@ -17,4 +17,5 @@ pub use zone::ZoneSink;
 
 pub use config::ZoneConfig;
 
+pub use zone::TabBuilder;
 pub use zone::Zone;
