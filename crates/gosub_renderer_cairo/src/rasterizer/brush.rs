@@ -3,7 +3,9 @@ use gosub_render_pipeline::common::geo::Rect;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient, Tiling};
+use std::sync::Arc;
 
+#[allow(unsafe_code)] // an image brush paints from the media store's shared pixels without copying them
 pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaStore) {
     match brush {
         Brush::Solid(color) => {
@@ -54,31 +56,31 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 return;
             }
 
-            // Convert RGBA → premultiplied ARGB32 and paint via a SurfacePattern; cairo scales
-            // during compositing, no intermediate copy.
+            // Premultiplied ARGB32, converted once per image and shared; the surface
+            // borrows those bytes and keeps them alive through its user data for as long
+            // as the pattern (and the context holding it) refers to them.
             let width = img.width() as i32;
             let height = img.height() as i32;
-            let stride = cairo::Format::ARgb32.stride_for_width(img.width()).unwrap_or(width * 4);
-
-            let mut data = vec![0u8; (stride * height) as usize];
-            let src = img.as_raw();
-            for row in 0..height as usize {
-                for col in 0..width as usize {
-                    let si = (row * width as usize + col) * 4;
-                    let di = row * stride as usize + col * 4;
-                    let r = src[si] as u32;
-                    let g = src[si + 1] as u32;
-                    let b = src[si + 2] as u32;
-                    let a = src[si + 3] as u32;
-                    // Premultiplied ARGB32 (host byte order: BGRA on little-endian)
-                    data[di] = (b * a / 255) as u8;
-                    data[di + 1] = (g * a / 255) as u8;
-                    data[di + 2] = (r * a / 255) as u8;
-                    data[di + 3] = a as u8;
-                }
+            let stride = width * 4;
+            let data = media.premultiplied_bgra();
+            static PIXELS: cairo::UserDataKey<Arc<Vec<u8>>> = cairo::UserDataKey::new();
+            // SAFETY: `data` is read-only, lives in the media store, and the surface holds
+            // its own reference below; Cairo never writes to a source surface.
+            let surface = unsafe {
+                cairo::ImageSurface::create_for_data_unsafe(
+                    data.as_ptr() as *mut u8,
+                    cairo::Format::ARgb32,
+                    width,
+                    height,
+                    stride,
+                )
             }
+            .and_then(|surface| {
+                surface.set_user_data(&PIXELS, std::rc::Rc::new(Arc::clone(&data)))?;
+                Ok(surface)
+            });
 
-            match cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, width, height, stride) {
+            match surface {
                 Ok(surface) => {
                     let pattern = cairo::SurfacePattern::create(&surface);
                     // The pattern matrix maps user space → pattern (image pixel) space, so the
