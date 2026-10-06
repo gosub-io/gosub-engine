@@ -104,12 +104,14 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
-        // Compile every AA pipeline so callers can pick `Area` (analytic coverage) for text - it is
-        // sharper for small glyphs than the multisampled methods and is Vello's recommended default.
+        // Only the `Area` (analytic coverage) pipelines: every render here uses it - it is sharper
+        // for small glyphs than the multisampled methods and is Vello's recommended default. The
+        // MSAA pipelines were compiled for nothing, and compiling is most of startup on a phone
+        // (3.5 s of 4.3 on a Galaxy Tab A9+).
         let renderer = Renderer::new(
             context.device(),
             RendererOptions {
-                antialiasing_support: vello::AaSupport::all(),
+                antialiasing_support: vello::AaSupport::area_only(),
                 ..RendererOptions::default()
             },
         )?;
