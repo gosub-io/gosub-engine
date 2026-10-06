@@ -1175,10 +1175,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 f64::MAX
             }
         };
+        // The same for sideways: a page no wider than the viewport does not scroll sideways at
+        // all. Unclamped, a touch swipe that drifts sideways slid the page off into blank space.
+        let max_x = {
+            let pw = self.context.page_width();
+            if pw > 0.0 {
+                (pw - self.desired_viewport.width as f64).max(0.0)
+            } else {
+                f64::MAX
+            }
+        };
 
         match self
             .scroll
-            .scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y, precise)
+            .scroll_by(delta_x as f64, delta_y as f64, max_x, max_y, precise)
         {
             // Instant behavior: apply the new offset now and keep the immediate-submit fast
             // path (avoids up to 1/fps of latency per scroll event).

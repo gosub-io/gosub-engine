@@ -2012,6 +2012,22 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.active_page_height().unwrap_or(0.0)
     }
 
+    /// The full page width, the horizontal counterpart of [`Self::page_height`]: the root box's
+    /// width from whichever cache is active (0 if not yet rendered). No wider than the
+    /// viewport unless the content overflows it.
+    pub fn page_width(&self) -> f64 {
+        self.scene_cache
+            .as_ref()
+            .map(|c| c.layer_list.layout_tree.root_dimension.width)
+            .or_else(|| {
+                self.pipeline_cache
+                    .as_ref()
+                    .and_then(|c| c.layer_list.as_ref())
+                    .map(|l| l.layout_tree.root_dimension.width)
+            })
+            .unwrap_or(0.0)
+    }
+
     /// Placed GPU tiles for the current pipeline cache, in page coordinates. Empty unless the
     /// active backend rasterized GPU-resident tiles. Handed to `RenderBackend::composite_tiles`.
     pub fn placed_gpu_tiles(&self) -> Vec<gosub_render_pipeline::render::backend::PlacedGpuTile> {
