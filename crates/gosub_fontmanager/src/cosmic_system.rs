@@ -60,9 +60,9 @@ impl CosmicFontSystem {
         Self { inner }
     }
 
-    /// Build and shape a cosmic-text buffer for `text` in the given style.
-    fn shaped_buffer(&mut self, text: &str, style: &TextStyle) -> Buffer {
-        let metrics = Metrics::new(style.size, style.line_height.unwrap_or(style.size * 1.2));
+    /// Build and shape a cosmic-text buffer for `text` in the given style, with `metrics`
+    /// from [`metrics_for`].
+    fn shaped_buffer(&mut self, text: &str, style: &TextStyle, metrics: Metrics) -> Buffer {
         let mut buffer = Buffer::new(&mut self.inner, metrics);
         buffer.set_size(style.max_width, None);
         let attrs = Attrs::new()
@@ -92,6 +92,26 @@ impl CosmicFontSystem {
         let font = self.inner.get_font(id, weight)?;
         Some(FontBlob::new(Arc::new(font.data().to_vec()), 0))
     }
+}
+
+/// The buffer metrics for a style, or `None` for text that takes no space.
+///
+/// cosmic-text asserts that a line height is not zero (it divides by it) and a
+/// `font-size: 0` or `line-height: 0` run is common on real pages (hidden labels, icon
+/// fonts, collapsed rows). Without this a renderer process died on debian.org with
+/// "line height cannot be 0" and was respawned for every render. A run with no font size
+/// has no glyphs to measure, so it measures as nothing; a positive size with a zero line
+/// height keeps a hair of line height so cosmic shapes it and the line box stays flat.
+fn metrics_for(style: &TextStyle) -> Option<Metrics> {
+    let size = style.size;
+    if !size.is_finite() || size <= 0.0 {
+        return None;
+    }
+    let line_height = match style.line_height {
+        Some(lh) if lh.is_finite() && lh >= 0.0 => lh,
+        _ => size * 1.2,
+    };
+    Some(Metrics::new(size, line_height.max(0.01)))
 }
 
 impl FontSystem for CosmicFontSystem {
@@ -125,7 +145,10 @@ impl FontSystem for CosmicFontSystem {
         if text.is_empty() {
             return (0.0, 0.0);
         }
-        let buffer = self.shaped_buffer(text, style);
+        let Some(metrics) = metrics_for(style) else {
+            return (0.0, 0.0);
+        };
+        let buffer = self.shaped_buffer(text, style, metrics);
         let mut width = 0.0f32;
         let mut height = 0.0f32;
         for run in buffer.layout_runs() {
@@ -200,8 +223,11 @@ impl FontSystem for CosmicFontSystem {
         if text.is_empty() {
             return ShapedText::empty();
         }
+        let Some(metrics) = metrics_for(style) else {
+            return ShapedText::empty();
+        };
 
-        let buffer = self.shaped_buffer(text, style);
+        let buffer = self.shaped_buffer(text, style, metrics);
 
         // Collect owned run data first (borrows `buffer`), then look up font blobs afterwards
         // (borrows `self.inner`) so the two borrows don't overlap.
@@ -364,6 +390,25 @@ mod tests {
             .resolve(&FontQuery::new(&["Gosub Cosmic Alias Test"]))
             .expect("the @font-face family must resolve");
         assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry bytes");
+    }
+
+    /// Real pages set `font-size: 0` and `line-height: 0` on hidden text; cosmic-text
+    /// would panic on a zero line height and take the renderer process with it.
+    #[test]
+    fn a_zero_font_size_or_line_height_does_not_panic() {
+        let mut fs = CosmicFontSystem::new();
+        let mut style = TextStyle::new("sans-serif", 0.0);
+        assert_eq!(fs.measure("hidden", &style), (0.0, 0.0));
+        assert!(fs.shape("hidden", &style).runs.is_empty());
+
+        style = TextStyle::new("sans-serif", 16.0);
+        style.line_height = Some(0.0);
+        let (w, h) = fs.measure("flat", &style);
+        assert!(w > 0.0, "glyphs still have width");
+        assert!(h < 0.5, "a zero line height stays flat: {h}");
+
+        style.size = f32::NAN;
+        assert_eq!(fs.measure("nan", &style), (0.0, 0.0));
     }
 
     #[test]
