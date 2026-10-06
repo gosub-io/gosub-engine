@@ -100,10 +100,15 @@ impl TimingTable {
         timer.id
     }
 
-    pub fn stop_timer(&mut self, timer_id: TimerId) {
-        if let Some(timer) = self.timers.get_mut(&timer_id) {
-            timer.end();
+    /// Stop a timer; its duration in microseconds, or `None` for an unknown id or one
+    /// that already stopped, so a timer yields one final duration and one stop event.
+    pub fn stop_timer(&mut self, timer_id: TimerId) -> Option<u64> {
+        let timer = self.timers.get_mut(&timer_id)?;
+        if timer.has_finished() {
+            return None;
         }
+        timer.end();
+        Some(timer.duration_us)
     }
 
     /// Stamp the start of `scope`. Marks recorded against it are measured from here.
@@ -389,7 +394,15 @@ pub fn clear_scope(scope: ScopeId) {
 /// evaluated against the *calling* crate's features, which is not what we want.
 #[cfg(feature = "timing")]
 pub fn start(namespace: Timing, context: Option<String>) -> TimerId {
-    TIMING_TABLE.lock().start_timer(namespace.name(), context)
+    let id = TIMING_TABLE.lock().start_timer(namespace.name(), context.clone());
+    if let Some(observer) = STAGE_OBSERVER.get() {
+        observer(StageEvent::Started {
+            timer: id,
+            namespace: namespace.name(),
+            context,
+        });
+    }
+    id
 }
 
 /// Timing disabled: hand back a nil id and take no lock.
@@ -401,8 +414,47 @@ pub fn start(_namespace: Timing, _context: Option<String>) -> TimerId {
 /// Stop a timer previously started with [`start`].
 #[cfg(feature = "timing")]
 pub fn stop(timer_id: TimerId) {
-    TIMING_TABLE.lock().stop_timer(timer_id);
+    let duration_us = TIMING_TABLE.lock().stop_timer(timer_id);
+    if let (Some(observer), Some(duration_us)) = (STAGE_OBSERVER.get(), duration_us) {
+        observer(StageEvent::Stopped {
+            timer: timer_id,
+            duration_us,
+        });
+    }
 }
+
+/// A timed stage beginning or ending, as seen by a [`observe_stages`] observer.
+///
+/// The table only records durations after the fact; this is the live view of the same
+/// timers, for an embedder that wants to show what the engine is doing right now. A
+/// `Stopped` carries only the id: match it to the `Started` that named the stage.
+#[derive(Debug, Clone)]
+pub enum StageEvent {
+    /// A timer started: `namespace` is the stage (`Timing::name`), `context` whatever the
+    /// caller attached, usually a URL.
+    Started {
+        timer: TimerId,
+        namespace: &'static str,
+        context: Option<String>,
+    },
+    /// The timer with this id stopped after `duration_us`.
+    Stopped { timer: TimerId, duration_us: u64 },
+}
+
+#[cfg(feature = "timing")]
+static STAGE_OBSERVER: std::sync::OnceLock<fn(StageEvent)> = std::sync::OnceLock::new();
+
+/// Install the one process-wide stage observer. Called from [`start`] and [`stop`] on the
+/// timing thread, outside the table's lock, so it must be cheap and must not time anything
+/// itself. The first caller wins; later calls are ignored.
+#[cfg(feature = "timing")]
+pub fn observe_stages(observer: fn(StageEvent)) {
+    let _ = STAGE_OBSERVER.set(observer);
+}
+
+/// Timing disabled: there are no stages to observe.
+#[cfg(not(feature = "timing"))]
+pub fn observe_stages(_observer: fn(StageEvent)) {}
 
 /// Timing disabled: nothing to stop.
 #[cfg(not(feature = "timing"))]
@@ -1011,5 +1063,74 @@ mod tests {
             }
             remaining_loops -= 1;
         }
+    }
+}
+
+#[cfg(all(test, feature = "timing"))]
+mod stage_observer_tests {
+    use super::*;
+
+    static SEEN: Mutex<Vec<StageEvent>> = Mutex::new(Vec::new());
+
+    fn collect(event: StageEvent) {
+        SEEN.lock().push(event);
+    }
+
+    /// A start is announced with its stage and context, and the stop that follows carries
+    /// the same id with a duration, so an observer can pair them without the table.
+    #[test]
+    fn a_stage_is_announced_when_it_starts_and_when_it_stops() {
+        observe_stages(collect);
+        let id = start(Timing::PipelineLayout, Some("https://example.test/".into()));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        stop(id);
+
+        let seen = SEEN.lock();
+        let started = seen
+            .iter()
+            .find(|e| matches!(e, StageEvent::Started { timer, .. } if *timer == id));
+        let stopped = seen
+            .iter()
+            .find(|e| matches!(e, StageEvent::Stopped { timer, .. } if *timer == id));
+        match started {
+            Some(StageEvent::Started { namespace, context, .. }) => {
+                assert_eq!(*namespace, Timing::PipelineLayout.name());
+                assert_eq!(context.as_deref(), Some("https://example.test/"));
+            }
+            other => panic!("no start for the timer: {other:?}"),
+        }
+        match stopped {
+            Some(StageEvent::Stopped { duration_us, .. }) => assert!(*duration_us >= 2_000, "{duration_us}"),
+            other => panic!("no stop for the timer: {other:?}"),
+        }
+    }
+
+    /// A second stop for the same timer neither changes its duration nor announces a
+    /// second end: one timer, one stop event.
+    #[test]
+    fn a_timer_stops_once() {
+        observe_stages(collect);
+        let id = start(Timing::PipelineTiling, None);
+        stop(id);
+        stop(id);
+        let stops = SEEN
+            .lock()
+            .iter()
+            .filter(|e| matches!(e, StageEvent::Stopped { timer, .. } if *timer == id))
+            .count();
+        assert_eq!(stops, 1);
+    }
+
+    /// Stopping an id the table never saw announces nothing: a nil id from a build with
+    /// timing off must not look like a stage that took zero time.
+    #[test]
+    fn an_unknown_timer_announces_no_stop() {
+        observe_stages(collect);
+        stop(TimerId::nil());
+        // Other tests announce stages at the same time; only the nil id matters here.
+        assert!(!SEEN
+            .lock()
+            .iter()
+            .any(|e| matches!(e, StageEvent::Stopped { timer, .. } if timer.is_nil())));
     }
 }
