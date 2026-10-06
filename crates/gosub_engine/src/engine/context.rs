@@ -805,6 +805,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // The image's intrinsic size may only now be known, so boxes can move - but no
             // selector's answer changed, so cached styles stay valid.
             self.damage.escalate(DamageLevel::Layout);
+            // Cached tile pixels must go too. A tile's key hashes the media id and box, not
+            // whether the media had loaded, so a tile rasterized before an image with a fixed
+            // size arrived keeps its key afterwards and would be reused without the image.
+            if let Some(cache) = self.pipeline_cache.as_mut() {
+                cache.tile_pixel_cache.clear();
+            }
             true
         } else {
             false
