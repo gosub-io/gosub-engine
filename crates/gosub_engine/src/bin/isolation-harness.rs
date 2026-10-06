@@ -3476,6 +3476,19 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
             eprintln!("a resize laid the page out again but sent no hit regions");
             return 1;
         }
+        // A resize rasterizes the viewport alone: the page is 1899 px tall at
+        // 600 px wide, and nothing below the 720 px viewport may have shipped.
+        let below_viewport = narrow
+            .tiles
+            .iter()
+            .filter(|tile| match tile {
+                PageTile::Fresh { header, .. } | PageTile::Reused { header, .. } => header.page_y >= 720.0,
+            })
+            .count();
+        if below_viewport > 0 {
+            eprintln!("a resize shipped {below_viewport} tiles below the viewport");
+            return 1;
+        }
         memory.apply_pass(&narrow.evicted, narrow.tiles.iter().map(PageTile::keep));
 
         let back = match renderer.resize(&tab_name, (1280.0, 720.0), 0.0, &loader, &memory) {
@@ -3495,6 +3508,56 @@ fn renderer_resize<F: FontSystem + Default>() -> i32 {
                 "resizing back should restore the first geometry: {wide_height} -> {}",
                 back.summary.page_height
             );
+            return 1;
+        }
+        let stage_of = |page: &gosub_engine::fork_server::client::RenderedPage| {
+            page.summary
+                .timings_us
+                .iter()
+                .find(|(name, _)| name.starts_with("resize."))
+                .map(|(name, _)| name.clone())
+                .unwrap_or_default()
+        };
+        // 600 px crossed the media query: a full re-layout, styles and all.
+        if stage_of(&narrow) != "resize.layout" {
+            eprintln!(
+                "a resize across a breakpoint should lay out in full, got '{}'",
+                stage_of(&narrow)
+            );
+            return 1;
+        }
+        memory.apply_pass(&back.evicted, back.tiles.iter().map(PageTile::keep));
+
+        // 1000 px flips no condition and no sheet reads the viewport: taffy
+        // over the kept tree, with the paragraph wrapping more than at 1280.
+        let mid = match renderer.resize(&tab_name, (1000.0, 720.0), 0.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("resize to 1000 failed: {e}");
+                return 1;
+            }
+        };
+        println!(
+            "at 1000 px the page is {} px tall via {}",
+            mid.summary.page_height,
+            stage_of(&mid)
+        );
+        if stage_of(&mid) != "resize.geometry" {
+            eprintln!(
+                "a resize within the breakpoint should reuse the layout tree, got '{}'",
+                stage_of(&mid)
+            );
+            return 1;
+        }
+        if mid.summary.page_height <= wide_height || mid.summary.page_height >= narrow_height {
+            eprintln!(
+                "the 1000 px layout should sit between {wide_height} and {narrow_height}: {}",
+                mid.summary.page_height
+            );
+            return 1;
+        }
+        if mid.hit_regions.is_empty() {
+            eprintln!("a geometry-only resize sent no hit regions");
             return 1;
         }
         drop(renderer);

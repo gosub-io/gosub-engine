@@ -85,6 +85,12 @@ fn clamp_to_page(window: (f64, f64), page_height: f64) -> (f64, f64) {
 /// do not track scroll, so a page-space window says nothing about whether they are on screen.
 pub fn defer_tiles_outside_window(tile_list: &mut TileList, scroll_y: f64, vp_h: f64) -> usize {
     let (lo, hi) = raster_window(scroll_y, vp_h);
+    defer_tiles_outside_band(tile_list, lo, hi)
+}
+
+/// [`defer_tiles_outside_window`] for an explicit band of page-space rows: `lo..hi`.
+/// A resize rasterizes only the viewport itself, so the band is the viewport.
+pub fn defer_tiles_outside_band(tile_list: &mut TileList, lo: f64, hi: f64) -> usize {
     let layer_list = std::sync::Arc::clone(&tile_list.layer_list);
     let mut deferred = 0;
 
@@ -129,6 +135,12 @@ impl TileBudget {
     pub fn note_rastered_window(&self, scroll_y: f64, vp_h: f64, page_height: f64) {
         let window = clamp_to_page(raster_window(scroll_y, vp_h), page_height);
         self.state.lock().rastered = Some(window);
+    }
+
+    /// Record an explicit band of page-space rows as rasterized, when a render covered less
+    /// than the window around the viewport: a resize pass rasterizes the viewport alone.
+    pub fn note_rastered_band(&self, lo: f64, hi: f64, page_height: f64) {
+        self.state.lock().rastered = Some(clamp_to_page((lo, hi), page_height));
     }
 
     /// Stamp the tiles visible at the given scroll position as most-recently composited.

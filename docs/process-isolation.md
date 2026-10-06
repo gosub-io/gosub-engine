@@ -230,14 +230,21 @@ retained per tab and rasterizes **only the raster window** around the viewport
   changed travel, and the renderer evicts what the broker held that the new
   layout no longer accounts for.
 - **Resize**: `Resize { tab, viewport_width, viewport_height, dpr, scroll_y,
-  known_tiles }` lays the retained page out again at the new size - media
-  queries re-evaluated, text rewrapped, no parse - and ships the window by
-  content hash like an input pass that re-laid the page. The broker sends it
-  instead of a navigate when its viewport changes on a page it adopted from
-  a resident renderer; a window drag produces many sizes, and only the latest
-  one waits behind the pass in flight, so the renderer lays out the sizes it
-  has time for rather than every one. Meanwhile the broker composites the
-  tiles it holds, at their old geometry, until the pass lands.
+  known_tiles }` lays the retained page out again at the new size - no parse -
+  and ships the result by content hash like an input pass that re-laid the
+  page. Two things keep it cheap. When the style environment is unchanged (no
+  `@media` condition flipped, no sheet reads the viewport) the renderer runs
+  taffy over the layout tree it kept instead of restyling and rebuilding it,
+  the shortcut the in-process pipeline takes for geometry-only damage; the pass
+  reports `resize.geometry` instead of `resize.layout`. And it rasterizes the
+  viewport alone rather than the window around it: a drag produces many sizes,
+  each replacing every tile, so the broker records the tight band and asks for
+  the margin (one scroll pass) only once no further size is waiting. The
+  broker sends a resize instead of a navigate when its viewport changes on a
+  page it adopted from a resident renderer; only the latest size waits behind
+  the pass in flight, so the renderer lays out the sizes it has time for
+  rather than every one. Meanwhile the broker composites the tiles it holds,
+  at their old geometry, until the pass lands.
 - All four run **asynchronously**: the broker starts the exchange on a helper
   thread and keeps compositing the tiles it already holds; the result is merged
   on a later frame. One pass in flight per tab; input that arrives meanwhile

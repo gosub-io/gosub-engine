@@ -1088,6 +1088,26 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.recheck_viewport();
     }
 
+    /// A resize pass rasterized the viewport alone, at the scroll position it
+    /// was asked for. Record that band, not the usual window: a scroll would
+    /// otherwise walk into rows the renderer never produced. The margin is
+    /// asked for only once the drag pauses - while another size waits, the
+    /// next resize replaces every tile anyway, and a scroll pass in between
+    /// would cost what the tight band saved.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn note_resize_band(&mut self, rendered_at: f64) {
+        if let Some(cache) = self.pipeline_cache.as_ref() {
+            self.tile_budget.note_rastered_band(
+                rendered_at,
+                rendered_at + self.viewport.height as f64,
+                cache.page_height,
+            );
+        }
+        if self.remote_resize_pending.is_none() {
+            self.recheck_viewport();
+        }
+    }
+
     /// After a remote pass lands: if the viewport now shows what was never
     /// rastered (or was evicted), ask for the window to be extended.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -1563,7 +1583,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     );
                     self.adopt_remote_page(page);
                     self.tile_budget.note_full_raster();
-                    self.note_pass_window(inflight.scroll_y);
+                    if matches!(inflight.what, PassKind::Resize) {
+                        self.note_resize_band(inflight.scroll_y);
+                    } else {
+                        self.note_pass_window(inflight.scroll_y);
+                    }
                     self.scroll_dirty = true;
                 } else {
                     report_remote_pass(
@@ -3426,6 +3450,44 @@ mod tests {
                 "{:?}",
                 ctx.damage.level()
             );
+        }
+
+        /// A resize pass rasterizes the viewport alone. Once the drag pauses,
+        /// the margin a scroll could reach is asked for.
+        #[test]
+        fn a_resize_pass_asks_for_the_margin_once_the_drag_pauses() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Resize((400.0, 600.0)), 0.0, page);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(ctx.raster_dirty, "the rows below the viewport were never rastered");
+        }
+
+        /// While another size waits, the margin is not asked for: the next
+        /// resize replaces every tile, and a scroll pass between the two would
+        /// cost what the tight band saved.
+        #[test]
+        fn a_resize_pass_mid_drag_leaves_the_margin_alone() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Resize((400.0, 600.0)), 0.0, page);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.remote_resize_pending = Some((380.0, 600.0));
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(!ctx.raster_dirty, "a scroll pass was asked for mid-drag");
         }
 
         /// A renderer that no longer retains the page cannot lay it out at a
