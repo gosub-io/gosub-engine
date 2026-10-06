@@ -67,6 +67,36 @@ pub fn emit_from(source: &str, kind: &str, data: serde_json::Value) {
     }));
 }
 
+/// Put the engine's timed stages on the bus as they happen: `timing.start` with
+/// `{timer, namespace, context}` when a stage begins, `timing.stop` with `{timer,
+/// duration_us}` when it ends. The stages are the ones the timing table records (HTML
+/// and CSS parsing, the render tree, layout, layering, tiling, raster, paint, and the
+/// network phases); matching a stop to its start is by `timer`. With nobody subscribed
+/// nothing is built. Installed once per process, at engine construction.
+pub fn forward_timing_stages() {
+    use gosub_shared::timing::StageEvent;
+    fn forward(event: StageEvent) {
+        if !enabled() {
+            return;
+        }
+        match event {
+            StageEvent::Started {
+                timer,
+                namespace,
+                context,
+            } => emit(
+                "timing.start",
+                serde_json::json!({ "timer": timer.to_string(), "namespace": namespace, "context": context }),
+            ),
+            StageEvent::Stopped { timer, duration_us } => emit(
+                "timing.stop",
+                serde_json::json!({ "timer": timer.to_string(), "duration_us": duration_us }),
+            ),
+        }
+    }
+    gosub_shared::timing::observe_stages(forward);
+}
+
 /// Start receiving events from now on. A receiver that falls more than
 /// [`CAPACITY`] events behind loses the oldest (`RecvError::Lagged`).
 pub fn subscribe() -> broadcast::Receiver<Arc<Event>> {

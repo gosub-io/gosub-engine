@@ -189,6 +189,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         backend: Arc<C::RenderBackend>,
         compositor: Arc<C::CompositorSink>,
     ) -> Self {
+        // Timed stages go on the telemetry bus from here on, for an embedder that shows
+        // what the engine is doing live. Free until someone subscribes.
+        crate::telemetry::forward_timing_stages();
         let resolved_config = config.unwrap_or_default();
 
         // Command channel on which to send and receive engine commands from the UA.

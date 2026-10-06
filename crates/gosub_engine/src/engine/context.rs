@@ -1341,6 +1341,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             _ => crate::fork_server::client::TileMemory::default(),
         };
         let (tx, rx) = std::sync::mpsc::channel();
+        // The matching completion event (`remote.<kind>`, with the renderer's own lap
+        // times) is reported when the result is merged; this is the live half.
+        if crate::telemetry::enabled() {
+            crate::telemetry::emit(
+                &format!("{}.start", kind.event_kind()),
+                serde_json::json!({ "tab": self.remote_tab, "url": page_url }),
+            );
+        }
         let spawned = std::thread::Builder::new()
             .name("gosub-remote-pass".into())
             .spawn(move || {
