@@ -431,7 +431,7 @@ mod tests {
         let mut fixed = tile(0.0, 4000.0, 1);
         fixed.anchor = TileAnchor::Fixed;
         let gpu = BakedTile {
-            pixels: TilePixels::Gpu(7),
+            pixels: TilePixels::Gpu(crate::common::texture::GpuTile::untracked(7)),
             ..tile(0.0, 4256.0, 2)
         };
         let mut tiles = vec![fixed, gpu];

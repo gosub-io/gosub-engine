@@ -18,6 +18,7 @@ use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::texture::GpuTile;
 use gosub_render_pipeline::painter::PaintScene;
 use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
 use gosub_render_pipeline::render::backend::GpuPixelFormat;
@@ -56,18 +57,27 @@ pub struct WgpuResources {
     pub renderer: Mutex<Renderer>,
     /// GPU-resident tiles, keyed by an opaque id handed to the engine inside a `TilePixels::Gpu`.
     /// The GPU sibling of the pipeline's CPU `TextureStore`; shared by the rasterizer (stores) and
-    /// the backend compositor (resolves ids → views to blit).
+    /// the backend compositor (resolves ids → views to blit). An entry lives as long as the
+    /// engine holds the `GpuTile` for it; see [`Self::store_tile`].
     pub tile_textures: Mutex<std::collections::HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
     pub next_tile_id: std::sync::atomic::AtomicU64,
 }
 
 impl WgpuResources {
-    /// Store a rasterized GPU tile and return its opaque id.
-    pub fn store_tile(&self, texture: wgpu::Texture) -> u64 {
+    /// Store a rasterized GPU tile and return the engine's handle to it. The texture is freed
+    /// when the engine drops the last clone of that handle. The release holds the resources
+    /// weakly, so a tile that outlives the backend frees nothing and keeps nothing alive. A
+    /// compositor pass still drawing the tile holds its own view, so freeing mid-frame is safe.
+    pub fn store_tile(self: &Arc<Self>, texture: wgpu::Texture) -> GpuTile {
         let view = texture.create_view(&Default::default());
         let id = self.next_tile_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.tile_textures.lock().insert(id, (texture, view));
-        id
+        let resources = Arc::downgrade(self);
+        GpuTile::new(id, move |id| {
+            if let Some(resources) = resources.upgrade() {
+                resources.tile_textures.lock().remove(&id);
+            }
+        })
     }
 
     /// Resolve a tile id to its texture view (cloned handle), if still resident.

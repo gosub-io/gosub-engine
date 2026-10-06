@@ -213,12 +213,12 @@ impl Rasterable for VelloRasterizer {
             return None;
         }
 
-        let gpu_id = self.resources.store_tile(texture);
+        let gpu_tile = self.resources.store_tile(texture);
 
         let texture_id = texture_store.add_gpu(
             width as usize,
             height as usize,
-            gpu_id,
+            gpu_tile,
             gosub_render_pipeline::render::backend::PixelFormat::Rgba8,
         );
 
