@@ -229,12 +229,29 @@ retained per tab and rasterizes **only the raster window** around the viewport
   tile memory, sent along as on a navigate - so only tiles whose pixels
   changed travel, and the renderer evicts what the broker held that the new
   layout no longer accounts for.
-- All three run **asynchronously**: the broker starts the exchange on a helper
+- **Resize**: `Resize { tab, viewport_width, viewport_height, dpr, scroll_y,
+  known_tiles }` lays the retained page out again at the new size - no parse -
+  and ships the result by content hash like an input pass that re-laid the
+  page. Two things keep it cheap. When the style environment is unchanged (no
+  `@media` condition flipped, no sheet reads the viewport) the renderer runs
+  taffy over the layout tree it kept instead of restyling and rebuilding it,
+  the shortcut the in-process pipeline takes for geometry-only damage; the pass
+  reports `resize.geometry` instead of `resize.layout`. And it rasterizes the
+  viewport alone rather than the window around it: a drag produces many sizes,
+  each replacing every tile, so the broker records the tight band and asks for
+  the margin (one scroll pass) only once no further size is waiting. The
+  broker sends a resize instead of a navigate when its viewport changes on a
+  page it adopted from a resident renderer; only the latest size waits behind
+  the pass in flight, so the renderer lays out the sizes it has time for
+  rather than every one. Meanwhile the broker composites the tiles it holds,
+  at their old geometry, until the pass lands.
+- All four run **asynchronously**: the broker starts the exchange on a helper
   thread and keeps compositing the tiles it already holds; the result is merged
   on a later frame. One pass in flight per tab; input that arrives meanwhile
   queues in order (pointer moves keep the last, wheel notches add up, nothing
-  else coalesces) and goes out before a pending hover; a navigation
-  invalidates stale results by generation and drops the queue.
+  else coalesces) and goes out after a pending resize and before a pending
+  hover; a navigation invalidates stale results by generation and drops the
+  queue.
 - Renders on one renderer are strictly serial (one socket, request/reply), so
   same-site tabs take turns — see [Known limits](#known-limits-and-roadmap).
 
@@ -407,7 +424,7 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
   is off by default), `127.0.0.1:9090` serves `/metrics` (timing
   aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and `/events`
   — the **telemetry firehose**, newline-delimited JSON of engine
-  events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover`/`remote.input`
+  events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover`/`remote.input`/`remote.resize`
   (exchange time, tiles, per-stage renderer timings), `net.load` (every brokered fetch:
   outcome, status, bytes, duration), `remote.resource` (every subresource a
   renderer asked for), `tab.frame`, `tab.invalidate` (why a full render

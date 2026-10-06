@@ -189,6 +189,7 @@ fn main() {
         "engine-remote-input" => with_font_backend!(engine_remote_input),
         "engine-remote-controls" => with_font_backend!(engine_remote_controls),
         "renderer-input-tall" => with_font_backend!(renderer_input_tall),
+        "renderer-resize" => with_font_backend!(renderer_resize),
         "renderer-input-retained" => with_font_backend!(renderer_input_retained),
         "renderer-input-hostile" => with_font_backend!(renderer_input_hostile),
         "engine-remote-latency" => with_font_backend!(engine_remote_latency),
@@ -3362,6 +3363,207 @@ fn engine_remote_controls<F: FontSystem + Default>() -> i32 {
             let _ = engine.shutdown().await;
             0
         })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// A window resize on a retained page: the renderer lays the document out
+/// again at the new width (a wrapping paragraph grows, a `@media (max-width)`
+/// rule flips a box's height) and ships the window by hash; resizing back
+/// gives the first geometry again. No navigate in between.
+fn renderer_resize<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile, TileMemory};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-resize needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-resize needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_engine::net::resource_loader::NoResourceLoader;
+        let mut memory = TileMemory::default();
+        // A paragraph that wraps more as the viewport narrows, a box whose height a
+        // media query doubles below 700 px, and a link so hit regions come back.
+        let mut html = String::from(
+            "<html><head><style>body{margin:0;font-size:20px} .bar{height:100px;background:#36a} \
+             @media (max-width:700px){.bar{height:400px}} p{margin:0}</style></head><body>\
+             <div class=\"bar\"></div><p>",
+        );
+        for _ in 0..80 {
+            html.push_str("wrapping words make a long paragraph ");
+        }
+        html.push_str("</p><p><a href=\"/next\">a link</a></p></body></html>");
+
+        let renderer = match pool.renderer_for(zone, "https://resize.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        let tab_name = tab.to_string();
+        let wide = match renderer.navigate(
+            &html,
+            "https://resize.test/",
+            &tab_name,
+            (1280.0, 720.0),
+            0.0,
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+        };
+        memory.replace_with(wide.tiles.iter().map(PageTile::keep));
+        let wide_height = wide.summary.page_height;
+        println!("at 1280 px the page is {wide_height} px tall");
+
+        let narrow = match renderer.resize(&tab_name, (600.0, 720.0), 0.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("resize to 600 failed: {e}");
+                return 1;
+            }
+        };
+        let narrow_height = narrow.summary.page_height;
+        println!(
+            "at 600 px the page is {narrow_height} px tall, {} tiles shipped, {} evicted, {} hit regions",
+            narrow.tiles.len(),
+            narrow.evicted.len(),
+            narrow.hit_regions.len()
+        );
+        if narrow.summary.no_page {
+            eprintln!("the renderer had no retained page to resize");
+            return 1;
+        }
+        // The media query alone adds 300 px; the wrapping paragraph adds more.
+        if narrow_height < wide_height + 300.0 {
+            eprintln!("the narrow layout should be at least 300 px taller: {wide_height} -> {narrow_height}");
+            return 1;
+        }
+        if narrow.tiles.is_empty() {
+            eprintln!("a resize that changed every tile shipped none");
+            return 1;
+        }
+        if narrow.hit_regions.is_empty() {
+            eprintln!("a resize laid the page out again but sent no hit regions");
+            return 1;
+        }
+        // A resize rasterizes the viewport alone: the page is 1899 px tall at
+        // 600 px wide, and nothing below the 720 px viewport may have shipped.
+        let below_viewport = narrow
+            .tiles
+            .iter()
+            .filter(|tile| match tile {
+                PageTile::Fresh { header, .. } | PageTile::Reused { header, .. } => header.page_y >= 720.0,
+            })
+            .count();
+        if below_viewport > 0 {
+            eprintln!("a resize shipped {below_viewport} tiles below the viewport");
+            return 1;
+        }
+        memory.apply_pass(&narrow.evicted, narrow.tiles.iter().map(PageTile::keep));
+
+        let back = match renderer.resize(&tab_name, (1280.0, 720.0), 0.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("resize back to 1280 failed: {e}");
+                return 1;
+            }
+        };
+        println!(
+            "back at 1280 px the page is {} px tall, {} tiles shipped",
+            back.summary.page_height,
+            back.tiles.len()
+        );
+        if (back.summary.page_height - wide_height).abs() > 0.5 {
+            eprintln!(
+                "resizing back should restore the first geometry: {wide_height} -> {}",
+                back.summary.page_height
+            );
+            return 1;
+        }
+        let stage_of = |page: &gosub_engine::fork_server::client::RenderedPage| {
+            page.summary
+                .timings_us
+                .iter()
+                .find(|(name, _)| name.starts_with("resize."))
+                .map(|(name, _)| name.clone())
+                .unwrap_or_default()
+        };
+        // 600 px crossed the media query: a full re-layout, styles and all.
+        if stage_of(&narrow) != "resize.layout" {
+            eprintln!(
+                "a resize across a breakpoint should lay out in full, got '{}'",
+                stage_of(&narrow)
+            );
+            return 1;
+        }
+        memory.apply_pass(&back.evicted, back.tiles.iter().map(PageTile::keep));
+
+        // 1000 px flips no condition and no sheet reads the viewport: taffy
+        // over the kept tree, with the paragraph wrapping more than at 1280.
+        let mid = match renderer.resize(&tab_name, (1000.0, 720.0), 0.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("resize to 1000 failed: {e}");
+                return 1;
+            }
+        };
+        println!(
+            "at 1000 px the page is {} px tall via {}",
+            mid.summary.page_height,
+            stage_of(&mid)
+        );
+        if stage_of(&mid) != "resize.geometry" {
+            eprintln!(
+                "a resize within the breakpoint should reuse the layout tree, got '{}'",
+                stage_of(&mid)
+            );
+            return 1;
+        }
+        if mid.summary.page_height <= wide_height || mid.summary.page_height >= narrow_height {
+            eprintln!(
+                "the 1000 px layout should sit between {wide_height} and {narrow_height}: {}",
+                mid.summary.page_height
+            );
+            return 1;
+        }
+        if mid.hit_regions.is_empty() {
+            eprintln!("a geometry-only resize sent no hit regions");
+            return 1;
+        }
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
     }
     #[cfg(not(target_os = "linux"))]
     {

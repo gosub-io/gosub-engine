@@ -203,6 +203,38 @@ pub fn serve<C: RenderConfiguration>(
                     gosub_sandbox::exit_now(1);
                 }
             }
+            ToRenderer::Resize {
+                tab,
+                viewport_width,
+                viewport_height,
+                dpr,
+                scroll_y,
+                known_tiles,
+            } => {
+                // Bounded like input: a layout is what it costs.
+                if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
+                    gosub_sandbox::exit_now(1);
+                }
+                let known: HashSet<u64> = known_tiles.into_iter().collect();
+                let (pass, hit_regions) = match pages.get_mut(&tab) {
+                    Some(page) => {
+                        touch(&mut recent, &tab);
+                        let out = page.resize((viewport_width, viewport_height), dpr, scroll_y, &known);
+                        (out.pass, page.hit_regions.clone())
+                    }
+                    None => (no_page_pass(), Vec::new()),
+                };
+                if !stream_rendered(
+                    &mut link.lock(),
+                    &pass.tiles,
+                    &pass.evicted,
+                    pass.summary,
+                    hit_regions,
+                    Vec::new(),
+                ) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
             ToRenderer::Scroll { tab, scroll_y } => {
                 let run: PagePass<C> = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
                 incremental_pass(&link, &mut pages, &mut recent, tab, run);

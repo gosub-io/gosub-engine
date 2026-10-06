@@ -267,7 +267,7 @@ impl MediaStore {
             .read()
             .values()
             .map(|media| match &**media {
-                Media::Image(image) => image.image.as_raw().len(),
+                Media::Image(image) => image.resident_bytes(),
                 Media::Svg(_) => 64 * 1024,
             })
             .sum()
@@ -301,7 +301,9 @@ impl MediaStore {
             .iter()
             .filter(|(id, _)| encoded.contains_key(id))
             .map(|(_, media)| match &**media {
-                Media::Image(image) => image.image.as_raw().len() as u64,
+                // The pixels and, once a rasterizer asked for it, their
+                // premultiplied copy: both are what the process holds.
+                Media::Image(image) => image.resident_bytes() as u64,
                 Media::Svg(_) => 0,
             })
             .sum();
@@ -321,7 +323,7 @@ impl MediaStore {
             }
             if let Some(media) = entries.remove(&id) {
                 if let Media::Image(image) = &*media {
-                    resident = resident.saturating_sub(image.image.as_raw().len() as u64);
+                    resident = resident.saturating_sub(image.resident_bytes() as u64);
                 }
             }
             recent.last_used.remove(&id);
@@ -1048,6 +1050,35 @@ mod decoded_budget_tests {
         let image = store.get_image(id).expect("decoded on use");
         assert_eq!((image.image.width(), image.image.height()), (64, 32));
         assert!(store.entries.read().contains_key(&id));
+    }
+
+    /// A rasterizer's premultiplied copy of an image is as resident as the
+    /// pixels it was made from: the budget counts it, so a process whose
+    /// every image is painted holds the budget, not twice it.
+    #[test]
+    fn a_premultiplied_copy_counts_toward_the_budget() {
+        let store = Arc::new(MediaStore::new());
+        // Each image is 40 000 bytes of pixels; room for two, or one with its copy.
+        store.set_decoded_budget(90_000);
+        store.set_synchronous_fetch(true);
+        let first = match store.request_media(&data_uri(100, 100, 1)) {
+            MediaRequest::Ready(id) => id,
+            MediaRequest::Pending => panic!("synchronous load should be ready"),
+        };
+        let image = store.get_image(first).expect("decoded on use");
+        // The placeholders count too; measure what the copy adds.
+        let before_copy = store.resident_bytes();
+        let _copy = image.premultiplied_bgra();
+        assert_eq!(store.resident_bytes(), before_copy + 40_000);
+
+        let second = match store.request_media(&data_uri(100, 100, 2)) {
+            MediaRequest::Ready(id) => id,
+            MediaRequest::Pending => panic!("synchronous load should be ready"),
+        };
+        store.get_image(second).expect("decoded on use");
+        // Pixels alone would have fitted both; with the copy counted, the first gave way.
+        assert!(!store.entries.read().contains_key(&first));
+        assert!(store.entries.read().contains_key(&second));
     }
 
     #[test]

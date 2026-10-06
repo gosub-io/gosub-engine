@@ -23,10 +23,13 @@ use gosub_interface::node::QuirksMode;
 use gosub_render_pipeline::common::document::pipeline_doc::{GosubDocumentAdapter, PipelineDocument};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
 use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
+use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::rasterizer::{BakedTile, Rasterable};
 use gosub_render_pipeline::render::backend::TileAnchor;
-use gosub_render_pipeline::tile_budget::{defer_tiles_outside_window, raster_window, TilePosKey};
+use gosub_render_pipeline::tile_budget::{
+    defer_tiles_outside_band, defer_tiles_outside_window, raster_window, TilePosKey,
+};
 use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::node::NodeId;
@@ -155,6 +158,14 @@ pub struct RetainedPage<C: RenderConfiguration> {
     base_url: Option<Url>,
     layer_list: Arc<LayerList>,
     layer_ids: Vec<LayerId>,
+    /// The layouter that built the tree `layer_list` holds, kept so a resize
+    /// that changes no style can run taffy over that tree again instead of
+    /// rebuilding it (see [`Self::lay_out_again`]).
+    layouter: TaffyLayouter,
+    /// The style environment the page was last laid out under (which
+    /// `@media` conditions held, the viewport if a sheet reads it): equal
+    /// after a resize means every computed style still stands.
+    style_fingerprint: Option<u64>,
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     rasterizer: Option<Box<dyn Rasterable + Send + Sync>>,
@@ -186,6 +197,29 @@ pub struct RetainedPage<C: RenderConfiguration> {
     build_timings: Vec<(String, u64)>,
 }
 
+/// How much of the page around the viewport a pass rasterizes.
+#[derive(Clone, Copy)]
+enum RasterBand {
+    /// The viewport and one viewport above and below: what a scroll can
+    /// reach before the next pass lands.
+    Window,
+    /// The viewport alone. A resize is one of many during a drag, each
+    /// replacing every tile; the margin follows once the drag pauses.
+    Viewport,
+}
+
+/// How far a re-layout has to go.
+#[derive(Clone, Copy)]
+enum Relayout {
+    /// Styles again, the tree again, then layout: the DOM changed (a toggle,
+    /// typed text), and what rules reach where is the cascade's to decide.
+    Full,
+    /// Only the boxes moved: run taffy over the kept tree when the style
+    /// environment is unchanged - no `@media` condition flipped and no sheet
+    /// reads the viewport - and lay out in full otherwise.
+    GeometryIfUnchanged,
+}
+
 /// What an input pass has to redo: nothing, the tiles under some elements
 /// (their margin boxes, unioned), or the layout.
 enum Dirty {
@@ -212,8 +246,7 @@ fn lay_out<C: RenderConfiguration>(
     media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
     viewport_width: f64,
     viewport_height: f64,
-) -> (Arc<LayerList>, Vec<LayerId>, f64, f64, u64, u64) {
-    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+) -> (Arc<LayerList>, Vec<LayerId>, f64, f64, u64, u64, TaffyLayouter) {
     use gosub_render_pipeline::layouter::CanLayout;
     use gosub_render_pipeline::rendertree_builder::RenderTree;
 
@@ -247,6 +280,7 @@ fn lay_out<C: RenderConfiguration>(
         page_height,
         render_tree_us,
         layout_us,
+        layouter,
     )
 }
 
@@ -331,8 +365,9 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         // Stages 1-3, from the document kept beside the pipeline's view of it.
         let doc = Arc::new(doc);
         let adapter = Arc::new(GosubDocumentAdapter::<C>::new(Arc::clone(&doc)));
-        let (layer_list, layer_ids, page_width, page_height, render_tree_us, layout_us) =
+        let (layer_list, layer_ids, page_width, page_height, render_tree_us, layout_us, layouter) =
             lay_out::<C>(&adapter, &fonts, &media_store, viewport_width, viewport_height);
+        let style_fingerprint = C::CssSystem::style_environment_fingerprint(doc.stylesheets());
         let hit_regions = collect_hit_regions::<C>(&layer_list, &doc, base_url.as_ref());
         let mut fragment_targets = crate::html::collect_fragment_targets(&layer_list, &doc);
         // The broker bounds what it keeps too; this bounds what crosses.
@@ -351,6 +386,8 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             base_url,
             layer_list,
             layer_ids,
+            layouter,
+            style_fingerprint,
             rasterizer: C::forked_tile_rasterizer(Arc::clone(&fonts)),
             fonts,
             media_store,
@@ -381,7 +418,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         if let Some(scroll_y) = scroll_y {
             self.scroll_y = scroll_y;
         }
-        self.pass(scroll_y, known_tiles, None)
+        self.pass(scroll_y, known_tiles, None, RasterBand::Window)
     }
 
     /// The pointer moved to `node` (a DOM node id, or nothing): restyle the
@@ -435,7 +472,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let Some(repaint) = repaint else {
             return self.empty_pass();
         };
-        self.pass(Some(self.scroll_y), &HashSet::new(), Some(repaint))
+        self.pass(Some(self.scroll_y), &HashSet::new(), Some(repaint), RasterBand::Window)
     }
 
     /// The user acted on this page: apply `event` to the document through the
@@ -558,23 +595,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             });
         }
 
-        let (pass, relayouted) = match std::mem::replace(&mut self.dirty, Dirty::None) {
-            Dirty::None => (self.empty_pass(), false),
-            Dirty::Paint(rect) => (self.pass(Some(scroll_y), &HashSet::new(), Some(rect)), false),
-            Dirty::Relayout => {
-                let layout_us = self.lay_out_again();
-                self.build_timings.push(("input.layout".to_string(), layout_us));
-                // Positions and layer ids mean nothing across a layout: ship the
-                // window again by content hash, and let go of what the broker
-                // held that this pass did not account for.
-                let held: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
-                self.shipped.clear();
-                let mut pass = self.pass(Some(scroll_y), known_tiles, None);
-                let now: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
-                pass.evicted.extend(held.difference(&now).copied());
-                (pass, true)
-            }
-        };
+        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "input", Relayout::Full, RasterBand::Window);
         InputPass {
             pass,
             effects,
@@ -582,32 +603,124 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         }
     }
 
-    /// Stages 1-3 again over the retained document, after input changed what
-    /// the boxes depend on. Every style is recomputed: a toggled control
-    /// restyles its siblings through `:checked`, and which rules reach where
-    /// is the cascade's to decide. Returns the cost in microseconds.
-    fn lay_out_again(&mut self) -> u64 {
+    /// The viewport changed size or device pixel ratio: lay the retained page
+    /// out again at the new size and ship the window by hash, as an input that
+    /// moved the boxes would. The one path a window resize takes; nothing is
+    /// parsed or fetched again.
+    pub fn resize(&mut self, viewport: (f64, f64), dpr: u32, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
+        self.viewport_width = viewport.0;
+        self.viewport_height = viewport.1;
+        self.dpr = dpr;
+        self.scroll_y = scroll_y;
+        self.dirty = Dirty::Relayout;
+        let (pass, relayouted) = self.finish_dirty(
+            scroll_y,
+            known_tiles,
+            "resize",
+            Relayout::GeometryIfUnchanged,
+            RasterBand::Viewport,
+        );
+        InputPass {
+            pass,
+            effects: Vec::new(),
+            relayouted,
+        }
+    }
+
+    /// Turn what is dirty into a pass: nothing, a repaint of a rectangle, or a
+    /// layout again with the window shipped by content hash. Returns the pass
+    /// and whether the page was laid out again (positions and layer ids then
+    /// mean nothing across the two).
+    fn finish_dirty(
+        &mut self,
+        scroll_y: f64,
+        known_tiles: &HashSet<u64>,
+        pass_name: &str,
+        relayout: Relayout,
+        band: RasterBand,
+    ) -> (RenderPass, bool) {
+        match std::mem::replace(&mut self.dirty, Dirty::None) {
+            Dirty::None => (self.empty_pass(), false),
+            Dirty::Paint(rect) => (self.pass(Some(scroll_y), &HashSet::new(), Some(rect), band), false),
+            Dirty::Relayout => {
+                let (layout_us, geometry_only) = self.lay_out_again(relayout);
+                // `<pass>.layout` is the full re-layout, `<pass>.geometry` taffy over the kept tree.
+                let stage = if geometry_only { "geometry" } else { "layout" };
+                self.build_timings.push((format!("{pass_name}.{stage}"), layout_us));
+                // Positions and layer ids mean nothing across a layout: ship the
+                // window again by content hash, and let go of what the broker
+                // held that this pass did not account for.
+                let held: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
+                self.shipped.clear();
+                let mut pass = self.pass(Some(scroll_y), known_tiles, None, band);
+                let now: HashSet<u64> = self.shipped.values().map(|s| s.hash).collect();
+                pass.evicted.extend(held.difference(&now).copied());
+                (pass, true)
+            }
+        }
+    }
+
+    /// Stages 1-3 again over the retained document. In full, every style is
+    /// recomputed: a toggled control restyles its siblings through
+    /// `:checked`, and which rules reach where is the cascade's to decide.
+    /// For a resize that left the style environment as it was, taffy runs
+    /// over the kept tree instead - the same shortcut the in-process pipeline
+    /// takes for geometry-only damage, and the larger half of the cost.
+    /// Returns the cost in microseconds and whether the shortcut was taken.
+    fn lay_out_again(&mut self, relayout: Relayout) -> (u64, bool) {
         let started = std::time::Instant::now();
         // Process-wide state another tab's navigate may have moved since.
         apply_media_prefs(self.dpr, self.media);
         gosub_css3::stylesheet::set_layout_viewport(self.viewport_width as f32, self.viewport_height as f32);
-        self.adapter.clear_style_cache();
-        let (layer_list, layer_ids, page_width, page_height, _, _) = lay_out::<C>(
-            &self.adapter,
-            &self.fonts,
-            &self.media_store,
-            self.viewport_width,
-            self.viewport_height,
-        );
-        self.layer_list = layer_list;
-        self.layer_ids = layer_ids;
-        self.page_width = page_width;
-        self.page_height = page_height;
+        // Under the environment the layout is about to use: what the cascade
+        // would produce now, against what it produced last time.
+        let fingerprint = C::CssSystem::style_environment_fingerprint(self.doc.stylesheets());
+        let geometry_only = matches!(relayout, Relayout::GeometryIfUnchanged)
+            && fingerprint.is_some()
+            && fingerprint == self.style_fingerprint
+            && self.relayout_geometry();
+        if !geometry_only {
+            self.adapter.clear_style_cache();
+            let (layer_list, layer_ids, page_width, page_height, _, _, layouter) = lay_out::<C>(
+                &self.adapter,
+                &self.fonts,
+                &self.media_store,
+                self.viewport_width,
+                self.viewport_height,
+            );
+            self.layer_list = layer_list;
+            self.layer_ids = layer_ids;
+            self.layouter = layouter;
+            self.page_width = page_width;
+            self.page_height = page_height;
+        }
+        self.style_fingerprint = fingerprint;
         self.hit_regions = collect_hit_regions::<C>(&self.layer_list, &self.doc, self.base_url.as_ref());
         self.fragment_targets = crate::html::collect_fragment_targets(&self.layer_list, &self.doc);
         self.fragment_targets
             .truncate(crate::fork_server::protocol::MAX_FRAGMENT_TARGETS);
-        started.elapsed().as_micros() as u64
+        (started.elapsed().as_micros() as u64, geometry_only)
+    }
+
+    /// Taffy over the kept layout tree at the current viewport, then a new
+    /// layer list from it. False when the tree cannot be reused: something
+    /// else still holds the layer list (a pass of this page is mid-flight on
+    /// another path), and the caller lays out in full instead.
+    fn relayout_geometry(&mut self) -> bool {
+        let vp_dim = (self.viewport_width > 0.0 && self.viewport_height > 0.0)
+            .then(|| Dimension::new(self.viewport_width, self.viewport_height));
+        let Some(list) = Arc::get_mut(&mut self.layer_list) else {
+            return false;
+        };
+        // Unique here: the layer list is the tree's only holder, so this mutates in place.
+        let tree = Arc::make_mut(&mut list.layout_tree);
+        self.layouter.relayout(tree, vp_dim);
+        self.page_width = tree.root_dimension.width;
+        self.page_height = tree.root_dimension.height;
+        let tree = Arc::clone(&list.layout_tree);
+        self.layer_list = Arc::new(LayerList::new(tree));
+        self.layer_ids = self.layer_list.layer_ids.read().clone();
+        true
     }
 
     /// Whether the page wants the pointer's moves and wheel sent here rather
@@ -699,7 +812,13 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     /// evict. `repaint` narrows the work to tiles overlapping it (a hover),
     /// forcing those even if the broker holds them; otherwise a tile the
     /// broker already holds by position needs nothing.
-    fn pass(&mut self, scroll_y: Option<f64>, known_tiles: &HashSet<u64>, repaint: Option<Rect>) -> RenderPass {
+    fn pass(
+        &mut self,
+        scroll_y: Option<f64>,
+        known_tiles: &HashSet<u64>,
+        repaint: Option<Rect>,
+        band: RasterBand,
+    ) -> RenderPass {
         use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
         use gosub_render_pipeline::painter::Painter;
 
@@ -716,7 +835,12 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let mut tile_list = TileList::from_arc(Arc::clone(&self.layer_list), Dimension::new(TILE_SIZE, TILE_SIZE));
         tile_list.generate();
         if let Some(scroll_y) = scroll_y {
-            defer_tiles_outside_window(&mut tile_list, scroll_y, self.viewport_height);
+            match band {
+                RasterBand::Window => defer_tiles_outside_window(&mut tile_list, scroll_y, self.viewport_height),
+                RasterBand::Viewport => {
+                    defer_tiles_outside_band(&mut tile_list, scroll_y, scroll_y + self.viewport_height)
+                }
+            };
         }
 
         for tile in tile_list.arena.values_mut() {

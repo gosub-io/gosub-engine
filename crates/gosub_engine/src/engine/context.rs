@@ -292,6 +292,11 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The hover changed while a pass was in flight; re-raise it once done.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_hover_pending: bool,
+    /// The viewport changed size while a pass was in flight: the latest size
+    /// only, laid out once the pass lands. A drag produces many sizes; the
+    /// renderer sees the ones it has time for.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_resize_pending: Option<(f64, f64)>,
     /// Input that arrived while a pass was in flight, each with the scroll
     /// offset it was measured against, in order. Pointer moves and wheel
     /// notches coalesce; nothing else does. A keystroke is never dropped.
@@ -426,6 +431,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_epoch: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_hover_pending: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_resize_pending: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_input_queue: std::collections::VecDeque::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -647,6 +654,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         self.viewport.width = vp.width;
         self.viewport.height = vp.height;
+        // A page a resident renderer retains is laid out again there, off
+        // the tab thread, while this tab keeps compositing the tiles it
+        // holds; nothing here is thrown away.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if self.try_remote_resize() {
+            self.note_invalidate("viewport");
+            return;
+        }
         self.damage.escalate(self.viewport_change_level());
         self.note_invalidate("viewport");
         self.pipeline_cache = None;
@@ -1073,6 +1088,26 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.recheck_viewport();
     }
 
+    /// A resize pass rasterized the viewport alone, at the scroll position it
+    /// was asked for. Record that band, not the usual window: a scroll would
+    /// otherwise walk into rows the renderer never produced. The margin is
+    /// asked for only once the drag pauses - while another size waits, the
+    /// next resize replaces every tile anyway, and a scroll pass in between
+    /// would cost what the tight band saved.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn note_resize_band(&mut self, rendered_at: f64) {
+        if let Some(cache) = self.pipeline_cache.as_ref() {
+            self.tile_budget.note_rastered_band(
+                rendered_at,
+                rendered_at + self.viewport.height as f64,
+                cache.page_height,
+            );
+        }
+        if self.remote_resize_pending.is_none() {
+            self.recheck_viewport();
+        }
+    }
+
     /// After a remote pass lands: if the viewport now shows what was never
     /// rastered (or was evicted), ask for the window to be extended.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -1247,6 +1282,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 // (superseded before the render began).
                 self.remote_inflight = None;
                 self.remote_hover_pending = false;
+                self.remote_resize_pending = None;
                 self.adopt_remote_page(page);
                 Ok(())
             }
@@ -1291,6 +1327,29 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.try_remote_pass(RemotePass::Hover)
     }
 
+    /// The viewport of a page a resident renderer retains changed size: have
+    /// the renderer lay it out again at the new size and ship what changed.
+    /// Sizes that arrive while a pass is in flight keep only the latest.
+    /// False when this tab holds no remotely rendered page, so the caller
+    /// takes the in-process path.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn try_remote_resize(&mut self) -> bool {
+        if !self.remote_input_available() || !self.holds_remote_page() {
+            return false;
+        }
+        let size = (self.viewport.width as f64, self.viewport.height as f64);
+        self.try_remote_pass(RemotePass::Resize(size))
+    }
+
+    /// Whether what this tab composites came from a renderer: a page it
+    /// adopted, which the renderer still has to answer for.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn holds_remote_page(&self) -> bool {
+        self.pipeline_cache
+            .as_ref()
+            .is_some_and(|cache| cache.layer_list.is_none())
+    }
+
     /// Start one incremental exchange with the resident renderer on its own
     /// thread, so this tab keeps compositing what it holds meanwhile; the
     /// result is merged by [`Self::poll_remote_passes`]. One pass at a time:
@@ -1306,6 +1365,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             match what {
                 RemotePass::Hover => self.remote_hover_pending = true,
                 RemotePass::Input(event, scroll_y) => self.queue_remote_input(event, scroll_y),
+                RemotePass::Resize(size) => self.remote_resize_pending = Some(size),
                 RemotePass::Scroll | RemotePass::Media => {}
             }
             return true;
@@ -1333,11 +1393,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let url = page_url.clone();
         let source = self.document_source.clone();
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        // An input pass that lays the page out again ships it by content hash
-        // against what this tab holds; the other passes never answer
+        // An input or resize pass that lays the page out again ships it by
+        // content hash against what this tab holds; the other passes never answer
         // `TileUnchanged`, so they look nothing up.
         let known = match &what {
-            RemotePass::Input(..) => self.remote_tile_memory.clone(),
+            RemotePass::Input(..) | RemotePass::Resize(_) => self.remote_tile_memory.clone(),
             _ => crate::fork_server::client::TileMemory::default(),
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1370,6 +1430,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, &resources, &known),
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
                         RemotePass::Input(event, _) => renderer.input(&remote_tab, scroll_y, event, &resources, &known),
+                        RemotePass::Resize(size) => renderer.resize(&remote_tab, size, scroll_y, &resources, &known),
                         RemotePass::Media => {
                             let Some(source) = source.as_deref() else {
                                 anyhow::bail!("no document source to render again");
@@ -1461,8 +1522,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 // The renderer no longer has this page (replaced after a
                 // crash, or past its retained-page limit): only a full render
                 // gets the tiles back.
-                if matches!(inflight.what, PassKind::Scroll | PassKind::Hover | PassKind::Input(_))
-                    && page.summary.no_page
+                if matches!(
+                    inflight.what,
+                    PassKind::Scroll | PassKind::Hover | PassKind::Input(_) | PassKind::Resize
+                ) && page.summary.no_page
                 {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
                     report_remote_pass_ended(
@@ -1506,9 +1569,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     }
                     self.remote_effects = effects;
                     self.scroll_dirty = true;
-                } else if matches!(inflight.what, PassKind::Media) {
+                } else if matches!(inflight.what, PassKind::Media | PassKind::Resize) {
                     // A whole page, like a navigate: what came back replaces
-                    // this tab's tiles and geometry.
+                    // this tab's tiles and geometry. A resize ships it by
+                    // content hash, so most of it is what the tab already held.
                     report_remote_pass(
                         inflight.what.event_kind(),
                         &self.remote_tab,
@@ -1519,7 +1583,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     );
                     self.adopt_remote_page(page);
                     self.tile_budget.note_full_raster();
-                    self.note_pass_window(inflight.scroll_y);
+                    if matches!(inflight.what, PassKind::Resize) {
+                        self.note_resize_band(inflight.scroll_y);
+                    } else {
+                        self.note_pass_window(inflight.scroll_y);
+                    }
                     self.scroll_dirty = true;
                 } else {
                     report_remote_pass(
@@ -1571,8 +1639,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 }
             }
         }
-        // Input that waited goes first: a keystroke is the user's, a hover is
-        // cosmetic and is re-raised afterwards.
+        // A size that changed meanwhile goes first: input that waited was
+        // measured against a viewport the page is about to be laid out for.
+        // Then input: a keystroke is the user's, a hover is cosmetic and is
+        // re-raised afterwards.
+        if self.remote_inflight.is_none() {
+            if let Some(size) = self.remote_resize_pending.take() {
+                // The size is not dropped with the pass: what could not be
+                // laid out there is laid out here.
+                if !self.try_remote_pass(RemotePass::Resize(size)) {
+                    self.damage.escalate(self.viewport_change_level());
+                }
+            }
+        }
         if self.remote_inflight.is_none() {
             if let Some((event, scroll_y)) = self.remote_input_queue.pop_front() {
                 self.try_remote_pass(RemotePass::Input(event, scroll_y));
@@ -2731,6 +2810,8 @@ enum RemotePass {
     /// The user acted on the retained page, at the scroll offset the event's
     /// viewport coordinates were measured against.
     Input(crate::fork_server::protocol::InputEvent, f64),
+    /// The viewport changed size: lay the retained page out again at it.
+    Resize((f64, f64)),
 }
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -2741,6 +2822,7 @@ impl RemotePass {
             RemotePass::Hover => PassKind::Hover,
             RemotePass::Media => PassKind::Media,
             RemotePass::Input(event, _) => PassKind::Input(InputProvenance::of(event)),
+            RemotePass::Resize(_) => PassKind::Resize,
         }
     }
 }
@@ -2755,6 +2837,7 @@ enum PassKind {
     Hover,
     Media,
     Input(InputProvenance),
+    Resize,
 }
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -2765,6 +2848,7 @@ impl PassKind {
             PassKind::Hover => "remote.hover",
             PassKind::Media => "remote.media",
             PassKind::Input(_) => "remote.input",
+            PassKind::Resize => "remote.resize",
         }
     }
 }
@@ -3350,6 +3434,85 @@ mod tests {
             ctx.raster_dirty = false;
             ctx.poll_remote_passes();
             assert!(ctx.raster_dirty, "the viewport moved past what the pass rendered");
+        }
+
+        /// A resize pass answers with the whole page at its new size, like a
+        /// media pass: what came back replaces the tab's geometry.
+        #[test]
+        fn a_resize_pass_replaces_the_page_geometry() {
+            let mut page = empty_page();
+            page.summary.page_height = 1899.0;
+            let mut ctx = answered(RemotePass::Resize((600.0, 720.0)), 0.0, page);
+            ctx.poll_remote_passes();
+            assert_eq!(ctx.active_page_height(), Some(1899.0));
+            assert!(
+                !matches!(ctx.damage.level(), crate::engine::damage::DamageLevel::Rebuild),
+                "{:?}",
+                ctx.damage.level()
+            );
+        }
+
+        /// A resize pass rasterizes the viewport alone. Once the drag pauses,
+        /// the margin a scroll could reach is asked for.
+        #[test]
+        fn a_resize_pass_asks_for_the_margin_once_the_drag_pauses() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Resize((400.0, 600.0)), 0.0, page);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(ctx.raster_dirty, "the rows below the viewport were never rastered");
+        }
+
+        /// While another size waits, the margin is not asked for: the next
+        /// resize replaces every tile, and a scroll pass between the two would
+        /// cost what the tight band saved.
+        #[test]
+        fn a_resize_pass_mid_drag_leaves_the_margin_alone() {
+            let mut page = empty_page();
+            page.summary.page_height = 5000.0;
+            let mut ctx = answered(RemotePass::Resize((400.0, 600.0)), 0.0, page);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 600,
+            });
+            ctx.remote_resize_pending = Some((380.0, 600.0));
+            ctx.raster_dirty = false;
+            ctx.poll_remote_passes();
+            assert!(!ctx.raster_dirty, "a scroll pass was asked for mid-drag");
+        }
+
+        /// A renderer that no longer retains the page cannot lay it out at a
+        /// new size: the tab renders the page again.
+        #[test]
+        fn a_resize_pass_without_a_retained_page_renders_the_page_again() {
+            let mut ctx = answered(RemotePass::Resize((600.0, 720.0)), 0.0, no_page());
+            ctx.poll_remote_passes();
+            assert!(
+                matches!(ctx.damage.level(), crate::engine::damage::DamageLevel::Rebuild),
+                "{:?}",
+                ctx.damage.level()
+            );
+        }
+
+        /// A size that arrived while a pass ran is laid out once the pass
+        /// lands, before any input that waited: that input was measured
+        /// against the viewport the page is about to be laid out for.
+        #[test]
+        fn a_pending_resize_is_issued_once_the_pass_lands() {
+            let mut ctx = answered(RemotePass::Hover, 0.0, empty_page());
+            ctx.remote_resize_pending = Some((600.0, 720.0));
+            ctx.poll_remote_passes();
+            // No resident renderer here: the pass cannot start, but it was taken.
+            assert!(ctx.remote_resize_pending.is_none());
         }
 
         /// A renderer that no longer retains the page says so for a hover as

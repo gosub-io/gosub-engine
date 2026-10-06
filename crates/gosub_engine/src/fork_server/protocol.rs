@@ -154,6 +154,20 @@ pub enum ToRenderer {
         known_tiles: Vec<u64>,
         event: InputEvent,
     },
+    /// The viewport of a page this renderer retains changed size (or device
+    /// pixel ratio): lay the retained document out again at the new size,
+    /// which re-evaluates width-dependent `@media` rules, and answer like an
+    /// input that re-laid the page out - the window shipped by content hash
+    /// against `known_tiles`, what the broker held and this layout no longer
+    /// accounts for evicted, the geometry for hit tests. No parse, no fetch.
+    Resize {
+        tab: String,
+        viewport_width: f64,
+        viewport_height: f64,
+        dpr: u32,
+        scroll_y: f64,
+        known_tiles: Vec<u64>,
+    },
     /// Die without replying, the way a crashing renderer would. For tests
     /// of the broker's recovery; a renderer that obeys it was going to be
     /// trusted with nothing anyway.

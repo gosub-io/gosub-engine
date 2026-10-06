@@ -549,6 +549,26 @@ fn an_input_that_lays_a_tall_page_out_again_ships_its_window_by_hash() {
     );
 }
 
+/// A resize lays the retained page out again at the new width - a wrapping
+/// paragraph grows and a `@media (max-width)` rule flips - and ships the
+/// window by hash; resizing back restores the first geometry.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resize_lays_the_retained_page_out_again_at_the_new_width() {
+    let out = run("renderer-resize");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "renderer-resize failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A page the renderer let go of under its retention cap answers input with
 /// no_page and no effects, and the renderer serves the tabs it still holds.
 #[cfg(target_os = "linux")]
