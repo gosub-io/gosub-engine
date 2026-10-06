@@ -100,9 +100,13 @@ impl TimingTable {
         timer.id
     }
 
-    /// Stop a timer; its duration in microseconds, or `None` for an unknown id.
+    /// Stop a timer; its duration in microseconds, or `None` for an unknown id or one
+    /// that already stopped, so a timer yields one final duration and one stop event.
     pub fn stop_timer(&mut self, timer_id: TimerId) -> Option<u64> {
         let timer = self.timers.get_mut(&timer_id)?;
+        if timer.has_finished() {
+            return None;
+        }
         timer.end();
         Some(timer.duration_us)
     }
@@ -1099,6 +1103,22 @@ mod stage_observer_tests {
             Some(StageEvent::Stopped { duration_us, .. }) => assert!(*duration_us >= 2_000, "{duration_us}"),
             other => panic!("no stop for the timer: {other:?}"),
         }
+    }
+
+    /// A second stop for the same timer neither changes its duration nor announces a
+    /// second end: one timer, one stop event.
+    #[test]
+    fn a_timer_stops_once() {
+        observe_stages(collect);
+        let id = start(Timing::PipelineTiling, None);
+        stop(id);
+        stop(id);
+        let stops = SEEN
+            .lock()
+            .iter()
+            .filter(|e| matches!(e, StageEvent::Stopped { timer, .. } if *timer == id))
+            .count();
+        assert_eq!(stops, 1);
     }
 
     /// Stopping an id the table never saw announces nothing: a nil id from a build with
