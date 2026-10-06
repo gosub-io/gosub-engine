@@ -1199,6 +1199,25 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let moved = x != self.scroll_x || y != self.scroll_y;
                 self.scroll_x = x;
                 self.scroll_y = y;
+
+                // GPU tile compositing has no CPU fast path, but its composite is a handful of
+                // blits: run it now rather than on the next tick. A host sends one scroll per
+                // frame it draws, so the page then moves once per frame, in step with the
+                // screen. Waiting for the tick, a timer of its own, made the page move on some
+                // frames and not others -- a fling on a 90 Hz phone visibly stuttered.
+                //
+                // It also takes the exact offset rather than the whole CSS pixel: the compositor
+                // rounds to device pixels itself, and at 3x a whole CSS pixel is a 3-pixel jump,
+                // which is how the slow end of a fling looked.
+                if self.zone_context.render_backend.gpu_tile_compositing() {
+                    let (ex, ey) = self.scroll.position();
+                    if (ex, ey) != self.context.scroll_xy() {
+                        self.context.set_scroll(ex, ey);
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                    }
+                    return ControlFlow::Continue;
+                }
                 self.context.set_scroll(x as f64, y as f64);
 
                 // GPU-tile-compositing backends skip this CPU TileCache fast path (their

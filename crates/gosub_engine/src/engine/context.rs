@@ -679,7 +679,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .map(|ph| (ph - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
         let y = y.max(0.0).min(max_y);
-        if (self.scroll_x - x).abs() < 0.5 && (self.scroll_y - y).abs() < 0.5 {
+        // Less than a device pixel is no visible change. Callers on most paths pass whole CSS
+        // pixels; the GPU tile path passes exact offsets, and moves in device-pixel steps.
+        let step = 1.0 / self.cache_dpr.unwrap_or(1).max(1) as f64;
+        if (self.scroll_x - x).abs() < step && (self.scroll_y - y).abs() < step {
             return;
         }
         self.scroll_x = x;
