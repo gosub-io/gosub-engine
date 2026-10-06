@@ -1391,6 +1391,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             });
         if let Err(e) = spawned {
             log::warn!("could not start a remote {} pass: {e}", kind.event_kind());
+            report_remote_pass_ended(
+                kind.event_kind(),
+                &self.remote_tab,
+                &page_url,
+                "spawn_failed",
+                Some(&e.to_string()),
+            );
             return false;
         }
         self.remote_inflight = Some(InflightPass {
@@ -1458,6 +1465,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     && page.summary.no_page
                 {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
+                    report_remote_pass_ended(
+                        inflight.what.event_kind(),
+                        &self.remote_tab,
+                        &inflight.page_url,
+                        "no_page",
+                        None,
+                    );
                     // Whatever input waited was for that page.
                     self.remote_input_queue.clear();
                     self.damage.rebuild();
@@ -1532,11 +1546,25 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.scroll_dirty = true;
                 }
             }
-            Ok(_) => {}
+            // A result for a page this tab has since left: nothing to merge.
+            Ok(_) => report_remote_pass_ended(
+                inflight.what.event_kind(),
+                &self.remote_tab,
+                &inflight.page_url,
+                "stale",
+                None,
+            ),
             Err(e) => {
                 log::warn!(
                     "out-of-process {} render failed ({e}); rendering this page again",
                     inflight.what.event_kind()
+                );
+                report_remote_pass_ended(
+                    inflight.what.event_kind(),
+                    &self.remote_tab,
+                    &inflight.page_url,
+                    if stale { "stale" } else { "failed" },
+                    Some(&format!("{e:#}")),
                 );
                 if !stale {
                     self.damage.rebuild();
@@ -2790,6 +2818,22 @@ impl InputProvenance {
             },
         }
     }
+}
+
+/// The terminal event for a remote pass that produced nothing to merge: it failed,
+/// came back for a page the tab has left (`stale`), found no retained page, or never
+/// started. Pairs with the `remote.<kind>.start` reported when the pass launched, so a
+/// subscriber showing passes in flight can clear every one it announced; a merged pass
+/// ends with `remote.<kind>` (see [`report_remote_pass`]) instead.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn report_remote_pass_ended(kind: &str, tab: &str, url: &str, outcome: &str, error: Option<&str>) {
+    if !crate::telemetry::enabled() {
+        return;
+    }
+    crate::telemetry::emit(
+        &format!("{kind}.ended"),
+        serde_json::json!({ "tab": tab, "url": url, "outcome": outcome, "error": error }),
+    );
 }
 
 /// One remote render pass, onto the telemetry firehose: the exchange as the
