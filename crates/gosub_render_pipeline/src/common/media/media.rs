@@ -63,6 +63,12 @@ impl MediaImage {
     /// and shared from then on. Doing it per paint cost a full pass over the image for every
     /// tile the image touched - a 3000 px hero background in a page re-rastered during a
     /// window drag paid that for each of the viewport's tiles, every size.
+    /// Bytes this image keeps resident: its pixels, plus the premultiplied copy
+    /// once a rasterizer has asked for one. What the decoded budget counts.
+    pub fn resident_bytes(&self) -> usize {
+        self.image.as_raw().len() + self.premultiplied.get().map_or(0, |p| p.len())
+    }
+
     pub fn premultiplied_bgra(&self) -> Arc<Vec<u8>> {
         Arc::clone(self.premultiplied.get_or_init(|| {
             let src = self.image.as_raw();
