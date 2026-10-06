@@ -2497,16 +2497,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if render_backend.renders_to_gpu_texture() {
             // The viewport is CSS pixels, the texture is physical ones. Sizing the texture in
             // CSS pixels leaves the host to upscale it, which reads as blurry text rather than
-            // as the scaling bug it is. The backend scales its scene to match, so the page is
-            // re-rendered at this resolution instead of stretched.
-            //
-            // The GPU tile path is excluded: `composite_tiles` takes the CSS viewport and
-            // places CSS-sized tiles, so it stays at 1 until it learns about DPR too.
-            let dpr = if render_backend.gpu_tile_compositing() {
-                1
-            } else {
-                render_backend.device_pixel_ratio().max(1)
-            };
+            // as the scaling bug it is. The backend scales its scene to match (or, on the GPU
+            // tile path, rasterizes its tiles at this ratio), so the page is re-rendered at
+            // this resolution instead of stretched.
+            let dpr = render_backend.device_pixel_ratio().max(1);
             let mut surface_size = self.desired_viewport.as_size();
             surface_size.width *= dpr;
             surface_size.height *= dpr;
@@ -2520,6 +2514,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // `composite_tiles` blits the resident tiles into the surface. Same pipeline, only the
             // tile storage + compositor differ between CPU and GPU backends.
             if render_backend.gpu_tile_compositing() {
+                // Resident tiles were rasterized at the DPR they were made at; page zoom (or a
+                // move to another display) changes it under them, and they would be stretched.
+                self.context.invalidate_raster_if_dpr_changed(dpr);
                 {
                     // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
                     // re-rasterized (it should not be - scroll only re-composites cached tiles).

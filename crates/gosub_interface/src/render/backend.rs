@@ -280,8 +280,11 @@ pub struct CachedTile {
 /// in that backend's own store. Handed to [`RenderBackend::composite_tiles`].
 #[derive(Clone, Debug)]
 pub struct PlacedGpuTile {
+    /// Position on the page, in CSS pixels.
     pub page_x: f32,
     pub page_y: f32,
+    /// Size of the tile's texture, in physical pixels (CSS size times the DPR it was
+    /// rasterized at), as for CPU tiles.
     pub width: u32,
     pub height: u32,
     pub texture_id: u64,
@@ -495,6 +498,9 @@ pub trait RenderBackend: Send {
     /// GPU analogue of the host's CPU tile compositing: blit the visible GPU tiles into the
     /// surface, after which [`Self::external_handle`] yields the presentable `WgpuTextureId`.
     /// `tiles` carry backend-owned `texture_id`s in page coordinates.
+    ///
+    /// `viewport` and `scroll` are CSS pixels; `surface` is physical, sized at the backend's
+    /// [`Self::device_pixel_ratio`], which is also the ratio the tiles were rasterized at.
     ///
     /// Default is unsupported; only GPU backends override it.
     fn composite_tiles(

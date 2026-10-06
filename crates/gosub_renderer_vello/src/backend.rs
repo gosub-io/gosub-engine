@@ -124,6 +124,15 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         })
     }
 
+    /// Choose the GPU tile pipeline (rasterize tiles once, composite them per frame) over the
+    /// whole-viewport scene path, which re-renders the viewport on every scroll step. Tiles make
+    /// scrolling a blit, which matters on a mobile GPU, where Vello rendering a full HiDPI
+    /// viewport takes longer than a frame. Without it, `GOSUB_VELLO_GPU_TILES=1` decides.
+    pub fn with_gpu_tiles(mut self, enabled: bool) -> Self {
+        self.gpu_tile_pipeline = enabled;
+        self
+    }
+
     /// Share with the layouter/rasterizer so layout and render use one font discovery context.
     pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
         Arc::clone(&self.font_system)
@@ -397,7 +406,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
         // Cull to the visible viewport, or we'd issue a draw per tile for the WHOLE page every
-        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`.
+        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`. Culling
+        // is in CSS pixels; the tiles' texture sizes are physical, hence the division.
+        let dpr = self.device_pixel_ratio();
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
         let (sx, sy) = scroll;
         use gosub_render_pipeline::render::backend::TileAnchor;
@@ -414,9 +425,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                     (sx - dx as f32, sy - dy as f32)
                 }
             };
-            t.page_x + t.width as f32 > ox
+            t.page_x + t.width as f32 / dpr as f32 > ox
                 && t.page_x < ox + vw
-                && t.page_y + t.height as f32 > oy
+                && t.page_y + t.height as f32 / dpr as f32 > oy
                 && t.page_y < oy + vh
         };
 
@@ -447,10 +458,11 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             self.context.queue(),
             &target_view,
             wgpu::TextureFormat::Rgba8Unorm,
-            viewport.0,
-            viewport.1,
+            s.size.width,
+            s.size.height,
             scroll.0,
             scroll.1,
+            dpr,
             &placed,
         );
 
