@@ -84,7 +84,9 @@ mod utils;
 /// Make a handling decision for a routed response (e.g., render as document, hand to download manager).
 pub use decision::decide_handling;
 /// Common decision enums used across the network -> engine boundary.
-pub use decision::types::{BlockReason, DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination};
+pub use decision::types::{
+    BlockReason, CorsFailure, DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination,
+};
 /// Shared, back-pressure-aware streamed body used by fetcher and consumers.
 pub use shared_body::SharedBody;
 

@@ -417,6 +417,44 @@ mod tests {
         ));
     }
 
+    /// The CORS rule that failed survives the mapping: the point of carrying it is that
+    /// "blocked by CORS" alone does not say which header to fix.
+    #[test]
+    fn a_cors_refusal_keeps_the_rule_that_failed() {
+        use crate::net::CorsFailure;
+        use gosub_sonar::net::cors::CorsError;
+        use gosub_sonar::net::types::BlockReason as Net;
+
+        let all = [
+            CorsError::MissingAllowOrigin,
+            CorsError::OriginMismatch,
+            CorsError::WildcardWithCredentials,
+            CorsError::CredentialsNotAllowed,
+            CorsError::SameOriginMode,
+            CorsError::UnsafeMethodForNoCors,
+            CorsError::UnsafeHeaderForNoCors,
+            CorsError::PreflightStatus,
+            CorsError::PreflightInvalidResponse,
+            CorsError::PreflightMethodRejected,
+            CorsError::PreflightHeaderRejected,
+            CorsError::CredentialedRedirect,
+        ];
+        let mapped: Vec<BlockReason> = all.iter().map(|e| BlockReason::from_net(Net::Cors(*e))).collect();
+        for (i, a) in mapped.iter().enumerate() {
+            assert!(
+                mapped.iter().skip(i + 1).all(|b| a != b),
+                "two CORS rules collapsed into one reason: {a}"
+            );
+        }
+
+        let reason = BlockReason::from_net(Net::Cors(CorsError::MissingAllowOrigin));
+        assert_eq!(reason, BlockReason::Cors(CorsFailure::MissingAllowOrigin));
+        assert_eq!(
+            reason.to_string(),
+            "blocked by CORS: no Access-Control-Allow-Origin header"
+        );
+    }
+
     /// Every refusal the network layer can report must map to a distinct engine reason.
     #[test]
     fn every_net_block_reason_maps_to_a_distinct_reason() {
