@@ -1319,6 +1319,27 @@ impl ResidentRenderer {
         self.exchange(loader, known_tiles)
     }
 
+    /// The viewport of `tab`'s retained page changed size: the page laid out
+    /// again, its window shipped by hash against what the broker holds.
+    pub fn resize(
+        &mut self,
+        tab: &str,
+        viewport: (f64, f64),
+        scroll_y: f64,
+        loader: &dyn RenderResources,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Resize {
+            tab: tab.to_string(),
+            viewport_width: viewport.0,
+            viewport_height: viewport.1,
+            dpr: gosub_render_pipeline::render::DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed),
+            scroll_y,
+            known_tiles: known_tiles.hashes(),
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
     /// The pointer moved on `tab`'s retained page: collect the repainted tiles.
     pub fn hover(
         &mut self,

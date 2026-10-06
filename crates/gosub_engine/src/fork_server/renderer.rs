@@ -558,12 +558,43 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             });
         }
 
-        let (pass, relayouted) = match std::mem::replace(&mut self.dirty, Dirty::None) {
+        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "input.layout");
+        InputPass {
+            pass,
+            effects,
+            relayouted,
+        }
+    }
+
+    /// The viewport changed size or device pixel ratio: lay the retained page
+    /// out again at the new size and ship the window by hash, as an input that
+    /// moved the boxes would. The one path a window resize takes; nothing is
+    /// parsed or fetched again.
+    pub fn resize(&mut self, viewport: (f64, f64), dpr: u32, scroll_y: f64, known_tiles: &HashSet<u64>) -> InputPass {
+        self.viewport_width = viewport.0;
+        self.viewport_height = viewport.1;
+        self.dpr = dpr;
+        self.scroll_y = scroll_y;
+        self.dirty = Dirty::Relayout;
+        let (pass, relayouted) = self.finish_dirty(scroll_y, known_tiles, "resize.layout");
+        InputPass {
+            pass,
+            effects: Vec::new(),
+            relayouted,
+        }
+    }
+
+    /// Turn what is dirty into a pass: nothing, a repaint of a rectangle, or a
+    /// layout again with the window shipped by content hash. Returns the pass
+    /// and whether the page was laid out again (positions and layer ids then
+    /// mean nothing across the two).
+    fn finish_dirty(&mut self, scroll_y: f64, known_tiles: &HashSet<u64>, layout_timing: &str) -> (RenderPass, bool) {
+        match std::mem::replace(&mut self.dirty, Dirty::None) {
             Dirty::None => (self.empty_pass(), false),
             Dirty::Paint(rect) => (self.pass(Some(scroll_y), &HashSet::new(), Some(rect)), false),
             Dirty::Relayout => {
                 let layout_us = self.lay_out_again();
-                self.build_timings.push(("input.layout".to_string(), layout_us));
+                self.build_timings.push((layout_timing.to_string(), layout_us));
                 // Positions and layer ids mean nothing across a layout: ship the
                 // window again by content hash, and let go of what the broker
                 // held that this pass did not account for.
@@ -574,11 +605,6 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                 pass.evicted.extend(held.difference(&now).copied());
                 (pass, true)
             }
-        };
-        InputPass {
-            pass,
-            effects,
-            relayouted,
         }
     }
 
