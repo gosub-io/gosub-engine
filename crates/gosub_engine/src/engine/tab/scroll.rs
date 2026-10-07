@@ -104,6 +104,12 @@ impl ScrollState {
         Some(round(self.pos))
     }
 
+    /// The exact current offset (CSS px), before the rounding to whole pixels the other
+    /// methods report.
+    pub(crate) fn position(&self) -> (f64, f64) {
+        self.pos
+    }
+
     /// True while a smooth scroll is in flight (the render loop must keep ticking).
     pub(crate) fn animating(&self) -> bool {
         self.anim.is_some()

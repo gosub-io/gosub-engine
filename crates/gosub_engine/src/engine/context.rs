@@ -96,6 +96,9 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
 struct PipelineCache {
     tiles: Vec<BakedTile>,
     page_height: f64,
+    /// The root box's width, which bounds horizontal scrolling. Kept here rather than read
+    /// from `layer_list`, which a page rendered out of process does not have.
+    page_width: f64,
     /// Pre-built CachedTile list (Arc-shared pixel data) for zero-copy scroll handles.
     cached_tiles: Arc<Vec<CachedTile>>,
     /// Layer list retained for hit-testing (hover).
@@ -679,7 +682,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .map(|ph| (ph - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
         let y = y.max(0.0).min(max_y);
-        if (self.scroll_x - x).abs() < 0.5 && (self.scroll_y - y).abs() < 0.5 {
+        // A move that leaves the page on the same device pixel is no visible change. Callers
+        // on most paths pass whole CSS pixels; the GPU tile path passes exact offsets, and moves
+        // in device-pixel steps. Compared as rendered positions, not as a distance: a move of
+        // less than a device pixel can still cross a rounding boundary.
+        let dpr = self.cache_dpr.unwrap_or(1).max(1) as f64;
+        let device = |v: f64| (v * dpr).round();
+        if device(self.scroll_x) == device(x) && device(self.scroll_y) == device(y) {
             return;
         }
         self.scroll_x = x;
@@ -805,6 +814,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             // The image's intrinsic size may only now be known, so boxes can move - but no
             // selector's answer changed, so cached styles stay valid.
             self.damage.escalate(DamageLevel::Layout);
+            // Cached tile pixels must go too. A tile's key hashes the media id and box, not
+            // whether the media had loaded, so a tile rasterized before an image with a fixed
+            // size arrived keeps its key afterwards and would be reused without the image.
+            if let Some(cache) = self.pipeline_cache.as_mut() {
+                cache.tile_pixel_cache.clear();
+            }
             true
         } else {
             false
@@ -1018,6 +1033,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             layer_list,
             tile_list,
             page_height,
+            page_width,
             tile_pixel_cache,
             tiles,
             cached_tiles,
@@ -1033,6 +1049,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.pipeline_cache = Some(PipelineCache {
                 tiles,
                 page_height,
+                page_width,
                 cached_tiles,
                 layer_list,
                 hit_regions,
@@ -1304,6 +1321,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.pipeline_cache = Some(PipelineCache {
             tiles: baked,
             page_height: page.summary.page_height,
+            page_width: page.summary.page_width,
             cached_tiles,
             layer_list: None,
             hit_regions: page.hit_regions,
@@ -1551,9 +1569,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     let effects = std::mem::take(&mut self.remote_effects);
                     let mut effects = effects;
                     effects.extend(page.effects.iter().cloned().map(|effect| (provenance, effect)));
-                    let (regions, page_height, fragment_targets) = (
+                    let (regions, page_height, page_width, fragment_targets) = (
                         page.hit_regions.clone(),
                         page.summary.page_height,
+                        page.summary.page_width,
                         page.summary.fragment_targets.clone(),
                     );
                     self.merge_remote_pass(page);
@@ -1563,6 +1582,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         if let Some(cache) = self.pipeline_cache.as_mut() {
                             cache.hit_regions = regions;
                             cache.page_height = page_height;
+                            cache.page_width = page_width;
                             cache.fragment_targets = fragment_targets;
                         }
                         self.recheck_viewport();
@@ -2004,6 +2024,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Returns the full page height from whichever cache is active (0 if not yet rendered).
     pub fn page_height(&self) -> f64 {
         self.active_page_height().unwrap_or(0.0)
+    }
+
+    /// The full page width, the horizontal counterpart of [`Self::page_height`]: the root box's
+    /// width from whichever cache is active (0 if not yet rendered). No wider than the
+    /// viewport unless the content overflows it.
+    pub fn page_width(&self) -> f64 {
+        self.scene_cache
+            .as_ref()
+            .map(|c| c.layer_list.layout_tree.root_dimension.width)
+            .or_else(|| self.pipeline_cache.as_ref().map(|c| c.page_width))
+            .unwrap_or(0.0)
     }
 
     /// Placed GPU tiles for the current pipeline cache, in page coordinates. Empty unless the
@@ -2674,6 +2705,7 @@ fn pipeline_build_cache(
     PipelineCache {
         tiles: baked_tiles,
         page_height,
+        page_width: saved_layer_list.layout_tree.root_dimension.width,
         cached_tiles,
         layer_list: Some(saved_layer_list),
         hit_regions: Vec::new(),
@@ -2789,6 +2821,7 @@ fn pipeline_extend_raster(
     PipelineCache {
         tiles: all_baked_tiles,
         page_height,
+        page_width: layer_list.layout_tree.root_dimension.width,
         cached_tiles,
         layer_list: Some(layer_list),
         hit_regions: Vec::new(),
@@ -3117,6 +3150,7 @@ fn pipeline_repaint_damaged(
         return PipelineCache {
             tiles: all_tiles,
             page_height,
+            page_width: layer_list.layout_tree.root_dimension.width,
             cached_tiles,
             layer_list: Some(layer_list),
             hit_regions: Vec::new(),
@@ -3165,6 +3199,7 @@ fn pipeline_repaint_damaged(
     PipelineCache {
         tiles: all_baked_tiles,
         page_height,
+        page_width: layer_list.layout_tree.root_dimension.width,
         cached_tiles,
         layer_list: Some(layer_list),
         hit_regions: Vec::new(),
@@ -3382,6 +3417,17 @@ mod tests {
                 ctx.raster_dirty,
                 "the viewport moved past the rastered window during the hover"
             );
+        }
+
+        /// A page rendered out of process has no local layer list; its width comes from the
+        /// renderer's summary, or nothing bounds horizontal scrolling on it.
+        #[test]
+        fn a_remote_page_reports_its_width() {
+            let mut page = empty_page();
+            page.summary.page_width = 1200.0;
+            let mut ctx = answered(RemotePass::Hover, 0.0, empty_page());
+            ctx.adopt_remote_page(page);
+            assert_eq!(ctx.page_width(), 1200.0);
         }
 
         /// A pass started for the page a new document replaces is stale the
@@ -4368,6 +4414,20 @@ mod tests {
                 "content far below the viewport must stay deferred"
             );
             assert_eq!(cache.cached_tiles.len(), cache.tiles.len());
+        }
+
+        #[test]
+        fn a_scroll_that_lands_on_a_new_device_pixel_is_kept() {
+            let (mut ctx, _) = tall_page_context(128);
+            ctx.invalidate_raster_if_dpr_changed(3);
+            // At 3x, 0.4 CSS px renders at device pixel 1 (1.2) and 0.5 at 2 (1.5): a tenth of a
+            // CSS pixel, but the page moves.
+            ctx.set_scroll(0.0, 0.4);
+            ctx.set_scroll(0.0, 0.5);
+            assert_eq!(ctx.scroll_xy().1, 0.5);
+            // 0.55 renders at 2 (1.65) as well: no visible change, so none is made.
+            ctx.set_scroll(0.0, 0.55);
+            assert_eq!(ctx.scroll_xy().1, 0.5);
         }
 
         #[test]

@@ -14,8 +14,10 @@ use vello::wgpu;
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
 pub struct PlacedTileTex<'a> {
     pub view: &'a wgpu::TextureView,
+    /// Position on the page, in CSS pixels.
     pub page_x: f32,
     pub page_y: f32,
+    /// Size of the tile's texture, in physical pixels.
     pub width: u32,
     pub height: u32,
     /// Group opacity (1.0 = opaque) of the tile's layer; the blit shader fades the tile by it.
@@ -208,6 +210,10 @@ pub struct GpuTileCompositor {
 
 impl GpuTileCompositor {
     /// Clear `target_view` to white and composite every tile in `tiles` at `page_pos - scroll`.
+    ///
+    /// Positions and scroll are CSS pixels, the target and the tiles physical ones (`dpr` apart).
+    /// Each tile lands on a whole physical pixel, rounded the way the CPU compositor rounds, so
+    /// both backends put a tile in the same place for the same scroll.
     #[allow(clippy::too_many_arguments)]
     pub fn composite(
         &mut self,
@@ -219,6 +225,7 @@ impl GpuTileCompositor {
         target_h: u32,
         scroll_x: f32,
         scroll_y: f32,
+        dpr: u32,
         tiles: &[PlacedTileTex<'_>],
     ) {
         if self.blit.as_ref().map(|b| b.target_format) != Some(target_format) {
@@ -261,7 +268,8 @@ impl GpuTileCompositor {
                     scroll_y as f64,
                     tile.anchor,
                 );
-                let (ex, ey) = (ex as f32, ey as f32);
+                let dpr = dpr as f64;
+                let (ex, ey) = ((ex * dpr).round() as f32, (ey * dpr).round() as f32);
                 let uniform = BlitUniform {
                     dst: [ex, ey, tile.width as f32, tile.height as f32],
                     viewport: [target_w as f32, target_h as f32],
@@ -442,6 +450,7 @@ mod tests {
             th,
             0.0,
             0.0,
+            1,
             &tiles,
         );
 
@@ -463,6 +472,37 @@ mod tests {
 
         assert!(r0 > 180 && b0 < 80, "left tile should be red, got ({r0},{g0},{b0})");
         assert!(b1 > 180 && r1 < 80, "right tile should be blue, got ({r1},{g1},{b1})");
+
+        // At 2x the same 256px textures are 128 CSS px tiles: the blue one, at CSS x 128, must
+        // start at physical pixel 256, not 128.
+        let hidpi = [
+            PlacedTileTex { ..tiles[0] },
+            PlacedTileTex {
+                page_x: 128.0,
+                ..tiles[1]
+            },
+        ];
+        compositor.composite(
+            &device,
+            &queue,
+            &target_view,
+            wgpu::TextureFormat::Rgba8Unorm,
+            tw,
+            th,
+            0.0,
+            0.0,
+            2,
+            &hidpi,
+        );
+        let pixels = read_back(&device, &queue, &target, tw, th);
+        let at = |x: u32, y: u32| -> (u8, u8, u8) {
+            let o = ((y * tw + x) * 4) as usize;
+            (pixels[o], pixels[o + 1], pixels[o + 2])
+        };
+        let (r0, _, b0) = at(255, 128);
+        let (r1, _, b1) = at(256, 128);
+        assert!(r0 > 180 && b0 < 80, "pixel 255 should be red, got r={r0} b={b0}");
+        assert!(b1 > 180 && r1 < 80, "pixel 256 should be blue, got r={r1} b={b1}");
     }
 
     fn read_back(device: &wgpu::Device, queue: &wgpu::Queue, tex: &wgpu::Texture, w: u32, h: u32) -> Vec<u8> {

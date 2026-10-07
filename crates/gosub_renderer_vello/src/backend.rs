@@ -18,6 +18,7 @@ use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::texture::GpuTile;
 use gosub_render_pipeline::painter::PaintScene;
 use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
 use gosub_render_pipeline::render::backend::GpuPixelFormat;
@@ -56,18 +57,27 @@ pub struct WgpuResources {
     pub renderer: Mutex<Renderer>,
     /// GPU-resident tiles, keyed by an opaque id handed to the engine inside a `TilePixels::Gpu`.
     /// The GPU sibling of the pipeline's CPU `TextureStore`; shared by the rasterizer (stores) and
-    /// the backend compositor (resolves ids → views to blit).
+    /// the backend compositor (resolves ids → views to blit). An entry lives as long as the
+    /// engine holds the `GpuTile` for it; see [`Self::store_tile`].
     pub tile_textures: Mutex<std::collections::HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
     pub next_tile_id: std::sync::atomic::AtomicU64,
 }
 
 impl WgpuResources {
-    /// Store a rasterized GPU tile and return its opaque id.
-    pub fn store_tile(&self, texture: wgpu::Texture) -> u64 {
+    /// Store a rasterized GPU tile and return the engine's handle to it. The texture is freed
+    /// when the engine drops the last clone of that handle. The release holds the resources
+    /// weakly, so a tile that outlives the backend frees nothing and keeps nothing alive. A
+    /// compositor pass still drawing the tile holds its own view, so freeing mid-frame is safe.
+    pub fn store_tile(self: &Arc<Self>, texture: wgpu::Texture) -> GpuTile {
         let view = texture.create_view(&Default::default());
         let id = self.next_tile_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.tile_textures.lock().insert(id, (texture, view));
-        id
+        let resources = Arc::downgrade(self);
+        GpuTile::new(id, move |id| {
+            if let Some(resources) = resources.upgrade() {
+                resources.tile_textures.lock().remove(&id);
+            }
+        })
     }
 
     /// Resolve a tile id to its texture view (cloned handle), if still resident.
@@ -94,12 +104,14 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
-        // Compile every AA pipeline so callers can pick `Area` (analytic coverage) for text - it is
-        // sharper for small glyphs than the multisampled methods and is Vello's recommended default.
+        // Only the `Area` (analytic coverage) pipelines: every render here uses it - it is sharper
+        // for small glyphs than the multisampled methods and is Vello's recommended default. The
+        // MSAA pipelines were compiled for nothing, and compiling is most of startup on a phone
+        // (3.5 s of 4.3 on a Galaxy Tab A9+).
         let renderer = Renderer::new(
             context.device(),
             RendererOptions {
-                antialiasing_support: vello::AaSupport::all(),
+                antialiasing_support: vello::AaSupport::area_only(),
                 ..RendererOptions::default()
             },
         )?;
@@ -122,6 +134,15 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             gpu_compositor: Mutex::new(crate::gpu_tiles::GpuTileCompositor::default()),
             diag_frame: std::sync::atomic::AtomicU64::new(0),
         })
+    }
+
+    /// Choose the GPU tile pipeline (rasterize tiles once, composite them per frame) over the
+    /// whole-viewport scene path, which re-renders the viewport on every scroll step. Tiles make
+    /// scrolling a blit, which matters on a mobile GPU, where Vello rendering a full HiDPI
+    /// viewport takes longer than a frame. Without it, `GOSUB_VELLO_GPU_TILES=1` decides.
+    pub fn with_gpu_tiles(mut self, enabled: bool) -> Self {
+        self.gpu_tile_pipeline = enabled;
+        self
     }
 
     /// Share with the layouter/rasterizer so layout and render use one font discovery context.
@@ -397,7 +418,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
         // Cull to the visible viewport, or we'd issue a draw per tile for the WHOLE page every
-        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`.
+        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`. Culling
+        // is in CSS pixels; the tiles' texture sizes are physical, hence the division.
+        let dpr = self.device_pixel_ratio();
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
         let (sx, sy) = scroll;
         use gosub_render_pipeline::render::backend::TileAnchor;
@@ -414,9 +437,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                     (sx - dx as f32, sy - dy as f32)
                 }
             };
-            t.page_x + t.width as f32 > ox
+            t.page_x + t.width as f32 / dpr as f32 > ox
                 && t.page_x < ox + vw
-                && t.page_y + t.height as f32 > oy
+                && t.page_y + t.height as f32 / dpr as f32 > oy
                 && t.page_y < oy + vh
         };
 
@@ -447,10 +470,11 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             self.context.queue(),
             &target_view,
             wgpu::TextureFormat::Rgba8Unorm,
-            viewport.0,
-            viewport.1,
+            s.size.width,
+            s.size.height,
             scroll.0,
             scroll.1,
+            dpr,
             &placed,
         );
 

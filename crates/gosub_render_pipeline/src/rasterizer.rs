@@ -501,13 +501,13 @@ pub fn collect_placed_gpu_tiles(baked: &[BakedTile]) -> Vec<crate::render::backe
     baked
         .iter()
         .filter_map(|t| {
-            if let TilePixels::Gpu(id) = t.pixels {
+            if let TilePixels::Gpu(tile) = &t.pixels {
                 Some(crate::render::backend::PlacedGpuTile {
                     page_x: t.page_x as f32,
                     page_y: t.page_y as f32,
                     width: t.width,
                     height: t.height,
-                    texture_id: id,
+                    texture_id: tile.id(),
                     opacity: t.opacity,
                     anchor: t.anchor,
                 })

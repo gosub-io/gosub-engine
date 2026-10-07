@@ -1175,10 +1175,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 f64::MAX
             }
         };
+        // The same for sideways: a page no wider than the viewport does not scroll sideways at
+        // all. Unclamped, a touch swipe that drifts sideways slid the page off into blank space.
+        let max_x = {
+            let pw = self.context.page_width();
+            if pw > 0.0 {
+                (pw - self.desired_viewport.width as f64).max(0.0)
+            } else {
+                f64::MAX
+            }
+        };
 
         match self
             .scroll
-            .scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y, precise)
+            .scroll_by(delta_x as f64, delta_y as f64, max_x, max_y, precise)
         {
             // Instant behavior: apply the new offset now and keep the immediate-submit fast
             // path (avoids up to 1/fps of latency per scroll event).
@@ -1189,6 +1199,25 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let moved = x != self.scroll_x || y != self.scroll_y;
                 self.scroll_x = x;
                 self.scroll_y = y;
+
+                // GPU tile compositing has no CPU fast path, but its composite is a handful of
+                // blits: run it now rather than on the next tick. A host sends one scroll per
+                // frame it draws, so the page then moves once per frame, in step with the
+                // screen. Waiting for the tick, a timer of its own, made the page move on some
+                // frames and not others -- a fling on a 90 Hz phone visibly stuttered.
+                //
+                // It also takes the exact offset rather than the whole CSS pixel: the compositor
+                // rounds to device pixels itself, and at 3x a whole CSS pixel is a 3-pixel jump,
+                // which is how the slow end of a fling looked.
+                if self.zone_context.render_backend.gpu_tile_compositing() {
+                    let (ex, ey) = self.scroll.position();
+                    if (ex, ey) != self.context.scroll_xy() {
+                        self.context.set_scroll(ex, ey);
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                    }
+                    return ControlFlow::Continue;
+                }
                 self.context.set_scroll(x as f64, y as f64);
 
                 // GPU-tile-compositing backends skip this CPU TileCache fast path (their
@@ -2497,16 +2526,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if render_backend.renders_to_gpu_texture() {
             // The viewport is CSS pixels, the texture is physical ones. Sizing the texture in
             // CSS pixels leaves the host to upscale it, which reads as blurry text rather than
-            // as the scaling bug it is. The backend scales its scene to match, so the page is
-            // re-rendered at this resolution instead of stretched.
-            //
-            // The GPU tile path is excluded: `composite_tiles` takes the CSS viewport and
-            // places CSS-sized tiles, so it stays at 1 until it learns about DPR too.
-            let dpr = if render_backend.gpu_tile_compositing() {
-                1
-            } else {
-                render_backend.device_pixel_ratio().max(1)
-            };
+            // as the scaling bug it is. The backend scales its scene to match (or, on the GPU
+            // tile path, rasterizes its tiles at this ratio), so the page is re-rendered at
+            // this resolution instead of stretched.
+            let dpr = render_backend.device_pixel_ratio().max(1);
             let mut surface_size = self.desired_viewport.as_size();
             surface_size.width *= dpr;
             surface_size.height *= dpr;
@@ -2520,6 +2543,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // `composite_tiles` blits the resident tiles into the surface. Same pipeline, only the
             // tile storage + compositor differ between CPU and GPU backends.
             if render_backend.gpu_tile_compositing() {
+                // Resident tiles were rasterized at the DPR they were made at; page zoom (or a
+                // move to another display) changes it under them, and they would be stretched.
+                self.context.invalidate_raster_if_dpr_changed(dpr);
                 {
                     // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
                     // re-rasterized (it should not be - scroll only re-composites cached tiles).

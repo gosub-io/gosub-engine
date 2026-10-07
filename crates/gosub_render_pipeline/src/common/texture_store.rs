@@ -45,20 +45,20 @@ impl TextureStore {
         id
     }
 
-    /// Register a GPU-resident tile by opaque backend id, for rasterizers that render straight
-    /// into a GPU texture with no CPU readback.
+    /// Register a GPU-resident tile, for rasterizers that render straight into a GPU texture
+    /// with no CPU readback.
     pub fn add_gpu(
         &mut self,
         width: usize,
         height: usize,
-        gpu_id: u64,
+        gpu_tile: crate::common::texture::GpuTile,
         format: crate::render::backend::PixelFormat,
     ) -> TextureId {
         let texture = Texture {
             id: self.next_id(),
             width,
             height,
-            pixels: TilePixels::Gpu(gpu_id),
+            pixels: TilePixels::Gpu(gpu_tile),
             format,
         };
 

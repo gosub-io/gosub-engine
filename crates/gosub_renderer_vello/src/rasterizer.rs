@@ -7,6 +7,7 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::render::backend::TileAnchor;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::tiler::Tile;
 
 use crate::backend::WgpuResources;
@@ -149,6 +150,12 @@ impl Rasterable for VelloRasterizer {
     }
 
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
+        // Tiles are rasterized at physical pixels, like the CPU rasterizers: the scene is built
+        // in CSS pixels and drawn under the DPR scale into a texture `dpr` times the tile's size.
+        // `composite_tiles` places them in physical pixels to match.
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1);
+        let (width, height) = (tile.rect.width as u32 * dpr, tile.rect.height as u32 * dpr);
+
         let mut scene = Scene::new();
 
         let tile_size = Dimension::new(tile.rect.width, tile.rect.height);
@@ -173,17 +180,25 @@ impl Rasterable for VelloRasterizer {
 
         scene.pop_layer();
 
+        let scene = if dpr > 1 {
+            let mut scaled = Scene::new();
+            scaled.append(&scene, Some(Affine::scale(dpr as f64)));
+            scaled
+        } else {
+            scene
+        };
+
         let device: &vello::wgpu::Device = &self.resources.device;
         let queue: &vello::wgpu::Queue = &self.resources.queue;
 
         // The tile stays GPU-resident - no readback. The engine only ever sees the opaque id, which
         // it carries through the normal tile cache and hands back to `composite_tiles`.
-        let texture = crate::gpu_tiles::create_tile_texture(device, tile_size.width as u32, tile_size.height as u32);
+        let texture = crate::gpu_tiles::create_tile_texture(device, width, height);
 
         let render_params = RenderParams {
             base_color: Color::new([0.0, 0.0, 0.0, 0.0]),
-            width: tile.rect.width as u32,
-            height: tile.rect.height as u32,
+            width,
+            height,
             antialiasing_method: AaConfig::Area,
         };
 
@@ -198,12 +213,12 @@ impl Rasterable for VelloRasterizer {
             return None;
         }
 
-        let gpu_id = self.resources.store_tile(texture);
+        let gpu_tile = self.resources.store_tile(texture);
 
         let texture_id = texture_store.add_gpu(
-            tile_size.width as usize,
-            tile_size.height as usize,
-            gpu_id,
+            width as usize,
+            height as usize,
+            gpu_tile,
             gosub_render_pipeline::render::backend::PixelFormat::Rgba8,
         );
 
