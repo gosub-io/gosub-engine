@@ -64,7 +64,7 @@ pub fn lock_down_decoder() {
 
 /// Cap the net component: like the renderer, but the network stays open.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {
+pub fn lock_down_net() {
     deny_debugger_attach();
     enforce("net", NET_PROFILE);
 }

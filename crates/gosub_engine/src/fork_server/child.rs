@@ -41,6 +41,10 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
             return 1;
         }
     };
+    // Before any Landlock, unlike the network process: the tier, and so the
+    // paths, is only known once this has been built. A worker it starts stays
+    // unscoped in this process only - `fork` carries just the calling thread
+    // into a renderer. Accepted in docs/security-assessment.md.
     let mut fonts = C::FontSystem::default();
     // Populate lazily-built databases before asking anything of them.
     let _ = fonts.families();

@@ -793,33 +793,45 @@ pub fn lock_down_vault() {
     enforce("vault", install(BASELINE.to_vec()));
 }
 
-/// Cap the net component: the baseline plus the socket family.
+/// The filesystem half of the net component's confinement: Landlock scoping to
+/// `fs_allow` (pass [`net_filesystem_paths`], read-only), and opens made
+/// read-only at the syscall layer. Separate from the seccomp half
+/// ([`lock_down_net`]) because Landlock binds the calling thread and the threads
+/// created after it, never the ones that already exist: call it while the
+/// process is still one thread, before the async runtime starts its workers -
+/// those are where every request, and so every hostile response, is handled.
+///
+/// TLS needs the system root certificates and DNS the resolver config; denying
+/// `openat` outright killed the process on its first HTTPS request. So `openat`
+/// is allowed and Landlock decides which paths it may reach: seccomp bounds the
+/// operation, Landlock bounds the target. Fail-closed: this role has `openat`
+/// and the network, and without Landlock nothing bounds what it could read and
+/// send. The engine then falls back to in-process networking, and says so. An
+/// empty list is a ruleset that grants nothing, not the absence of one.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
-    deny_debugger_attach();
-
-    // TLS needs the system root certificates and DNS the resolver config;
-    // denying `openat` outright killed the process on its first HTTPS request.
-    // So `openat` is allowed and Landlock decides which paths it may reach:
-    // seccomp bounds the operation, Landlock bounds the target. Landlock's
-    // absence is reported, since without it the filesystem is unscoped.
-    // Fail-closed: this role has `openat` and the network, and without
-    // Landlock nothing bounds what it could read and send. The engine then
-    // falls back to in-process networking, and says so. An empty list is a
-    // ruleset that grants nothing, not the absence of one.
-    {
-        match landlock::restrict(fs_allow) {
-            Ok(true) => eprintln!("[net] landlock active (filesystem scoped to resolver and CA paths)"),
-            Ok(false) => {
-                eprintln!("[net] landlock unavailable on this kernel; refusing to run with an unscoped filesystem");
-                exit_now(1);
-            }
-            Err(e) => {
-                eprintln!("[net] landlock could not be applied ({e}); refusing to run with an unscoped filesystem");
-                exit_now(1);
-            }
+pub fn scope_net_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
+    match landlock::restrict(fs_allow) {
+        Ok(true) => eprintln!("[net] landlock active (filesystem scoped to resolver and CA paths)"),
+        Ok(false) => {
+            eprintln!("[net] landlock unavailable on this kernel; refusing to run with an unscoped filesystem");
+            exit_now(1);
+        }
+        Err(e) => {
+            eprintln!("[net] landlock could not be applied ({e}); refusing to run with an unscoped filesystem");
+            exit_now(1);
         }
     }
+    if !fs_allow.iter().any(|(_, writable)| *writable) {
+        enforce_read_only_opens("net");
+    }
+}
+
+/// Cap the net component: the baseline plus the socket family, over every
+/// thread. Pair with [`scope_net_filesystem`], applied first, which decides the
+/// paths `openat` reaches.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_net() {
+    deny_debugger_attach();
 
     let allowed: Vec<libc::c_long> = BASELINE
         .iter()

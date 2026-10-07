@@ -69,7 +69,11 @@ engine then falls back in-process and says so.
   It keeps the host network namespace and nothing else (fresh user, IPC and UTS
   namespaces), and `socket()` there is limited to `AF_INET`/`AF_INET6`: unix,
   netlink and the rest fail with `EAFNOSUPPORT`, so D-Bus, agents and the like
-  are out of reach.
+  are out of reach. Its files are scoped to the read-only resolver and CA paths
+  before its async runtime exists: Landlock binds the thread that applies it and
+  the threads created after it, and the runtime's workers are where every
+  response is parsed. Its escape audit runs on one of those workers for the
+  same reason.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the

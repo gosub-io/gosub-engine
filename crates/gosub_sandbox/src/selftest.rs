@@ -128,6 +128,8 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "net-thread",
     #[cfg(target_os = "linux")]
+    "net-thread-landlock",
+    #[cfg(target_os = "linux")]
     "audit-renderer",
     #[cfg(target_os = "linux")]
     "audit-net",
@@ -692,7 +694,7 @@ fn run_macos_probe(probe: &str) {
         // green "renderer cannot reach the network" would be equally consistent
         // with the host having no network at all.
         "seatbelt-net-role-keeps-network" => {
-            crate::lock_down_net(&[]);
+            crate::lock_down_net();
             match try_connect() {
                 e if e == libc::ECONNREFUSED => std::process::exit(0),
                 e if e == libc::EPERM => std::process::exit(code::NOT_DENIED),
@@ -1494,7 +1496,8 @@ fn run_platform_probe(probe: &str) {
                 // As the network process does: the resolver and trust-store paths.
                 let paths = crate::net_filesystem_paths();
                 let allow: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-                crate::lock_down_net(&allow);
+                crate::scope_net_filesystem(&allow);
+                crate::lock_down_net();
                 (Role::Net, Vec::new())
             }
             "service" => {
@@ -1521,8 +1524,64 @@ fn run_platform_probe(probe: &str) {
         std::process::exit(if report.violations().is_empty() { 0 } else { 3 });
     }
 
+    // The order the network process depends on: `scope_net_filesystem` binds
+    // the thread that applies it and the threads created after it - the
+    // runtime's workers, where every response is parsed - and never a thread
+    // that already exists. Both halves are measured, from the threads
+    // themselves: one started after the scope is refused a file outside it;
+    // one started before, and kept waiting across the scope, still reads it.
+    // The second half is the control: without it a pass could mean the
+    // kernel binds every thread and the ordering was never what mattered.
+    // Skips cleanly where Landlock is unavailable, like the service probe.
+    if probe == "net-thread-landlock" {
+        if !crate::landlock_available() {
+            eprintln!("[selftest] landlock unavailable on this kernel — skipping");
+            std::process::exit(0);
+        }
+        let open_passwd = || {
+            std::fs::File::open("/etc/passwd")
+                .map(drop)
+                .map_err(|e| e.raw_os_error())
+        };
+
+        // Parked before the scope, released after it: an EACCES here would
+        // mean the scope reached a thread it was never applied on.
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (early_tx, early_rx) = std::sync::mpsc::channel();
+        let early = std::thread::spawn(move || {
+            let _ = release_rx.recv();
+            let _ = early_tx.send(open_passwd());
+        });
+
+        crate::scope_net_filesystem(&[]);
+        crate::lock_down_net();
+
+        let late = std::thread::spawn(open_passwd)
+            .join()
+            .expect("thread creation failed under the net filter");
+        let _ = release_tx.send(());
+        let early_result = early_rx.recv().expect("the pre-scope thread sent no result");
+        let _ = early.join();
+
+        let late_denied = late == Err(Some(libc::EACCES));
+        let early_ok = early_result.is_ok();
+        eprintln!("[selftest] net-thread-landlock: after_scope={late:?} before_scope={early_result:?}");
+        std::process::exit(match (late_denied, early_ok) {
+            (true, true) => 0,
+            // The hole the network process had: a thread created before the
+            // scope would read anything, and the runtime's workers were such
+            // threads.
+            (false, _) => 1,
+            // The control failed: the scope bound a thread that predates it.
+            // Not a weaker sandbox, but a kernel whose Landlock no longer
+            // behaves as this probe, and the ordering it checks, assume.
+            (true, false) => 90,
+        });
+    }
+
     if let Some(probe) = probe.strip_prefix("net-") {
-        crate::lock_down_net(&[]);
+        crate::scope_net_filesystem(&[]);
+        crate::lock_down_net();
         match probe {
             // Threads yes (the runtime needs them)...
             "thread" => {
