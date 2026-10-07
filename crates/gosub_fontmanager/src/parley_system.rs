@@ -5,7 +5,7 @@ use gosub_interface::font_system::{
     ShapedText, TextAlign, TextStyle,
 };
 use parley::fontique::{
-    Attributes, Blob, FontInfoOverride, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache,
+    Attributes, Blob, Collection, FontInfoOverride, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache,
 };
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
@@ -49,6 +49,7 @@ impl ParleyFontSystem {
         font_cx
             .collection
             .register_fonts(gosub_shared::ROBOTO_FONT.to_vec().into(), None);
+        fill_missing_monospace(&mut font_cx.collection);
 
         // Clones of a shared cache share its backing store; see the field docs.
         let source_cache = SourceCache::new_shared();
@@ -360,6 +361,32 @@ pub fn split_css_families(families: &str) -> Vec<&str> {
 
 // Conversion helpers
 
+/// Fixed-width families to stand in for `monospace` when the platform names none, best
+/// first. Android ships the first two.
+const MONOSPACE_FALLBACKS: &[&str] = &[
+    "Droid Sans Mono",
+    "Cutive Mono",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+];
+
+/// Point `monospace` and `ui-monospace` at an installed fixed-width family when Fontique
+/// found none. On Android it looks for a font named `monospace`, which is only the label
+/// `fonts.xml` gives Droid Sans Mono, so the generic stayed empty and fell back to the
+/// proportional default: `//` in a `<code>` URL ran together into what read as one slash.
+/// A platform that names its own (fontconfig, Core Text, DirectWrite) is left alone.
+fn fill_missing_monospace(collection: &mut Collection) {
+    let Some(id) = MONOSPACE_FALLBACKS.iter().find_map(|name| collection.family_id(name)) else {
+        return;
+    };
+    for generic in [GenericFamily::Monospace, GenericFamily::UiMonospace] {
+        if collection.generic_families(generic).next().is_none() {
+            collection.set_generic_families(generic, std::iter::once(id));
+        }
+    }
+}
+
 fn css_family_to_query(name: &str) -> QueryFamily<'_> {
     match name.cow_to_lowercase().as_ref() {
         "sans-serif" => GenericFamily::SansSerif.into(),
@@ -412,6 +439,66 @@ fn to_parley_alignment(align: TextAlign) -> Alignment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_monospace_generic_gets_an_installed_fixed_width_family() {
+        use parley::fontique::CollectionOptions;
+        let mut collection = Collection::new(CollectionOptions {
+            system_fonts: false,
+            ..Default::default()
+        });
+        // Roboto under a fixed-width family's name: what is checked is which family the
+        // generic points at, not the glyphs.
+        collection.register_fonts(
+            gosub_shared::ROBOTO_FONT.to_vec().into(),
+            Some(FontInfoOverride {
+                family_name: Some("Droid Sans Mono"),
+                ..Default::default()
+            }),
+        );
+        let mono = collection.family_id("Droid Sans Mono").unwrap();
+        assert_eq!(collection.generic_families(GenericFamily::Monospace).next(), None);
+
+        fill_missing_monospace(&mut collection);
+        assert_eq!(
+            collection
+                .generic_families(GenericFamily::Monospace)
+                .collect::<Vec<_>>(),
+            [mono]
+        );
+        assert_eq!(
+            collection
+                .generic_families(GenericFamily::UiMonospace)
+                .collect::<Vec<_>>(),
+            [mono]
+        );
+    }
+
+    #[test]
+    fn a_platform_monospace_generic_is_left_alone() {
+        use parley::fontique::CollectionOptions;
+        let mut collection = Collection::new(CollectionOptions {
+            system_fonts: false,
+            ..Default::default()
+        });
+        let roboto = collection.register_fonts(gosub_shared::ROBOTO_FONT.to_vec().into(), None)[0].0;
+        collection.register_fonts(
+            gosub_shared::ROBOTO_FONT.to_vec().into(),
+            Some(FontInfoOverride {
+                family_name: Some("Droid Sans Mono"),
+                ..Default::default()
+            }),
+        );
+        collection.set_generic_families(GenericFamily::Monospace, std::iter::once(roboto));
+
+        fill_missing_monospace(&mut collection);
+        assert_eq!(
+            collection
+                .generic_families(GenericFamily::Monospace)
+                .collect::<Vec<_>>(),
+            [roboto]
+        );
+    }
 
     /// `families()` must list every resolvable family: the bundled Roboto (registered in
     /// `new()`) proves registered fonts are included, sortedness proves the ordering contract.
