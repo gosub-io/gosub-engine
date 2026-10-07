@@ -41,16 +41,6 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
 
-    // Built before lockdown: spawning threads is not on the allowlist, so a
-    // runtime created afterwards could not start its workers.
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-        Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("[net] could not start a runtime: {e}");
-            return 1;
-        }
-    };
-
     // Force glibc to load its NSS resolver modules *now*, while this process
     // may still map executable pages. `getaddrinfo` `dlopen`s `libnss_dns.so`
     // on first use, and the sandbox denies `mmap(PROT_EXEC)` - so a name
@@ -66,10 +56,23 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     // Read-only, and only these: the resolver configuration and the trust store.
     // A network stack that cannot read them cannot resolve a name or verify a
     // certificate, so denying files outright (as a renderer is) is not an option
-    // here - the paths are scoped instead.
+    // here - the paths are scoped instead. Before the runtime: Landlock binds
+    // this thread and the threads created after it, and the runtime's workers,
+    // where every response is parsed, would otherwise start unscoped.
     let paths = gosub_sandbox::net_filesystem_paths();
     let fs_allow: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-    gosub_sandbox::lock_down_net(&fs_allow);
+    gosub_sandbox::scope_net_filesystem(&fs_allow);
+
+    // Built before the seccomp half, which covers its threads too (TSYNC):
+    // building it makes syscalls the allowlist has no reason to carry.
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("[net] could not start a runtime: {e}");
+            return 1;
+        }
+    };
+    gosub_sandbox::lock_down_net();
 
     // Requests run concurrently: each Fetch is spawned onto the runtime and
     // replies through the shared writer, tagged, so a slow response never
@@ -142,11 +145,16 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     token.cancel();
                 }
             }
+            // On a runtime worker, not here: requests run there, so that is
+            // where the confinement has to hold. The main thread proved
+            // nothing about them once - it reported Landlock active while
+            // the workers, started before it, ran without it.
             ToNet::Audit { tag } => {
-                let report = platform::escape_audit();
-                if link_tx.lock().send(&FromNet::Audit { tag, report }).is_err() {
-                    break;
-                }
+                let link_tx = link_tx.clone();
+                runtime.spawn(async move {
+                    let report = platform::escape_audit();
+                    let _ = link_tx.lock().send(&FromNet::Audit { tag, report });
+                });
             }
             // The vault was respawned: its new line follows on the link.
             ToNet::VaultLine => match platform::adopt_vault_line(&mut link_rx) {

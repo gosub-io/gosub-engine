@@ -692,7 +692,7 @@ fn run_macos_probe(probe: &str) {
         // green "renderer cannot reach the network" would be equally consistent
         // with the host having no network at all.
         "seatbelt-net-role-keeps-network" => {
-            crate::lock_down_net(&[]);
+            crate::lock_down_net();
             match try_connect() {
                 e if e == libc::ECONNREFUSED => std::process::exit(0),
                 e if e == libc::EPERM => std::process::exit(code::NOT_DENIED),
@@ -1494,7 +1494,8 @@ fn run_platform_probe(probe: &str) {
                 // As the network process does: the resolver and trust-store paths.
                 let paths = crate::net_filesystem_paths();
                 let allow: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-                crate::lock_down_net(&allow);
+                crate::scope_net_filesystem(&allow);
+                crate::lock_down_net();
                 (Role::Net, Vec::new())
             }
             "service" => {
@@ -1522,7 +1523,8 @@ fn run_platform_probe(probe: &str) {
     }
 
     if let Some(probe) = probe.strip_prefix("net-") {
-        crate::lock_down_net(&[]);
+        crate::scope_net_filesystem(&[]);
+        crate::lock_down_net();
         match probe {
             // Threads yes (the runtime needs them)...
             "thread" => {

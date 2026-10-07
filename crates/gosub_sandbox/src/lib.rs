@@ -128,15 +128,30 @@ pub fn lock_down_decoder() {
     imp::lock_down_decoder();
 }
 
-/// Confine the net component: the renderer's restrictions minus the network,
-/// which is the one privilege this role keeps. Called once the IPC link is
-/// connected. Fail-closed.
+/// Scope the net component's filesystem to `fs_allow` - pass
+/// [`net_filesystem_paths`], read-only. Landlock on Linux, so it binds the
+/// calling thread and the threads created after it: call while the process is
+/// still one thread, before the async runtime exists, then [`lock_down_net`].
+/// Fail-closed: without Landlock the role exits. A no-op elsewhere, where
+/// [`lock_down_net`] confines the whole process at once.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
-    imp::lock_down_net(fs_allow);
+pub fn scope_net_filesystem(fs_allow: &[(&std::path::Path, bool)]) {
+    #[cfg(target_os = "linux")]
+    imp::scope_net_filesystem(fs_allow);
+    #[cfg(not(target_os = "linux"))]
+    let _ = fs_allow;
 }
 
-/// The read-only paths [`lock_down_net`] normally wants: resolver configuration
+/// Confine the net component: the renderer's restrictions minus the network,
+/// which is the one privilege this role keeps. On Linux, the seccomp half over
+/// every thread; [`scope_net_filesystem`] must come first. Called once the IPC
+/// link is connected. Fail-closed.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_net() {
+    imp::lock_down_net();
+}
+
+/// The read-only paths [`scope_net_filesystem`] normally wants: resolver configuration
 /// and the system trust store, filtered to those that exist on this host.
 /// Empty off Linux, where confinement gates files another way.
 #[cfg(feature = "multi-process")]

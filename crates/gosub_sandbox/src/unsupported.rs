@@ -17,7 +17,7 @@ pub fn lock_down_decoder() {
 /// The network process keeps the widest privileges of any role, which makes
 /// running it unconfined the biggest gap here - so it says so too.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {
+pub fn lock_down_net() {
     eprintln!("[net] no sandbox on this platform — running unconfined");
 }
 
