@@ -98,6 +98,16 @@ commit's subject on this branch.
   server, which also deserialises a one-shot renderer's frames when relaying
   them (that path is live only when the resident pool failed to start). The
   zygote trade-off, as in Chromium.
+- **A thread the fork server's font system starts during warm-up is not
+  Landlock-scoped.** Landlock binds the thread that applies it and the threads
+  created after it, and the fork server can only choose its tier (and so its
+  paths) once the font system is built and has said what it needs. A GLib or
+  Skia worker started during that build keeps an unscoped filesystem in the
+  fork server, read-only through the opens pre-filter and inside its seccomp
+  filter. It never reaches a renderer: `fork` copies only the calling thread,
+  which is scoped, and the fork server parses broker messages, not page
+  content. Scoping before the build would need a layered second ruleset and a
+  path list for every backend's warm-up, which was not taken.
 - **Favicon bytes are handed to the embedder undecoded** (`FavIconChanged`),
   so an embedder that decodes them does so in the broker. The event's
   documentation says so; the mini-browser ignores it.
