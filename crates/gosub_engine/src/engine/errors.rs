@@ -178,6 +178,26 @@ impl std::fmt::Display for LoadError {
 
 impl std::error::Error for LoadError {}
 
+impl LoadError {
+    /// The same error with `f` applied to its message. `Blocked` carries none.
+    pub(crate) fn map_message(self, f: impl FnOnce(String) -> String) -> Self {
+        use LoadError::*;
+        match self {
+            Blocked { reason } => Blocked { reason },
+            InvalidUrl { message } => InvalidUrl { message: f(message) },
+            Connect { message } => Connect { message: f(message) },
+            Tls { message } => Tls { message: f(message) },
+            Timeout { message } => Timeout { message: f(message) },
+            Transfer { message } => Transfer { message: f(message) },
+            Redirect { message } => Redirect { message: f(message) },
+            Io { message } => Io { message: f(message) },
+            Cancelled { message } => Cancelled { message: f(message) },
+            Content { message } => Content { message: f(message) },
+            Other { message } => Other { message: f(message) },
+        }
+    }
+}
+
 impl From<&NetError> for LoadError {
     fn from(e: &NetError) -> Self {
         match e {

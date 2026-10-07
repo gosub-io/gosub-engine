@@ -428,10 +428,10 @@ impl NetEventWire {
                 url: url(u)?,
             },
             // The classification travels inside the error; `LoadError::from`
-            // finds it again on the other side.
+            // finds it again on the other side. Its message is the child's.
             Self::Failed { url: u, error } => NetEvent::Failed {
                 url: url(u)?,
-                error: anyhow::Error::new(error),
+                error: anyhow::Error::new(error.map_message(cut)),
             },
             Self::Cancelled { url: u, .. } => NetEvent::Cancelled {
                 url: url(u)?,
@@ -522,6 +522,22 @@ mod tests {
         }
         .into_net(0)
         .is_none());
+
+        let loud = NetEventWire::Failed {
+            url: "https://site.test/".into(),
+            error: crate::LoadError::Connect {
+                message: "x".repeat(MAX_EVENT_STRING * 2),
+            },
+        };
+        match loud.into_net(0) {
+            Some(NetEvent::Failed { error, .. }) => match error.downcast_ref() {
+                Some(crate::LoadError::Connect { message }) => {
+                    assert_eq!(message.len(), MAX_EVENT_STRING)
+                }
+                other => panic!("not a connect error: {other:?}"),
+            },
+            other => panic!("not a failure: {other:?}"),
+        }
     }
 
     #[test]
