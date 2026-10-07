@@ -855,9 +855,11 @@ pub fn lock_down_net() {
 /// request. Measured across the network scenarios, glibc's resolver issues
 /// `FIONREAD` and nothing else issues any; `FIONBIO` and `FIOCLEX` are what std
 /// uses for non-blocking mode and close-on-exec. What this keeps out is every
-/// terminal request - `TIOCSTI` queueing input into a shell above all - and
-/// every device one. An errno rather than a trap, so a library asking whether a
-/// descriptor is a terminal hears "no".
+/// terminal request but those three numbers - `TIOCSTI` queueing input into a
+/// shell above all - and every device one. `FIONREAD` is also the terminal's
+/// `TIOCINQ`, which only reports how many bytes are waiting. An errno rather
+/// than a trap, so a library asking whether a descriptor is a terminal hears
+/// "no".
 #[cfg(feature = "multi-process")]
 fn install_net_ioctl_filter() -> Result<(), Box<dyn std::error::Error>> {
     use seccompiler::{

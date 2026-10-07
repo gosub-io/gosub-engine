@@ -73,8 +73,10 @@ engine then falls back in-process and says so.
   before its async runtime exists: Landlock binds the thread that applies it and
   the threads created after it, and the runtime's workers are where every
   response is parsed. Its escape audit runs on one of those workers for the
-  same reason. `ioctl` reaches only the socket requests the stack makes;
-  anything else, every terminal request included, fails with `ENOTTY`.
+  same reason. `ioctl` reaches only the socket requests the stack makes
+  (`FIONREAD`, `FIONBIO`, `FIOCLEX`); anything else fails with `ENOTTY`, so a
+  terminal answers only to those numbers (`FIONREAD` is its `TIOCINQ`, a byte
+  count) and `TCGETS`, `TIOCSTI` and the rest are refused.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the
