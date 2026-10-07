@@ -1608,7 +1608,7 @@ fn run_platform_probe(probe: &str) {
         match probe {
             // Terminal requests are refused with ENOTTY - TIOCSTI above all,
             // which queues input into whatever shell owns the terminal - while
-            // the socket request the resolver makes still works.
+            // the socket requests std and the resolver make still work.
             "ioctl-terminal" => unsafe {
                 let mut tio: libc::termios = std::mem::zeroed();
                 assert_eq!(
@@ -1628,6 +1628,9 @@ fn run_platform_probe(probe: &str) {
                 assert!(sock >= 0, "AF_INET refused");
                 let mut pending: libc::c_int = -1;
                 assert_eq!(libc::ioctl(sock, libc::FIONREAD, &mut pending), 0, "FIONREAD refused");
+                let mut blocking: libc::c_int = 0;
+                assert_eq!(libc::ioctl(sock, libc::FIONBIO, &mut blocking), 0, "FIONBIO refused");
+                assert_eq!(libc::ioctl(sock, libc::FIOCLEX), 0, "FIOCLEX refused");
                 std::process::exit(0);
             },
             // Threads yes (the runtime needs them)...
