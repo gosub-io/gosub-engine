@@ -3,29 +3,34 @@
 //! compiles this file when none of `target_os = "linux"`, `"macos"` and
 //! `"windows"` matches.
 
-/// No sandbox mechanism here - run unconfined and be honest about it.
+/// No sandbox mechanism here, so a child does not run: it would hold every
+/// right the embedder has while parsing what a page sent. The engine starts no
+/// children on this platform (see [`crate::CONFINES_CHILDREN`]); this is the
+/// backstop for anything that spawns one anyway.
+#[cfg(feature = "multi-process")]
+fn refuse_unconfined(role: &str) -> ! {
+    eprintln!("[{role}] no sandbox on this platform - refusing to run unconfined");
+    std::process::exit(1);
+}
+
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
-    eprintln!("[renderer] no sandbox on this platform — running unconfined");
+    refuse_unconfined("renderer");
 }
 
 #[cfg(feature = "multi-process")]
 pub fn lock_down_decoder() {
-    eprintln!("[decoder] no sandbox on this platform — running unconfined");
+    refuse_unconfined("decoder");
 }
 
-/// The network process keeps the widest privileges of any role, which makes
-/// running it unconfined the biggest gap here - so it says so too.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_net() {
-    eprintln!("[net] no sandbox on this platform — running unconfined");
+    refuse_unconfined("net");
 }
 
-/// No confinement here either; the service runs unconfined like everything else
-/// on this platform.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_service(name: &str, _filesystem: bool, _device: bool, _fs_allow: &[(&std::path::Path, bool)]) {
-    eprintln!("[{name}] no sandbox on this platform — running unconfined");
+    refuse_unconfined(name);
 }
 
 /// rlimits are POSIX, but this fallback keeps the whole backend as no-ops so a

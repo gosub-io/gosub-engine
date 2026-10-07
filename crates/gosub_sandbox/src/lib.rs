@@ -36,6 +36,12 @@ mod unsupported;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use unsupported as imp;
 
+/// Whether this platform has a backend that confines a child process. Where it
+/// does not (Android, the BSDs, anything not Linux, macOS or Windows) a child
+/// would run with every right the embedder has, so the engine starts none and
+/// the backend's lockdowns refuse to return.
+pub const CONFINES_CHILDREN: bool = cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows"));
+
 // --- public API: thin, cfg-free wrappers over the selected backend ---
 
 /// Mark the calling process non-dumpable, closing the *inbound* debugging

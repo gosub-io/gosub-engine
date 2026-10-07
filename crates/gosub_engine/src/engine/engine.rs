@@ -390,6 +390,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 return;
             }
 
+            if !gosub_sandbox::CONFINES_CHILDREN {
+                self.refuse_unconfined_children();
+                return;
+            }
+
             if !cfg!(target_os = "linux") {
                 for key in PROCESS_SETTINGS {
                     if store.get_bool(key) && self.setting_at_default(key) {
@@ -402,6 +407,25 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                     );
                 }
             }
+        }
+    }
+
+    /// A platform with no sandbox backend (Android, the BSDs) starts no component
+    /// process, asked for or not: unconfined, a child parsing page content holds
+    /// every right this process has, which is worse than parsing it here.
+    #[cfg(feature = "process-isolation")]
+    fn refuse_unconfined_children(&self) {
+        let store = &self.context.config_store;
+        let requested: Vec<&str> = PROCESS_SETTINGS.into_iter().filter(|key| store.get_bool(key)).collect();
+        if requested.iter().any(|key| !self.setting_at_default(key)) {
+            log::warn!(
+                "{} requested, but this platform has no sandbox for component processes and they \
+                 would run unconfined; running without process isolation",
+                requested.join(", ")
+            );
+        }
+        for key in requested {
+            self.turn_off(key);
         }
     }
 
@@ -1689,6 +1713,28 @@ mod tests {
         engine.apply_process_isolation_switch();
         for key in PROCESS_SETTINGS {
             assert!(!store.get_bool(key), "{key} is on with the run's switch off");
+        }
+        assert!(
+            store.is_overridden(PROCESS_ISOLATION_SWITCH),
+            "the stored choice is still there"
+        );
+    }
+
+    /// Where no backend confines a child, an explicit request is refused too:
+    /// the setting goes off for the run, and the stored choice stays.
+    #[cfg(feature = "process-isolation")]
+    #[test]
+    fn no_sandbox_backend_means_no_component_process() {
+        use gosub_config::settings::Setting;
+        let engine = engine_with_max_zones(1);
+        let store = engine.settings();
+        store.set("security.network_process", Setting::Bool(true)).expect("set");
+        engine.set_process_isolation(true).expect("switch on");
+        engine.apply_process_isolation_switch();
+
+        engine.refuse_unconfined_children();
+        for key in PROCESS_SETTINGS {
+            assert!(!store.get_bool(key), "{key} is on with no sandbox to run it in");
         }
         assert!(
             store.is_overridden(PROCESS_ISOLATION_SWITCH),
