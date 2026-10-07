@@ -679,10 +679,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .map(|ph| (ph - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
         let y = y.max(0.0).min(max_y);
-        // Less than a device pixel is no visible change. Callers on most paths pass whole CSS
-        // pixels; the GPU tile path passes exact offsets, and moves in device-pixel steps.
-        let step = 1.0 / self.cache_dpr.unwrap_or(1).max(1) as f64;
-        if (self.scroll_x - x).abs() < step && (self.scroll_y - y).abs() < step {
+        // A move that leaves the page on the same device pixel is no visible change. Callers
+        // on most paths pass whole CSS pixels; the GPU tile path passes exact offsets, and moves
+        // in device-pixel steps. Compared as rendered positions, not as a distance: a move of
+        // less than a device pixel can still cross a rounding boundary.
+        let dpr = self.cache_dpr.unwrap_or(1).max(1) as f64;
+        let device = |v: f64| (v * dpr).round();
+        if device(self.scroll_x) == device(x) && device(self.scroll_y) == device(y) {
             return;
         }
         self.scroll_x = x;
@@ -4393,6 +4396,20 @@ mod tests {
                 "content far below the viewport must stay deferred"
             );
             assert_eq!(cache.cached_tiles.len(), cache.tiles.len());
+        }
+
+        #[test]
+        fn a_scroll_that_lands_on_a_new_device_pixel_is_kept() {
+            let (mut ctx, _) = tall_page_context(128);
+            ctx.invalidate_raster_if_dpr_changed(3);
+            // At 3x, 0.4 CSS px renders at device pixel 1 (1.2) and 0.5 at 2 (1.5): a tenth of a
+            // CSS pixel, but the page moves.
+            ctx.set_scroll(0.0, 0.4);
+            ctx.set_scroll(0.0, 0.5);
+            assert_eq!(ctx.scroll_xy().1, 0.5);
+            // 0.55 renders at 2 (1.65) as well: no visible change, so none is made.
+            ctx.set_scroll(0.0, 0.55);
+            assert_eq!(ctx.scroll_xy().1, 0.5);
         }
 
         #[test]
