@@ -94,9 +94,11 @@ fn vs(@builtin(vertex_index) vid: u32) -> VsOut {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    // Tiles are premultiplied; scaling all four channels by opacity keeps them premultiplied and
-    // fades the whole layer as a group.
-    return textureSample(tex, samp, in.uv) * u.opacity;
+    // Vello stores a tile with straight alpha (its fine shader divides the colour by alpha
+    // before the store), so premultiply for the blend. Scaling all four channels by opacity then
+    // keeps it premultiplied and fades the whole layer as a group.
+    let c = textureSample(tex, samp, in.uv);
+    return vec4<f32>(c.rgb * c.a, c.a) * u.opacity;
 }
 "#;
 
@@ -146,8 +148,9 @@ impl BlitPipeline {
             immediate_size: 0,
         });
 
-        // Premultiplied-alpha "source over": tiles are rendered premultiplied with a transparent
-        // background, so they composite correctly over the white-cleared surface.
+        // Premultiplied-alpha "source over": the fragment shader premultiplies the tiles, which are
+        // rendered over a transparent background, so they composite correctly over the
+        // white-cleared surface.
         let blend = wgpu::BlendState {
             color: wgpu::BlendComponent {
                 src_factor: wgpu::BlendFactor::One,
@@ -503,6 +506,34 @@ mod tests {
         let (r1, _, b1) = at(256, 128);
         assert!(r0 > 180 && b0 < 80, "pixel 255 should be red, got r={r0} b={b0}");
         assert!(b1 > 180 && r1 < 80, "pixel 256 should be blue, got r={r1} b={b1}");
+
+        // A see-through tile: 50% grey at half alpha over the white surface is 75% grey. Blended
+        // as if it were premultiplied, Vello's straight-alpha output comes out white instead.
+        let veil = make_tile(Color::new([0.5, 0.5, 0.5, 0.5]));
+        let veil_view = veil.create_view(&Default::default());
+        let veiled = [PlacedTileTex {
+            view: &veil_view,
+            ..tiles[0]
+        }];
+        compositor.composite(
+            &device,
+            &queue,
+            &target_view,
+            wgpu::TextureFormat::Rgba8Unorm,
+            tw,
+            th,
+            0.0,
+            0.0,
+            1,
+            &veiled,
+        );
+        let pixels = read_back(&device, &queue, &target, tw, th);
+        let o = ((128 * tw + 128) * 4) as usize;
+        let grey = pixels[o];
+        assert!(
+            (185..=197).contains(&grey),
+            "half-transparent grey over white should be ~191, got {grey}"
+        );
     }
 
     fn read_back(device: &wgpu::Device, queue: &wgpu::Queue, tex: &wgpu::Texture, w: u32, h: u32) -> Vec<u8> {

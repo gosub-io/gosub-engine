@@ -346,8 +346,17 @@ pub fn rasterize_sequential(
         }
     }
 
+    // In layer order, as `rasterize_parallel` returns them: the compositor draws the list as
+    // given, so a layer's tiles must come after those of every layer below it. The arena is a
+    // HashMap, and taken in its order a layer's tile could land under an opaque tile of the
+    // layer beneath and vanish, differently on every pass.
+    let rank: std::collections::HashMap<u64, usize> =
+        layer_ids.iter().enumerate().map(|(i, id)| (id.as_u64(), i)).collect();
+    let mut ready: Vec<&crate::tiler::Tile> = tile_list.arena.values().collect();
+    ready.sort_by_key(|tile| rank.get(&tile.layer_id.as_u64()).copied().unwrap_or(usize::MAX));
+
     let mut tiles: Vec<BakedTile> = Vec::with_capacity(tile_list.arena.len());
-    for tile in tile_list.arena.values() {
+    for tile in ready {
         if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Ready) {
             if let Some(tex) = texture_store.get(texture_id) {
                 tiles.push(BakedTile {
