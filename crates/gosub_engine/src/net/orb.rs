@@ -18,7 +18,10 @@
 //!
 //! The decision follows the shape of the WHATWG ORB algorithm: MIME type first,
 //! then a sniff of the body's first bytes for the unknown cases, with an image
-//! sniff as the escape hatch for mislabelled images (common in the wild).
+//! sniff as the escape hatch for mislabelled images (common in the wild). Types
+//! ORB never sniffs - CSV, event streams, archives, PDF, office documents - are
+//! blocked on the label alone: a sniff could not tell a logged-in user's CSV
+//! export from harmless text.
 //! There is no CORS input yet: every subresource the engine issues today is a
 //! no-cors load; `fetch()` will add the CORS-approved branch.
 
@@ -44,6 +47,10 @@ pub fn verdict(same_origin: bool, content_type: Option<&str>, nosniff: bool, sta
     let essence = content_type.map(essence_of).unwrap_or_default();
     let body = &body[..body.len().min(SNIFF_LEN)];
 
+    // Before the safelist: `audio/mpegurl` is a playlist, not audio.
+    if is_never_sniffed(&essence) {
+        return OrbVerdict::Block("cross-origin type that is never sniffed");
+    }
     if is_opaque_safelisted(&essence) {
         return OrbVerdict::Allow;
     }
@@ -83,7 +90,9 @@ fn essence_of(content_type: &str) -> String {
         .into_owned()
 }
 
-/// Types a page may embed cross-origin without CORS.
+/// Types a page may embed cross-origin without CORS. `application/octet-stream`
+/// is not one: it says nothing about the body, so it goes to the sniff like an
+/// absent type (a font or image served as it still passes).
 fn is_opaque_safelisted(essence: &str) -> bool {
     if essence.starts_with("image/")
         || essence.starts_with("video/")
@@ -101,7 +110,6 @@ fn is_opaque_safelisted(essence: &str) -> bool {
             | "application/ecmascript"
             | "text/ecmascript"
             | "application/wasm"
-            | "text/vtt"
             | "application/ogg"
             | "application/x-font-ttf"
             | "application/x-font-otf"
@@ -109,11 +117,57 @@ fn is_opaque_safelisted(essence: &str) -> bool {
             | "application/font-woff"
             | "application/font-woff2"
             | "application/vnd.ms-fontobject"
-            | "application/octet-stream"
     )
 }
 
-/// Types that are data by declaration: never sniffed, never delivered.
+/// ORB's opaque-blocklisted-never-sniffed types: data by declaration that no
+/// sniff could recognise, so the label alone blocks them.
+fn is_never_sniffed(essence: &str) -> bool {
+    matches!(
+        essence,
+        "application/dash+xml"
+            | "application/gzip"
+            | "application/msexcel"
+            | "application/mspowerpoint"
+            | "application/msword"
+            | "application/msword-template"
+            | "application/pdf"
+            | "application/vnd.apple.mpegurl"
+            | "application/vnd.ces-quickpoint"
+            | "application/vnd.ces-quicksheet"
+            | "application/vnd.ces-quickword"
+            | "application/vnd.ms-excel"
+            | "application/vnd.ms-excel.sheet.macroenabled.12"
+            | "application/vnd.ms-powerpoint"
+            | "application/vnd.ms-powerpoint.presentation.macroenabled.12"
+            | "application/vnd.ms-word"
+            | "application/vnd.ms-word.document.12"
+            | "application/vnd.ms-word.document.macroenabled.12"
+            | "application/vnd.msword"
+            | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            | "application/vnd.openxmlformats-officedocument.presentationml.template"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            | "application/vnd.presentation-openxml"
+            | "application/vnd.presentation-openxmlm"
+            | "application/vnd.spreadsheet-openxml"
+            | "application/vnd.wordprocessing-openxml"
+            | "application/x-gzip"
+            | "application/x-protobuf"
+            | "application/x-protobuffer"
+            | "application/zip"
+            | "audio/mpegurl"
+            | "multipart/byteranges"
+            | "multipart/signed"
+            | "text/event-stream"
+            | "text/csv"
+            | "text/vtt"
+    )
+}
+
+/// Types that are data by declaration: never delivered, whatever they sniff as.
 fn is_blocklisted(essence: &str) -> bool {
     matches!(
         essence,
@@ -257,7 +311,6 @@ mod tests {
             "font/woff2",
             "application/font-woff",
             "video/mp4",
-            "application/octet-stream",
             // SVG is an image: safelisted despite the +xml suffix.
             "image/svg+xml",
         ] {
@@ -267,6 +320,52 @@ mod tests {
                 "{ct}"
             );
         }
+    }
+
+    #[test]
+    fn never_sniffed_types_are_blocked_on_the_label() {
+        for ct in [
+            "text/csv",
+            "text/csv; charset=utf-8",
+            "TEXT/CSV",
+            "text/event-stream",
+            "application/pdf",
+            "application/zip",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/x-protobuf",
+            "text/vtt",
+            // A playlist, though the safelist takes `audio/*`.
+            "audio/mpegurl",
+        ] {
+            // Even a body that sniffs as an image does not get it through.
+            assert!(
+                matches!(verdict(false, Some(ct), false, 200, PNG), OrbVerdict::Block(_)),
+                "{ct}"
+            );
+        }
+        // The page's own CSV export is its own business.
+        assert_eq!(verdict(true, Some("text/csv"), false, 200, b"a,b"), OrbVerdict::Allow);
+    }
+
+    /// `application/octet-stream` is the usual label of a JSON or HTML
+    /// "download" endpoint; it says nothing, so the body decides.
+    #[test]
+    fn octet_stream_is_sniffed() {
+        let ct = Some("application/octet-stream");
+        for body in [
+            b"<!doctype html><html>".as_slice(),
+            br#"{"token": "secret"}"#.as_slice(),
+            b"<?xml version=\"1.0\"?>".as_slice(),
+        ] {
+            assert!(matches!(verdict(false, ct, false, 200, body), OrbVerdict::Block(_)));
+        }
+        assert_eq!(verdict(false, ct, false, 200, PNG), OrbVerdict::Allow);
+        // A font served as octet-stream, as many CDNs do.
+        assert_eq!(
+            verdict(false, ct, false, 200, b"wOF2\x00\x01\x00\x00"),
+            OrbVerdict::Allow
+        );
+        assert!(matches!(verdict(false, ct, false, 404, PNG), OrbVerdict::Block(_)));
     }
 
     #[test]

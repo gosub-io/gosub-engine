@@ -405,7 +405,9 @@ at navigation), never from anything the requester sent.
   is what makes per-site renderer processes mean something: another origin's
   data never enters a renderer's address space through an `<img>` or `<script>`
   tag. Mislabelled images (a PNG served as `text/plain`) are recognised by
-  their bytes. There is no CORS input yet; every load the engine issues today
+  their bytes. `application/octet-stream` is sniffed like an absent type, and
+  the types ORB never sniffs (`text/csv`, `text/event-stream`, archives, PDF,
+  office documents) are blocked on the label alone. There is no CORS input yet; every load the engine issues today
   is a no-cors subresource load.
 
 ## Settings
