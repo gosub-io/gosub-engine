@@ -4370,7 +4370,12 @@ mod tests {
             });
             // Every half-transparent box is a layer of its own, over the page's tiles.
             let boxes: String = (0..8)
-                .map(|i| format!(r#"<div style="opacity:0.5;height:100px;margin-top:{}px;background:red"></div>"#, i * 10))
+                .map(|i| {
+                    format!(
+                        r#"<div style="opacity:0.5;height:100px;margin-top:{}px;background:red"></div>"#,
+                        i * 10
+                    )
+                })
                 .collect();
             let html = format!(r#"<html><body style="margin:0;background:#ddd">{boxes}</body></html>"#);
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(&html);
@@ -4386,7 +4391,11 @@ mod tests {
                 unreachable!("a local pass keeps its layer list");
             };
             let order: Vec<u64> = layer_list.layer_ids.read().iter().map(|id| id.as_u64()).collect();
-            assert!(order.len() > 2, "the page must have several layers, got {}", order.len());
+            assert!(
+                order.len() > 2,
+                "the page must have several layers, got {}",
+                order.len()
+            );
             let ranks: Vec<usize> = cache
                 .tiles
                 .iter()
