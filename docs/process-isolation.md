@@ -429,6 +429,10 @@ it can apply, and says what it decided at `info` level (or `warn`, when the
 embedder set the value explicitly and it still cannot apply):
 
 - none of them without `child_process::dispatch()` in this process;
+- none of them on a platform with no sandbox backend (anything not Linux,
+  macOS or Windows - Android included), even set explicitly: a child there
+  would run unconfined, so the engine refuses with a `warn` and parses
+  in-process, and the backend's lockdowns exit a child that is spawned anyway;
 - the network and decoder processes on Linux only, until the macOS/Windows
   backends have run in CI (set them explicitly to try them there);
 - the renderer tier only for font systems that answer `Full` (Parley,
