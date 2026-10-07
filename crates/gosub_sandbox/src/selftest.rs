@@ -130,6 +130,8 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "net-thread-landlock",
     #[cfg(target_os = "linux")]
+    "net-ioctl-terminal",
+    #[cfg(target_os = "linux")]
     "audit-renderer",
     #[cfg(target_os = "linux")]
     "audit-net",
@@ -1580,9 +1582,54 @@ fn run_platform_probe(probe: &str) {
     }
 
     if let Some(probe) = probe.strip_prefix("net-") {
+        // A terminal to aim at, opened while that is still allowed: a pty
+        // master answers the terminal requests a tty does. Its control - the
+        // request succeeds before the lockdown - is what makes the refusal
+        // below the filter's and not the descriptor's.
+        let pty = if probe == "ioctl-terminal" {
+            // SAFETY: posix_openpt returns a new descriptor or -1; tcgetattr
+            // writes into a valid termios.
+            unsafe {
+                let fd = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+                assert!(fd >= 0, "no pty to test with");
+                let mut tio: libc::termios = std::mem::zeroed();
+                assert_eq!(
+                    libc::ioctl(fd, libc::TCGETS, &mut tio),
+                    0,
+                    "control: TCGETS failed before lockdown"
+                );
+                fd
+            }
+        } else {
+            -1
+        };
         crate::scope_net_filesystem(&[]);
         crate::lock_down_net();
         match probe {
+            // Terminal requests are refused with ENOTTY - TIOCSTI above all,
+            // which queues input into whatever shell owns the terminal - while
+            // the socket request the resolver makes still works.
+            "ioctl-terminal" => unsafe {
+                let mut tio: libc::termios = std::mem::zeroed();
+                assert_eq!(
+                    libc::ioctl(pty, libc::TCGETS, &mut tio),
+                    -1,
+                    "TCGETS reached the terminal"
+                );
+                assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ENOTTY));
+                let byte: libc::c_char = b'x' as libc::c_char;
+                assert_eq!(
+                    libc::ioctl(pty, libc::TIOCSTI, &byte),
+                    -1,
+                    "TIOCSTI reached the terminal"
+                );
+                assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ENOTTY));
+                let sock = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+                assert!(sock >= 0, "AF_INET refused");
+                let mut pending: libc::c_int = -1;
+                assert_eq!(libc::ioctl(sock, libc::FIONREAD, &mut pending), 0, "FIONREAD refused");
+                std::process::exit(0);
+            },
             // Threads yes (the runtime needs them)...
             "thread" => {
                 let joined = std::thread::spawn(|| 40 + 2).join();
