@@ -863,9 +863,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn page_link_target(&self, href: &str) -> Option<Url> {
         let current = self.current_url.as_ref()?;
         let url = current.join(href).ok()?;
-        let allowed =
-            matches!(url.scheme(), "http" | "https") || (url.scheme() == "file" && current.scheme() == "file");
-        if !allowed {
+        if !crate::engine::tab::page_may_navigate(current, &url) {
             log::debug!("link to {href} not followed: scheme not allowed from a page");
             return None;
         }
@@ -1683,6 +1681,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let Some(sub) = self.context.take_submission() else {
             return;
         };
+        // A form is the page navigating, like a link: `action="file:///"`,
+        // `data:` or `gosub://` from a web page goes nowhere.
+        let allowed = self
+            .current_url
+            .as_ref()
+            .is_some_and(|current| crate::engine::tab::page_may_navigate(current, &sub.url));
+        if !allowed {
+            log::debug!(
+                "form submission to {} not followed: scheme not allowed from a page",
+                sub.url
+            );
+            return;
+        }
         let (method, body) = if sub.post {
             (Method::POST, sub.body.map(RequestBody::form))
         } else {
