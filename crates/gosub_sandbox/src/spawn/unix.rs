@@ -187,15 +187,19 @@ fn relay_stderr(stderr: std::process::ChildStderr, pid: u32) {
                 // Bounded read: at most one line, and at most the cap plus one
                 // byte of it, so a child that never writes a newline costs
                 // nothing but the cap.
-                let read = match (&mut reader)
+                let (read, failed) = match (&mut reader)
                     .take(MAX_RELAYED_LINE as u64 + 1)
                     .read_until(b'\n', &mut line)
                 {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => n,
+                    Ok(0) => return,
+                    Ok(n) => (n, false),
+                    Err(_) if line.is_empty() => return,
+                    // A read error ends the relay, but what arrived before it
+                    // still goes out.
+                    Err(_) => (line.len(), true),
                 };
                 let ended = line.last() == Some(&b'\n');
-                if !ended && read > MAX_RELAYED_LINE {
+                if !ended && !failed && read > MAX_RELAYED_LINE {
                     // Skip the rest of an over-long line.
                     let mut rest = Vec::new();
                     loop {
@@ -209,6 +213,9 @@ fn relay_stderr(stderr: std::process::ChildStderr, pid: u32) {
                 }
                 let text = sanitize_line(&line);
                 let _ = writeln!(io::stderr().lock(), "[child {pid}] {text}");
+                if failed {
+                    return;
+                }
             }
         });
     if let Err(e) = spawned {
