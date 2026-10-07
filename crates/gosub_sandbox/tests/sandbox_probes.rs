@@ -287,6 +287,7 @@ mod probe_inventory {
         "net-namespaces",
         "net-clone-newuser",
         "net-thread",
+        "net-thread-landlock",
         "audit-renderer",
         "audit-net",
         "audit-service",
@@ -513,6 +514,19 @@ mod sandbox_enforcement {
             st.signal(),
             Some(SIGSYS),
             "expected SIGSYS (clone flag filter), got {st:?}"
+        );
+    }
+
+    /// `scope_net_filesystem` binds the threads created after it and none
+    /// that already exist - the property the network process's start-up
+    /// order rests on (scope, then the runtime). Exit 1 = a later thread read
+    /// past the scope; 90 = the control failed (an earlier thread was bound).
+    #[test]
+    fn net_scope_binds_the_threads_started_after_it() {
+        let st = probe("net-thread-landlock");
+        assert!(
+            st.success(),
+            "expected a thread started after the scope denied and one started before it allowed, got {st:?}"
         );
     }
 
