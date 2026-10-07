@@ -86,9 +86,12 @@ pub struct PendingDownload {
 /// here as the engine gains focus/selection state (M1).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HitTestResponse {
-    /// Nearest enclosing `<a href>`.
+    /// Nearest enclosing `<a href>`, when the page could navigate there itself: the
+    /// web, or another file from a `file:` page. A link the page may not follow is
+    /// `None`, so a menu built from this cannot open or save it.
     pub link_url: Option<String>,
-    /// `<img src>` at the point (or enclosing the point).
+    /// `<img src>` at the point (or enclosing the point), under the same rule as
+    /// `link_url`.
     pub image_url: Option<String>,
     /// Content of the text node at the point, trimmed (`None` when the point is not on text).
     pub text: Option<String>,

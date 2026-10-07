@@ -1071,7 +1071,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         }
 
-        // Save-link-as: no captured body, fetch it now.
+        // Save-link-as: no captured body, fetch it now. The file loader serves any
+        // download, so the rule a link gets is applied here: a file only from a file
+        // page. The embedder's menu works from a hit test that already filters, but
+        // this command takes whatever URL it is handed.
+        if url.scheme() == "file" && !self.current_url.as_ref().is_some_and(|u| u.scheme() == "file") {
+            self.send_event(EngineEvent::DownloadFailed {
+                tab_id: self.tab_id,
+                id,
+                error: "a file: URL is saved only from a file: page".into(),
+            });
+            return;
+        }
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
         // A Download reference routes the transport's per-chunk progress to the shell as

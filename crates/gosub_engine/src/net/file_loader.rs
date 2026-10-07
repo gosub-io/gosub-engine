@@ -11,7 +11,8 @@
 //! - Top-level navigations (`ResourceKind::Primary`) are always served. Note this is laxer
 //!   than mainstream browsers, which also refuse file links *clicked from* remote pages;
 //!   the request does not carry enough context to tell a typed URL from a clicked link.
-//! - User downloads (`RequestReference::Download`) are served.
+//! - User downloads (`RequestReference::Download`) are served. The tab only starts one for a
+//!   `file:` URL from a `file:` page, and its hit test offers no other file link to save.
 //! - Subresources are served only when the initiating document is itself `file://` (the
 //!   engine stamps `FetchRequest::referrer` with the document URL; gosub-sonar never turns
 //!   a non-http(s) referrer into a `Referer` header, so this cannot leak local paths).

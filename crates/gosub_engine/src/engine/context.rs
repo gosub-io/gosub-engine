@@ -2080,19 +2080,27 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// enclosing link, an image at the point, editable-ness, and the hit text node's
     /// content. URLs are resolved against `base`. Read-only: does not touch hover state.
     pub fn hit_test(&self, vp_x: f64, vp_y: f64, base: Option<&Url>) -> HitTestResponse {
+        let mut out = self.hit_test_unchecked(vp_x, vp_y, base);
+        // What the page names goes to the embedder's "open in new tab", "save link as"
+        // and "save image as", which act as the user: only what the page could reach
+        // itself, so a remote page's `file:///home/u/.ssh/id_ed25519` is offered for
+        // nothing.
+        let reachable = |url: &String| {
+            base.zip(Url::parse(url).ok())
+                .is_some_and(|(base, url)| crate::engine::tab::page_may_navigate(base, &url))
+        };
+        out.link_url = out.link_url.filter(reachable);
+        out.image_url = out.image_url.filter(reachable);
+        out
+    }
+
+    fn hit_test_unchecked(&self, vp_x: f64, vp_y: f64, base: Option<&Url>) -> HitTestResponse {
         let mut out = HitTestResponse::default();
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         if let Some(regions) = self.remote_hit_regions() {
             if let Some(region) = hit_region_at(regions, vp_x, vp_y, self.scroll_x, self.scroll_y) {
                 out.link_url = region.link.clone();
-                // The renderer's word, handed to the embedder's "open image"
-                // and "save image" menus: only a URL the embedder may act on.
-                out.image_url = region.image.clone().filter(|image| {
-                    Url::parse(image).is_ok_and(|u| {
-                        matches!(u.scheme(), "http" | "https")
-                            || (u.scheme() == "file" && base.is_some_and(|b| b.scheme() == "file"))
-                    })
-                });
+                out.image_url = region.image.clone();
                 out.is_editable = region.editable;
             }
             return out;
@@ -3794,9 +3802,44 @@ mod tests {
             // Textarea: editable.
             let hit = ctx.hit_test(10.0, 320.0, Some(&base));
             assert!(hit.is_editable);
-            // No document URL: raw attribute values pass through.
+            // No document URL: nothing to judge the link from, so nothing is offered.
             let hit = ctx.hit_test(50.0, 150.0, None);
-            assert_eq!(hit.link_url.as_deref(), Some("/target"));
+            assert_eq!(hit.link_url, None);
+            assert_eq!(hit.image_url, None);
+        }
+
+        /// A context menu acts as the user: a link or image the page could not follow
+        /// itself is not offered to "open in new tab", "save link as" or "save image as".
+        #[test]
+        fn hit_test_offers_only_what_the_page_could_reach() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<html><body style="margin:0">
+                <a href="file:///home/u/.ssh/id_ed25519"><img src="file:///etc/passwd" style="display:block;width:100px;height:100px"></a>
+                <a href="gosub://settings"><img src="data:image/png;base64,AA" style="display:block;width:100px;height:100px"></a>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc), None);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let remote = Url::parse("https://evil.test/report.html").unwrap();
+            for y in [50.0, 150.0] {
+                let hit = ctx.hit_test(50.0, y, Some(&remote));
+                assert_eq!(hit.link_url, None, "at {y}");
+                assert_eq!(hit.image_url, None, "at {y}");
+            }
+
+            // The same file link from a file page is one the page could follow.
+            let local = Url::parse("file:///home/u/notes.html").unwrap();
+            let hit = ctx.hit_test(50.0, 50.0, Some(&local));
+            assert_eq!(hit.link_url.as_deref(), Some("file:///home/u/.ssh/id_ed25519"));
+            assert_eq!(hit.image_url.as_deref(), Some("file:///etc/passwd"));
         }
 
         /// Focus model: document-order traversal over focusable elements, wrap-around,
