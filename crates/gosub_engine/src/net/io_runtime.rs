@@ -3,7 +3,7 @@ use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::net::fetcher::{fetcher_config_from, strict_config, EngineNetContext, Fetcher};
-use crate::net::req_ref_tracker::RequestRefTracker;
+use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
 use crate::net::ssrf::{AddressSpace, AddressSpaceCache};
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
@@ -352,9 +352,14 @@ fn dispatch_to_net_process(
     cookies: Option<CookieScope>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
+    observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
 ) {
     use crate::net::process::client::net_error;
     use crate::net::process::protocol::FetchOutcome;
+
+    // The body preview switches live in this process; the child is told the
+    // outcome, never asked to read them.
+    let body_preview = crate::net::emitter::capture_body_previews().then(crate::net::emitter::body_capture_limit);
 
     let url = req.url.to_string();
     let method = req.method.as_str().to_string();
@@ -396,8 +401,9 @@ fn dispatch_to_net_process(
             refuse_private,
             streaming,
             cookies,
+            body_preview,
         };
-        let reply = net.fetch(out, &cancel).await;
+        let reply = net.fetch(out, &cancel, observer).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
@@ -423,6 +429,7 @@ fn dispatch_to_net_process(
     _cookies: Option<CookieScope>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
+    _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
 ) {
 }
 
@@ -684,6 +691,22 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
                         Some(IoCommand::Fetch { zone_id, tab_id, mut req, handle, reply_tx }) => {
+                            // A request made on a tab's behalf through the broker (a
+                            // renderer's subresource) names a document of the loader's
+                            // own; which tab that is, is known here and nowhere below.
+                            // Recorded now, so the request's observer finds the tab.
+                            if let Some(tab) = tab_id {
+                                if let Some(reference) = REF_REGISTRY.from_net(req.reference) {
+                                    if matches!(reference, RequestReference::Document(_)) {
+                                        router
+                                            .engine_ctx
+                                            .request_reference_map
+                                            .write()
+                                            .entry(reference)
+                                            .or_insert(tab);
+                                    }
+                                }
+                            }
                             // The engine serves file:// and data: itself; everything else goes
                             // to the zone's gosub-sonar fetcher, which only speaks http(s).
                             if crate::net::file_loader::handles(&req) {
@@ -720,6 +743,20 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 },
                             };
                             let address_space = Arc::clone(&router.address_space);
+                            // The network process has no fetcher of ours to ask for an
+                            // observer: built here, as the in-process fetcher would.
+                            #[cfg(feature = "process-isolation")]
+                            let observer = net.as_ref().map(|_| {
+                                crate::net::fetcher::observer_for_request(
+                                    &router.engine_ctx.resource_tx,
+                                    &router.engine_ctx.event_tx,
+                                    &router.engine_ctx.request_reference_map,
+                                    req.reference,
+                                    req.req_id,
+                                    req.kind,
+                                    req.initiator,
+                                )
+                            });
 
                             // The rest may block - a vault round trip for the cookies, a
                             // DNS lookup for the policy - so it runs off this loop, which
@@ -771,6 +808,10 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         cookie_scope,
                                         handle.cancel.clone(),
                                         reply_tx,
+                                        #[cfg(feature = "process-isolation")]
+                                        observer,
+                                        #[cfg(not(feature = "process-isolation"))]
+                                        None,
                                     ),
                                     (None, Some((lenient, strict))) => {
                                         let fetcher = if refuse_private { strict } else { lenient };

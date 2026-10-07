@@ -274,6 +274,24 @@ holds the whole body for the transport; a consumer that stops draining stalls
 the producer (backpressure) and, after a bounded wait, ends the stream. Linux
 only; elsewhere the network process buffers as before.
 
+**Requests report back as if fetched in-process.** The network process has no
+tabs and no event bus, so its fetcher's observer sends every event the engine
+reports - name resolved, connected, request sent, headers, progress, finished,
+failed, cancelled - back over the link as `FromNet::Event { tag, … }`, flattened
+to plain data with a failure already classified where its typed cause exists.
+The broker registers its own observer for the request before the `Fetch` goes
+out (the same `EngineEventEmitter` an in-process fetch gets, wrapped for timing
+where that is compiled in), replays each event into it, bounded - strings cut,
+headers capped, a body preview no longer than the broker asked for - and
+guarantees exactly one terminal event: a request the broker cancelled, or whose
+process died, is ended here. For a streamed body the events keep arriving after
+the `Reply` that carried the head. A renderer's subresource requests name a
+document reference of the brokered loader's own; the I/O side records which tab
+that is, so they reach the embedder's resource stream attributed like the
+page's own. The embedder's request log and anything built on it (Beacon's
+developer panel, its activity strip) therefore see the same under isolation as
+without.
+
 **Subresources are brokered.** A confined renderer cannot fetch, so it sends
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
 identity and cookies live - with the page's `Referer` and `Accept-Language`,

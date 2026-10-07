@@ -108,7 +108,7 @@ pub(crate) fn should_capture_body(headers: &http::HeaderMap, content_length: Opt
 /// Split from [`should_capture_body`] so it can be tested without touching process-wide
 /// state -- two tests flipping the same global is a race, and one that only shows up when
 /// the suite runs in parallel.
-fn capture_decision(
+pub(crate) fn capture_decision(
     enabled: bool,
     limit: usize,
     headers: &http::HeaderMap,

@@ -45,6 +45,32 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+/// A request through the network process reports the events an in-process
+/// fetch would - start, request, headers, end - in order, and ends exactly
+/// once however it ends.
+#[test]
+fn a_request_through_the_network_process_reports_its_events() {
+    let out = run("net-events");
+    assert!(
+        out.status.success(),
+        "the network process did not report a request's events as expected:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A navigation through the network process shows up on the embedder's
+/// resource stream: the document request starts and finishes.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_navigation_through_the_network_process_reports_its_requests() {
+    let out = run("engine-net-events");
+    assert!(
+        out.status.success(),
+        "the document request was not reported:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A body too large for one IPC frame is answered with an error, promptly,
 /// and the network process keeps serving.
 #[test]

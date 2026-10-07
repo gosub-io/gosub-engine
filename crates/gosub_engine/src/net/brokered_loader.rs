@@ -12,12 +12,13 @@
 use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::types::RequestId;
+use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use http::Method;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -48,6 +49,23 @@ pub struct BrokeredLoader {
     document: Option<Url>,
     /// The tab's `Accept-Language`, as the in-process fetches send it.
     accept_language: Option<String>,
+    /// What this loader's requests say they are for: a document reference of
+    /// its own, one per loader (so one per tab), shared by the per-document
+    /// loaders cloned from it. The I/O side records which tab it belongs to,
+    /// which is what attributes the requests' events (the developer panel's
+    /// network log, the activity strip) to the tab; a reference no tab owns
+    /// reports nothing. One per tab bounds what the registry and the map
+    /// hold, where one per document would grow with every render.
+    reference: RequestReference,
+}
+
+/// Document references for brokered loads, minted here rather than by the
+/// engine's own documents: a renderer's page has no `DocumentId` on this side.
+/// Counted down from the top so they never meet the engine's.
+static NEXT_DOCUMENT: AtomicU64 = AtomicU64::new(u64::MAX);
+
+fn next_document_reference() -> RequestReference {
+    RequestReference::Document(NEXT_DOCUMENT.fetch_sub(1, Ordering::Relaxed))
 }
 
 impl BrokeredLoader {
@@ -60,6 +78,7 @@ impl BrokeredLoader {
             runtime: tokio::runtime::Handle::try_current().ok(),
             document: None,
             accept_language: None,
+            reference: next_document_reference(),
         }
     }
 
@@ -130,6 +149,7 @@ impl BrokeredLoader {
         }
         let mut builder = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(RequestId::new())
+            .with_reference(REF_REGISTRY.to_net(self.reference))
             .with_headers(headers)
             .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
             .with_initiator(gosub_sonar::net::types::Initiator::Application)

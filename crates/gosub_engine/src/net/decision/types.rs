@@ -56,7 +56,7 @@ pub enum HandlingDecision {
 /// Covers both the engine's own decision path and the refusals the network layer reports;
 /// [`from_net`](Self::from_net) maps gosub-sonar's vocabulary into this one, following the
 /// same pattern as [`ResourceKind`](crate::net::types::ResourceKind).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum BlockReason {
     /// A user agent or site policy explicitly forbids this load.

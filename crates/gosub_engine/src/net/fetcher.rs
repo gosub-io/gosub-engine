@@ -117,6 +117,69 @@ pub fn strict_config(cfg: &FetcherConfig) -> FetcherConfig {
     }
 }
 
+/// The observer that reports a request to the embedder: the engine's emitter
+/// for the tab the request's reference belongs to, wrapped for timing where
+/// that is compiled in. Nothing (a null observer) for a reference no tab
+/// owns. Shared by the in-process fetcher, which asks per request, and the
+/// network-process dispatch, which has no fetcher to ask it.
+pub(crate) fn observer_for_request(
+    resource_tx: &ResourceChannel,
+    event_tx: &EventChannel,
+    request_reference_map: &Arc<RwLock<RequestReferenceMap>>,
+    reference: gosub_sonar::RequestReference,
+    req_id: RequestId,
+    kind: ResourceKind,
+    initiator: Initiator,
+) -> Arc<dyn NetObserver + Send + Sync> {
+    let Some(reference) = REF_REGISTRY.from_net(reference) else {
+        log::trace!("Cannot resolve net reference {:?} to an engine reference", reference);
+        return Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>;
+    };
+
+    // Recover the rich (kind, initiator) pair registered when the request was built;
+    // sonar only carries its own coarse classification through the pipeline.
+    let (kind, initiator) = REF_REGISTRY
+        .request_meta(req_id)
+        .unwrap_or_else(|| (EngineResourceKind::from_net(kind), EngineInitiator::from_net(initiator)));
+
+    let tab_id = request_reference_map.read().get(&reference).copied();
+    let Some(tab_id) = tab_id else {
+        log::trace!("Cannot find the request reference for reference {:?}", reference);
+        return Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>;
+    };
+    let observer = Arc::new(EngineEventEmitter::new(
+        tab_id,
+        req_id,
+        reference,
+        resource_tx.clone(),
+        event_tx.clone(),
+        kind,
+        initiator,
+    )) as Arc<dyn NetObserver + Send + Sync>;
+
+    // Timing decorates the emitter rather than replacing it: it reads the
+    // fetch timings off each event in passing and forwards the event on.
+    // With the feature off no wrapper is built and sonar emits into exactly
+    // what it does today.
+    #[cfg(feature = "timing")]
+    let observer = {
+        // Only the main document's request is referenced by its navigation;
+        // sub-resources reference a Document, which carries no navigation, so
+        // they record unattributed rather than against a guessed one.
+        let scope = match reference {
+            crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
+                Some(gosub_shared::timing::ScopeId(nav_id.0))
+            }
+            _ => None,
+        };
+        Arc::new(crate::net::emitter::timing_emitter::TimingEmitter::wrap(
+            observer, kind, scope,
+        )) as Arc<dyn NetObserver + Send + Sync>
+    };
+
+    observer
+}
+
 impl FetcherContext for EngineNetContext {
     fn observer_for(
         &self,
@@ -125,57 +188,15 @@ impl FetcherContext for EngineNetContext {
         kind: ResourceKind,
         initiator: Initiator,
     ) -> Arc<dyn NetObserver + Send + Sync> {
-        let Some(reference) = REF_REGISTRY.from_net(reference) else {
-            log::trace!("Cannot resolve net reference {:?} to an engine reference", reference);
-            return Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>;
-        };
-
-        // Recover the rich (kind, initiator) pair registered when the request was built;
-        // sonar only carries its own coarse classification through the pipeline.
-        let (kind, initiator) = REF_REGISTRY
-            .request_meta(req_id)
-            .unwrap_or_else(|| (EngineResourceKind::from_net(kind), EngineInitiator::from_net(initiator)));
-
-        let guard = self.request_reference_map.read();
-        match guard.get(&reference) {
-            Some(&tab_id) => {
-                let observer = Arc::new(EngineEventEmitter::new(
-                    tab_id,
-                    req_id,
-                    reference,
-                    self.resource_tx.clone(),
-                    self.event_tx.clone(),
-                    kind,
-                    initiator,
-                )) as Arc<dyn NetObserver + Send + Sync>;
-
-                // Timing decorates the emitter rather than replacing it: it reads the
-                // fetch timings off each event in passing and forwards the event on.
-                // With the feature off no wrapper is built and sonar emits into exactly
-                // what it does today.
-                #[cfg(feature = "timing")]
-                let observer = {
-                    // Only the main document's request is referenced by its navigation;
-                    // sub-resources reference a Document, which carries no navigation, so
-                    // they record unattributed rather than against a guessed one.
-                    let scope = match reference {
-                        crate::net::req_ref_tracker::RequestReference::Navigation(nav_id) => {
-                            Some(gosub_shared::timing::ScopeId(nav_id.0))
-                        }
-                        _ => None,
-                    };
-                    Arc::new(crate::net::emitter::timing_emitter::TimingEmitter::wrap(
-                        observer, kind, scope,
-                    )) as Arc<dyn NetObserver + Send + Sync>
-                };
-
-                observer
-            }
-            None => {
-                log::trace!("Cannot find the request reference for reference {:?}", reference);
-                Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>
-            }
-        }
+        observer_for_request(
+            &self.resource_tx,
+            &self.event_tx,
+            &self.request_reference_map,
+            reference,
+            req_id,
+            kind,
+            initiator,
+        )
     }
 
     fn is_url_allowed(&self, url: &url::Url) -> bool {

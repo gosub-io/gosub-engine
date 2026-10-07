@@ -4,9 +4,10 @@
 //! line to the cookie vault - lives in `platform`; the same API elsewhere
 //! declines, so this file has no platform branches of its own.
 
+use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
-    flatten_headers, rebuild_headers, FetchOutcome, FromNet, NetFetch, RequestTag, ToNet,
+    flatten_headers, rebuild_headers, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
 };
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
 use gosub_ipc::Endpoint;
@@ -70,10 +71,20 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     let fs_allow: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
     gosub_sandbox::lock_down_net(&fs_allow);
 
-    // No hooks: in-process, `EngineNetContext` turns these into engine events and
-    // resolves request references against engine state. Here there is no engine to
-    // resolve against - this process holds no tab map, no jar, no event bus - so
-    // progress reporting stays the broker's job. `cookies_for` in particular must
+    // Requests run concurrently: each Fetch is spawned onto the runtime and
+    // replies through the shared writer, tagged, so a slow response never
+    // holds up the ones behind it. The broker bounds how many are in flight.
+    let (link_tx, mut link_rx) = link.split();
+    let link_tx = Arc::new(Mutex::new(link_tx));
+    // How much body each request in flight wants previewed, by tag; what the
+    // observer answers when the response headers are in.
+    let previews: Arc<Mutex<HashMap<RequestTag, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    // In-process, `EngineNetContext` turns the fetcher's events into engine
+    // events and resolves request references against engine state. This
+    // process holds no tab map, no jar, no event bus, so its observer sends
+    // each event back over the link tagged for its request, and the broker's
+    // own observer for that request takes it from there. `cookies_for` must
     // stay silent: answering it would mean this process kept a jar.
     let build = |refuse_private: bool| {
         let cfg = if refuse_private {
@@ -81,7 +92,15 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
         } else {
             FetcherConfig::default()
         };
-        Fetcher::new(cfg, Arc::new(NetProcessContext { refuse_private })).map(Arc::new)
+        Fetcher::new(
+            cfg,
+            Arc::new(NetProcessContext {
+                refuse_private,
+                link_tx: Arc::clone(&link_tx),
+                previews: Arc::clone(&previews),
+            }),
+        )
+        .map(Arc::new)
     };
     // Two fetchers: one that may reach anything the user navigates to, and a
     // strict one for subresources of public documents (see `net::ssrf`); the
@@ -101,11 +120,6 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
         tokio::join!(fetcher_run.run(cancel.clone()), strict_run.run(cancel));
     });
 
-    // Requests run concurrently: each Fetch is spawned onto the runtime and
-    // replies through the shared writer, tagged, so a slow response never
-    // holds up the ones behind it. The broker bounds how many are in flight.
-    let (link_tx, mut link_rx) = link.split();
-    let link_tx = Arc::new(Mutex::new(link_tx));
     let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
     let tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -140,9 +154,11 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 Err(e) => eprintln!("[net] the new vault line did not arrive: {e}"),
             },
             ToNet::Fetch(fetch) => {
+                let fetch = *fetch;
                 let tag = fetch.tag;
                 let token = CancellationToken::new();
                 cancels.lock().insert(tag, token.clone());
+                let previews = Arc::clone(&previews);
                 let fetcher = if fetch.refuse_private {
                     strict.clone()
                 } else {
@@ -152,7 +168,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let cancels = cancels.clone();
                 let vault = vault.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token, &vault).await;
+                    let performed = perform(&fetcher, fetch, token, &vault, &previews).await;
                     cancels.lock().remove(&tag);
                     match performed {
                         Performed::Done(outcome) => {
@@ -196,22 +212,81 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     0
 }
 
-/// The network process has no engine around it: no events, no cookies (the
-/// broker attaches those). What it does enforce is the per-hop URL policy of
-/// its strict fetcher.
+/// The network process has no engine around it: no cookies (the broker or
+/// the vault attach those), no tabs. Its events go back over the link to
+/// the broker's observer of the request; what it does enforce itself is the
+/// per-hop URL policy of its strict fetcher.
 struct NetProcessContext {
     refuse_private: bool,
+    link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
+    previews: Arc<Mutex<HashMap<RequestTag, usize>>>,
+}
+
+/// The observer of one request in this process: each event the fetcher
+/// reports goes over the link, tagged, to the broker.
+struct LinkObserver {
+    tag: RequestTag,
+    link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
+    /// How much body the broker asked to see, if any.
+    preview: Option<usize>,
+    /// Bytes at the last progress event sent: the fetcher reports progress
+    /// per read chunk, far too often to put each on the link.
+    last_progress: std::sync::atomic::AtomicU64,
+}
+
+/// One progress event per this many bytes (and the one that completes the
+/// body): the same rule the broker's emitter applies before the embedder.
+const PROGRESS_STEP: u64 = 64 * 1024;
+
+impl gosub_sonar::net::observer::NetObserver for LinkObserver {
+    fn on_event(&self, event: crate::net::events::NetEvent) {
+        use std::sync::atomic::Ordering;
+        if let crate::net::events::NetEvent::Progress {
+            received_bytes,
+            expected_length,
+            ..
+        } = &event
+        {
+            let last = self.last_progress.load(Ordering::Relaxed);
+            let complete = *expected_length == Some(*received_bytes);
+            if received_bytes.saturating_sub(last) < PROGRESS_STEP && !complete {
+                return;
+            }
+            self.last_progress.store(*received_bytes, Ordering::Relaxed);
+        }
+        let Some(event) = NetEventWire::from_net(&event) else {
+            return;
+        };
+        // A link that no longer takes events no longer takes replies either;
+        // the serve loop notices that and ends the process.
+        let _ = self.link_tx.lock().send(&FromNet::Event { tag: self.tag, event });
+    }
+
+    fn body_capture_limit(&self, headers: &http::HeaderMap, content_length: Option<u64>) -> Option<usize> {
+        self.preview
+            .and_then(|cap| crate::net::emitter::capture_decision(true, cap, headers, content_length))
+    }
 }
 
 impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     fn observer_for(
         &self,
-        _: gosub_sonar::RequestReference,
+        reference: gosub_sonar::RequestReference,
         _: gosub_sonar::types::RequestId,
         _: gosub_sonar::net::types::ResourceKind,
         _: gosub_sonar::net::types::Initiator,
     ) -> Arc<dyn gosub_sonar::net::observer::NetObserver + Send + Sync> {
-        Arc::new(crate::net::emitter::null_emitter::NullEmitter)
+        // `perform` references every request by its tag; anything else the
+        // fetcher asks about (nothing today) has nobody to report to.
+        match reference {
+            gosub_sonar::RequestReference::Tagged(tag) => Arc::new(LinkObserver {
+                tag,
+                link_tx: Arc::clone(&self.link_tx),
+                preview: self.previews.lock().get(&tag).copied(),
+                last_progress: std::sync::atomic::AtomicU64::new(0),
+            }),
+            _ => Arc::new(NullEmitter),
+        }
     }
     fn on_ref_active(&self, _: gosub_sonar::RequestReference) {}
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
@@ -242,8 +317,28 @@ async fn perform(
     fetch: NetFetch,
     cancel: CancellationToken,
     vault: &Mutex<Option<VaultLink>>,
+    previews: &Mutex<HashMap<RequestTag, usize>>,
 ) -> Performed {
     let streaming = fetch.streaming && platform::STREAMING;
+    // Known before the fetcher asks its observer, taken back when the
+    // request is over either way.
+    let tag = fetch.tag;
+    if let Some(cap) = fetch.body_preview {
+        previews.lock().insert(tag, cap);
+    }
+    let performed = perform_inner(fetcher, fetch, cancel, vault, streaming).await;
+    previews.lock().remove(&tag);
+    performed
+}
+
+/// [`perform`] proper; split so the preview entry is removed on every return.
+async fn perform_inner(
+    fetcher: &Arc<Fetcher>,
+    fetch: NetFetch,
+    cancel: CancellationToken,
+    vault: &Mutex<Option<VaultLink>>,
+    streaming: bool,
+) -> Performed {
     let done = Performed::Done;
     // Cookies come from the vault, never from the broker, when this process
     // has its own line to it. The scope is the broker's word on whose they are.
@@ -272,7 +367,10 @@ async fn perform(
         }
     }
 
+    // The tag is how this request's observer finds the link (see
+    // `NetProcessContext::observer_for`).
     let mut builder = FetchRequest::builder(method, url)
+        .with_reference(gosub_sonar::RequestReference::Tagged(fetch.tag))
         .with_headers(headers)
         .with_streaming(streaming)
         .with_auto_decode(true);
