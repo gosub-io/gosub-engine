@@ -65,9 +65,7 @@ pub(crate) fn action_for(
             let url = current
                 .join(&url)
                 .map_err(|_| "a navigation to a URL that does not parse")?;
-            let allowed =
-                matches!(url.scheme(), "http" | "https") || (url.scheme() == "file" && current.scheme() == "file");
-            if !allowed {
+            if !crate::engine::tab::page_may_navigate(current, &url) {
                 return Err("a navigation to a scheme a page may not reach");
             }
             Ok(Action::Navigate {
