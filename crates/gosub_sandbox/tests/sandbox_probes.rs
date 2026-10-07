@@ -288,6 +288,7 @@ mod probe_inventory {
         "net-clone-newuser",
         "net-thread",
         "net-thread-landlock",
+        "net-ioctl-terminal",
         "audit-renderer",
         "audit-net",
         "audit-service",
@@ -486,6 +487,15 @@ mod sandbox_enforcement {
         assert!(st.success(), "expected AF_UNIX refused with an errno, got {st:?}");
         let st = probe("net-socket-inet");
         assert!(st.success(), "expected AF_INET/AF_INET6 to work, got {st:?}");
+    }
+
+    /// The net role's `ioctl` reaches the socket requests it makes and nothing
+    /// else: a terminal it holds answers `ENOTTY`, so `TIOCSTI` cannot queue
+    /// input into the user's shell.
+    #[test]
+    fn net_role_ioctl_reaches_no_terminal() {
+        let st = probe("net-ioctl-terminal");
+        assert!(st.success(), "expected terminal ioctls refused with ENOTTY, got {st:?}");
     }
 
     /// `KeepNetwork`: the net role's user/IPC/UTS namespaces are fresh while

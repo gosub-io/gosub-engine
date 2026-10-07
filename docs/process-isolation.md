@@ -52,7 +52,7 @@ is what you actually see on a running system.
 
 Every child starts with an allowlisted environment (`HOME`, `TMPDIR`, locale,
 `XDG_*`, `SSL_CERT_*`, `RUST_LOG`, `GOSUB_*` except the `GOSUB_DUMP_*` debug
-dumps, and little else), no stdin, and only the descriptors the spawner named
+dumps, and little else), no terminal (stdin and stdout are `/dev/null`; stderr is a pipe the broker relays line by line, bounded and stripped of control characters), and only the descriptors the spawner named
 — everything else is marked close-on-exec first. Each has a task ceiling
 (`pids.max`) and a memory ceiling sized for its role in its own cgroup, where
 cgroup v2 is delegated; a forked renderer is moved out of the fork server's
@@ -73,7 +73,10 @@ engine then falls back in-process and says so.
   before its async runtime exists: Landlock binds the thread that applies it and
   the threads created after it, and the runtime's workers are where every
   response is parsed. Its escape audit runs on one of those workers for the
-  same reason.
+  same reason. `ioctl` reaches only the socket requests the stack makes
+  (`FIONREAD`, `FIONBIO`, `FIOCLEX`); anything else fails with `ENOTTY`, so a
+  terminal answers only to those numbers (`FIONREAD` is its `TIOCINQ`, a byte
+  count) and `TCGETS`, `TIOCSTI` and the rest are refused.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the

@@ -140,7 +140,8 @@ const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
     // calls above, no extra reach.
     libc::SYS_sendmmsg,
     libc::SYS_recvmmsg,
-    // Socket options and non-blocking flags the client sets per connection.
+    // Socket options and non-blocking flags the client sets per connection;
+    // `install_net_ioctl_filter` narrows it to those requests.
     libc::SYS_ioctl,
     libc::SYS_shutdown,
     libc::SYS_bind,
@@ -842,10 +843,57 @@ pub fn lock_down_net() {
         .collect();
     // Socket-mode fcntls permitted: the runtime toggles O_NONBLOCK per socket.
     enforce("net", install_socket_family_filter());
+    enforce("net", install_net_ioctl_filter());
     // `clone3` → ENOSYS so thread creation reaches the kernel as `clone`,
     // where its flags can be checked (glibc and musl both fall back).
     enforce("net", install_clone3_enosys());
     enforce("net", install_with(allowed, false, false, true, true));
+}
+
+/// Before the net allowlist: `ioctl` for anything but the socket requests the
+/// stack makes fails with `ENOTTY`, as on a descriptor that does not know the
+/// request. Measured across the network scenarios, glibc's resolver issues
+/// `FIONREAD` and nothing else issues any; `FIONBIO` and `FIOCLEX` are what std
+/// uses for non-blocking mode and close-on-exec. What this keeps out is every
+/// terminal request but those three numbers - `TIOCSTI` queueing input into a
+/// shell above all - and every device one. `FIONREAD` is also the terminal's
+/// `TIOCINQ`, which only reports how many bytes are waiting. An errno rather
+/// than a trap, so a library asking whether a descriptor is a terminal hears
+/// "no".
+#[cfg(feature = "multi-process")]
+fn install_net_ioctl_filter() -> Result<(), Box<dyn std::error::Error>> {
+    use seccompiler::{
+        apply_filter_all_threads, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition,
+        SeccompFilter, SeccompRule,
+    };
+    use std::collections::BTreeMap;
+
+    #[cfg(target_arch = "x86_64")]
+    let arch = seccompiler::TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    let arch = seccompiler::TargetArch::aarch64;
+
+    let request_ne =
+        |request: libc::c_ulong| SeccompCondition::new(1, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, request as u64);
+    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
+    // Conditions within a rule AND together: matched = none of the allowed requests.
+    rules.insert(
+        libc::SYS_ioctl as i64,
+        vec![SeccompRule::new(vec![
+            request_ne(libc::FIONREAD as libc::c_ulong)?,
+            request_ne(libc::FIONBIO as libc::c_ulong)?,
+            request_ne(libc::FIOCLEX as libc::c_ulong)?,
+        ])?],
+    );
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,                      // an allowed request: on to the main filter
+        SeccompAction::Errno(libc::ENOTTY as u32), // anything else
+        arch,
+    )?;
+    let program: BpfProgram = filter.try_into()?;
+    apply_filter_all_threads(&program)?;
+    Ok(())
 }
 
 /// Before the net allowlist: `socket()` for any family but `AF_INET`/`AF_INET6`

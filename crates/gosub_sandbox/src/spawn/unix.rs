@@ -105,8 +105,15 @@ pub fn spawn(
             cmd.env(&key, &value);
         }
     }
-    // Nothing to read from a terminal, and no terminal `ioctl`s to reach.
+    // No terminal at all. A broker started from a shell would otherwise hand
+    // every child the tty read-write on all three: keystrokes to read while
+    // the browser is the foreground job, escape sequences to write, and on
+    // kernels with legacy `TIOCSTI` input to queue into the user's shell.
+    // Stdout has nothing to say; stderr carries the lockdown banners and
+    // crash reports, so it comes back through a pipe this process relays.
     cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
 
     let raw = child_end.raw();
     let extra_fds: Vec<i32> = container.extra_fds.to_vec();
@@ -148,9 +155,121 @@ pub fn spawn(
     // The child holds its own copy now; drop ours so a dead child is seen as
     // EOF rather than a link the engine is itself holding open.
     drop(child_end);
+    let mut child = child;
+    if let Some(stderr) = child.stderr.take() {
+        relay_stderr(stderr, child.id());
+    }
     Ok(Child {
         inner: child,
         data_limit,
         max_tasks: container.max_tasks,
     })
+}
+
+/// The longest line of a child's stderr passed on; the rest of it is dropped.
+const MAX_RELAYED_LINE: usize = 4096;
+
+/// Pass a child's stderr on to this process's own, a line at a time: cut to
+/// [`MAX_RELAYED_LINE`], and with control characters other than tab removed, so
+/// whatever a compromised child writes reaches a terminal as text and never as
+/// an escape sequence. Each line starts with `[child <pid>]`, so nothing a child
+/// writes passes for the broker's own diagnostics. Runs until every holder of
+/// the pipe's write end - the child and anything it forked - has exited.
+fn relay_stderr(stderr: std::process::ChildStderr, pid: u32) {
+    let spawned = std::thread::Builder::new()
+        .name("gosub-child-stderr".into())
+        .spawn(move || {
+            use std::io::{BufRead, Read, Write};
+            let mut reader = io::BufReader::new(stderr);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                // Bounded read: at most one line, and at most the cap plus one
+                // byte of it, so a child that never writes a newline costs
+                // nothing but the cap.
+                let (read, failed) = match (&mut reader)
+                    .take(MAX_RELAYED_LINE as u64 + 1)
+                    .read_until(b'\n', &mut line)
+                {
+                    Ok(0) => return,
+                    Ok(n) => (n, false),
+                    Err(_) if line.is_empty() => return,
+                    // A read error ends the relay, but what arrived before it
+                    // still goes out.
+                    Err(_) => (line.len(), true),
+                };
+                let ended = line.last() == Some(&b'\n');
+                if !ended && !failed && read > MAX_RELAYED_LINE {
+                    // Skip the rest of an over-long line.
+                    let mut rest = Vec::new();
+                    loop {
+                        rest.clear();
+                        match (&mut reader).take(64 * 1024).read_until(b'\n', &mut rest) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) if rest.last() == Some(&b'\n') => break,
+                            Ok(_) => {}
+                        }
+                    }
+                }
+                let text = sanitize_line(&line);
+                let _ = writeln!(io::stderr().lock(), "[child {pid}] {text}");
+                if failed {
+                    return;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        // Without a reader the child blocks once the pipe fills; its stderr is
+        // diagnostics, not worth that.
+        eprintln!("[gosub] could not start the relay for a child's stderr: {e}");
+    }
+}
+
+/// One relayed line as text: lossy UTF-8 with control characters other than tab
+/// removed, at most [`MAX_RELAYED_LINE`] bytes of it. The cap applies to the
+/// text as well as the input, since lossy decoding turns each invalid byte into
+/// a three-byte U+FFFD.
+fn sanitize_line(line: &[u8]) -> String {
+    let cut = &line[..line.len().min(MAX_RELAYED_LINE)];
+    let mut text = String::new();
+    for c in String::from_utf8_lossy(cut)
+        .chars()
+        .filter(|&c| c == '\t' || !c.is_control())
+    {
+        if text.len() + c.len_utf8() > MAX_RELAYED_LINE {
+            break;
+        }
+        text.push(c);
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitize_line, MAX_RELAYED_LINE};
+
+    #[test]
+    fn a_relayed_line_carries_no_escape_sequences() {
+        assert_eq!(
+            sanitize_line(b"\x1b[2J\x1b]0;owned\x07[net] ok\tdone\r\n"),
+            "[2J]0;owned[net] ok\tdone"
+        );
+    }
+
+    /// Binary stderr: every byte decodes to a three-byte U+FFFD, and the line
+    /// still stops at the cap, on a character boundary.
+    #[test]
+    fn a_relayed_line_of_invalid_utf8_is_bounded() {
+        let binary = vec![0xFF; MAX_RELAYED_LINE];
+        let text = sanitize_line(&binary);
+        assert!(text.len() <= MAX_RELAYED_LINE, "{} bytes", text.len());
+        assert_eq!(text.chars().count(), MAX_RELAYED_LINE / 3);
+        assert!(text.chars().all(|c| c == '\u{FFFD}'));
+    }
+
+    #[test]
+    fn a_relayed_line_is_bounded() {
+        let long = vec![b'a'; MAX_RELAYED_LINE * 3];
+        assert_eq!(sanitize_line(&long).len(), MAX_RELAYED_LINE);
+    }
 }
