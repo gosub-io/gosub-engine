@@ -74,6 +74,11 @@ impl PageResponse {
 /// query strings and otherwise wants the built-in).
 pub type PageProvider = Arc<dyn Fn(&PageRequest<'_>) -> Option<PageResponse> + Send + Sync>;
 
+/// The page for an internal URL no provider answers. Gets the request and the names of
+/// every known page (sorted), to list them or suggest one ([`InternalPages::suggest`]).
+/// Return `None` to fall back to the built-in.
+pub type NotFoundProvider = Arc<dyn Fn(&PageRequest<'_>, &[String]) -> Option<PageResponse> + Send + Sync>;
+
 /// Registry of `gosub://` pages. Cheap to clone (shared); the engine holds one and hands
 /// clones down to every tab.
 #[derive(Clone, Default)]
@@ -87,6 +92,8 @@ struct Registry {
     overrides: HashMap<String, PageProvider>,
     /// Engine built-ins.
     builtin: HashMap<String, PageProvider>,
+    /// Embedder's page for unknown names, consulted before the built-in one.
+    not_found: Option<NotFoundProvider>,
 }
 
 impl InternalPages {
@@ -118,6 +125,22 @@ impl InternalPages {
         self.inner.write().overrides.remove(name);
     }
 
+    /// Serve unknown pages with `provider` instead of the built-in "page not found".
+    pub fn set_not_found(&self, provider: NotFoundProvider) {
+        self.inner.write().not_found = Some(provider);
+    }
+
+    /// Restore the built-in "page not found".
+    pub fn clear_not_found(&self) {
+        self.inner.write().not_found = None;
+    }
+
+    /// The known page `name` is most likely a typo of, as the built-in "page not found"
+    /// suggests it: `hepl` for `help`. `None` when nothing in `known` is close.
+    pub fn suggest<'a>(name: &str, known: &'a [String]) -> Option<&'a str> {
+        builtins::closest(name, known)
+    }
+
     /// Names of every known page (overrides and built-ins), sorted.
     pub fn names(&self) -> Vec<String> {
         let reg = self.inner.read();
@@ -139,7 +162,8 @@ impl InternalPages {
     }
 
     /// Resolve `url` to a page. Overrides win over built-ins; a provider returning `None`
-    /// falls through to the next candidate. Unknown pages get the built-in "no such page".
+    /// falls through to the next candidate. Unknown pages get the embedder's
+    /// "page not found" ([`Self::set_not_found`]), or the built-in one.
     pub fn resolve(&self, url: &Url, settings: &Config, tab: &TabView) -> PageResponse {
         let name = Self::page_name(url);
         let req = PageRequest {
@@ -148,16 +172,23 @@ impl InternalPages {
             settings,
             tab,
         };
-        let (over, built) = {
+        let (over, built, not_found) = {
             let reg = self.inner.read();
-            (reg.overrides.get(name).cloned(), reg.builtin.get(name).cloned())
+            (
+                reg.overrides.get(name).cloned(),
+                reg.builtin.get(name).cloned(),
+                reg.not_found.clone(),
+            )
         };
         for provider in [over, built].into_iter().flatten() {
             if let Some(resp) = provider(&req) {
                 return resp;
             }
         }
-        builtins::not_found(&req, &self.names())
+        let known = self.names();
+        not_found
+            .and_then(|provider| provider(&req, &known))
+            .unwrap_or_else(|| builtins::not_found(&req, &known))
     }
 }
 
@@ -202,7 +233,11 @@ pub mod builtins {
              .sub{{color:#5c6675;margin:0 0 20px 0}}\
              .gr span{{display:inline-block;padding:3px 14px 3px 0;vertical-align:top;overflow:hidden}}\
              .hd span,.k{{color:#5c6675}} code{{font-family:monospace;font-size:13px}}\
+             .url{{letter-spacing:0.03em}}\
              a{{color:#1d5fd1}} .muted{{color:#8a94a6}} .cur{{font-weight:bold}}\
+             .nf{{max-width:560px}}\
+             .hint{{background:#eef4fd;border-left:3px solid #1d5fd1;padding:10px 14px;margin:0 0 8px 0}}\
+             .pg{{padding:8px 0;border-bottom:1px solid #e6e9ef}} .foot{{color:#8a94a6;font-size:12px;margin-top:20px}}\
              </style></head><body>{}</body></html>",
             escape(title),
             body
@@ -236,26 +271,28 @@ pub mod builtins {
         )
     }
 
+    /// The built-in pages and what each is for, in the order `help` lists them.
+    const PAGES: &[(&str, &str)] = &[
+        ("home", "New-tab page"),
+        ("blank", "Empty page (about:blank)"),
+        ("help", "The list of internal pages"),
+        ("version", "Engine build, render backend, settings of note"),
+        ("history", "This tab's session history tree"),
+        ("stats", "Rendering diagnostics and engine timings"),
+        ("config", "Engine settings (read-only dump)"),
+    ];
+
     fn help(r: &PageRequest<'_>) -> PageResponse {
-        let items = [
-            ("home", "New-tab page"),
-            ("blank", "Empty page (about:blank)"),
-            ("help", "This page"),
-            ("version", "Engine build, render backend, settings of note"),
-            ("history", "This tab's session history tree"),
-            ("stats", "Rendering diagnostics and engine timings"),
-            ("config", "Engine settings (read-only dump)"),
-        ];
         let mut body = String::from(
-            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <code>about:&lt;name&gt;</code>.</p>",
+            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p>",
         );
-        for (name, desc) in items {
+        for (name, desc) in PAGES {
             body.push_str(&grid_row(
                 "",
                 &[
                     (
                         170,
-                        format!("<a href=\"gosub://{name}\"><code>gosub://{name}</code></a>"),
+                        format!("<a href=\"gosub://{name}\" class=\"url\">gosub://{name}</a>"),
                     ),
                     (0, desc.to_string()),
                 ],
@@ -316,7 +353,7 @@ pub mod builtins {
                         (
                             0,
                             format!(
-                                "<a href=\"{}\"><code>{}</code></a>",
+                                "<a href=\"{}\" class=\"url\">{}</a>",
                                 escape(e.url.as_str()),
                                 escape(e.url.as_str())
                             ),
@@ -441,17 +478,80 @@ pub mod builtins {
     }
 
     pub(super) fn not_found(r: &PageRequest<'_>, known: &[String]) -> PageResponse {
-        let mut body = format!(
-            "<h1>No such internal page</h1><p class=\"sub\"><code>{}</code> is not a page this engine knows.</p><h2>Available</h2><ul>",
-            escape(r.url.as_str())
-        );
-        for name in known {
+        let mut body = String::from("<div class=\"nf\">");
+        if r.name.is_empty() {
+            body.push_str(
+                "<h1>Which page?</h1><p class=\"sub\">An internal address needs a page name, \
+                 as in <span class=\"url\">gosub://help</span>.</p>",
+            );
+        } else {
             body.push_str(&format!(
-                "<li><a href=\"gosub://{name}\"><code>gosub://{name}</code></a></li>"
+                "<h1>Page not found</h1>\
+                 <p class=\"sub\"><span class=\"url\">{}</span> is not one of the internal pages.</p>",
+                escape(r.url.as_str())
             ));
+            if let Some(guess) = closest(r.name, known) {
+                body.push_str(&format!(
+                    "<p class=\"hint\">Did you mean <a href=\"gosub://{0}\" class=\"url\">gosub://{0}</a>?</p>",
+                    escape(guess)
+                ));
+            }
         }
-        body.push_str("</ul>");
-        page("No such page", &body)
+        body.push_str("<h2>Internal pages</h2>");
+        for name in known {
+            let name = escape(name);
+            body.push_str(&format!(
+                "<div class=\"pg\"><a href=\"gosub://{name}\" class=\"url\">gosub://{name}</a>"
+            ));
+            if let Some((_, desc)) = PAGES.iter().find(|(n, _)| *n == name) {
+                body.push_str(&format!("<div class=\"muted\">{desc}</div>"));
+            }
+            body.push_str("</div>");
+        }
+        body.push_str(
+            "<p class=\"foot\">Each page is also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p></div>",
+        );
+        page("Page not found", &body)
+    }
+
+    /// The known page `name` is most likely a typo of: one edit away for a name of up to
+    /// four letters, two for a longer one, or one name containing the other (`hist` for
+    /// `history`). `None` when nothing is that close.
+    pub(super) fn closest<'a>(name: &str, known: &'a [String]) -> Option<&'a str> {
+        use cow_utils::CowUtils;
+        let name = name.cow_to_ascii_lowercase();
+        let limit = if name.chars().count() <= 4 { 1 } else { 2 };
+        known
+            .iter()
+            .map(|k| (k, edit_distance(&name, k)))
+            .filter(|(k, d)| *d <= limit || (name.len() >= 3 && (k.contains(&*name) || name.contains(k.as_str()))))
+            .min_by_key(|(_, d)| *d)
+            .map(|(k, _)| k.as_str())
+    }
+
+    /// Edits between `a` and `b`, by character: insertions, deletions, substitutions and
+    /// swaps of two neighbours (`hepl` is one edit from `help`).
+    fn edit_distance(a: &str, b: &str) -> usize {
+        let a: Vec<char> = a.chars().collect();
+        let b: Vec<char> = b.chars().collect();
+        let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+        for (i, row) in d.iter_mut().enumerate() {
+            row[0] = i;
+        }
+        for (j, cell) in d[0].iter_mut().enumerate() {
+            *cell = j;
+        }
+        for i in 1..=a.len() {
+            for j in 1..=b.len() {
+                let cost = usize::from(a[i - 1] != b[j - 1]);
+                let mut best = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+                if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                    best = best.min(d[i - 2][j - 2] + 1);
+                }
+                d[i][j] = best;
+            }
+        }
+        d[a.len()][b.len()]
     }
 }
 
@@ -483,9 +583,64 @@ mod tests {
         assert!(resolve(&pages, "about:version").contains("gosub_engine"));
         assert!(resolve(&pages, "gosub://help").contains("gosub://history"));
         let nf = resolve(&pages, "gosub://nope");
-        assert!(nf.contains("No such internal page"));
+        assert!(nf.contains("Page not found"));
         assert!(nf.contains("gosub://nope"));
         assert!(nf.contains("gosub://blank"), "lists the known pages");
+        assert!(nf.contains("Engine settings (read-only dump)"), "with what each is for");
+        assert!(!nf.contains("Did you mean"), "nothing is close to nope");
+    }
+
+    #[test]
+    fn not_found_suggests_the_page_meant() {
+        let pages = InternalPages::with_builtins();
+        for (typo, meant) in [
+            ("hepl", "help"),
+            ("histroy", "history"),
+            ("stat", "stats"),
+            ("CONFIG", "config"),
+        ] {
+            let nf = resolve(&pages, &format!("gosub://{typo}"));
+            assert!(
+                nf.contains(&format!("Did you mean <a href=\"gosub://{meant}\"")),
+                "{typo} suggests {meant}"
+            );
+        }
+        // An embedder's page is suggested too, without a description.
+        pages.register_html("bookmarks", "<html></html>");
+        let nf = resolve(&pages, "about:bookmark");
+        assert!(nf.contains("Did you mean <a href=\"gosub://bookmarks\""));
+        assert!(
+            nf.contains("<span class=\"url\">about:bookmark</span>"),
+            "names the address as typed"
+        );
+    }
+
+    #[test]
+    fn an_embedder_can_serve_unknown_pages() {
+        let pages = InternalPages::with_builtins();
+        pages.set_not_found(Arc::new(|req, known| {
+            let guess = InternalPages::suggest(req.name, known).unwrap_or("-");
+            Some(PageResponse::html(format!("MINE {} {guess} {}", req.name, known.len())))
+        }));
+        let known = pages.names().len();
+        assert_eq!(resolve(&pages, "gosub://hepl"), format!("MINE hepl help {known}"));
+        // Known pages are not its business.
+        assert!(resolve(&pages, "gosub://version").contains("gosub_engine"));
+
+        // Declining falls back to the built-in; clearing restores it.
+        pages.set_not_found(Arc::new(|_, _| None));
+        assert!(resolve(&pages, "gosub://hepl").contains("Page not found"));
+        pages.set_not_found(Arc::new(|_, _| Some(PageResponse::html("MINE"))));
+        pages.clear_not_found();
+        assert!(resolve(&pages, "gosub://hepl").contains("Page not found"));
+    }
+
+    #[test]
+    fn not_found_without_a_name_asks_for_one() {
+        let pages = InternalPages::with_builtins();
+        let nf = resolve(&pages, "gosub://");
+        assert!(nf.contains("Which page?"));
+        assert!(!nf.contains("Did you mean"));
     }
 
     #[test]
