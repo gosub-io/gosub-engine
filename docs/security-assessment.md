@@ -22,6 +22,20 @@ commit's subject on this branch.
 
 ## Fixed on this branch
 
+- **The network process's Landlock covered only its idle main thread**
+  (critical: every zone's persisted cookies and localStorage, and anything
+  the user can read, from the process that parses every response). Landlock
+  binds the thread that applies it and the threads created after it, and
+  the tokio runtime was built before the lockdown, so its workers - where
+  every request runs - were never scoped; the escape audit ran on the main
+  thread and reported the scope active. Fixed in "network process: scope
+  its files before the runtime starts its workers": the filesystem half
+  (`scope_net_filesystem`: Landlock plus read-only opens at the syscall
+  layer) is applied while the process is still one thread, the runtime is
+  built after it, the seccomp half follows with TSYNC, and the audit runs
+  on a runtime worker. The `net-thread-landlock` probe pins the property:
+  a thread started after the scope is refused a file outside it, and one
+  started before it still reads the file, so the order is what matters.
 - **A fork server's claimed pid moved any process into a renderer cgroup**
   (high, broker DoS). `RendererSpawned { pid }` was taken on the fork server's
   word and written into a 1.25 GiB, 256-task cgroup; pid 0 is the writer
