@@ -300,7 +300,7 @@ pub mod events {
     };
     pub use crate::engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
     pub use crate::engine::LoadError;
-    pub use crate::net::BlockReason;
+    pub use crate::net::{BlockReason, CorsFailure};
 }
 
 /// Configuration options for the Gosub engine.
