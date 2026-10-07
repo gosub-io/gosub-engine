@@ -154,7 +154,9 @@ impl ResponseInfo {
 
     /// The filename to offer when saving: `Content-Disposition`'s `filename` when present,
     /// otherwise the URL's last path segment, otherwise `"download"`. Never a path - any
-    /// directory components are stripped.
+    /// directory components are stripped - and never `.` or `..`. Control characters and
+    /// the invisible formatting ones are dropped: a right-to-left override would show
+    /// `invoice\u{202E}fdp.exe` in a save dialog as `invoiceexe.pdf`.
     pub fn suggested_filename(&self) -> String {
         let from_disposition = self.header("content-disposition").and_then(|v| {
             v.split(';').find_map(|part| {
@@ -176,13 +178,30 @@ impl ResponseInfo {
                 })
         });
         let name = name.unwrap_or_default();
-        let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
-        if name.is_empty() {
+        let name: String = name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("")
+            .chars()
+            .filter(|&c| !c.is_control() && !is_invisible_format(c))
+            .collect();
+        let name = name.trim();
+        if name.is_empty() || name == "." || name == ".." {
             "download".to_string()
         } else {
-            name
+            name.to_string()
         }
     }
+}
+
+/// A character that changes how a name displays without being seen: the bidi
+/// embeddings, overrides, isolates and marks, and the zero-width ones. Not
+/// `char::is_control`, which covers only C0 and C1.
+fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+    )
 }
 
 impl From<&FetchResultMeta> for ResponseInfo {
@@ -288,6 +307,44 @@ mod tests {
                 assert!(!name.contains('/'), "{hostile} -> {name}");
                 assert!(!name.contains('\\'), "{hostile} -> {name}");
             }
+        }
+
+        /// A right-to-left override shows `invoice\u{202E}fdp.exe` as `invoiceexe.pdf`;
+        /// the name offered is what the file is called.
+        #[test]
+        fn filename_drops_bidi_and_control_characters() {
+            assert_eq!(
+                info("https://example.org/invoice%E2%80%AEfdp.exe", &[]).suggested_filename(),
+                "invoicefdp.exe"
+            );
+            assert_eq!(
+                info(
+                    "https://example.org/x",
+                    &[(
+                        "content-disposition",
+                        "attachment; filename=\"a\u{2067}b\u{200B}c\u{FEFF}.txt\""
+                    )]
+                )
+                .suggested_filename(),
+                "abc.txt"
+            );
+            assert_eq!(
+                info("https://example.org/a%0Ab%1B%7Fc.txt", &[]).suggested_filename(),
+                "abc.txt"
+            );
+        }
+
+        #[test]
+        fn filename_is_never_a_dot_directory() {
+            for hostile in ["..", ".", " .. ", ".\u{202E}."] {
+                let header = format!("attachment; filename=\"{hostile}\"");
+                let name = info("https://example.org/x", &[("content-disposition", &header)]).suggested_filename();
+                assert_eq!(name, "download", "{hostile:?}");
+            }
+            assert_eq!(
+                info("https://example.org/a/%2E%2E", &[]).suggested_filename(),
+                "download"
+            );
         }
     }
 
