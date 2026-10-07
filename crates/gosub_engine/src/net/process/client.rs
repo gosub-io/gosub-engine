@@ -1,14 +1,15 @@
 //! The broker's side of the network process: spawn it, talk to it, notice when
 //! it dies.
 
+use crate::net::emitter::NetObserver;
 use crate::net::process::protocol::{
-    rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetFetch, RequestTag, ToNet,
+    rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, RequestTag, ToNet,
 };
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +28,8 @@ pub struct Outbound {
     /// Whose cookies to attach, resolved by the network process against the
     /// cookie vault. `None` when the broker attached the header itself.
     pub cookies: Option<CookieScope>,
+    /// How much of the response body to preview, in bytes; `None` for none.
+    pub body_preview: Option<usize>,
 }
 
 impl Outbound {
@@ -40,9 +43,111 @@ impl Outbound {
             refuse_private: false,
             streaming: false,
             cookies: None,
+            body_preview: None,
         }
     }
 }
+
+/// The broker's observer of one request in the network process. Events the
+/// child reports pass through to `inner` - the engine's emitter for the
+/// request - and whether a terminal one has passed is remembered, so the
+/// request can be ended here when the child never ends it: cancelled before
+/// anything went out, a child that died, a reply with no `Finished` behind it.
+/// The embedder's request log hangs on a request that never ends.
+pub struct ReportedRequest {
+    inner: Arc<dyn NetObserver + Send + Sync>,
+    url: String,
+    started: std::time::Instant,
+    done: AtomicBool,
+    /// Longest body preview accepted from the child, in bytes.
+    preview_cap: usize,
+}
+
+impl ReportedRequest {
+    fn new(inner: Arc<dyn NetObserver + Send + Sync>, url: String, preview_cap: usize) -> Self {
+        Self {
+            inner,
+            url,
+            started: std::time::Instant::now(),
+            done: AtomicBool::new(false),
+            preview_cap,
+        }
+    }
+
+    /// Whether the request has had its last event.
+    pub fn is_done(&self) -> bool {
+        self.done.load(Ordering::Relaxed)
+    }
+
+    /// An event the child reported. A terminal one claims the end first, so
+    /// a cancel racing it on another thread finds the request already ended.
+    fn on_wire(&self, event: NetEventWire) {
+        if event.is_terminal() {
+            if self.done.swap(true, Ordering::Relaxed) {
+                return;
+            }
+        } else if self.is_done() {
+            return;
+        }
+        if let Some(event) = event.into_net(self.preview_cap) {
+            self.inner.on_event(event);
+        }
+    }
+
+    /// The reply is in: end the request here if the child did not. A
+    /// streamed head is not the end - the body is still arriving, and the
+    /// child's `Finished` follows it over the link.
+    fn finish(&self, outcome: &FetchOutcome) {
+        let Ok(url) = url::Url::parse(&self.url) else {
+            return;
+        };
+        match outcome {
+            FetchOutcome::Streaming { .. } => {}
+            FetchOutcome::Ok { body, .. } => {
+                if !self.done.swap(true, Ordering::Relaxed) {
+                    self.inner.on_event(crate::net::events::NetEvent::Finished {
+                        received_bytes: body.len() as u64,
+                        elapsed: self.started.elapsed(),
+                        url,
+                    });
+                }
+            }
+            FetchOutcome::Error(message) => self.fail(message),
+        }
+    }
+
+    /// End the request as failed, unless it has ended.
+    fn fail(&self, message: &str) {
+        if self.done.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let Ok(url) = url::Url::parse(&self.url) else {
+            return;
+        };
+        self.inner.on_event(crate::net::events::NetEvent::Failed {
+            url,
+            error: anyhow::Error::new(crate::engine::LoadError::Other {
+                message: message.to_string(),
+            }),
+        });
+    }
+
+    /// End the request as cancelled, unless it has ended.
+    fn cancel(&self) {
+        if self.done.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let Ok(url) = url::Url::parse(&self.url) else {
+            return;
+        };
+        self.inner.on_event(crate::net::events::NetEvent::Cancelled {
+            url,
+            reason: "cancelled by the broker",
+        });
+    }
+}
+
+type Reported = Arc<Mutex<HashMap<RequestTag, Arc<ReportedRequest>>>>;
 
 /// The ring's descriptor, where one can exist; nothing where it cannot.
 #[cfg(target_os = "linux")]
@@ -106,6 +211,10 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// A running network process and the link to it.
 pub struct NetProcess {
+    /// The broker's observer of each request that asked for one, by tag;
+    /// kept until the request's last event, which for a streamed body comes
+    /// after its reply.
+    reported: Reported,
     tx: Arc<Mutex<EndpointTx>>,
     pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>>,
     next_tag: AtomicU64,
@@ -192,11 +301,13 @@ impl NetProcess {
 
         let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let reported: Reported = Arc::new(Mutex::new(HashMap::new()));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
         // A plain thread, not a task: it blocks on the link, and must keep
         // draining even when every runtime worker is busy waiting on a reply.
         let waiters = pending.clone();
+        let observers = Arc::clone(&reported);
         let audit_waiter: AuditWaiter = Arc::new(Mutex::new(HashMap::new()));
         let audit_reply = Arc::clone(&audit_waiter);
         std::thread::Builder::new()
@@ -210,6 +321,17 @@ impl NetProcess {
                         FromNet::Audit { tag, report } => {
                             if let Some(waiter) = audit_reply.lock().remove(&tag) {
                                 let _ = waiter.send(report);
+                            }
+                        }
+                        // Only to an observer this side registered for the tag: a
+                        // child cannot report on a request nobody asked it about.
+                        FromNet::Event { tag, event } => {
+                            let observer = observers.lock().get(&tag).cloned();
+                            if let Some(observer) = observer {
+                                observer.on_wire(event);
+                                if observer.is_done() {
+                                    observers.lock().remove(&tag);
+                                }
                             }
                         }
                         FromNet::Reply { tag, outcome } => {
@@ -236,9 +358,16 @@ impl NetProcess {
                 // them to time out one by one.
                 waiters.lock().clear();
                 audit_reply.lock().clear();
+                // Whatever was still being reported on ends here, as failed:
+                // its events died with the process.
+                let abandoned: Vec<Arc<ReportedRequest>> = observers.lock().drain().map(|(_, r)| r).collect();
+                for request in abandoned {
+                    request.fail("the network process went away");
+                }
             })?;
 
         let net = Self {
+            reported,
             tx: Arc::new(Mutex::new(tx)),
             pending,
             next_tag: AtomicU64::new(1),
@@ -308,7 +437,46 @@ impl NetProcess {
     /// Send a request and wait for the network process to answer. Bounded by
     /// [`MAX_INFLIGHT`]; a caller past the bound waits for a slot. Cancelling
     /// `cancel` abandons the wait and tells the child to drop the request.
-    pub async fn fetch(&self, out: Outbound, cancel: &CancellationToken) -> NetReply {
+    ///
+    /// `observer`, when given, hears what the network process reports about
+    /// the request - the same events an in-process fetch would raise - and
+    /// is guaranteed exactly one terminal event, from the child or from here.
+    pub async fn fetch(
+        &self,
+        out: Outbound,
+        cancel: &CancellationToken,
+        observer: Option<Arc<dyn NetObserver + Send + Sync>>,
+    ) -> NetReply {
+        let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
+        let reported = observer.map(|inner| {
+            Arc::new(ReportedRequest::new(
+                inner,
+                out.url.clone(),
+                out.body_preview.unwrap_or(0),
+            ))
+        });
+        // Registered before anything goes out: the child's first event may
+        // arrive before the send returns.
+        if let Some(reported) = &reported {
+            self.reported.lock().insert(tag, Arc::clone(reported));
+        }
+        let reply = self.fetch_tagged(tag, out, cancel).await;
+        if let Some(reported) = reported {
+            if cancel.is_cancelled() {
+                reported.cancel();
+            } else {
+                reported.finish(&reply.outcome);
+            }
+            // A streamed body is still being reported on; the reader loop
+            // lets go of it at its last event.
+            if reported.is_done() {
+                self.reported.lock().remove(&tag);
+            }
+        }
+        reply
+    }
+
+    async fn fetch_tagged(&self, tag: RequestTag, out: Outbound, cancel: &CancellationToken) -> NetReply {
         let Outbound {
             url,
             method,
@@ -317,6 +485,7 @@ impl NetProcess {
             refuse_private,
             streaming,
             cookies,
+            body_preview,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -326,12 +495,11 @@ impl NetProcess {
             return NetReply::error("the network process is shutting down");
         };
 
-        let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
         let requested = url.clone();
 
-        let msg = ToNet::Fetch(NetFetch {
+        let msg = ToNet::Fetch(Box::new(NetFetch {
             tag,
             url,
             method,
@@ -340,7 +508,8 @@ impl NetProcess {
             refuse_private,
             streaming,
             cookies,
-        });
+            body_preview,
+        }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
         let tx = self.tx.clone();

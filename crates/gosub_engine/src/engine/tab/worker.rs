@@ -434,6 +434,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let zone_id = self.zone_id;
         let event_tx = self.zone_context.event_tx.clone();
         let tab_identities = self.zone_context.tab_identities.clone();
+        let request_reference_map = self.zone_context.request_reference_map.clone();
         let worker = spawn_named(&name, self.run_worker());
 
         // Crash containment (in-process): a panic anywhere in the worker kills only its
@@ -458,6 +459,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The run loop's own cleanup never ran: drop the jar reference here,
             // so a fetch the dead tab left behind goes out without cookies.
             tab_identities.remove(tab_id);
+            request_reference_map.write().retain(|_, owner| *owner != tab_id);
             let _ = event_tx.send(EngineEvent::TabCrashed { tab_id, zone_id, error });
         });
 
@@ -562,6 +564,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // Drop the jar reference before announcing closure: a fetch that outlives
         // the tab then goes out without cookies rather than against a stale jar.
         self.zone_context.tab_identities.remove(self.tab_id);
+        // The references this tab's requests were attributed by go with it.
+        {
+            let tab_id = self.tab_id;
+            self.zone_context
+                .request_reference_map
+                .write()
+                .retain(|_, owner| *owner != tab_id);
+        }
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.context.release_remote_renderer();
 

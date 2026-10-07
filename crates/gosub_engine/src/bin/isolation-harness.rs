@@ -167,6 +167,8 @@ fn main() {
     let scenario = std::env::args().nth(1).unwrap_or_default();
     let code = match scenario.as_str() {
         "direct" => direct(),
+        "net-events" => net_events(),
+        "engine-net-events" => engine_net_events(),
         "oversized" => oversized(),
         "resolve" => resolve(),
         "decode" => decode(),
@@ -317,7 +319,7 @@ fn resolve() -> i32 {
             refuse_private,
             ..gosub_engine::net::process::client::Outbound::get(url)
         };
-        runtime.block_on(net.fetch(out, &cancel)).outcome
+        runtime.block_on(net.fetch(out, &cancel, None)).outcome
     };
 
     // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
@@ -6445,7 +6447,7 @@ fn stream() -> i32 {
         streaming: true,
         ..gosub_engine::net::process::client::Outbound::get(format!("http://127.0.0.1:{port}/"))
     };
-    let reply = runtime.block_on(net.fetch(out, &cancel));
+    let reply = runtime.block_on(net.fetch(out, &cancel, None));
     let result = match reply.outcome {
         FetchOutcome::Streaming { status, peek, .. } => {
             let Some(ring) = reply.ring else {
@@ -7371,7 +7373,7 @@ fn direct() -> i32 {
         headers: vec![("accept".into(), "text/html".into())],
         ..gosub_engine::net::process::client::Outbound::get(format!("http://127.0.0.1:{port}/"))
     };
-    let outcome = runtime.block_on(net.fetch(out, &cancel)).outcome;
+    let outcome = runtime.block_on(net.fetch(out, &cancel, None)).outcome;
     net.shutdown();
     drop(server);
 
@@ -7401,6 +7403,265 @@ fn direct() -> i32 {
     }
 }
 
+/// What a request through the network process reports back: the same events
+/// an in-process fetch raises, in order, ending exactly once - whether the
+/// child ended it, the broker cancelled it, or the body streamed past the reply.
+fn net_events() -> i32 {
+    use gosub_engine::net::events::NetEvent;
+    use gosub_engine::net::process::client::{NetProcess, Outbound};
+    use gosub_engine::net::process::protocol::FetchOutcome;
+    use gosub_sonar::net::observer::NetObserver;
+
+    /// Records the name of every event, in order.
+    #[derive(Default)]
+    struct Recorder(parking_lot::Mutex<Vec<String>>);
+    impl NetObserver for Recorder {
+        fn on_event(&self, ev: NetEvent) {
+            let name = match &ev {
+                NetEvent::DnsResolved { .. } => "DnsResolved",
+                NetEvent::Connected { .. } => "Connected",
+                NetEvent::RequestSent { .. } => "RequestSent",
+                NetEvent::Started { .. } => "Started",
+                NetEvent::Redirected { .. } => "Redirected",
+                NetEvent::ResponseHeaders { .. } => "ResponseHeaders",
+                NetEvent::Progress { .. } => "Progress",
+                NetEvent::Finished { .. } => "Finished",
+                NetEvent::Failed { .. } => "Failed",
+                NetEvent::Cancelled { .. } => "Cancelled",
+                NetEvent::Blocked { .. } => "Blocked",
+                NetEvent::TlsFailed { .. } => "TlsFailed",
+                NetEvent::BodyPreview { .. } => "BodyPreview",
+                _ => "Other",
+            };
+            self.0.lock().push(name.to_string());
+        }
+    }
+    impl Recorder {
+        fn names(&self) -> Vec<String> {
+            self.0.lock().clone()
+        }
+        fn terminals(&self) -> Vec<String> {
+            self.names()
+                .into_iter()
+                .filter(|n| matches!(n.as_str(), "Finished" | "Failed" | "Cancelled"))
+                .collect()
+        }
+        /// Wait a little for the last event: it may still be on the link.
+        fn wait_for_terminal(&self) -> bool {
+            for _ in 0..50 {
+                if !self.terminals().is_empty() {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            false
+        }
+    }
+    fn position(names: &[String], what: &str) -> Option<usize> {
+        names.iter().position(|n| n == what)
+    }
+
+    let Ok((port, server)) = serve_once() else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let net = match NetProcess::spawn(None) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("could not spawn the network process: {e}");
+            return 1;
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+
+    // 1. A buffered request: the events of a whole fetch, in order, one end.
+    let recorder = Arc::new(Recorder::default());
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let outcome = runtime
+        .block_on(net.fetch(
+            Outbound::get(format!("http://127.0.0.1:{port}/")),
+            &cancel,
+            Some(recorder.clone()),
+        ))
+        .outcome;
+    drop(server);
+    if !matches!(outcome, FetchOutcome::Ok { status: 200, .. }) {
+        eprintln!("the buffered fetch did not succeed: {outcome:?}");
+        net.shutdown();
+        return 1;
+    }
+    recorder.wait_for_terminal();
+    let names = recorder.names();
+    println!("buffered: {}", names.join(" "));
+    let order = ["Started", "RequestSent", "ResponseHeaders", "Finished"];
+    let positions: Vec<Option<usize>> = order.iter().map(|w| position(&names, w)).collect();
+    if positions.iter().any(Option::is_none) || positions.windows(2).any(|w| w[0] >= w[1]) {
+        eprintln!("expected {} in order, got {}", order.join(" < "), names.join(" "));
+        net.shutdown();
+        return 1;
+    }
+    if recorder.terminals().len() != 1 {
+        eprintln!("a buffered request must end exactly once: {:?}", recorder.terminals());
+        net.shutdown();
+        return 1;
+    }
+
+    // 2. A request the broker cancels before the server answers: the child
+    // reports nothing terminal, so the broker ends it, once, as cancelled.
+    let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") else {
+        eprintln!("could not bind a silent server");
+        net.shutdown();
+        return 1;
+    };
+    let silent_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let silent = std::thread::spawn(move || {
+        // Accept, say nothing, hold the socket until the test is over.
+        if let Ok((socket, _)) = listener.accept() {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            drop(socket);
+        }
+    });
+    let recorder2 = Arc::new(Recorder::default());
+    let cancel2 = tokio_util::sync::CancellationToken::new();
+    let outcome = runtime.block_on(async {
+        let c = cancel2.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            c.cancel();
+        });
+        net.fetch(
+            Outbound::get(format!("http://127.0.0.1:{silent_port}/")),
+            &cancel2,
+            Some(recorder2.clone()),
+        )
+        .await
+        .outcome
+    });
+    if !matches!(outcome, FetchOutcome::Error(_)) {
+        eprintln!("a cancelled fetch should not succeed: {outcome:?}");
+        net.shutdown();
+        return 1;
+    }
+    recorder2.wait_for_terminal();
+    println!("cancelled: {}", recorder2.names().join(" "));
+    if recorder2.terminals() != ["Cancelled"] {
+        eprintln!(
+            "a cancelled request must end exactly once, as cancelled: {:?}",
+            recorder2.terminals()
+        );
+        net.shutdown();
+        return 1;
+    }
+    let _ = silent.join();
+
+    // 3. A streamed body: the reply carries the head, the end comes after it.
+    #[cfg(target_os = "linux")]
+    {
+        let expected: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let Ok((port, server)) = serve_once_bytes(expected, "application/octet-stream") else {
+            eprintln!("could not start the streaming server");
+            net.shutdown();
+            return 1;
+        };
+        let recorder3 = Arc::new(Recorder::default());
+        let cancel3 = tokio_util::sync::CancellationToken::new();
+        let out = Outbound {
+            streaming: true,
+            ..Outbound::get(format!("http://127.0.0.1:{port}/"))
+        };
+        let reply = runtime.block_on(net.fetch(out, &cancel3, Some(recorder3.clone())));
+        let (FetchOutcome::Streaming { .. }, Some(ring)) = (&reply.outcome, reply.ring) else {
+            eprintln!("expected a streamed reply with its ring: {:?}", reply.outcome);
+            net.shutdown();
+            return 1;
+        };
+        let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("could not open the ring: {e}");
+                net.shutdown();
+                return 1;
+            }
+        };
+        let mut received = 0usize;
+        let mut buf = [0u8; 4096];
+        loop {
+            match consumer.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => received += n,
+                Err(e) => {
+                    eprintln!("ring read failed: {e}");
+                    net.shutdown();
+                    return 1;
+                }
+            }
+        }
+        drop(server);
+        if !recorder3.wait_for_terminal() {
+            eprintln!("the streamed request never ended: {}", recorder3.names().join(" "));
+            net.shutdown();
+            return 1;
+        }
+        println!(
+            "streamed {received} bytes past the peek: {}",
+            recorder3.names().join(" ")
+        );
+        if recorder3.terminals() != ["Finished"] {
+            eprintln!(
+                "a streamed request must end exactly once, finished: {:?}",
+                recorder3.terminals()
+            );
+            net.shutdown();
+            return 1;
+        }
+
+        // 4. A streamed body nobody reads: the consumer is dropped at once
+        // (the page was left while it loaded). Bigger than the ring, so the
+        // pump in the network process finds nobody draining and abandons the
+        // body. The request must still end, exactly once.
+        let expected: Vec<u8> = (0..4_000_000u32).map(|i| (i % 253) as u8).collect();
+        let Ok((port, server)) = serve_once_bytes(expected, "application/octet-stream") else {
+            eprintln!("could not start the second streaming server");
+            net.shutdown();
+            return 1;
+        };
+        let recorder4 = Arc::new(Recorder::default());
+        let cancel4 = tokio_util::sync::CancellationToken::new();
+        let out = Outbound {
+            streaming: true,
+            ..Outbound::get(format!("http://127.0.0.1:{port}/"))
+        };
+        let reply = runtime.block_on(net.fetch(out, &cancel4, Some(recorder4.clone())));
+        if !matches!(reply.outcome, FetchOutcome::Streaming { .. }) {
+            eprintln!("expected a streamed reply: {:?}", reply.outcome);
+            net.shutdown();
+            return 1;
+        }
+        drop(reply);
+        drop(server);
+        if !recorder4.wait_for_terminal() {
+            eprintln!(
+                "a streamed request whose body was abandoned never ended: {}",
+                recorder4.names().join(" ")
+            );
+            net.shutdown();
+            return 1;
+        }
+        println!("abandoned stream: {}", recorder4.names().join(" "));
+        if recorder4.terminals().len() != 1 {
+            eprintln!("an abandoned stream must end exactly once: {:?}", recorder4.terminals());
+            net.shutdown();
+            return 1;
+        }
+    }
+
+    net.shutdown();
+    0
+}
+
 /// A buffered body past the IPC frame cap: the network process cannot send it,
 /// and must say so rather than leave the broker waiting out its reply timeout.
 /// The link must still serve afterwards.
@@ -7427,7 +7688,7 @@ fn oversized() -> i32 {
     let cancel = tokio_util::sync::CancellationToken::new();
     let started = std::time::Instant::now();
     let outcome = runtime
-        .block_on(net.fetch(Outbound::get(format!("http://127.0.0.1:{port}/")), &cancel))
+        .block_on(net.fetch(Outbound::get(format!("http://127.0.0.1:{port}/")), &cancel, None))
         .outcome;
     let elapsed = started.elapsed();
     drop(server);
@@ -7463,7 +7724,7 @@ fn oversized() -> i32 {
         return 1;
     };
     let outcome = runtime
-        .block_on(net.fetch(Outbound::get(format!("http://127.0.0.1:{port}/")), &cancel))
+        .block_on(net.fetch(Outbound::get(format!("http://127.0.0.1:{port}/")), &cancel, None))
         .outcome;
     net.shutdown();
     drop(server);
@@ -7582,6 +7843,157 @@ fn engine() -> i32 {
                     return 1;
                 }
             }
+        }
+
+        engine.close_zone(zone).await;
+        let _ = engine.shutdown().await;
+        0
+    });
+
+    drop(server);
+    code
+}
+
+/// A navigation through the network process reaches the embedder's resource
+/// stream like an in-process one: the document request starts, and ends.
+fn engine_net_events() -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent};
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+    use std::collections::HashMap;
+
+    let Ok((port, server)) = serve_once() else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+
+    let code = runtime.block_on(async move {
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        if let Err(e) = engine.settings().set("security.network_process", Setting::Bool(true)) {
+            eprintln!("could not enable the network process: {e}");
+            return 1;
+        }
+        let mut events = engine.subscribe_events();
+        let mut resources = engine.subscribe_resource_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+            eprintln!("could not create a zone");
+            return 1;
+        };
+        let Ok(tab) = zone.tab_builder().create().await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+        let url = format!("http://127.0.0.1:{port}/");
+        if tab.navigate(url.clone()).await.is_err() {
+            eprintln!("navigate failed");
+            return 1;
+        }
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                eprintln!("timed out waiting for the navigation to finish");
+                return 1;
+            }
+            match tokio::time::timeout(remaining, events.recv()).await {
+                Ok(Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                })) => break,
+                Ok(Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Failed { error, .. },
+                    ..
+                })) => {
+                    eprintln!("navigation failed: {error}");
+                    return 1;
+                }
+                Ok(Ok(_)) => continue,
+                Ok(Err(e)) => {
+                    eprintln!("event channel closed: {e}");
+                    return 1;
+                }
+                Err(_) => {
+                    eprintln!("timed out waiting for the navigation to finish");
+                    return 1;
+                }
+            }
+        }
+
+        // Everything the resource stream has by now, by request: a start and
+        // how it ended.
+        let mut started: HashMap<String, String> = HashMap::new();
+        let mut ended: HashMap<String, &'static str> = HashMap::new();
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_millis(500), resources.recv()).await {
+                Ok(Ok(update)) => match &update.event {
+                    ResourceEvent::Started { request_id, url, .. } => {
+                        started.insert(format!("{request_id:?}"), url.clone());
+                    }
+                    ResourceEvent::Finished { request_id, .. } => {
+                        ended.insert(format!("{request_id:?}"), "finished");
+                    }
+                    ResourceEvent::Failed { request_id, .. } => {
+                        ended.insert(format!("{request_id:?}"), "failed");
+                    }
+                    ResourceEvent::Cancelled { request_id, .. } => {
+                        ended.insert(format!("{request_id:?}"), "cancelled");
+                    }
+                    _ => {}
+                },
+                Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                _ => break,
+            }
+        }
+        for (id, u) in &started {
+            println!(
+                "request {id} for {u}: {}",
+                ended.get(id).copied().unwrap_or("never ended")
+            );
+        }
+        let document = started.iter().find(|(_, u)| **u == url).map(|(id, _)| id.clone());
+        let Some(document) = document else {
+            eprintln!("the document request was never reported as started");
+            return 1;
+        };
+        if ended.get(&document).copied() != Some("finished") {
+            eprintln!("the document request did not finish: {:?}", ended.get(&document));
+            return 1;
+        }
+        if let Some((id, u)) = started.iter().find(|(id, _)| !ended.contains_key(*id)) {
+            eprintln!("request {id} for {u} started and never ended");
+            return 1;
         }
 
         engine.close_zone(zone).await;

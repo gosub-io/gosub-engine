@@ -97,7 +97,7 @@ pub enum NavigationError {
 ///
 /// `#[non_exhaustive]`: whatever the network stack learns to tell apart next lands as a
 /// new variant without a breaking change.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum LoadError {
     /// Refused by policy before it was sent - mixed content, URL policy, CORS. Retrying
@@ -178,6 +178,26 @@ impl std::fmt::Display for LoadError {
 
 impl std::error::Error for LoadError {}
 
+impl LoadError {
+    /// The same error with `f` applied to its message. `Blocked` carries none.
+    pub(crate) fn map_message(self, f: impl FnOnce(String) -> String) -> Self {
+        use LoadError::*;
+        match self {
+            Blocked { reason } => Blocked { reason },
+            InvalidUrl { message } => InvalidUrl { message: f(message) },
+            Connect { message } => Connect { message: f(message) },
+            Tls { message } => Tls { message: f(message) },
+            Timeout { message } => Timeout { message: f(message) },
+            Transfer { message } => Transfer { message: f(message) },
+            Redirect { message } => Redirect { message: f(message) },
+            Io { message } => Io { message: f(message) },
+            Cancelled { message } => Cancelled { message: f(message) },
+            Content { message } => Content { message: f(message) },
+            Other { message } => Other { message: f(message) },
+        }
+    }
+}
+
 impl From<&NetError> for LoadError {
     fn from(e: &NetError) -> Self {
         match e {
@@ -233,6 +253,11 @@ impl From<&NetError> for LoadError {
 /// claiming one would be worse than admitting we do not know.
 impl From<&anyhow::Error> for LoadError {
     fn from(error: &anyhow::Error) -> Self {
+        // A failure classified elsewhere (in the network process, which has
+        // the typed cause) travels as a `LoadError` and is itself again here.
+        if let Some(classified) = error.downcast_ref::<LoadError>() {
+            return classified.clone();
+        }
         match error.downcast_ref::<NetError>() {
             Some(net) => LoadError::from(net),
             None => LoadError::Other {
@@ -332,6 +357,17 @@ mod tests {
     /// The router hands fetch failures on as `anyhow`, so the classification only survives
     /// if `NetError` can be recovered by downcast. If anyhow ever stopped preserving the
     /// concrete type, every navigation failure would silently collapse to `Other`.
+    /// A failure classified in another process travels as a `LoadError` inside
+    /// an `anyhow::Error`, and is itself again on this side rather than "other".
+    #[test]
+    fn a_classified_error_travels_as_itself() {
+        let classified = LoadError::Blocked {
+            reason: BlockReason::MixedContent,
+        };
+        let travelled = anyhow::Error::new(classified.clone()).context("through the link");
+        assert_eq!(LoadError::from(&travelled), classified);
+    }
+
     #[test]
     fn net_error_survives_the_anyhow_round_trip() {
         let original = NetError::Timeout("took too long".into());
