@@ -225,14 +225,23 @@ fn relay_stderr(stderr: std::process::ChildStderr, pid: u32) {
     }
 }
 
-/// One relayed line as text: lossy UTF-8, at most [`MAX_RELAYED_LINE`] bytes of
-/// it, with control characters other than tab removed.
+/// One relayed line as text: lossy UTF-8 with control characters other than tab
+/// removed, at most [`MAX_RELAYED_LINE`] bytes of it. The cap applies to the
+/// text as well as the input, since lossy decoding turns each invalid byte into
+/// a three-byte U+FFFD.
 fn sanitize_line(line: &[u8]) -> String {
     let cut = &line[..line.len().min(MAX_RELAYED_LINE)];
-    String::from_utf8_lossy(cut)
+    let mut text = String::new();
+    for c in String::from_utf8_lossy(cut)
         .chars()
         .filter(|&c| c == '\t' || !c.is_control())
-        .collect()
+    {
+        if text.len() + c.len_utf8() > MAX_RELAYED_LINE {
+            break;
+        }
+        text.push(c);
+    }
+    text
 }
 
 #[cfg(test)]
@@ -245,6 +254,17 @@ mod tests {
             sanitize_line(b"\x1b[2J\x1b]0;owned\x07[net] ok\tdone\r\n"),
             "[2J]0;owned[net] ok\tdone"
         );
+    }
+
+    /// Binary stderr: every byte decodes to a three-byte U+FFFD, and the line
+    /// still stops at the cap, on a character boundary.
+    #[test]
+    fn a_relayed_line_of_invalid_utf8_is_bounded() {
+        let binary = vec![0xFF; MAX_RELAYED_LINE];
+        let text = sanitize_line(&binary);
+        assert!(text.len() <= MAX_RELAYED_LINE, "{} bytes", text.len());
+        assert_eq!(text.chars().count(), MAX_RELAYED_LINE / 3);
+        assert!(text.chars().all(|c| c == '\u{FFFD}'));
     }
 
     #[test]
