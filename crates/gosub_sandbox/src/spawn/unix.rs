@@ -157,7 +157,7 @@ pub fn spawn(
     drop(child_end);
     let mut child = child;
     if let Some(stderr) = child.stderr.take() {
-        relay_stderr(stderr);
+        relay_stderr(stderr, child.id());
     }
     Ok(Child {
         inner: child,
@@ -172,9 +172,10 @@ const MAX_RELAYED_LINE: usize = 4096;
 /// Pass a child's stderr on to this process's own, a line at a time: cut to
 /// [`MAX_RELAYED_LINE`], and with control characters other than tab removed, so
 /// whatever a compromised child writes reaches a terminal as text and never as
-/// an escape sequence. Runs until every holder of the pipe's write end - the
-/// child and anything it forked - has exited.
-fn relay_stderr(stderr: std::process::ChildStderr) {
+/// an escape sequence. Each line starts with `[child <pid>]`, so nothing a child
+/// writes passes for the broker's own diagnostics. Runs until every holder of
+/// the pipe's write end - the child and anything it forked - has exited.
+fn relay_stderr(stderr: std::process::ChildStderr, pid: u32) {
     let spawned = std::thread::Builder::new()
         .name("gosub-child-stderr".into())
         .spawn(move || {
@@ -207,7 +208,7 @@ fn relay_stderr(stderr: std::process::ChildStderr) {
                     }
                 }
                 let text = sanitize_line(&line);
-                let _ = writeln!(io::stderr().lock(), "{text}");
+                let _ = writeln!(io::stderr().lock(), "[child {pid}] {text}");
             }
         });
     if let Err(e) = spawned {
