@@ -23,11 +23,15 @@ pub use sink::TabSink;
 pub use history::{HistoryEntryId, HistoryEntrySummary, HistorySnapshot};
 
 /// Whether a page at `from` may take its tab to `to` - by a link, a form, or a
-/// navigation its renderer asks for: to the web, or from a file page to another
-/// file. Never to an internal page, `data:`, `javascript:` or anything else; those
-/// are reached from the address bar or not at all.
+/// navigation its renderer asks for: to the web, from a file page to another file,
+/// or from an internal page to another internal page. Never from anything else to an
+/// internal page, `data:`, `javascript:` or anything else; those are reached from the
+/// address bar or not at all.
 pub(crate) fn page_may_navigate(from: &url::Url, to: &url::Url) -> bool {
-    matches!(to.scheme(), "http" | "https") || (to.scheme() == "file" && from.scheme() == "file")
+    let internal = |url: &url::Url| matches!(url.scheme(), "gosub" | "about");
+    matches!(to.scheme(), "http" | "https")
+        || (to.scheme() == "file" && from.scheme() == "file")
+        || (internal(to) && internal(from))
 }
 
 // Tab management and tab-related types.
@@ -61,5 +65,15 @@ mod tests {
         assert!(may("file:///home/u/a.html", "file:///home/u/b.html"));
         assert!(may("file:///home/u/a.html", "https://b.test/"));
         assert!(!may("file:///home/u/a.html", "gosub://settings"));
+    }
+
+    #[test]
+    fn an_internal_page_also_reaches_internal_pages() {
+        assert!(may("gosub://home", "gosub://help"));
+        assert!(may("gosub://nope", "gosub://history"));
+        assert!(may("about:blank", "gosub://config"));
+        assert!(may("gosub://home", "https://b.test/"));
+        assert!(!may("gosub://home", "file:///etc/passwd"));
+        assert!(!may("gosub://home", "javascript:alert(1)"));
     }
 }
