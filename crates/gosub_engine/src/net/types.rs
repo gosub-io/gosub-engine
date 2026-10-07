@@ -195,12 +195,17 @@ impl ResponseInfo {
 }
 
 /// A character that changes how a name displays without being seen: the bidi
-/// embeddings, overrides, isolates and marks, and the zero-width ones. Not
+/// embeddings, overrides, isolates and marks, the zero-width ones, and the line
+/// and paragraph separators, which break a name across lines. Not
 /// `char::is_control`, which covers only C0 and C1.
 fn is_invisible_format(c: char) -> bool {
     matches!(
         c,
-        '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+        '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{FEFF}'
     )
 }
 
@@ -332,6 +337,20 @@ mod tests {
                 info("https://example.org/a%0Ab%1B%7Fc.txt", &[]).suggested_filename(),
                 "abc.txt"
             );
+        }
+
+        /// U+2028 and U+2029 are separators, neither control nor format characters,
+        /// and break the name across lines in a dialog.
+        #[test]
+        fn filename_drops_line_and_paragraph_separators() {
+            for (encoded, raw) in [("%E2%80%A8", '\u{2028}'), ("%E2%80%A9", '\u{2029}')] {
+                let from_url = info(&format!("https://example.org/a{encoded}b.txt"), &[]).suggested_filename();
+                assert_eq!(from_url, "ab.txt", "{raw:?} from the URL");
+                let header = format!("attachment; filename=\"a{raw}b.txt\"");
+                let from_header =
+                    info("https://example.org/x", &[("content-disposition", &header)]).suggested_filename();
+                assert_eq!(from_header, "ab.txt", "{raw:?} from Content-Disposition");
+            }
         }
 
         #[test]
