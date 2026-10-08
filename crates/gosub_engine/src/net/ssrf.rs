@@ -26,22 +26,21 @@
 //! poison. IP literals never reach a resolver; [`literal_verdict`] classifies
 //! them per hop through the fetcher's URL policy.
 //!
+//! The other half is which documents count as private, and there the same rule
+//! holds: a document is judged by the address its response actually came from
+//! ([`space_of_response`], from the connection's peer as gosub-sonar reports it),
+//! never by resolving its host again. A second lookup is one a rebinding DNS
+//! server answers differently: public for the connection that served the page,
+//! private for the question "where does this page live?".
+//!
 //! The classification is deliberately wide: every range a renderer must never
 //! reach, plus the alternate IPv4 spellings (`2130706433`, `0x7f000001`,
 //! `127.1`) and IPv6 embeddings (NAT64, 6to4, IPv4-mapped) that naive filters
 //! miss.
 
 use gosub_sonar::{DnsError, DnsResolver, Resolving};
-use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::time::{Duration, Instant};
 use url::Url;
-
-/// How long a hostname's classification is remembered. Long enough that the
-/// document's own address space is not re-resolved for every subresource;
-/// short enough that a legitimately re-addressed host recovers.
-const CLASSIFICATION_TTL: Duration = Duration::from_secs(300);
 
 /// Classify an IP against the ranges that must never be reachable from a
 /// public page. Returns the category name, or `None` if the address is public.
@@ -213,64 +212,23 @@ async fn lookup(host: &str) -> std::io::Result<Vec<IpAddr>> {
 pub enum AddressSpace {
     Public,
     /// Loopback, private, link-local, ... - anything in [`blocked_ip_reason`]'s
-    /// ranges. A name is private only if every answer is: a document's
-    /// private status lifts the private-network protection off what it
-    /// loads, so a mixed answer (public and private, which a hostile DNS
-    /// server can give) must not earn it.
+    /// ranges. A document's private status lifts the private-network
+    /// protection off what it loads, so anything less than certainty earns it
+    /// public.
     Private,
 }
 
-const MAX_CACHED_HOSTS: usize = 4096;
-
-/// Remembers which address space a host was classified into, so a document's
-/// own host is not resolved again for every subresource it loads.
-#[derive(Debug, Default)]
-pub struct AddressSpaceCache {
-    hosts: Mutex<HashMap<String, (Instant, AddressSpace)>>,
-}
-
-impl AddressSpaceCache {
-    pub fn new() -> Self {
-        Self::default()
+/// The address space of a response served for `final_url`, from `peer`, the
+/// address its connection reached (see `FetchResultMeta::peer_addr`). Without
+/// one - a proxied or synthetic response - only an IP-literal host can be
+/// placed; a name is public.
+pub fn space_of_response(final_url: &Url, peer: Option<SocketAddr>) -> AddressSpace {
+    if let Some(peer) = peer {
+        return space_of(std::iter::once(peer.ip()));
     }
-
-    /// The address space of `url`'s host. IP literals are classified directly;
-    /// names are resolved once (all answers private makes the name private) and
-    /// remembered. A name that does not resolve counts as public: the policy
-    /// then applies to what it loads, which is the safe direction.
-    pub async fn classify(&self, url: &Url) -> AddressSpace {
-        let Some(host) = url.host_str() else {
-            return AddressSpace::Public;
-        };
-        if let Some(ip) = parse_ip_literal(host) {
-            return space_of(std::iter::once(ip));
-        }
-        let key = cow_utils::CowUtils::cow_to_ascii_lowercase(host).into_owned();
-        if let Some((seen, space)) = self.hosts.lock().get(&key) {
-            if seen.elapsed() < CLASSIFICATION_TTL {
-                return *space;
-            }
-        }
-        match lookup(&key).await {
-            Ok(addrs) => {
-                let space = space_of(addrs.into_iter());
-                let mut hosts = self.hosts.lock();
-                hosts.insert(key, (Instant::now(), space));
-                // Expired entries are only ever skipped on lookup; sweep them here
-                // when the table grows past what a session plausibly touches.
-                if hosts.len() > MAX_CACHED_HOSTS {
-                    hosts.retain(|_, (seen, _)| seen.elapsed() < CLASSIFICATION_TTL);
-                    if hosts.len() > MAX_CACHED_HOSTS {
-                        hosts.clear();
-                    }
-                }
-                space
-            }
-            // Not remembered: one failed lookup would otherwise hold a page's
-            // own neighbours to the public policy for the whole TTL; the next
-            // request asks again.
-            Err(_) => AddressSpace::Public,
-        }
+    match final_url.host_str().and_then(parse_ip_literal) {
+        Some(ip) => space_of(std::iter::once(ip)),
+        None => AddressSpace::Public,
     }
 }
 
@@ -413,34 +371,38 @@ mod tests {
         assert_eq!(space_of(std::iter::empty()), AddressSpace::Public);
     }
 
-    /// A name that does not resolve is public for this request, and not
-    /// remembered as such: the next one resolves again.
-    #[tokio::test]
-    async fn a_failed_lookup_is_not_remembered() {
-        let cache = AddressSpaceCache::new();
+    /// A response is placed by the address it came from, whatever its host
+    /// would resolve to now; without one, only a literal host is placed.
+    #[test]
+    fn a_response_is_placed_by_its_peer() {
+        let peer = |s: &str| Some(SocketAddr::new(ip(s), 80));
+        let named = url("http://rebind.example/");
+        assert_eq!(space_of_response(&named, peer("127.0.0.1")), AddressSpace::Private);
         assert_eq!(
-            cache.classify(&url("http://no-such-host.invalid/")).await,
+            space_of_response(&named, peer("::ffff:10.0.0.1")),
+            AddressSpace::Private
+        );
+        assert_eq!(space_of_response(&named, peer("93.184.216.34")), AddressSpace::Public);
+        // No peer (proxied, synthetic): a name is public, a literal is what it says.
+        assert_eq!(space_of_response(&named, None), AddressSpace::Public);
+        assert_eq!(space_of_response(&url("http://localhost/"), None), AddressSpace::Public);
+        assert_eq!(space_of_response(&url("http://10.1.2.3/"), None), AddressSpace::Private);
+        assert_eq!(
+            space_of_response(&url("http://[::1]:8080/"), None),
+            AddressSpace::Private
+        );
+        assert_eq!(
+            space_of_response(&url("http://93.184.216.34/"), None),
             AddressSpace::Public
         );
-        assert!(cache.hosts.lock().is_empty());
+        assert_eq!(
+            space_of_response(&url("file:///tmp/a.html"), None),
+            AddressSpace::Public
+        );
     }
 
     #[tokio::test]
-    async fn literals_classify_without_resolving() {
-        let cache = AddressSpaceCache::new();
-        assert_eq!(cache.classify(&url("http://10.1.2.3/")).await, AddressSpace::Private);
-        assert_eq!(cache.classify(&url("http://[::1]:8080/")).await, AddressSpace::Private);
-        assert_eq!(
-            cache.classify(&url("http://93.184.216.34/")).await,
-            AddressSpace::Public
-        );
-    }
-
-    #[tokio::test]
-    async fn loopback_names_are_private_and_strictly_refused() {
-        // `localhost` resolves without any network; the system answers loopback.
-        let cache = AddressSpaceCache::new();
-        assert_eq!(cache.classify(&url("http://localhost/")).await, AddressSpace::Private);
+    async fn loopback_names_are_strictly_refused() {
         let err = StrictResolver
             .resolve("localhost")
             .await

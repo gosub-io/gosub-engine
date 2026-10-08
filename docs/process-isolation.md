@@ -387,8 +387,8 @@ server's word - and kills through it whatever it has given up on.
 
 Two policies sit in the broker's I/O runtime, on every subresource a page
 loads, in both the in-process and the network-process arrangement. Both are
-decided from the tab's *own* document (the top-level URL the broker recorded
-at navigation), never from anything the requester sent.
+decided from the tab's *own* document (what the broker recorded for the
+navigation that produced it), never from anything the requester sent.
 
 - **Private-network protection** (`net::ssrf`). A subresource of a document on
   the public internet may not reach loopback, private, link-local, CGNAT,
@@ -400,7 +400,13 @@ at navigation), never from anything the requester sent.
   resolver refuses a name if *any* answer is private and which classifies IP
   literals - including the `2130706433` / `0x7f000001` / `127.1` spellings and
   the NAT64/6to4/IPv4-mapped IPv6 embeddings - at every redirect hop. There is
-  no second lookup for a rebinding attack to poison.
+  no second lookup for a rebinding attack to poison. Whether the *document*
+  lives on the private network is settled the same way: by the address its
+  navigation's response came from (the connection's peer, carried over from
+  the network process), recorded per navigation when the response arrives and
+  used for that document's loads once the tab commits it - never by resolving
+  its host again. A response that came through a proxy, or from no connection,
+  places only an IP-literal host; a named one is public.
 - **Opaque-response blocking** (`net::orb`). A cross-origin response body only
   reaches a renderer when it is something a page may embed: images, media,
   CSS, scripts, fonts. HTML, JSON and XML - by declared type, or by what the

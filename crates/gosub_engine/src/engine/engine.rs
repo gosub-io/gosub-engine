@@ -1961,6 +1961,60 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A page served from the private network may load its neighbours, also when its host is
+    /// a name: `localhost` is placed by the address its response came from, which the I/O
+    /// side records before the page is parsed and asks for its stylesheet. (A literal host
+    /// would be placed without the record; a name proves the record is there in time.)
+    #[tokio::test]
+    async fn a_private_page_by_name_loads_its_own_subresources() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let styles = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let styles_srv = styles.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let styles_srv = styles_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let (ctype, body) = if buf[..n].starts_with(b"GET /style.css ") {
+                        styles_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        ("text/css", "body { color: red; }")
+                    } else {
+                        (
+                            "text/html",
+                            "<html><head><link rel=\"stylesheet\" href=\"/style.css\"></head><body>hi</body></html>",
+                        )
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://localhost:{port}/page"))
+            .await
+            .expect("navigate");
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while styles.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the page's own stylesheet was refused");
+    }
+
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
     /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
     /// returns to the second. Verifies the tree from the embedder's point of view only.
@@ -1989,7 +2043,19 @@ mod tests {
                 tokio::spawn(async move {
                     hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let mut buf = vec![0u8; 4096];
-                    let _ = stream.read(&mut buf).await;
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    // The page save-link-as is used from; everything else is the binary.
+                    if buf[..n].starts_with(b"GET /page ") {
+                        let page = "<html><body><a href=\"/data/other.bin\">other</a></body></html>";
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n",
+                            page.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(page.as_bytes()).await;
+                        return;
+                    }
                     let head = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
                          Content-Disposition: attachment; filename=\"pretty.bin\"\r\n\
@@ -2084,8 +2150,27 @@ mod tests {
         );
 
         // Save-link-as has no spooled body, so that path still fetches - and still reports
-        // progress while it streams.
+        // progress while it streams. From a page, as the context menu offers it: a tab
+        // showing nothing has no document to judge a private-network load by, and is
+        // refused one.
         assert!(tab.pending_downloads().is_empty(), "accepting consumes the offer");
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate to the page");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the page");
         let direct = dir.path().join("direct.bin");
         tab.send(TabCommand::StartDownload {
             id: DownloadId(9),

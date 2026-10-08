@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-gosub-sonar = "0.9.0"
+gosub-sonar = "0.10.0"
 regex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

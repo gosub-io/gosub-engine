@@ -165,6 +165,14 @@ pub(crate) enum IoCommand {
     /// queued after it gets the new one - the registry is only ever read in that
     /// order (see `net::tab_identity`).
     SetTopLevel { tab_id: TabId, url: url::Url },
+    /// The tab now shows the document navigation `nav_id` produced: the loads
+    /// it makes for that document are judged by where that navigation's
+    /// response came from (see `TabIdentity::document_space`). Sent before the
+    /// document is handed to a renderer, so its first load is already judged so.
+    CommitDocument {
+        tab_id: TabId,
+        nav_id: crate::engine::types::NavigationId,
+    },
     /// Ask IO to shut down a specific zone; replies when fully stopped.
     ShutdownZone {
         zone_id: ZoneId,

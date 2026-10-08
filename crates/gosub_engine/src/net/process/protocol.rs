@@ -452,6 +452,9 @@ pub enum FetchOutcome {
         final_url: String,
         headers: HeaderList,
         body: Vec<u8>,
+        /// Where the response came from (`FetchResultMeta::peer_addr`): what the
+        /// broker places the document by on the private-network policy.
+        peer_addr: Option<std::net::SocketAddr>,
     },
     /// The response head; the body streams through a shared-memory ring
     /// (`gosub_ipc::ring`) whose fd follows this message on the link, right
@@ -463,6 +466,7 @@ pub enum FetchOutcome {
         final_url: String,
         headers: HeaderList,
         peek: Vec<u8>,
+        peer_addr: Option<std::net::SocketAddr>,
     },
     /// The request failed. A string rather than a typed error: the broker only
     /// reports it, and a rich error type would be one more thing whose
