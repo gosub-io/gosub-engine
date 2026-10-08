@@ -281,6 +281,17 @@ holds the whole body for the transport; a consumer that stops draining stalls
 the producer (backpressure) and, after a bounded wait, ends the stream. Linux
 only; elsewhere the network process buffers as before.
 
+**No body is too large for a frame.** A link frame holds at most 16 MiB. A
+buffered body larger than half of that crosses as a sealed memfd
+(`gosub_ipc::shm::create_sealed_blob`, up to 128 MiB) behind its head, the tile
+channel's mechanism: network process to broker as `FromNet::SharedReply`, and
+broker to renderer as `ResourceReply::Shared` (relayed through the fork server
+like a tile fd, the other way). The receiver reads it with plain `read`s, so
+the renderer's filter needs nothing new. Before this a 20 MiB image failed to
+load under the network process, and killed the site's renderer under the
+renderer tier. Linux only; elsewhere a body past a frame is refused with an
+error, and the link carries on.
+
 **Requests report back as if fetched in-process.** The network process has no
 tabs and no event bus, so its fetcher's observer sends every event the engine
 reports - name resolved, connected, request sent, headers, progress, finished,
@@ -312,7 +323,7 @@ never an origin the broker did not give.
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
 identity and cookies live - with the page's `Referer` and `Accept-Language`,
 as the page's own fetch would, and `file:` only for a page that itself came
-from disk - and replies with bytes. The private-network and opaque-response
+from disk - and replies with bytes (a large body as a sealed memfd, above). The private-network and opaque-response
 policies below are decided from the document the request is for, which the
 broker stamps on it, so a page still shown keeps asking as itself while the
 tab loads the next one. The renderer also gets the user's media preferences

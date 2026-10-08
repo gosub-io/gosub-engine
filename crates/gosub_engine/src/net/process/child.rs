@@ -181,6 +181,9 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                     match performed {
                         Performed::Done(outcome) => {
                             let mut link_tx = link_tx.lock();
+                            let Some(outcome) = share_large_body(&mut link_tx, tag, outcome) else {
+                                return;
+                            };
                             if let Err(e) = link_tx.send(&FromNet::Reply { tag, outcome }) {
                                 // A reply the link cannot carry (a body past the frame cap)
                                 // is refused before any of it is written, so the link is
@@ -218,6 +221,74 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
 
     shutdown.cancel();
     0
+}
+
+/// Largest body a [`FetchOutcome::Ok`] carries in-band: half a frame, leaving
+/// the head room. Past it the frame cannot be sent at all.
+#[cfg(target_os = "linux")]
+const MAX_IN_BAND_BODY: usize = gosub_ipc::MAX_FRAME_LEN as usize / 2;
+
+/// Send a buffered body too large for one frame as [`FromNet::SharedReply`] and a
+/// sealed memfd behind it, under the one hold of `link_tx` so nothing comes in
+/// between. `None` once sent; otherwise the outcome to send as it is - in-band,
+/// or, where no memfd can carry it, an error the link can.
+#[cfg(target_os = "linux")]
+fn share_large_body(
+    link_tx: &mut gosub_ipc::EndpointTx,
+    tag: RequestTag,
+    outcome: FetchOutcome,
+) -> Option<FetchOutcome> {
+    let FetchOutcome::Ok {
+        status,
+        status_text,
+        final_url,
+        headers,
+        body,
+        peer_addr,
+    } = outcome
+    else {
+        return Some(outcome);
+    };
+    if body.len() <= MAX_IN_BAND_BODY {
+        return Some(FetchOutcome::Ok {
+            status,
+            status_text,
+            final_url,
+            headers,
+            body,
+            peer_addr,
+        });
+    }
+    let len = body.len();
+    let fd = match gosub_ipc::shm::create_sealed_blob(len, |buf| buf.copy_from_slice(&body)) {
+        Ok(fd) => fd,
+        Err(e) => {
+            return Some(FetchOutcome::Error(format!(
+                "a {len}-byte response cannot cross the process boundary: {e}"
+            )))
+        }
+    };
+    let head = FromNet::SharedReply {
+        tag,
+        status,
+        status_text,
+        final_url,
+        headers,
+        peer_addr,
+        len: len as u64,
+    };
+    // A write error means the broker went away; the recv loop ends the process.
+    if link_tx.send(&head).is_ok() {
+        let _ = link_tx.send_fd(std::os::fd::AsRawFd::as_raw_fd(&fd));
+    }
+    None
+}
+
+/// No memfd to share a body through: every outcome goes as it is, and one past
+/// the frame cap is answered with an error.
+#[cfg(not(target_os = "linux"))]
+fn share_large_body(_: &mut gosub_ipc::EndpointTx, _: RequestTag, outcome: FetchOutcome) -> Option<FetchOutcome> {
+    Some(outcome)
 }
 
 /// The network process has no engine around it: no cookies (the broker or

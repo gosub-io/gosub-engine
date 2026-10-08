@@ -181,6 +181,22 @@ fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     rx.recv_fd()
 }
 
+/// The body behind a [`FetchOutcome::Shared`]: its sealed memfd, read out whole.
+#[cfg(target_os = "linux")]
+fn recv_shared_body(rx: &mut gosub_ipc::EndpointRx, len: u64) -> std::io::Result<Vec<u8>> {
+    let fd = rx.recv_fd()?;
+    let len = usize::try_from(len).map_err(|_| std::io::Error::other("shared body length out of range"))?;
+    gosub_ipc::shm::read_sealed_blob(fd, len)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_shared_body(_rx: &mut gosub_ipc::EndpointRx, _len: u64) -> std::io::Result<Vec<u8>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no fd passing on this platform",
+    ))
+}
+
 #[cfg(not(target_os = "linux"))]
 fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     Err(std::io::Error::new(
@@ -350,6 +366,36 @@ impl NetProcess {
                                     Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
                                 },
                                 outcome => NetReply { outcome, ring: None },
+                            };
+                            if let Some(waiter) = waiters.lock().remove(&tag) {
+                                let _ = waiter.send(reply);
+                            }
+                        }
+                        // A body too large for a frame follows as a sealed memfd: read
+                        // it now, before the next message, and hand on the plain `Ok`
+                        // it stands for.
+                        FromNet::SharedReply {
+                            tag,
+                            status,
+                            status_text,
+                            final_url,
+                            headers,
+                            peer_addr,
+                            len,
+                        } => {
+                            let reply = match recv_shared_body(&mut rx, len) {
+                                Ok(body) => NetReply {
+                                    outcome: FetchOutcome::Ok {
+                                        status,
+                                        status_text,
+                                        final_url,
+                                        headers,
+                                        body,
+                                        peer_addr,
+                                    },
+                                    ring: None,
+                                },
+                                Err(e) => NetReply::error(format!("shared body did not arrive: {e}")),
                             };
                             if let Some(waiter) = waiters.lock().remove(&tag) {
                                 let _ = waiter.send(reply);
