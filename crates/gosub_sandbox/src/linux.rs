@@ -2535,12 +2535,15 @@ pub fn apply_child_file_size_limit(bytes: u64) -> std::io::Result<()> {
 
 /// `close_range(3, ~0, CLOSE_RANGE_CLOEXEC)`: flags rather than closes, so
 /// the spawner can still pick the links that survive. Kernels before 5.11
-/// lack it; then the child inherits what was left without CLOEXEC, as before.
+/// lack the flag (and before 5.9 the call): there every descriptor is flagged
+/// one at a time instead (see [`crate::spawn::sweep_close_on_exec`]).
 #[cfg(feature = "multi-process")]
 pub fn mark_all_fds_close_on_exec() {
     const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
     // SAFETY: a plain syscall with integer arguments; affects only this process.
-    let _ = unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) };
+    if unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) } < 0 {
+        crate::spawn::sweep_close_on_exec();
+    }
 }
 
 /// Move the calling process into fresh, empty namespaces when `enable` is set

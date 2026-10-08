@@ -1418,6 +1418,16 @@ impl ResidentRenderer {
     }
 }
 
+/// The last handle gone is the broker done with the renderer: it is killed,
+/// not left to notice end-of-file. The pool lets go of a renderer that is
+/// mid-exchange without its lock, and the exchange's thread then drops the
+/// last handle; a hostile renderer that stops reading would otherwise live on.
+impl Drop for ResidentRenderer {
+    fn drop(&mut self) {
+        self.mark_dead();
+    }
+}
+
 impl Drop for ForkServer {
     fn drop(&mut self) {
         // A fork server left running holds warmed page-shaping state for no
@@ -1432,6 +1442,32 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A renderer whose last handle is dropped is killed, whatever it is doing.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_dropped_renderer_is_killed() {
+        let mut child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep");
+        let pidfd = gosub_sandbox::open_child_pidfd(child.id(), std::process::id()).expect("pidfd");
+        let (ours, _theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let mut renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
+        renderer.pid = child.id() as i32;
+        renderer.pidfd = Some(pidfd);
+        drop(renderer);
+        let started = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("wait") {
+                break status;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "still running after the drop"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(status.signal(), Some(9), "SIGKILL");
+    }
 
     /// What an input pass may ask for is bounded like a hit region: over the cap
     /// is a crash, a long URL or an oversized body drops the navigation whole,
