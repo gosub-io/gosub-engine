@@ -565,12 +565,23 @@ fn bound_effects(effects: &mut Vec<Effect>) -> anyhow::Result<()> {
                 }
                 *url = candidate.unwrap_or_default();
             }
+            // The picker's strings reach the embedder's UI. The value is
+            // sanitised again for its kind, so it is what the in-process path
+            // hands over (`#rrggbb`, an ISO date or time, or empty); the
+            // bounds are the attributes as written, made displayable.
             Effect::Picker {
-                value, min, max, step, ..
+                kind,
+                value,
+                min,
+                max,
+                step,
+                ..
             } => {
                 bound_text(value, MAX_HIT_TEXT);
+                *value = crate::engine::edit::sanitize_picker_value(*kind, value);
                 for field in [min, max, step].into_iter().flatten() {
                     bound_text(field, MAX_HIT_TEXT);
+                    displayable(field);
                 }
             }
             Effect::ClipboardWrite { text } => bound_text(text, MAX_CLIPBOARD_TEXT),
@@ -1465,8 +1476,8 @@ mod tests {
             Effect::Picker {
                 kind: crate::engine::events::PickerKind::Date,
                 bounds: rect,
-                value: "v".repeat(MAX_HIT_TEXT + 5),
-                min: None,
+                value: "2026-10-08".into(),
+                min: Some("9".repeat(MAX_HIT_TEXT + 5)),
                 max: None,
                 step: None,
             },
@@ -1482,7 +1493,7 @@ mod tests {
                     format!("nav {url} body={}", body.as_ref().map_or(0, String::len))
                 }
                 Effect::Focus { .. } => "focus".into(),
-                Effect::Picker { value, .. } => format!("picker {}", value.len()),
+                Effect::Picker { min, .. } => format!("picker {}", min.as_ref().map_or(0, String::len)),
                 Effect::Cursor { .. } => "cursor".into(),
                 other => format!("{other:?}"),
             })
@@ -1552,6 +1563,55 @@ mod tests {
         memory.apply_pass(&[10, 11], []);
         assert_eq!(memory.bytes(), 2 * tile);
         assert_eq!(memory.hashes().len(), 2);
+    }
+
+    /// A picker's strings reach the embedder's UI: the value is what the
+    /// in-process path would hand over for its kind, the bounds lose control
+    /// and bidi characters.
+    #[test]
+    fn picker_strings_are_displayable() {
+        use crate::engine::events::PickerKind;
+        use crate::fork_server::protocol::{Effect, WireRect};
+
+        let picker = |kind, value: &str| Effect::Picker {
+            kind,
+            bounds: WireRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+            value: value.into(),
+            min: Some("2026\u{202E}-01-01\x1b[0m".into()),
+            max: None,
+            step: Some("1\n".into()),
+        };
+        let mut effects = vec![
+            picker(PickerKind::Date, "Pay \u{202E}evil\u{202C} bank"),
+            picker(PickerKind::Date, " 2026-10-08 "),
+            picker(PickerKind::Color, "rebeccapurple"),
+            picker(PickerKind::Color, "\x1b[2Jnot a colour"),
+        ];
+        bound_effects(&mut effects).expect("four effects pass");
+        let seen: Vec<_> = effects
+            .iter()
+            .map(|e| match e {
+                Effect::Picker {
+                    value, min, max, step, ..
+                } => (value.as_str(), min.as_deref(), max.as_deref(), step.as_deref()),
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        let bounds = (Some("2026-01-01[0m"), None, Some("1\n"));
+        assert_eq!(
+            seen,
+            vec![
+                ("", bounds.0, bounds.1, bounds.2),
+                ("2026-10-08", bounds.0, bounds.1, bounds.2),
+                ("#663399", bounds.0, bounds.1, bounds.2),
+                ("#000000", bounds.0, bounds.1, bounds.2),
+            ]
+        );
     }
 
     /// A title reaches the embedder's window: no control or bidi characters.
