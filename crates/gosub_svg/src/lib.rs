@@ -18,6 +18,13 @@ fn svg_options() -> usvg::Options<'static> {
     }));
     usvg::Options {
         fontdb,
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            // usvg's default treats any other `href` as a path and reads it
+            // from disk, so a document naming `/etc/passwd` would have it
+            // read. `data:` or nothing, as in the render pipeline's decoder.
+            resolve_string: Box::new(|_, _| None),
+        },
         ..Default::default()
     }
 }
@@ -60,5 +67,33 @@ impl SVGDocument {
         let str = doc.write_from_node(id);
 
         Self::from_str(&str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SVGDocument;
+
+    /// An `<image>` naming a file is not read from disk; `data:` still works.
+    #[test]
+    fn an_image_href_is_never_a_file() {
+        let path = std::env::temp_dir().join(format!("gosub-svg-href-{}.svg", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#,
+        )
+        .unwrap();
+        let page = |href: &str| {
+            format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="8" height="8"><image width="8" height="8" xlink:href="{href}"/></svg>"#
+            )
+        };
+        let from_file = SVGDocument::from_str(&page(path.to_str().unwrap())).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(!from_file.tree.root().has_children(), "the file was read");
+
+        let inline = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4'/%3E%3C/svg%3E";
+        let from_data = SVGDocument::from_str(&page(inline)).unwrap();
+        assert!(from_data.tree.root().has_children(), "control: a data: image loads");
     }
 }
