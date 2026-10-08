@@ -28,7 +28,9 @@ struct Face {
 ///
 /// Faces load concurrently; the sources within a face are tried in order and stop at the
 /// first that registers, because they are alternatives to each other (`src: url(a), url(b)`)
-/// rather than a list of things to fetch.
+/// rather than a list of things to fetch. A source that fails at any step - fetch, decode, or
+/// the font system refusing it - falls through to the next (CSS Fonts 4, `src`: "if the
+/// resource ... is invalid, the user agent must proceed to the next" source).
 pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
     doc: &EngineDocument<C>,
     base_url: &Url,
@@ -41,21 +43,66 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
         return;
     }
 
-    let loaded = futures_util::future::join_all(faces.iter().map(|face| load_face(face, fetch, timing_scope))).await;
+    let fetch_font = |url: Url| async move {
+        let started = std::time::Instant::now();
+        let body = fetch_subresource(url.as_str(), crate::net::types::ResourceKind::Font, fetch).await;
+        let elapsed = started.elapsed().as_micros() as u64;
+        // Recorded against the navigation explicitly: this runs across awaits, where a
+        // thread-local scope does not hold.
+        match timing_scope {
+            Some(scope) => gosub_shared::timing::record_in(
+                scope,
+                gosub_shared::timing::Timing::NetFetchFont,
+                elapsed,
+                Some(url.to_string()),
+            ),
+            None => gosub_shared::timing::record(
+                gosub_shared::timing::Timing::NetFetchFont,
+                elapsed,
+                Some(url.to_string()),
+            ),
+        }
+        body.map(|(_, bytes)| bytes)
+    };
+
+    let loaded = futures_util::future::join_all(faces.iter().map(|face| load_face(face, 0, &fetch_font))).await;
 
     // Registration is serialised behind the font system's lock anyway, and doing it here --
     // in the order the document declared the faces -- keeps the result independent of which
     // fetch happened to finish first.
-    for (face, bytes) in faces.iter().zip(loaded) {
-        let Some((url, bytes)) = bytes else { continue };
-        let Some(bytes) = decode_web_font(bytes, &url) else {
-            continue;
-        };
-        match font_system.lock().register_font(bytes, Some(&face.family)) {
-            Ok(()) => log::debug!("Registered web font '{}' from {url}", face.family),
-            Err(e) => log::warn!("Failed to register web font '{}': {e:?}", face.family),
-        }
+    for (face, first) in faces.iter().zip(loaded) {
+        register_face(face, first, &fetch_font, &mut |bytes, family| {
+            font_system.lock().register_font(bytes, Some(family))
+        })
+        .await;
     }
+}
+
+/// Register `face` from `candidate` (what [`load_face`] found), going on to the face's next
+/// source whenever the font system refuses one: the rare path, one source at a time, not
+/// worth fetching ahead for. Whether any source registered.
+async fn register_face<F, Fut, R>(
+    face: &Face,
+    mut candidate: Option<(usize, Url, Vec<u8>)>,
+    fetch: &F,
+    register: &mut R,
+) -> bool
+where
+    F: Fn(Url) -> Fut,
+    Fut: std::future::Future<Output = Option<Vec<u8>>>,
+    R: FnMut(Vec<u8>, &str) -> Result<(), gosub_interface::font::FontError>,
+{
+    while let Some((index, url, bytes)) = candidate {
+        match register(bytes, &face.family) {
+            Ok(()) => {
+                log::debug!("Registered web font '{}' from {url}", face.family);
+                return true;
+            }
+            Err(e) => log::warn!("Failed to register web font '{}' from {url}: {e:?}", face.family),
+        }
+        candidate = load_face(face, index + 1, fetch).await;
+    }
+    false
 }
 
 /// A blocking fetch: the bytes and their content type, or nothing.
@@ -77,18 +124,25 @@ pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
     register: RegisterFont<'_>,
 ) {
     for face in collect_faces::<C>(doc, base_url) {
-        let Some((url, bytes)) = face.sources.iter().find_map(|url| match fetch(url.as_str()) {
-            Some((_, bytes)) if !bytes.is_empty() => Some((url, bytes)),
-            _ => None,
-        }) else {
-            continue;
-        };
-        let Some(bytes) = decode_web_font(bytes, url) else {
-            continue;
-        };
-        match register(bytes, &face.family) {
-            Ok(()) => log::debug!("Registered web font '{}' from {url}", face.family),
-            Err(e) => log::warn!("Failed to register web font '{}': {e:?}", face.family),
+        // Each source in turn until one fetches, decodes and registers, as `load_web_fonts`.
+        for url in &face.sources {
+            let bytes = match fetch(url.as_str()) {
+                Some((_, bytes)) if !bytes.is_empty() => bytes,
+                _ => {
+                    log::warn!("Web font fetch {url} produced nothing");
+                    continue;
+                }
+            };
+            let Some(bytes) = decode_web_font(bytes, url) else {
+                continue;
+            };
+            match register(bytes, &face.family) {
+                Ok(()) => {
+                    log::debug!("Registered web font '{}' from {url}", face.family);
+                    break;
+                }
+                Err(e) => log::warn!("Failed to register web font '{}' from {url}: {e:?}", face.family),
+            }
         }
     }
 }
@@ -130,40 +184,27 @@ fn collect_faces<C: RenderConfiguration>(doc: &EngineDocument<C>, base_url: &Url
     faces
 }
 
-/// Try a face's sources in order and return the first that produced bytes.
-async fn load_face(
-    face: &Face,
-    fetch: &SubFetch<'_>,
-    timing_scope: Option<gosub_shared::timing::ScopeId>,
-) -> Option<(Url, Vec<u8>)> {
-    for url in &face.sources {
-        let started = std::time::Instant::now();
-        let body = fetch_subresource(url.as_str(), crate::net::types::ResourceKind::Font, fetch).await;
-        let elapsed = started.elapsed().as_micros() as u64;
-
-        // Recorded against the navigation explicitly: this runs across awaits, where a
-        // thread-local scope does not hold.
-        match timing_scope {
-            Some(scope) => gosub_shared::timing::record_in(
-                scope,
-                gosub_shared::timing::Timing::NetFetchFont,
-                elapsed,
-                Some(url.to_string()),
-            ),
-            None => gosub_shared::timing::record(
-                gosub_shared::timing::Timing::NetFetchFont,
-                elapsed,
-                Some(url.to_string()),
-            ),
-        }
-
-        match body {
-            Some((_, bytes)) if !bytes.is_empty() => return Some((url.clone(), bytes)),
+/// Try a face's sources in order, from `start`, and return the first that fetched and decoded
+/// to a usable font, with its index so a caller whose font system refuses it can go on from
+/// the next.
+async fn load_face<F, Fut>(face: &Face, start: usize, fetch: &F) -> Option<(usize, Url, Vec<u8>)>
+where
+    F: Fn(Url) -> Fut,
+    Fut: std::future::Future<Output = Option<Vec<u8>>>,
+{
+    for (index, url) in face.sources.iter().enumerate().skip(start) {
+        match fetch(url.clone()).await {
+            Some(bytes) if !bytes.is_empty() => match decode_web_font(bytes, url) {
+                Some(font) => return Some((index, url.clone(), font)),
+                // Rejected and logged there; on to the next source.
+                None => continue,
+            },
             _ => log::warn!("Web font fetch {url} produced nothing"),
         }
     }
     None
 }
+
 /// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
 /// Basic-Latin letter `U+0041` ('A') - our proxy for "covers Latin-script text".
 fn unicode_range_covers_basic_latin(range: &str) -> bool {
@@ -558,5 +599,62 @@ mod tests {
         assert!(check_sfnt_size(cap as usize, cap).is_ok());
         let err = check_sfnt_size(cap as usize + 1, cap).unwrap_err();
         assert!(err.contains("rebuilt font"), "{err}");
+    }
+
+    /// Each way a source can fail sends the face on to the next: nothing fetched, a font that
+    /// does not decode (an over-cap WOFF), and a font the font system refuses. The face lands
+    /// on the first source that gets through all three, and no later source is fetched.
+    #[tokio::test]
+    async fn every_failing_src_falls_through_to_the_next() {
+        use gosub_interface::font::FontError;
+        let url = |name: &str| Url::parse(&format!("https://fonts.test/{name}")).unwrap();
+        let face = Face {
+            family: "Test".into(),
+            sources: vec![
+                url("missing"),
+                url("bomb.woff"),
+                url("refused"),
+                url("good"),
+                url("spare"),
+            ],
+        };
+        let fetched = Mutex::new(Vec::new());
+        let fetch = |u: Url| {
+            fetched.lock().push(u.path().to_string());
+            let body = match u.path() {
+                "/missing" => None,
+                "/bomb.woff" => Some(woff_font(MAX_WEB_FONT_SIZE as u32 + 1, 16)),
+                "/refused" => Some(b"refused".to_vec()),
+                _ => Some(b"good".to_vec()),
+            };
+            async move { body }
+        };
+        let mut registered = Vec::new();
+        let mut register = |bytes: Vec<u8>, family: &str| {
+            if bytes == b"refused" {
+                return Err(FontError::InvalidFont("no".into()));
+            }
+            registered.push((family.to_string(), bytes));
+            Ok(())
+        };
+
+        let first = load_face(&face, 0, &fetch).await;
+        assert!(register_face(&face, first, &fetch, &mut register).await);
+        assert_eq!(registered, vec![("Test".to_string(), b"good".to_vec())]);
+        assert_eq!(*fetched.lock(), vec!["/missing", "/bomb.woff", "/refused", "/good"]);
+    }
+
+    /// A face none of whose sources works registers nothing.
+    #[tokio::test]
+    async fn a_face_with_no_working_src_registers_nothing() {
+        let face = Face {
+            family: "Test".into(),
+            sources: vec![Url::parse("https://fonts.test/a").unwrap()],
+        };
+        let fetch = |_: Url| async { None };
+        let mut register =
+            |_: Vec<u8>, _: &str| -> Result<(), gosub_interface::font::FontError> { panic!("nothing to register") };
+        let first = load_face(&face, 0, &fetch).await;
+        assert!(!register_face(&face, first, &fetch, &mut register).await);
     }
 }
