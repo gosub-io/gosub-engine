@@ -153,6 +153,8 @@ pub const PROBES: &[&str] = &[
     "broker-seccomp-mount",
     #[cfg(target_os = "linux")]
     "broker-seccomp-io-uring",
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    "broker-seccomp-x32",
     #[cfg(target_os = "linux")]
     "service-fs-unscoped",
     #[cfg(target_os = "linux")]
@@ -1142,6 +1144,20 @@ fn run_platform_probe(probe: &str) {
         // is that the syscall traps before it returns.
         unsafe { libc::syscall(libc::SYS_io_uring_setup, 1u32, std::ptr::null_mut::<libc::c_void>()) };
         eprintln!("[selftest] broker-seccomp-io-uring: io_uring_setup was NOT denied");
+        std::process::exit(1);
+    }
+
+    // The x32 ABI is a second number for every syscall, which a deny-list does
+    // not name: any call with the x32 bit is a fatal `SIGSYS`. `getpid` under
+    // it would return (an x32 kernel) or fail with ENOSYS (none); reaching the
+    // line past it either way means the x32 range is open.
+    #[cfg(target_arch = "x86_64")]
+    if probe == "broker-seccomp-x32" {
+        crate::lock_down_broker(&[]);
+        const X32_SYSCALL_BIT: libc::c_long = 0x4000_0000;
+        // SAFETY: a raw `getpid` through the x32 table; no arguments, no effect.
+        unsafe { libc::syscall(libc::SYS_getpid | X32_SYSCALL_BIT) };
+        eprintln!("[selftest] broker-seccomp-x32: an x32 syscall was NOT denied");
         std::process::exit(1);
     }
 

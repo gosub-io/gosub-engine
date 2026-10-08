@@ -1607,6 +1607,11 @@ fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
     // scrubbed, core-less crash report (see `install_crash_reporter`).
     install_crash_reporter();
 
+    // A deny-list names syscall numbers, and on x86_64 every one has a twin
+    // with the x32 bit set that the filter sees under the same architecture.
+    #[cfg(target_arch = "x86_64")]
+    install_x32_refusal()?;
+
     let filter = SeccompFilter::new(
         rules,
         SeccompAction::Allow, // default & argument-mismatch: allow (the broker needs breadth)
@@ -1617,6 +1622,44 @@ fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
     // `apply_filter_all` (TSYNC) rather than per-thread: a role's library may
     // have created a thread before its lockdown (measured: Pango's GLib
     // worker), and a filter that missed it would leave one unconfined thread.
+    apply_filter_all_threads(&program)?;
+    Ok(())
+}
+
+/// Refuse every x32 syscall: a stacked pre-filter that traps a number with
+/// `__X32_SYSCALL_BIT` set and defers everything else to the main filter. On a
+/// kernel built with `CONFIG_X86_X32_ABI`, `ptrace | 0x4000_0000` reaches the
+/// same kernel code as `ptrace`, but the filter sees `AUDIT_ARCH_X86_64` and a
+/// number no deny-list names, so the broker's `Allow` default would let it
+/// through. An allowlist is safe without this (an x32 number is on no list);
+/// a deny-list is not. Nothing the broker runs uses the x32 ABI. Hand-written
+/// BPF because seccompiler's rules match a number exactly, not a range.
+#[cfg(all(feature = "multi-process", target_arch = "x86_64"))]
+fn install_x32_refusal() -> Result<(), Box<dyn std::error::Error>> {
+    use seccompiler::{apply_filter_all_threads, sock_filter};
+    // <linux/bpf_common.h>, <linux/seccomp.h>, <linux/audit.h>. BPF_LD and
+    // BPF_W are 0, so a word load from the data is BPF_ABS alone.
+    const LD_W_ABS: u16 = 0x20;
+    const JMP_JEQ_K: u16 = 0x05 | 0x10;
+    const JMP_JGE_K: u16 = 0x05 | 0x30;
+    const RET_K: u16 = 0x06;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+    const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+    const AUDIT_ARCH_X86_64: u32 = 62 | 0x8000_0000 | 0x4000_0000;
+    const X32_SYSCALL_BIT: u32 = 0x4000_0000;
+    // struct seccomp_data: int nr; __u32 arch; ...
+    const OFFSET_NR: u32 = 0;
+    const OFFSET_ARCH: u32 = 4;
+    let insn = |code, jt, jf, k| sock_filter { code, jt, jf, k };
+    let program = vec![
+        insn(LD_W_ABS, 0, 0, OFFSET_ARCH),
+        // Another architecture is the main filter's to refuse.
+        insn(JMP_JEQ_K, 0, 2, AUDIT_ARCH_X86_64),
+        insn(LD_W_ABS, 0, 0, OFFSET_NR),
+        insn(JMP_JGE_K, 1, 0, X32_SYSCALL_BIT),
+        insn(RET_K, 0, 0, SECCOMP_RET_ALLOW),
+        insn(RET_K, 0, 0, SECCOMP_RET_TRAP),
+    ];
     apply_filter_all_threads(&program)?;
     Ok(())
 }

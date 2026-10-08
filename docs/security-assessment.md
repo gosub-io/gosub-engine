@@ -73,6 +73,13 @@ commit's subject on this branch.
   part of the embedder contract now, takes the embedder's writable paths,
   the mini-browser applies it, and the harness runs every engine scenario
   under it.
+- **The broker's deny-list did not cover the x32 ABI** (medium, on kernels
+  built with `CONFIG_X86_X32_ABI`). A deny-list names syscall numbers, and on
+  x86_64 each has a twin with `__X32_SYSCALL_BIT` set that the filter sees
+  under the same architecture, so `ptrace | 0x4000_0000` passed the broker's
+  `Allow` default. A stacked pre-filter now traps the whole x32 range; the
+  `broker-seccomp-x32` probe pins it. The children's allowlists never had
+  the gap: an x32 number is on no list.
 - **On-disk stores used the umask** (low-medium). localStorage directories
   and the JSON cookie store are created 0700/0600; the SQLite store's
   journal lives in the 0700 directory.
