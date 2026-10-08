@@ -48,7 +48,9 @@ pub(crate) async fn load_web_fonts<C: RenderConfiguration>(
     // fetch happened to finish first.
     for (face, bytes) in faces.iter().zip(loaded) {
         let Some((url, bytes)) = bytes else { continue };
-        let bytes = decode_web_font(bytes, &url);
+        let Some(bytes) = decode_web_font(bytes, &url) else {
+            continue;
+        };
         match font_system.lock().register_font(bytes, Some(&face.family)) {
             Ok(()) => log::debug!("Registered web font '{}' from {url}", face.family),
             Err(e) => log::warn!("Failed to register web font '{}': {e:?}", face.family),
@@ -81,7 +83,10 @@ pub(crate) fn load_web_fonts_blocking<C: RenderConfiguration>(
         }) else {
             continue;
         };
-        match register(decode_web_font(bytes, url), &face.family) {
+        let Some(bytes) = decode_web_font(bytes, url) else {
+            continue;
+        };
+        match register(bytes, &face.family) {
             Ok(()) => log::debug!("Registered web font '{}' from {url}", face.family),
             Err(e) => log::warn!("Failed to register web font '{}': {e:?}", face.family),
         }
@@ -184,6 +189,11 @@ fn unicode_range_covers_basic_latin(range: &str) -> bool {
     false
 }
 
+/// The largest font a web font may unpack to. Matches the 30 MiB limit of the reference WOFF2
+/// decoder (`kDefaultMaxSize`), which Chromium (via OTS) and FreeType also apply; real web
+/// fonts, even CJK ones, stay well under it.
+const MAX_WEB_FONT_SIZE: u64 = 30 * 1024 * 1024;
+
 /// Unwrap a downloaded web-font payload into raw SFNT bytes the font backends can decode.
 ///
 /// WOFF2 (magic `wOF2`) is a Brotli-compressed wrapper around an OpenType/TrueType font,
@@ -193,10 +203,25 @@ fn unicode_range_covers_basic_latin(range: &str) -> bool {
 /// recognise are returned unchanged - including WOFF1, which the backends already handle.
 /// On a decode error we log and return the original bytes so the subsequent `register_font`
 /// surfaces a single, consistent failure path.
-fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
+///
+/// A WOFF or WOFF2 font that unpacks past [`MAX_WEB_FONT_SIZE`] is a decompression bomb, not
+/// a font: it returns `None` and the face is skipped, so neither we nor a backend inflates it.
+fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Option<Vec<u8>> {
+    const WOFF_MAGIC: &[u8; 4] = b"wOFF";
     const WOFF2_MAGIC: &[u8; 4] = b"wOF2";
+    if bytes.len() >= 4 && &bytes[0..4] == WOFF_MAGIC {
+        if let Err(e) = check_woff_size(&bytes, MAX_WEB_FONT_SIZE) {
+            log::warn!("Rejected WOFF web font from {font_url}: {e}");
+            return None;
+        }
+        return Some(bytes);
+    }
     if bytes.len() < 4 || &bytes[0..4] != WOFF2_MAGIC {
-        return bytes;
+        return Some(bytes);
+    }
+    if let Err(e) = check_woff2_size(&bytes, MAX_WEB_FONT_SIZE) {
+        log::warn!("Rejected WOFF2 web font from {font_url}: {e}");
+        return None;
     }
     match woff2_to_sfnt(&bytes) {
         Ok(sfnt) => {
@@ -205,13 +230,93 @@ fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
                 bytes.len(),
                 sfnt.len()
             );
-            sfnt
+            Some(sfnt)
         }
         Err(e) => {
             log::warn!("Failed to decode WOFF2 web font from {font_url}: {e}");
-            bytes
+            Some(bytes)
         }
     }
+}
+
+/// Check that a WOFF1 font unpacks to at most `cap` bytes. The backends (FreeType) size each
+/// table's zlib inflate by its `origLength` and the whole font by `totalSfntSize`, so bounding
+/// those header fields bounds what they allocate and inflate.
+fn check_woff_size(bytes: &[u8], cap: u64) -> Result<(), String> {
+    const HEADER_LEN: usize = 44;
+    const ENTRY_LEN: usize = 20;
+    let u16_at = |at: usize| bytes.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let u32_at = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    };
+
+    let num_tables = u16_at(12).ok_or("truncated header")?;
+    let total_sfnt_size = u32_at(16).ok_or("truncated header")?;
+    if u64::from(total_sfnt_size) > cap {
+        return Err(format!("totalSfntSize {total_sfnt_size} exceeds {cap}"));
+    }
+    let mut unpacked = 0u64;
+    for i in 0..usize::from(num_tables) {
+        // origLength is the fourth field of each 20-byte table directory entry.
+        let orig_length = u32_at(HEADER_LEN + i * ENTRY_LEN + 12).ok_or("truncated table directory")?;
+        unpacked += u64::from(orig_length);
+    }
+    if unpacked > cap {
+        return Err(format!("tables unpack to {unpacked} bytes, over {cap}"));
+    }
+    Ok(())
+}
+
+/// Check that a WOFF2 font unpacks to at most `cap` bytes, before allsorts sees it.
+///
+/// allsorts inflates the Brotli stream with `read_to_end`, sized by nothing in the header, so
+/// a small stream could expand without bound. We inflate it once here into a sink through a
+/// `take(cap + 1)` and reject the font if it reaches the cap; only then does allsorts inflate
+/// it for real. `totalSfntSize` is checked first so an honest oversized font fails cheaply.
+fn check_woff2_size(bytes: &[u8], cap: u64) -> Result<(), String> {
+    use allsorts::binary::read::ReadScope;
+    use allsorts::woff2::{PackedU16, TableDirectoryEntry, Woff2Header};
+    use std::io::Read as _;
+
+    let mut ctxt = ReadScope::new(bytes).ctxt();
+    let header = ctxt.read::<Woff2Header>().map_err(|e| format!("header: {e:?}"))?;
+    if u64::from(header.total_sfnt_size) > cap {
+        return Err(format!("totalSfntSize {} exceeds {cap}", header.total_sfnt_size));
+    }
+
+    // Walk past the table directory (and, for a collection, the collection directory) to
+    // reach the compressed stream, the same way allsorts' `Woff2Font::read` does.
+    for _ in 0..header.num_tables {
+        ctxt.read_dep::<TableDirectoryEntry>(0)
+            .map_err(|e| format!("table directory: {e:?}"))?;
+    }
+    if header.flavor == allsorts::tables::TTCF_MAGIC {
+        let mut directory = || -> Result<(), allsorts::error::ParseError> {
+            let _ttc_version = ctxt.read_u32be()?;
+            for _ in 0..ctxt.read::<PackedU16>()? {
+                let num_tables = ctxt.read::<PackedU16>()?;
+                let _flavor = ctxt.read_u32be()?;
+                for _ in 0..num_tables {
+                    ctxt.read::<PackedU16>()?;
+                }
+            }
+            Ok(())
+        };
+        directory().map_err(|e| format!("collection directory: {e:?}"))?;
+    }
+    let compressed = usize::try_from(header.total_compressed_size)
+        .ok()
+        .and_then(|len| ctxt.read_slice(len).ok())
+        .ok_or("truncated compressed data")?;
+
+    let mut stream = brotli_decompressor::Decompressor::new(compressed, 4096).take(cap + 1);
+    let unpacked = std::io::copy(&mut stream, &mut std::io::sink()).map_err(|e| format!("brotli: {e}"))?;
+    if unpacked > cap {
+        return Err(format!("Brotli stream unpacks past {cap} bytes"));
+    }
+    Ok(())
 }
 
 /// Decompress a WOFF2 font to a flat SFNT (TTF/OTF) byte buffer. allsorts handles the Brotli
@@ -330,7 +435,7 @@ mod tests {
         assert_eq!(&woff2[0..4], b"wOF2", "fixture must be WOFF2");
 
         let url = url::Url::parse("https://example.test/font.woff2").unwrap();
-        let sfnt = decode_web_font(woff2, &url);
+        let sfnt = decode_web_font(woff2, &url).expect("fixture within the size cap");
 
         // Output must be a different, valid SFNT (TrueType `0x00010000` or OpenType `OTTO`).
         let magic = u32::from_be_bytes([sfnt[0], sfnt[1], sfnt[2], sfnt[3]]);
@@ -345,5 +450,89 @@ mod tests {
         for tag in [allsorts::tag::HEAD, allsorts::tag::CMAP, allsorts::tag::GLYF] {
             assert!(provider.has_table(tag), "missing table {tag:#010x}");
         }
+    }
+
+    /// A one-table (`cmap`) WOFF2 font whose header claims `total_sfnt_size` and whose
+    /// compressed stream inflates to `table`.
+    fn woff2_font(total_sfnt_size: u32, table: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut encoder = brotli::CompressorWriter::new(Vec::new(), 4096, 11, 22);
+        encoder.write_all(table).unwrap();
+        let compressed = encoder.into_inner();
+
+        // Flags 0 is `cmap`, untransformed; origLength 16 as a one-byte UIntBase128.
+        let directory = [0x00u8, 16];
+        let length = (48 + directory.len() + compressed.len()) as u32;
+        let mut font = Vec::new();
+        font.extend_from_slice(b"wOF2");
+        font.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        font.extend_from_slice(&length.to_be_bytes());
+        font.extend_from_slice(&1u16.to_be_bytes()); // numTables
+        font.extend_from_slice(&0u16.to_be_bytes()); // reserved
+        font.extend_from_slice(&total_sfnt_size.to_be_bytes());
+        font.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
+        font.extend_from_slice(&[0; 4]); // major/minor version
+        font.extend_from_slice(&[0; 20]); // metadata and private blocks: none
+        font.extend_from_slice(&directory);
+        font.extend_from_slice(&compressed);
+        font
+    }
+
+    /// A one-table WOFF1 font header and directory; the table data itself is never read.
+    fn woff_font(total_sfnt_size: u32, orig_length: u32) -> Vec<u8> {
+        let mut font = Vec::new();
+        font.extend_from_slice(b"wOFF");
+        font.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        font.extend_from_slice(&64u32.to_be_bytes()); // length
+        font.extend_from_slice(&1u16.to_be_bytes()); // numTables
+        font.extend_from_slice(&0u16.to_be_bytes()); // reserved
+        font.extend_from_slice(&total_sfnt_size.to_be_bytes());
+        font.extend_from_slice(&[0; 24]); // versions, metadata and private blocks
+        font.extend_from_slice(b"cmap");
+        font.extend_from_slice(&64u32.to_be_bytes()); // offset
+        font.extend_from_slice(&8u32.to_be_bytes()); // compLength
+        font.extend_from_slice(&orig_length.to_be_bytes());
+        font.extend_from_slice(&0u32.to_be_bytes()); // origChecksum
+        font
+    }
+
+    /// A WOFF2 whose header admits to unpacking past the cap is refused before any inflate,
+    /// and the face is dropped rather than handed to a backend.
+    #[test]
+    fn woff2_over_cap_total_sfnt_size_is_rejected() {
+        let font = woff2_font(MAX_WEB_FONT_SIZE as u32 + 1, &[0; 16]);
+        let err = check_woff2_size(&font, MAX_WEB_FONT_SIZE).unwrap_err();
+        assert!(err.contains("totalSfntSize"), "{err}");
+
+        let url = url::Url::parse("https://example.test/font.woff2").unwrap();
+        assert!(decode_web_font(font, &url).is_none());
+    }
+
+    /// A WOFF2 that claims a tiny size but whose Brotli stream inflates past the cap is
+    /// caught by the bounded inflate; the same stream under a roomier cap passes.
+    #[test]
+    fn woff2_brotli_bomb_is_rejected() {
+        let font = woff2_font(64, &[0; 64 * 1024]);
+        assert!(font.len() < 1024, "fixture should compress well: {} bytes", font.len());
+
+        let err = check_woff2_size(&font, 4096).unwrap_err();
+        assert!(err.contains("Brotli"), "{err}");
+        assert!(check_woff2_size(&font, 64 * 1024).is_ok());
+    }
+
+    /// WOFF1 is passed through to the backends, so only its header bounds what they inflate:
+    /// an over-cap `totalSfntSize` or table `origLength` drops the face.
+    #[test]
+    fn woff_over_cap_header_is_rejected() {
+        let cap = MAX_WEB_FONT_SIZE as u32;
+        let err = check_woff_size(&woff_font(cap + 1, 16), MAX_WEB_FONT_SIZE).unwrap_err();
+        assert!(err.contains("totalSfntSize"), "{err}");
+        let err = check_woff_size(&woff_font(64, cap + 1), MAX_WEB_FONT_SIZE).unwrap_err();
+        assert!(err.contains("tables unpack"), "{err}");
+
+        let url = url::Url::parse("https://example.test/font.woff").unwrap();
+        assert!(decode_web_font(woff_font(cap + 1, 16), &url).is_none());
+        let ok = woff_font(64, 16);
+        assert_eq!(decode_web_font(ok.clone(), &url), Some(ok));
     }
 }
