@@ -132,8 +132,9 @@ pub trait CookieStore: Send + Sync {
 /// Shared `jar_for` implementation for persisting stores (JSON, SQLite).
 ///
 /// Returns the cached jar for `zone_id` when present; otherwise calls `load` for the
-/// zone's persisted state, wraps it in a [`PersistentCookieJar`] bound to `store_self`
-/// (so every mutation writes back to the store), and caches the handle.
+/// zone's persisted state, holds it to a jar's limits (see
+/// [`DefaultCookieJar::enforce_limits`]), wraps it in a [`PersistentCookieJar`] bound to
+/// `store_self` (so every mutation writes back to the store), and caches the handle.
 pub(crate) fn provision_persistent_jar(
     jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
     store_self: &RwLock<Option<CookieStoreHandle>>,
@@ -144,7 +145,9 @@ pub(crate) fn provision_persistent_jar(
         return Some(jar.clone());
     }
 
-    let inner: CookieJarHandle = load().into();
+    let mut loaded = load();
+    loaded.enforce_limits();
+    let inner: CookieJarHandle = loaded.into();
     let store = match store_self.read().as_ref() {
         Some(store) => store.clone(),
         None => {
