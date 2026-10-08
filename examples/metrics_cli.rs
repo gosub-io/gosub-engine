@@ -49,7 +49,12 @@ async fn main() -> anyhow::Result<()> {
         let path = if reset { "/metrics/reset" } else { "/metrics" };
         let url = format!("{base}{path}");
 
-        match fetch(&url).await {
+        let response = if reset {
+            post_reset(&host, port).await
+        } else {
+            fetch(&url).await
+        };
+        match response {
             Ok(body) => {
                 if json_output || reset {
                     println!("{body}");
@@ -83,6 +88,24 @@ async fn main() -> anyhow::Result<()> {
 async fn fetch(url: &str) -> anyhow::Result<String> {
     let body = gosub_sonar::simple_get(&url::Url::parse(url)?).await?;
     Ok(String::from_utf8(body.to_vec())?)
+}
+
+/// `POST /metrics/reset` with the header the server requires
+/// (`gosub_engine::metrics::RESET_HEADER`, behind the `metrics` feature). Written
+/// by hand: the simple fetch API only does GET.
+async fn post_reset(host: &str, port: u16) -> anyhow::Result<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stream = tokio::net::TcpStream::connect((host, port)).await?;
+    let request =
+        format!("POST /metrics/reset HTTP/1.1\r\nHost: {host}:{port}\r\nX-Gosub-Reset: 1\r\nContent-Length: 0\r\n\r\n");
+    stream.write_all(request.as_bytes()).await?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await?;
+    let (head, body) = response.split_once("\r\n\r\n").unwrap_or((&response, ""));
+    let status = head.lines().next().unwrap_or_default();
+    anyhow::ensure!(status.contains(" 200 "), "{status}: {body}");
+    Ok(body.to_string())
 }
 
 fn print_table(json: &str) {

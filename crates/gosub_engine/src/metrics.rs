@@ -8,7 +8,7 @@
 //! |--------|-------------------|------------------------------------------------------|
 //! | GET    | `/`               | The telemetry viewer (open it in a browser)          |
 //! | GET    | `/metrics`        | JSON snapshot of all timing namespaces               |
-//! | POST   | `/metrics/reset`  | Clear all timing counters                            |
+//! | POST   | `/metrics/reset`  | Clear all timing counters (needs [`RESET_HEADER`])   |
 //! | GET    | `/events`         | The telemetry firehose, streamed as NDJSON           |
 //! | GET    | `/renderers`      | Resident renderer processes and their tabs           |
 //! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)                   |
@@ -24,6 +24,11 @@ use tokio::net::{TcpListener, TcpStream};
 
 /// The telemetry viewer page, served at `/`. A single static page, no build step.
 const VIEWER: &str = include_str!("metrics/viewer.html");
+
+/// The header a `POST /metrics/reset` must carry. A form cannot set a request
+/// header, and a script on another origin can only add one after a CORS
+/// preflight, which this server never answers - so no page can send it.
+pub const RESET_HEADER: &str = "X-Gosub-Reset";
 
 /// Spawn the metrics HTTP server on `127.0.0.1:{port}` in a background Tokio task.
 ///
@@ -80,16 +85,23 @@ fn host_is_local(req: &str) -> bool {
     header(req, "host").is_some_and(is_loopback_host)
 }
 
-/// Whether a mutation may run: its `Origin`, when there is one, must be this
-/// server's own (the viewer at `/`). A browser sends `Origin` on every POST,
-/// a cross-site form's being the other page's, or `null`; a request without
-/// one did not come from a browser (`examples/metrics_cli.rs`, curl).
-fn origin_is_local(req: &str) -> bool {
+/// Whether a mutation may run. It must carry [`RESET_HEADER`], which no page
+/// can send: a missing `Origin` proves nothing, since a browser that leaves it
+/// off a cross-site form POST (gosub's own forms do) is still a browser. Its
+/// `Origin`, when there is one, must also be this server's own - the same
+/// loopback name *and port* as the `Host`, not any page served from loopback.
+fn reset_is_allowed(req: &str) -> bool {
+    if header(req, RESET_HEADER).is_none() {
+        return false;
+    }
     match header(req, "origin") {
         None => true,
-        Some(origin) => origin
-            .strip_prefix("http://")
-            .is_some_and(|rest| is_loopback_host(rest.trim_end_matches('/'))),
+        Some(origin) => header(req, "host").is_some_and(|host| {
+            origin
+                .trim_end_matches('/')
+                .strip_prefix("http://")
+                .is_some_and(|rest| rest.eq_ignore_ascii_case(host))
+        }),
     }
 }
 
@@ -116,9 +128,9 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
 
     const JSON: &str = "application/json";
     // A mutation on a GET is a `<img>` tag away, so POST only - and a POST
-    // is a cross-site form away, so its `Origin` must be ours.
+    // is a cross-site form away, so it must carry a header no page can send.
     let (code, phrase, content_type, body) = if first_line.starts_with("POST /metrics/reset") {
-        if origin_is_local(req) {
+        if reset_is_allowed(req) {
             gosub_shared::timing::reset_stats();
             (200u16, "OK", JSON, r#"{"status":"reset"}"#.to_string())
         } else {
@@ -126,7 +138,7 @@ async fn handle(mut stream: TcpStream, context: Arc<EngineContext>) {
                 403,
                 "Forbidden",
                 JSON,
-                r#"{"error":"a reset must come from this server's own page"}"#.to_string(),
+                r#"{"error":"a reset needs the X-Gosub-Reset header, and no other origin"}"#.to_string(),
             )
         }
     } else if first_line.starts_with("GET / ") || first_line.starts_with("HEAD / ") {
@@ -371,17 +383,23 @@ mod tests {
     }
 
     /// A cross-site form POSTs with this server's name as `Host` and its own
-    /// page as `Origin`: refused. The viewer's own origin, or no `Origin` at
-    /// all (not a browser), may reset.
+    /// page as `Origin`, or with no `Origin` at all, and never with
+    /// [`RESET_HEADER`]: refused. So is a page on another loopback port. The
+    /// header with this server's own origin, or with none (curl, the CLI),
+    /// may reset.
     #[tokio::test]
     async fn a_reset_from_another_origin_is_refused() {
-        for (origin, allowed) in [
-            (Some("https://attacker.example"), false),
-            (Some("null"), false),
-            (Some("http://127.0.0.1.attacker.example"), false),
-            (Some("http://127.0.0.1:9090"), true),
-            (Some("http://localhost:9090"), true),
-            (None, true),
+        for (origin, with_header, allowed) in [
+            (Some("https://attacker.example"), true, false),
+            (Some("null"), true, false),
+            (Some("http://127.0.0.1.attacker.example"), true, false),
+            (Some("http://localhost:3000"), true, false),
+            (Some("http://127.0.0.1:9091"), true, false),
+            (Some("http://127.0.0.1:9090"), false, false),
+            (None, false, false),
+            (Some("http://127.0.0.1:9090"), true, true),
+            (Some("http://127.0.0.1:9090/"), true, true),
+            (None, true, true),
         ] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
@@ -396,10 +414,15 @@ mod tests {
             });
             let mut client = TcpStream::connect(addr).await.unwrap();
             let origin_line = origin.map_or(String::new(), |o| format!("Origin: {o}\r\n"));
+            let header_line = if with_header {
+                format!("{RESET_HEADER}: 1\r\n")
+            } else {
+                String::new()
+            };
             client
                 .write_all(
                     format!(
-                        "POST /metrics/reset HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n{origin_line}Content-Length: 0\r\n\r\n"
+                        "POST /metrics/reset HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n{origin_line}{header_line}Content-Length: 0\r\n\r\n"
                     )
                     .as_bytes(),
                 )
@@ -413,7 +436,10 @@ mod tests {
             } else {
                 "HTTP/1.1 403 Forbidden"
             };
-            assert!(response.starts_with(expected), "Origin {origin:?}: {response:.60}");
+            assert!(
+                response.starts_with(expected),
+                "Origin {origin:?}, header {with_header}: {response:.60}"
+            );
         }
     }
 
