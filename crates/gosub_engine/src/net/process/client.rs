@@ -181,7 +181,7 @@ fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     rx.recv_fd()
 }
 
-/// The body behind a [`FetchOutcome::Shared`]: its sealed memfd, read out whole.
+/// The body behind a [`FromNet::SharedReply`]: its sealed memfd, read out whole.
 #[cfg(target_os = "linux")]
 fn recv_shared_body(rx: &mut gosub_ipc::EndpointRx, len: u64) -> std::io::Result<Vec<u8>> {
     let fd = rx.recv_fd()?;
