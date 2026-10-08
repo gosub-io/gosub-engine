@@ -98,9 +98,13 @@ a renderer.
   A request's `Cookie` was redacted in resource events and a response's
   `Set-Cookie` was not, and a reported URL kept its `user:password@`. Both
   are redacted now, under the same switch as `Cookie`
-  (`set_send_sensitive_headers`). Under the network process the broker no
-  longer receives them at all: the child drops `Set-Cookie` from a vaulted
-  reply and redacts both cookie headers in the events it relays.
+  (`set_send_sensitive_headers`). Under the network process with the vault,
+  cookie values no longer reach the broker either: the child drops
+  `Set-Cookie` from a reply once the vault has stored it, and redacts both
+  cookie headers in the events it relays. One the vault did not take stays on
+  the reply, and the broker stores it, so it is not lost. URL credentials
+  still cross the link in event URLs and are redacted where the broker
+  reports them.
 
 ## Accepted, with what the sandbox still prevents
 
