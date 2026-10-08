@@ -50,9 +50,11 @@ commit's subject on this branch.
   is on). A remote page whose DNS answer switches to 127.0.0.1 after it loads
   reached `/events`, the firehose of every URL fetched, same-origin; and
   `POST /metrics/reset` was a cross-site form away. Requests whose `Host` is
-  not a loopback name are refused, which closes the read; the reset also
-  requires an `Origin` that is this server's own when one is sent, since a
-  cross-site form reaches it with the server's name as `Host`.
+  not a loopback name are refused, which closes the read. A cross-site form
+  reaches the reset with the server's name as `Host`, and gosub's own forms
+  send no `Origin`, so the reset requires an `X-Gosub-Reset` header no page can
+  send (a form cannot set one; a script needs a CORS preflight the server never
+  answers), and an `Origin`, when sent, equal to the server's own host and port.
 - **A page could log the user out of every other site in the zone** (medium).
   The jar-wide cookie cap evicted the oldest cookie anywhere; a page naming
   3000 of its own subdomains was the newest. Eviction now takes from the
