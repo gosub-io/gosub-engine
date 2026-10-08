@@ -1,6 +1,8 @@
+use crate::common::geo::Dimension;
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{
-    DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+    svg_raster_size, DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg,
+    MediaType, Svg,
 };
 use bytes::Bytes;
 use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
@@ -755,9 +757,13 @@ fn percent_decode(s: &str) -> Vec<u8> {
     out
 }
 
-/// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`x`h` px (scaling the tree's
-/// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
+/// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] that lays out at `w`x`h` px
+/// (scaling the tree's intrinsic size to fit). The pixels are held to
+/// [`svg_raster_size`]'s budget, so a huge `w`x`h` comes back
+/// downscaled with `w`x`h` as its intrinsic size. Returns `None` if the pixmap can't be allocated.
 pub fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
+    let (intrinsic_w, intrinsic_h) = (w, h);
+    let (w, h) = svg_raster_size(Dimension::new(f64::from(w), f64::from(h)), 1);
     let size = tree.size();
     let (iw, ih) = (size.width().max(1.0), size.height().max(1.0));
     let (sx, sy) = (w as f32 / iw, h as f32 / ih);
@@ -771,7 +777,9 @@ pub fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Opt
         let c = px.demultiply();
         rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
     }
-    Image::new_rgba8(w, h, rgba).ok()
+    Image::new_rgba8(w, h, rgba)
+        .ok()
+        .map(|image| image.with_intrinsic(intrinsic_w.max(1), intrinsic_h.max(1)))
 }
 
 #[cfg(test)]
@@ -911,6 +919,20 @@ mod tests {
         let svg = store.get_svg(media_id).expect("decoded svg should be in the store");
         let size = svg.svg.tree.size();
         assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
+    }
+
+    /// The raster tile lays out at the size it was asked for. Within the pixel budget that is
+    /// also its pixel size; past it `svg_raster_size` (tested in `svg.rs`) shrinks the pixels only.
+    #[test]
+    fn svg_raster_tile_lays_out_at_the_requested_size() {
+        let store = MediaStore::new();
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="blue"/></svg>"#;
+        let svg_id = store.load_media_from_data(MediaType::Svg, svg).expect("svg loads");
+
+        let tile_id = store.svg_raster_tile(svg_id, 40, 20).expect("tile renders");
+        let tile = store.get_image(tile_id).expect("tile is an image");
+        assert_eq!((tile.image.width(), tile.image.height()), (40, 20));
+        assert_eq!((tile.image.intrinsic_width(), tile.image.intrinsic_height()), (40, 20));
     }
 
     /// A source that records what it was asked for and answers with whatever it was given.

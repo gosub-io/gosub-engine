@@ -1,5 +1,5 @@
 use gosub_render_pipeline::common::geo::Dimension;
-use gosub_render_pipeline::common::media::{MediaId, MediaStore};
+use gosub_render_pipeline::common::media::{svg_raster_size, MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::render::backend::PixelFormat;
 use gosub_render_pipeline::tiler::Tile;
@@ -24,10 +24,8 @@ pub fn do_paint_svg(
         return;
     };
     let target_dim = rect.rect().dimension();
-    let dpr = dpr.max(1) as u32;
-
-    let phys_w = (target_dim.width as u32 * dpr).max(1);
-    let phys_h = (target_dim.height as u32 * dpr).max(1);
+    // Held to the pixel budget for a huge box; `blit` stretches whatever size it is into the rect.
+    let (phys_w, phys_h) = svg_raster_size(target_dim, dpr.max(1) as u32);
     // Key the cache on physical dimension (which encodes dpr) so a dpr change re-renders instead
     // of reusing a stale-resolution bitmap.
     let phys_dim = Dimension::new(phys_w as f64, phys_h as f64);
