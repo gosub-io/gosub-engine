@@ -628,6 +628,7 @@ pub enum FromRenderer {
 /// room for the rest of the message. Past it the frame could not be sent,
 /// and a failed send is a renderer gone; a subresource past it is answered
 /// as failed instead, a document is not sent at all.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub const MAX_INLINE_CONTENT: usize = gosub_ipc::MAX_FRAME_LEN as usize - 64 * 1024;
 
 /// A fetched subresource (or its failure), as it travels broker → fork server
