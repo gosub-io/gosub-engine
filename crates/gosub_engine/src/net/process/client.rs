@@ -612,25 +612,34 @@ impl Drop for NetProcess {
 
 /// Rebuild the engine's own result type from what came back over the wire.
 pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResult, NetError> {
-    let (status, status_text, final_url, headers, body) = match reply.outcome {
+    let (status, status_text, final_url, headers, peer_addr, body) = match reply.outcome {
         FetchOutcome::Ok {
             status,
             status_text,
             final_url,
             headers,
             body,
-        } => (status, status_text, final_url, headers, Body::Whole(body)),
+            peer_addr,
+        } => (status, status_text, final_url, headers, peer_addr, Body::Whole(body)),
         FetchOutcome::Streaming {
             status,
             status_text,
             final_url,
             headers,
             peek,
+            peer_addr,
         } => {
             let Some(ring) = reply.ring else {
                 return Err(net_error("streamed reply without its ring"));
             };
-            (status, status_text, final_url, headers, Body::Ring { peek, ring })
+            (
+                status,
+                status_text,
+                final_url,
+                headers,
+                peer_addr,
+                Body::Ring { peek, ring },
+            )
         }
         FetchOutcome::Error(e) => return Err(net_error(e)),
     };
@@ -656,6 +665,7 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         meta.content_length = content_length;
         meta.content_type = content_type;
         meta.has_body = has_body;
+        meta.peer_addr = peer_addr;
         meta
     };
     Ok(match body {
@@ -779,6 +789,26 @@ fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
 mod tests {
     use super::*;
     use futures::StreamExt;
+
+    /// The broker places a document by the address its response came from, so
+    /// the network process's answer must carry it across the link; dropped, every
+    /// private page in the isolated tier would count as public.
+    #[test]
+    fn the_peer_address_crosses_the_link() {
+        let peer: std::net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let wire = serde_json::to_vec(&FetchOutcome::Ok {
+            status: 200,
+            status_text: "OK".into(),
+            final_url: "http://localhost:8080/".into(),
+            headers: Vec::new(),
+            body: b"hi".to_vec(),
+            peer_addr: Some(peer),
+        })
+        .unwrap();
+        let outcome: FetchOutcome = serde_json::from_slice(&wire).unwrap();
+        let result = outcome_to_result(NetReply { outcome, ring: None }).unwrap();
+        assert_eq!(result.meta().unwrap().peer_addr, Some(peer));
+    }
 
     /// The body's consumer attaches after the head has already crossed the
     /// ring; it must still see every byte.

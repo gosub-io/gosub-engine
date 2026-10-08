@@ -4,7 +4,7 @@ use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::net::fetcher::{fetcher_config_from, strict_config, EngineNetContext, Fetcher};
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
-use crate::net::ssrf::{AddressSpace, AddressSpaceCache};
+use crate::net::ssrf::AddressSpace;
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::tab::TabId;
@@ -105,8 +105,6 @@ pub struct IoRouter {
     /// Observer factory for requests the engine serves itself (the `file://` scheme),
     /// so they emit the same resource events a gosub-sonar fetch would.
     local_ctx: EngineNetContext,
-    /// Which documents live on the private network, for the subresource policy.
-    address_space: Arc<AddressSpaceCache>,
     /// The network process, if `security.network_process` is on and it started.
     /// One for the whole engine: it holds no per-zone state, and the connection
     /// pooling that *is* per-zone lives inside it.
@@ -130,7 +128,6 @@ impl IoRouter {
             zones: DashMap::new(),
             engine_ctx,
             local_ctx,
-            address_space: Arc::new(AddressSpaceCache::new()),
             #[cfg(feature = "process-isolation")]
             net_process,
         }
@@ -588,6 +585,32 @@ fn store_response_cookies_then_forward(
     inner_tx
 }
 
+/// Wrap a navigation's reply channel so the tab's identity records where the
+/// response came from - the connection's peer, not a fresh lookup of the host,
+/// which a rebinding DNS server could answer differently - before the requester
+/// sees it. A failed navigation records nothing.
+fn record_document_space_then_forward(
+    tab_identities: Arc<crate::net::tab_identity::TabIdentityRegistry>,
+    tab_id: crate::tab::TabId,
+    navigation: crate::engine::types::NavigationId,
+    reply_tx: oneshot::Sender<FetchResult>,
+) -> oneshot::Sender<FetchResult> {
+    let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
+
+    spawn_named("io-doc-space", async move {
+        let Ok(result) = inner_rx.await else {
+            return;
+        };
+        if let Some(meta) = result.meta() {
+            let space = crate::net::ssrf::space_of_response(&meta.final_url, meta.peer_addr);
+            tab_identities.record_navigation(tab_id, navigation, space);
+        }
+        let _ = reply_tx.send(result);
+    });
+
+    inner_tx
+}
+
 /// Wrap a reply channel so a cross-origin body that must not reach a page is
 /// withheld here (see [`crate::net::orb`]); the requester sees an error instead.
 fn block_opaque_responses_then_forward(
@@ -742,7 +765,8 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     }
                                 },
                             };
-                            let address_space = Arc::clone(&router.address_space);
+                            let tab_identities = Arc::clone(&router.engine_ctx.tab_identities);
+                            let reference = REF_REGISTRY.from_net(req.reference);
                             // The network process has no fetcher of ours to ask for an
                             // observer: built here, as the in-process fetcher would.
                             #[cfg(feature = "process-isolation")]
@@ -782,12 +806,15 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 // Policy for what a page loads, decided from the document the
                                 // request is for - never from anything a renderer sent. A
                                 // subresource of a public document may not reach the private
-                                // network, and its cross-origin bytes pass through ORB.
+                                // network, and its cross-origin bytes pass through ORB. The
+                                // document is placed by where its response came from, which
+                                // the tab's identity recorded when it arrived; see
+                                // `TabIdentity::document_space`.
                                 let refuse_private = subresource
-                                    && match &document {
-                                        Some(top) => address_space.classify(top).await == AddressSpace::Public,
-                                        None => true,
-                                    };
+                                    && identity
+                                        .as_ref()
+                                        .map_or(AddressSpace::Public, |id| id.document_space(reference))
+                                        == AddressSpace::Public;
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
@@ -797,6 +824,14 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 };
                                 let reply_tx = match (subresource, document) {
                                     (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
+                                    _ => reply_tx,
+                                };
+                                // A navigation's response says where its document lives,
+                                // recorded before the document is parsed and can ask for more.
+                                let reply_tx = match (subresource, tab_id, reference) {
+                                    (false, Some(tab), Some(RequestReference::Navigation(nav))) => {
+                                        record_document_space_then_forward(tab_identities, tab, nav, reply_tx)
+                                    }
                                     _ => reply_tx,
                                 };
 
@@ -823,6 +858,9 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                         }
                         Some(IoCommand::SetTopLevel { tab_id, url }) => {
                             router.tab_identities().set_top_level(tab_id, url);
+                        }
+                        Some(IoCommand::CommitDocument { tab_id, nav_id }) => {
+                            router.tab_identities().commit_navigation(tab_id, nav_id);
                         }
                         #[cfg(feature = "process-isolation")]
                         Some(IoCommand::AuditNet { reply_tx }) => {
@@ -875,8 +913,8 @@ mod tests {
         let public = Url::parse("https://evil.example/").unwrap();
         let private = Url::parse("http://192.168.1.1/").unwrap();
         let identity = TabIdentity {
-            cookie_jar: crate::cookies::DefaultCookieJar::new().into(),
             top_level: Some(private.clone()),
+            ..TabIdentity::new(crate::cookies::DefaultCookieJar::new().into())
         };
         let for_public = FetchRequest::builder(http::Method::GET, Url::parse("http://192.168.1.1/img.png").unwrap())
             .with_referrer(public.clone())
@@ -918,8 +956,8 @@ mod tests {
         #[tokio::test]
         async fn a_tab_gets_its_own_cookies() {
             let identity = TabIdentity {
-                cookie_jar: jar_with("https://example.com/", "sid=abc; Path=/"),
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
+                ..TabIdentity::new(jar_with("https://example.com/", "sid=abc; Path=/"))
             };
             let mut req = request_to("https://example.com/api");
             attach_request_cookies(&mut req, Some(&identity)).await;
@@ -941,8 +979,8 @@ mod tests {
             // The property the whole inversion rests on: a compromised tab cannot
             // send cookies of its own choosing, not even for its own origin.
             let identity = TabIdentity {
-                cookie_jar: jar_with("https://example.com/", "sid=real; Path=/"),
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
+                ..TabIdentity::new(jar_with("https://example.com/", "sid=real; Path=/"))
             };
             let mut req = request_to("https://example.com/api");
             req.headers

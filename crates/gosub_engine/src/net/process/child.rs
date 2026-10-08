@@ -406,6 +406,7 @@ async fn perform_inner(
             final_url: meta.final_url.to_string(),
             headers: flatten_headers(&meta.headers),
             body: body.to_vec(),
+            peer_addr: meta.peer_addr,
         }),
         Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
             // What `Content-Length` promises past the peek, when it says.
@@ -420,6 +421,7 @@ async fn perform_inner(
                 final_url: meta.final_url.to_string(),
                 headers: flatten_headers(&meta.headers),
                 peek: peek_buf.as_ref().to_vec(),
+                peer_addr: meta.peer_addr,
             };
             match platform::begin_stream(head, expected, shared) {
                 Ok(streamed) => Performed::Streaming(streamed),

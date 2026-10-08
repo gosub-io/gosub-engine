@@ -687,6 +687,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
                 source,
             } => {
+                // The I/O side judges this document's loads by where this
+                // navigation's response came from - before a renderer is handed
+                // the document and can ask for anything.
+                self.announce_commit(nav_id);
                 // A new document: whatever icon the last one had is not this one's.
                 self.remote_favicon = None;
                 // Everything the pipeline records from here belongs to this navigation.
@@ -2175,6 +2179,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
         if announced.is_err() {
             self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+        }
+    }
+
+    /// Tell the I/O side the tab now shows the document `nav_id` produced, in
+    /// the same queue as its fetches, like [`announce_top_level`](Self::announce_top_level).
+    fn announce_commit(&self, nav_id: NavigationId) {
+        let announced = self.zone_context.io_tx.send(IoCommand::CommitDocument {
+            tab_id: self.tab_id,
+            nav_id,
+        });
+        if announced.is_err() {
+            self.zone_context.tab_identities.commit_navigation(self.tab_id, nav_id);
         }
     }
 
