@@ -224,6 +224,25 @@ fn cookie_bytes(cookie: &Cookie) -> usize {
         + 64
 }
 
+/// Cut `bucket` to its `n` newest cookies, the rest in the order they were.
+fn keep_newest(bucket: &mut Vec<Cookie>, n: usize) {
+    let mut by_age: Vec<i64> = bucket.iter().map(|c| c.created_at).collect();
+    by_age.sort_unstable_by(|a, b| b.cmp(a));
+    let cutoff = by_age[n - 1];
+    // Ties at the cutoff fill what room is left, in bucket order.
+    let mut at_cutoff = n - by_age[..n].iter().filter(|&&t| t > cutoff).count();
+    bucket.retain(|c| {
+        if c.created_at > cutoff {
+            true
+        } else if c.created_at == cutoff && at_cutoff > 0 {
+            at_cutoff -= 1;
+            true
+        } else {
+            false
+        }
+    });
+}
+
 /// Default cookie jar: in-memory only, no persistence. Cookies are stored per
 /// origin (`scheme://host:port`) and matched to requests via basic domain/path
 /// rules; `third_party_policy` governs cross-site behavior when `top_level` is
@@ -260,6 +279,71 @@ impl DefaultCookieJar {
 }
 
 impl DefaultCookieJar {
+    /// A jar read back from storage, held to the limits a jar built from
+    /// `Set-Cookie` lines keeps. The file is outside the engine's control (an
+    /// older build, another tool, damage), and the vault receives the whole jar
+    /// in one frame: past the frame cap the zone would open with no cookies,
+    /// and every snapshot after would fail to persist. Expired cookies go, as
+    /// does any whose name and value outgrow a cookie line; then each origin
+    /// and the jar keep their newest. Not the insert path's eviction order,
+    /// which costs a scan per cookie evicted: a planted file can hold millions.
+    pub(crate) fn enforce_limits(&mut self) {
+        let now = Utc::now().timestamp();
+        let keep =
+            |c: &Cookie| c.expires.is_none_or(|exp| exp > now) && c.name.len() + c.value.len() <= MAX_COOKIE_BYTES;
+        for bucket in self.entries.values_mut() {
+            bucket.retain(keep);
+            if bucket.len() > MAX_COOKIES_PER_ORIGIN {
+                keep_newest(bucket, MAX_COOKIES_PER_ORIGIN);
+            }
+        }
+        self.entries.retain(|_, bucket| !bucket.is_empty());
+
+        let (count, bytes) = self
+            .entries
+            .values()
+            .flatten()
+            .fold((0usize, 0usize), |(n, b), c| (n + 1, b + cookie_bytes(c)));
+        if count <= MAX_COOKIES_TOTAL && bytes <= MAX_JAR_BYTES {
+            return;
+        }
+        // Newest first over the whole jar, kept while both budgets hold.
+        let mut all: Vec<(i64, String, usize)> = self
+            .entries
+            .iter()
+            .flat_map(|(origin, bucket)| {
+                bucket
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (c.created_at, origin.clone(), i))
+            })
+            .collect();
+        all.sort_unstable_by(|a, b| b.cmp(a));
+        let mut kept: HashMap<String, Vec<usize>> = HashMap::new();
+        let (mut count, mut bytes) = (0usize, 0usize);
+        for (_, origin, i) in all {
+            let size = cookie_bytes(&self.entries[&origin][i]);
+            if count + 1 > MAX_COOKIES_TOTAL || bytes + size > MAX_JAR_BYTES {
+                break;
+            }
+            count += 1;
+            bytes += size;
+            kept.entry(origin).or_default().push(i);
+        }
+        self.entries.retain(|origin, bucket| {
+            let Some(indices) = kept.get(origin) else {
+                return false;
+            };
+            let indices: std::collections::HashSet<usize> = indices.iter().copied().collect();
+            let mut i = 0;
+            bucket.retain(|_| {
+                i += 1;
+                indices.contains(&(i - 1))
+            });
+            true
+        });
+    }
+
     /// Past [`MAX_COOKIES_TOTAL`]: expired cookies go first; then the origin
     /// that was just written gives up its oldest, then the registrable domain
     /// holding the most cookies does, and only then the jar's oldest anywhere
@@ -1277,6 +1361,79 @@ mod tests {
         assert!(strings <= MAX_JAR_BYTES, "{strings} bytes of strings kept");
         assert!(count < MAX_COOKIES_TOTAL, "the byte budget bit first: {count} kept");
         assert!(count > 1000, "and still holds a jar's worth: {count}");
+    }
+
+    fn stored(name: &str, value: &str, created_at: i64) -> Cookie {
+        Cookie {
+            name: name.into(),
+            value: value.into(),
+            path: Some("/".into()),
+            domain: None,
+            secure: false,
+            expires: None,
+            same_site: None,
+            http_only: false,
+            created_at,
+        }
+    }
+
+    /// A jar read back from a file that no `Set-Cookie` could have built:
+    /// one origin far past its limit, an expired cookie, and one too big for
+    /// a cookie line. The origin keeps its newest; the other two go.
+    #[test]
+    fn a_restored_origin_is_held_to_its_limits() {
+        let mut jar = DefaultCookieJar::new();
+        let big: Vec<Cookie> = (0..500).map(|i| stored(&format!("c{i}"), "v", i)).collect();
+        jar.entries.insert("https://big.test".into(), big);
+        let mut expired = stored("old", "v", 1_000);
+        expired.expires = Some(1);
+        jar.entries.insert(
+            "https://odd.test".into(),
+            vec![expired, stored("huge", &"v".repeat(MAX_COOKIE_BYTES), 1_001)],
+        );
+
+        jar.enforce_limits();
+
+        let big = &jar.entries["https://big.test"];
+        assert_eq!(big.len(), MAX_COOKIES_PER_ORIGIN);
+        assert!(big.iter().all(|c| c.created_at >= 500 - MAX_COOKIES_PER_ORIGIN as i64));
+        assert!(
+            !jar.entries.contains_key("https://odd.test"),
+            "expired and oversized both go"
+        );
+    }
+
+    /// More origins than a jar holds, and more bytes than its snapshot frame
+    /// takes: the jar keeps its newest within both budgets.
+    #[test]
+    fn a_restored_jar_keeps_its_newest_within_both_budgets() {
+        let mut jar = DefaultCookieJar::new();
+        jar.entries.insert(
+            "https://old.test".into(),
+            vec![stored("c", "v", 0), stored("d", "v", 1)],
+        );
+        for i in 0..MAX_COOKIES_TOTAL {
+            jar.entries
+                .insert(format!("https://o{i}.test"), vec![stored("c", "v", 10 + i as i64)]);
+        }
+        jar.enforce_limits();
+        let count: usize = jar.entries.values().map(Vec::len).sum();
+        assert_eq!(count, MAX_COOKIES_TOTAL);
+        assert!(!jar.entries.contains_key("https://old.test"), "the oldest go");
+
+        let mut jar = DefaultCookieJar::new();
+        let value = "v".repeat(MAX_COOKIE_BYTES - 1);
+        for i in 0..MAX_COOKIES_TOTAL {
+            jar.entries
+                .insert(format!("https://o{i}.test"), vec![stored("c", &value, i as i64)]);
+        }
+        jar.enforce_limits();
+        let bytes: usize = jar.entries.values().flatten().map(cookie_bytes).sum();
+        let count: usize = jar.entries.values().map(Vec::len).sum();
+        assert!(bytes <= MAX_JAR_BYTES, "{bytes} bytes kept");
+        assert!(count < MAX_COOKIES_TOTAL, "the byte budget bit: {count} kept");
+        let oldest_kept = jar.entries.values().flatten().map(|c| c.created_at).min().unwrap();
+        assert_eq!(oldest_kept, (MAX_COOKIES_TOTAL - count) as i64, "and kept the newest");
     }
 
     /// A restored origin already past the per-origin limit comes down to it

@@ -362,4 +362,55 @@ mod tests {
         let parsed2: CookieStoreFile = serde_json::from_str(&s2).unwrap();
         assert!(parsed2.zones.contains_key(&z1));
     }
+
+    /// A file holding more than a jar may (an older build, another tool, a
+    /// planted file) loads as a jar within its limits, so the snapshot the
+    /// cookie vault is opened with fits its frame.
+    #[test]
+    fn an_oversized_file_loads_within_the_jars_limits() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("cookies.json");
+        let zone = ZoneId::new();
+        let mut jar = DefaultCookieJar::new();
+        let value = "v".repeat(4000);
+        // 5000 cookies of 4 KB: some 20 MB, past the vault's 16 MiB frame.
+        for i in 0..5_000 {
+            jar.entries.insert(
+                format!("https://o{i}.test"),
+                vec![crate::engine::cookies::Cookie {
+                    name: "c".into(),
+                    value: value.clone(),
+                    path: Some("/".into()),
+                    domain: None,
+                    secure: false,
+                    expires: None,
+                    same_site: None,
+                    http_only: false,
+                    created_at: i,
+                }],
+            );
+        }
+        let file = CookieStoreFile {
+            zones: HashMap::from([(zone, jar)]),
+        };
+        std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+
+        let store = JsonCookieStore::new(path).unwrap();
+        let handle = store.jar_for(zone).unwrap();
+        let binding = handle.read();
+        let persist = binding
+            .as_any()
+            .downcast_ref::<PersistentCookieJar>()
+            .expect("persistent wrapper expected");
+        let inner = persist.inner.read();
+        let loaded = inner
+            .as_any()
+            .downcast_ref::<DefaultCookieJar>()
+            .expect("a default jar inside");
+        // JSON is larger than the vault's wire form, so under the frame cap here
+        // is under it there.
+        let snapshot = serde_json::to_vec(loaded).unwrap();
+        assert!(snapshot.len() < 16 * 1024 * 1024, "{} byte snapshot", snapshot.len());
+        assert!(!loaded.entries.is_empty(), "the newest are kept");
+    }
 }
