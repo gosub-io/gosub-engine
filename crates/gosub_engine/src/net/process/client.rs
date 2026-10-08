@@ -3,7 +3,8 @@
 
 use crate::net::emitter::NetObserver;
 use crate::net::process::protocol::{
-    rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, RequestTag, ToNet,
+    cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, RequestTag,
+    ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
 };
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
@@ -551,11 +552,44 @@ impl NetProcess {
     /// scheme family - a redirect chain cannot land on `file:` or an internal
     /// page, whatever the child reports. Where it landed within the web is still
     /// the child's word; only the broker following redirects itself could fix that.
-    fn plausible_reply(reply: NetReply, requested: &str) -> NetReply {
-        let final_url = match &reply.outcome {
-            FetchOutcome::Ok { final_url, .. } | FetchOutcome::Streaming { final_url, .. } => final_url,
-            FetchOutcome::Error(_) => return reply,
+    ///
+    /// Its size is checked too, since the frame cap is the only other bound: a
+    /// failure's message and a status text are cut to [`MAX_EVENT_STRING`], and
+    /// a reply past [`MAX_REPLY_HEADERS`], [`MAX_REPLY_HEADER_BYTES`] or
+    /// [`MAX_REPLY_URL`] is refused.
+    fn plausible_reply(mut reply: NetReply, requested: &str) -> NetReply {
+        let (status_text, final_url, headers) = match &mut reply.outcome {
+            FetchOutcome::Ok {
+                status_text,
+                final_url,
+                headers,
+                ..
+            }
+            | FetchOutcome::Streaming {
+                status_text,
+                final_url,
+                headers,
+                ..
+            } => (status_text, final_url, headers),
+            FetchOutcome::Error(message) => {
+                *message = cut_string(std::mem::take(message), MAX_EVENT_STRING);
+                return reply;
+            }
         };
+        *status_text = cut_string(std::mem::take(status_text), MAX_EVENT_STRING);
+        let header_bytes: usize = headers.iter().map(|(n, v)| n.len() + v.len()).sum();
+        if headers.len() > MAX_REPLY_HEADERS || header_bytes > MAX_REPLY_HEADER_BYTES {
+            return NetReply::error(format!(
+                "the network process sent {} headers ({header_bytes} bytes) for {requested}",
+                headers.len()
+            ));
+        }
+        if final_url.len() > MAX_REPLY_URL {
+            return NetReply::error(format!(
+                "the network process reported a {}-byte final url for {requested}",
+                final_url.len()
+            ));
+        }
         let Ok(parsed) = url::Url::parse(final_url) else {
             return NetReply::error(format!(
                 "the network process reported an unparsable final url for {requested}"
@@ -808,6 +842,48 @@ mod tests {
         let outcome: FetchOutcome = serde_json::from_slice(&wire).unwrap();
         let result = outcome_to_result(NetReply { outcome, ring: None }).unwrap();
         assert_eq!(result.meta().unwrap().peer_addr, Some(peer));
+    }
+
+    /// A reply's strings and headers are the child's: cut where cutting keeps
+    /// the meaning, refused whole where it would not.
+    #[test]
+    fn a_reply_is_bounded_on_receipt() {
+        let ok = |status_text: String, final_url: String, headers: HeaderList| NetReply {
+            outcome: FetchOutcome::Ok {
+                status: 200,
+                status_text,
+                final_url,
+                headers,
+                body: Vec::new(),
+                peer_addr: None,
+            },
+            ring: None,
+        };
+        let url = "https://site.test/".to_string();
+        let failed = |reply: NetReply| match reply.outcome {
+            FetchOutcome::Error(message) => message,
+            other => panic!("not refused: {other:?}"),
+        };
+
+        let reply = NetProcess::plausible_reply(ok("x".repeat(MAX_EVENT_STRING * 2), url.clone(), Vec::new()), &url);
+        match reply.outcome {
+            FetchOutcome::Ok { status_text, .. } => assert_eq!(status_text.len(), MAX_EVENT_STRING),
+            other => panic!("refused: {other:?}"),
+        }
+
+        let many: HeaderList = (0..=MAX_REPLY_HEADERS)
+            .map(|i| (format!("x-{i}"), b"v".to_vec()))
+            .collect();
+        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), url.clone(), many), &url)).contains("headers"));
+
+        let heavy = vec![("x-big".to_string(), vec![b'v'; MAX_REPLY_HEADER_BYTES])];
+        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), url.clone(), heavy), &url)).contains("headers"));
+
+        let long = format!("https://site.test/{}", "a".repeat(MAX_REPLY_URL));
+        assert!(failed(NetProcess::plausible_reply(ok("OK".into(), long, Vec::new()), &url)).contains("final url"));
+
+        let error = NetReply::error("e".repeat(MAX_EVENT_STRING * 2));
+        assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
     }
 
     /// The body's consumer attaches after the head has already crossed the
