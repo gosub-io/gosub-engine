@@ -76,18 +76,30 @@ fn decode_bounded(bytes: &[u8]) -> Result<image::RgbaImage, image::ImageError> {
     Ok(reader.decode()?.to_rgba8())
 }
 
+/// Fit a `width`x`height` pixel buffer into [`MAX_KEPT_PIXELS`], keeping its aspect ratio.
+///
+/// Sizes already within the budget come back unchanged (floored to whole pixels, at least 1).
+/// The arithmetic is done in `f64`, so any input - huge, negative, NaN - yields a size whose
+/// `w * h * 4` cannot overflow. An aspect ratio too extreme to keep within the budget at one
+/// pixel on the short edge has its long edge cut instead.
+pub fn fit_to_kept_pixels(width: f64, height: f64) -> (u32, u32) {
+    let budget = MAX_KEPT_PIXELS as f64;
+    // `max` before `min` so NaN lands on 1; the upper bound keeps `w * h` finite.
+    let edge = |v: f64| v.floor().max(1.0).min(f64::from(u32::MAX));
+    let (w, h) = (edge(width), edge(height));
+    let scale = (budget / (w * h)).sqrt().min(1.0);
+    let w = (w * scale).floor().clamp(1.0, budget);
+    let h = (h * scale).floor().clamp(1.0, (budget / w).floor());
+    (w as u32, h as u32)
+}
+
 /// Keep at most [`MAX_KEPT_PIXELS`] of a decoded image, remembering its real size for layout.
 fn bounded(img: image::RgbaImage) -> DecodedImage {
     let (w, h) = img.dimensions();
-    let pixels = u64::from(w) * u64::from(h);
-    if pixels <= MAX_KEPT_PIXELS {
+    if u64::from(w) * u64::from(h) <= MAX_KEPT_PIXELS {
         return img.into();
     }
-    let scale = (MAX_KEPT_PIXELS as f64 / pixels as f64).sqrt();
-    let (tw, th) = (
-        ((f64::from(w) * scale) as u32).max(1),
-        ((f64::from(h) * scale) as u32).max(1),
-    );
+    let (tw, th) = fit_to_kept_pixels(f64::from(w), f64::from(h));
     let small = image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle);
     drop(img);
     DecodedImage::from(small).with_intrinsic(w, h)

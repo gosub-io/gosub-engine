@@ -8,7 +8,7 @@ mod media_store;
 
 pub use decoder::{
     DecodedImage, DecodedMedia, ImageDecodeError, MediaDecoder, MediaDecoderRegistry, PixelBuffer, RasterDecoder,
-    SvgDecoder,
+    SvgDecoder, MAX_KEPT_PIXELS,
 };
 
 pub use media::Media;
@@ -18,7 +18,7 @@ pub use media::MediaSvg;
 pub use media::MediaType;
 
 pub use image::Image;
-pub use svg::Svg;
+pub use svg::{svg_raster_size, Svg};
 
 pub use media_store::render_svg_tree_to_image;
 pub use media_store::MediaRequest;

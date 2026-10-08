@@ -7,7 +7,7 @@
 mod raster;
 mod svg;
 
-pub use raster::RasterDecoder;
+pub use raster::{fit_to_kept_pixels, RasterDecoder, MAX_KEPT_PIXELS};
 pub use svg::SvgDecoder;
 
 use std::fmt;
