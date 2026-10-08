@@ -6,6 +6,7 @@ mod svg;
 mod media;
 mod media_store;
 
+pub(crate) use decoder::MAX_IMAGE_EDGE;
 pub use decoder::{
     DecodedImage, DecodedMedia, ImageDecodeError, MediaDecoder, MediaDecoderRegistry, PixelBuffer, RasterDecoder,
     SvgDecoder, MAX_KEPT_PIXELS,

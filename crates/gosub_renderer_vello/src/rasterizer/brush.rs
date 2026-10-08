@@ -100,23 +100,23 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
 /// Tiled `background-image` gradient layer: rasterize one tile at `background-size` and let the
 /// sampler repeat it, offset by `background-position`. The fill shape clips the infinite tiling.
 fn tiled_gradient_brush(g: &LinearGradient, tiling: &Tiling, rect: Rect) -> (VelloBrush, Option<Affine>) {
-    let tw = (tiling.tile_size.0.round() as u32).max(1);
-    let th = (tiling.tile_size.1.round() as u32).max(1);
-    let rgba = g.rasterize_tile(tw, th);
+    let tile = g.rasterize_tile(tiling);
     let image_data = ImageData {
-        data: Blob::<u8>::from(rgba),
+        data: Blob::<u8>::from(tile.rgba),
         format: ImageFormat::Rgba8,
         // Straight (unpremultiplied) alpha, matching the raster-image brush above.
         alpha_type: ImageAlphaType::Alpha,
-        width: tw,
-        height: th,
+        width: tile.width,
+        height: tile.height,
     };
     // Full-repeat (the default) tiles both axes; no-repeat pads (clamps) instead.
     let extend = |repeat: bool| if repeat { Extend::Repeat } else { Extend::Pad };
     let sampler = ImageSampler::default()
         .with_x_extend(extend(tiling.repeat.0))
         .with_y_extend(extend(tiling.repeat.1));
-    let transform = Affine::translate((rect.x + tiling.position.0 as f64, rect.y + tiling.position.1 as f64));
+    // A clamped tile is stretched back to `background-size` by `tile.scale`.
+    let transform = Affine::translate((rect.x + tiling.position.0 as f64, rect.y + tiling.position.1 as f64))
+        * Affine::scale_non_uniform(tile.scale.0, tile.scale.1);
     (
         VelloBrush::Image(ImageBrush {
             image: image_data,

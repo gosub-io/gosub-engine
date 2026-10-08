@@ -269,13 +269,14 @@ fn apply_linear_gradient(paint: &mut Paint, g: &LinearGradient, x: f32, y: f32, 
 /// one `background-size` tile and tile it in 2D, offset by `background-position`. The box at
 /// `(x, y)` is filled by the shader (the caller draws the rect).
 fn apply_tiled_gradient(paint: &mut Paint, g: &LinearGradient, tiling: &Tiling, x: f32, y: f32) {
-    let tw = (tiling.tile_size.0.round() as i32).max(1);
-    let th = (tiling.tile_size.1.round() as i32).max(1);
-
-    let rgba = g.rasterize_tile(tw as u32, th as u32);
+    let tile = g.rasterize_tile(tiling);
+    let (Ok(tw), Ok(th)) = (i32::try_from(tile.width), i32::try_from(tile.height)) else {
+        log::warn!("Gradient tile {}x{} too large for Skia", tile.width, tile.height);
+        return;
+    };
     let info = ImageInfo::new(ISize::new(tw, th), ColorType::RGBA8888, AlphaType::Unpremul, None);
-    let row_bytes = tw as usize * 4;
-    let Some(image) = images::raster_from_data(&info, Data::new_copy(&rgba), row_bytes) else {
+    let row_bytes = tile.width as usize * 4;
+    let Some(image) = images::raster_from_data(&info, Data::new_copy(&tile.rgba), row_bytes) else {
         log::warn!("Failed to build Skia gradient tile image");
         return;
     };
@@ -284,7 +285,9 @@ fn apply_tiled_gradient(paint: &mut Paint, g: &LinearGradient, tiling: &Tiling, 
     // tile modes are per-axis, so honour each independently.
     let mode = |repeat: bool| if repeat { TileMode::Repeat } else { TileMode::Decal };
     let tile_modes = (mode(tiling.repeat.0), mode(tiling.repeat.1));
-    let local = Matrix::translate((x + tiling.position.0, y + tiling.position.1));
+    // A clamped tile is stretched back to `background-size` by `tile.scale`.
+    let mut local = Matrix::translate((x + tiling.position.0, y + tiling.position.1));
+    local.pre_scale((tile.scale.0 as f32, tile.scale.1 as f32), None);
     // Nearest keeps the tile edges crisp and avoids bleeding across the repeat seam.
     let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
     if let Some(shader) = image.to_shader(tile_modes, sampling, Some(&local)) {

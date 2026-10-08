@@ -1,3 +1,4 @@
+use crate::common::media::{MAX_IMAGE_EDGE, MAX_KEPT_PIXELS};
 use crate::painter::commands::color::Color;
 
 #[derive(Clone, Debug)]
@@ -81,25 +82,43 @@ impl LinearGradient {
         }
     }
 
-    /// Rasterize one `tw`x`th` tile into straight-alpha RGBA8 (row-major, 4 bytes per pixel),
-    /// to be repeated across a tiled `background-image` layer.
-    pub fn rasterize_tile(&self, tw: u32, th: u32) -> Vec<u8> {
-        let (w, h) = (tw as f32, th as f32);
-        let ((x0, y0), (x1, y1)) = self.line(w, h);
+    /// Rasterize one `tiling` tile into straight-alpha RGBA8 (row-major, 4 bytes per pixel),
+    /// to be repeated across a tiled `background-image` layer. The raster is bounded by
+    /// [`clamp_tile_size`]; the returned `scale` stretches it back to the tile's real size.
+    pub fn rasterize_tile(&self, tiling: &Tiling) -> GradientTile {
+        let (tw, th) = clamp_tile_size(tiling.tile_size);
+        let scale = (tile_scale(tiling.tile_size.0, tw), tile_scale(tiling.tile_size.1, th));
+        GradientTile {
+            rgba: self.rasterize_scaled(tw, th, scale),
+            width: tw,
+            height: th,
+            scale,
+        }
+    }
+
+    /// A `w`x`h` raster of a tile `scale` times its size. The gradient line belongs to the
+    /// tile, not the raster: [`clamp_tile_size`] caps each edge on its own, so the raster can
+    /// have another aspect ratio, and a line drawn across it would turn a diagonal gradient
+    /// once the backend stretches x and y apart. Each pixel centre is mapped back into the tile
+    /// instead. At `scale` `(1.0, 1.0)` that is the plain per-pixel rasterization.
+    fn rasterize_scaled(&self, w: u32, h: u32, scale: (f64, f64)) -> Vec<u8> {
+        let (sx, sy) = (scale.0 as f32, scale.1 as f32);
+        let ((x0, y0), (x1, y1)) = self.line(w as f32 * sx, h as f32 * sy);
         let (dx, dy) = (x1 - x0, y1 - y0);
         let len2 = dx * dx + dy * dy;
-        let mut out = vec![0u8; (tw as usize) * (th as usize) * 4];
-        for py in 0..th {
-            for px in 0..tw {
-                // Sample at the pixel centre and project onto the gradient line.
-                let (sx, sy) = (px as f32 + 0.5, py as f32 + 0.5);
+        let (w_us, h_us) = (w as usize, h as usize);
+        let mut out = vec![0u8; w_us * h_us * 4];
+        for py in 0..h_us {
+            for px in 0..w_us {
+                // Sample at the pixel centre, in tile coordinates, and project onto the line.
+                let (cx, cy) = ((px as f32 + 0.5) * sx, (py as f32 + 0.5) * sy);
                 let t = if len2 <= 0.0 {
                     0.0
                 } else {
-                    (((sx - x0) * dx + (sy - y0) * dy) / len2).clamp(0.0, 1.0)
+                    (((cx - x0) * dx + (cy - y0) * dy) / len2).clamp(0.0, 1.0)
                 };
                 let c = self.color_at(t);
-                let i = ((py * tw + px) * 4) as usize;
+                let i = (py * w_us + px) * 4;
                 out[i] = c.r8();
                 out[i + 1] = c.g8();
                 out[i + 2] = c.b8();
@@ -107,6 +126,50 @@ impl LinearGradient {
             }
         }
         out
+    }
+}
+
+/// One rasterized gradient tile, ready for a backend to wrap in a repeating pattern.
+#[derive(Clone, Debug)]
+pub struct GradientTile {
+    /// Straight-alpha RGBA8, row-major, `width * height * 4` bytes.
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    /// Device pixels per raster pixel along x / y, to apply in the pattern transform. `1.0`
+    /// for every tile within [`clamp_tile_size`]'s bounds.
+    pub scale: (f64, f64),
+}
+
+/// Raster size for one `tile_size` (device pixels) gradient tile: rounded to whole pixels, at
+/// least 1x1, each edge capped at [`MAX_IMAGE_EDGE`] and the whole at [`MAX_KEPT_PIXELS`] - the
+/// bounds a decoded image gets. `background-size` is page-controlled, so an absurd tile is
+/// rasterized smaller and scaled up by the backend rather than allocated in full. Scaling, not
+/// clipping to the painted area, keeps `background-position`/`-repeat` geometry intact; a
+/// gradient is smooth, so only hard stops soften, and only on tiles far past any viewport.
+pub fn clamp_tile_size(tile_size: (f32, f32)) -> (u32, u32) {
+    // `as u32` saturates: NaN and negatives become 0 (then 1), infinity the edge cap.
+    let edge = |v: f32| (v.round() as u32).clamp(1, MAX_IMAGE_EDGE);
+    let (w, h) = (edge(tile_size.0), edge(tile_size.1));
+    let pixels = u64::from(w) * u64::from(h);
+    if pixels <= MAX_KEPT_PIXELS {
+        return (w, h);
+    }
+    let scale = (MAX_KEPT_PIXELS as f64 / pixels as f64).sqrt();
+    (
+        ((f64::from(w) * scale) as u32).max(1),
+        ((f64::from(h) * scale) as u32).max(1),
+    )
+}
+
+/// Device pixels per raster pixel for a tile edge of `size` device pixels rasterized at `raster`
+/// pixels: exactly `1.0` unless [`clamp_tile_size`] shrank it. A non-finite size has no real
+/// extent to restore, so it is left unscaled.
+fn tile_scale(size: f32, raster: u32) -> f64 {
+    if size.is_finite() {
+        f64::from(size.round().max(1.0)) / f64::from(raster)
+    } else {
+        1.0
     }
 }
 
@@ -153,5 +216,89 @@ mod tests {
         let (start, end) = lg(0.0).line(100.0, 200.0);
         approx(start, (50.0, 200.0));
         approx(end, (50.0, 0.0));
+    }
+
+    fn tiling(w: f32, h: f32) -> Tiling {
+        Tiling {
+            tile_size: (w, h),
+            position: (0.0, 0.0),
+            repeat: (true, true),
+        }
+    }
+
+    #[test]
+    fn clamp_tile_size_keeps_normal_tiles() {
+        assert_eq!(clamp_tile_size((20.0, 30.0)), (20, 30));
+        assert_eq!(clamp_tile_size((19.6, 0.4)), (20, 1));
+        assert_eq!(clamp_tile_size((2048.0, 2048.0)), (2048, 2048));
+    }
+
+    #[test]
+    fn clamp_tile_size_bounds_oversized_tiles() {
+        // Edge cap to 16384 each (2^28 px), then sqrt(2^22 / 2^28) = 1/8 to fit 4 Mpx.
+        assert_eq!(clamp_tile_size((100_000.0, 100_000.0)), (2048, 2048));
+        assert_eq!(clamp_tile_size((2049.0, 2048.0)).0, 2048);
+    }
+
+    #[test]
+    fn clamp_tile_size_caps_a_thin_tile_by_edge() {
+        // 1 x 10M passes any pixel budget on its own; the edge cap is what bounds it.
+        assert_eq!(clamp_tile_size((1.0, 10_000_000.0)), (1, MAX_IMAGE_EDGE));
+    }
+
+    #[test]
+    fn clamp_tile_size_handles_degenerate_input() {
+        assert_eq!(clamp_tile_size((0.0, -5.0)), (1, 1));
+        assert_eq!(clamp_tile_size((f32::NAN, 10.0)), (1, 10));
+        assert_eq!(clamp_tile_size((f32::INFINITY, f32::INFINITY)), (2048, 2048));
+    }
+
+    #[test]
+    fn rasterize_tile_is_unscaled_within_bounds() {
+        let tile = lg(90.0).rasterize_tile(&tiling(4.0, 3.0));
+        assert_eq!((tile.width, tile.height), (4, 3));
+        assert_eq!(tile.rgba.len(), 4 * 3 * 4);
+        assert_eq!(tile.scale, (1.0, 1.0));
+    }
+
+    #[test]
+    fn tile_scale_restores_a_clamped_edge() {
+        let (w, h) = clamp_tile_size((40_000.0, 20.0));
+        assert_eq!((w, h), (MAX_IMAGE_EDGE, 20));
+        assert_eq!(tile_scale(40_000.0, w) * f64::from(w), 40_000.0);
+        assert_eq!(tile_scale(20.0, h), 1.0);
+        assert_eq!(tile_scale(f32::INFINITY, w), 1.0);
+    }
+
+    /// A raster with another aspect ratio than its tile, as an edge-capped tile gets, keeps the
+    /// tile's gradient: each pixel matches the full-size raster at the point it stands for, hard
+    /// stop included, rather than the gradient turned to the raster's own diagonal.
+    #[test]
+    fn a_squashed_raster_keeps_a_diagonal_gradient_in_place() {
+        let stop = |offset: f32, color: Color| ColorStop { offset, color };
+        let g = LinearGradient {
+            stops: vec![
+                stop(0.0, Color::from_rgba(1.0, 0.0, 0.0, 1.0)),
+                stop(0.25, Color::from_rgba(1.0, 0.0, 0.0, 1.0)),
+                stop(0.25, Color::from_rgba(0.0, 0.0, 1.0, 1.0)),
+                stop(1.0, Color::from_rgba(0.0, 0.0, 1.0, 1.0)),
+            ],
+            ..lg(135.0)
+        };
+        // A 100x10 tile at full size, and squashed 5:1 along x into a 20x10 raster. Raster pixel
+        // `px` stands for tile x `5 * px + 2.5`, the centre of full-size pixel `5 * px + 2`.
+        let full = g.rasterize_scaled(100, 10, (1.0, 1.0));
+        let squashed = g.rasterize_scaled(20, 10, (5.0, 1.0));
+        let pixel = |rgba: &[u8], w: usize, x: usize, y: usize| rgba[(y * w + x) * 4..][..4].to_vec();
+        for y in 0..10 {
+            for x in 0..20 {
+                assert_eq!(
+                    pixel(&squashed, 20, x, y),
+                    pixel(&full, 100, 5 * x + 2, y),
+                    "at ({x}, {y})"
+                );
+            }
+        }
+        assert!(squashed.chunks(4).any(|p| p[0] == 255) && squashed.chunks(4).any(|p| p[2] == 255));
     }
 }

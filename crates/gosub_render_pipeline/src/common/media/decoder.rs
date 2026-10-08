@@ -7,6 +7,7 @@
 mod raster;
 mod svg;
 
+pub(crate) use raster::MAX_IMAGE_EDGE;
 pub use raster::{fit_to_kept_pixels, RasterDecoder, MAX_KEPT_PIXELS};
 pub use svg::SvgDecoder;
 
