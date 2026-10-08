@@ -125,3 +125,30 @@ fn a_comment_opener_in_the_system_literal_is_refused() {
     let err = decode_on_a_realistic_stack(doc.into_bytes()).expect_err("must be rejected");
     assert!(err.contains("declares its own entities"), "{err}");
 }
+
+/// An outer document that does nothing but embed `nested` as a `data:` image.
+fn embedding(nested: &[u8]) -> Vec<u8> {
+    use base64::Engine;
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">\
+         <image href=\"data:image/svg+xml;base64,{}\" width=\"100\" height=\"100\"/></svg>",
+        base64::engine::general_purpose::STANDARD.encode(nested)
+    )
+    .into_bytes()
+}
+
+/// The outer document is shallow, so its own scan passes; usvg's default `data:` resolver then
+/// parsed the nested one unchecked and overflowed the stack. Plain and as SVGZ.
+#[test]
+fn a_deeply_nested_svg_inside_a_data_image_is_rejected() {
+    use std::io::Write;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(&nested(50_000)).expect("compress");
+    let svgz = gz.finish().expect("compress");
+
+    for inner in [nested(50_000), svgz] {
+        let err = decode_on_a_realistic_stack(embedding(&inner)).expect_err("must be rejected");
+        assert!(err.contains("deeper than"), "{err}");
+    }
+    assert!(decode_on_a_realistic_stack(embedding(&nested(8))).is_ok());
+}
