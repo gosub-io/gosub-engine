@@ -616,9 +616,18 @@ struct Tracks {
     lines: Vec<Vec<String>>,
 }
 
+/// The most tracks a track list expands to. css-grid-1 §5.4 lets a user agent clamp an overly
+/// large grid; taffy clamps its explicit grid to 10,000 tracks per axis (its `MAX_GRID_TRACKS`,
+/// which it does not export), as Chromium and Firefox do. Stopping here too keeps a list from
+/// allocating every track before taffy throws most of them away: a `repeat()` multiplies its
+/// count by however many tracks it holds, so uncapped, the list is as long as a page cares to make
+/// it.
+const MAX_GRID_TRACKS: usize = 10_000;
+
 /// A track list as flat tracks and their line names. A fixed `repeat()` is expanded, with its
 /// names repeated alongside; where two sets of names meet - `[a] 1fr [b] [c]`, or the end of one
-/// repetition and the start of the next - the line carries both (css-grid-2 §7.2.3).
+/// repetition and the start of the next - the line carries both (css-grid-2 §7.2.3). Tracks past
+/// [`MAX_GRID_TRACKS`] are dropped, along with the names of the lines after them.
 /// `auto-fill` / `auto-fit` are not supported yet, and `None` - anything this cannot map -
 /// makes the caller keep its default rather than mis-render.
 fn expand_tracks(items: &[TrackListItem]) -> Option<Tracks> {
@@ -631,24 +640,41 @@ fn expand_tracks(items: &[TrackListItem]) -> Option<Tracks> {
             line.extend(names.iter().cloned());
         }
     };
+    // Set once a track has been dropped. What follows is still read, so a track this cannot map
+    // fails the list wherever it stands, but it adds nothing.
+    let mut clamped = false;
     for item in items {
         match item {
             TrackListItem::LineNames(names) => {
-                let names: Vec<String> = names.iter().map(ToString::to_string).collect();
-                name_line(&mut tracks, &names);
+                if !clamped {
+                    let names: Vec<String> = names.iter().map(ToString::to_string).collect();
+                    name_line(&mut tracks, &names);
+                }
             }
             TrackListItem::Track(size) => {
-                tracks.sizes.push(track_size(size)?);
-                tracks.lines.push(Vec::new());
+                let size = track_size(size)?;
+                if tracks.sizes.len() < MAX_GRID_TRACKS {
+                    tracks.sizes.push(size);
+                    tracks.lines.push(Vec::new());
+                } else {
+                    clamped = true;
+                }
             }
             TrackListItem::Repeat(RepeatCount::Count(count), inner) => {
                 let inner = expand_tracks(inner)?;
                 if inner.sizes.is_empty() {
                     return None;
                 }
-                for _ in 0..*count {
+                if clamped {
+                    continue;
+                }
+                'repetitions: for _ in 0..*count {
                     for (size, names) in inner.sizes.iter().zip(&inner.lines) {
                         name_line(&mut tracks, names);
+                        if tracks.sizes.len() == MAX_GRID_TRACKS {
+                            clamped = true;
+                            break 'repetitions;
+                        }
                         tracks.sizes.push(*size);
                         tracks.lines.push(Vec::new());
                     }
@@ -889,6 +915,66 @@ mod grid_template_tests {
                 track(Fr(1.0)),
             ]),
             [vec!["a", "x"], vec!["y", "x"], vec!["y"], vec![]]
+        );
+    }
+
+    /// A track list stops at 10,000 tracks (css-grid-1 §5.4), as taffy's explicit grid does,
+    /// rather than allocating every repetition first.
+    #[test]
+    fn a_huge_repeat_is_clamped_to_the_track_limit() {
+        let px = |value| track(TrackBreadth::Length(LengthPercentage::Px(value)));
+        let tracks = expand_tracks(&[repeat(RepeatCount::Count(20_000), vec![px(1.0)])]).expect("a plain repeat maps");
+        assert_eq!(tracks.sizes.len(), 10_000);
+        assert_eq!(tracks.lines.len(), 10_001);
+
+        // The limit can land part way through a repetition.
+        assert_eq!(
+            count(vec![repeat(RepeatCount::Count(5_001), vec![px(1.0), px(2.0)])]),
+            Some(10_000)
+        );
+        // The tracks around a repeat count towards it too.
+        assert_eq!(
+            count(vec![
+                px(1.0),
+                repeat(RepeatCount::Count(20_000), vec![px(1.0)]),
+                px(1.0)
+            ]),
+            Some(10_000)
+        );
+    }
+
+    /// The last line kept carries the names it has in the whole grid; the names of the lines past
+    /// the limit go with their tracks.
+    #[test]
+    fn names_past_the_track_limit_are_dropped() {
+        let tracks = expand_tracks(&[
+            repeat(
+                RepeatCount::Count(10_000),
+                vec![names(&["x"]), track(Fr(1.0)), names(&["y"])],
+            ),
+            names(&["after"]),
+            track(Fr(1.0)),
+            names(&["end"]),
+        ])
+        .expect("the list maps");
+        assert_eq!(tracks.sizes.len(), 10_000);
+        assert_eq!(tracks.lines.last(), Some(&vec!["y".to_string(), "after".to_string()]));
+
+        let tracks = expand_tracks(&[repeat(RepeatCount::Count(20_000), vec![names(&["x"]), track(Fr(1.0))])])
+            .expect("the list maps");
+        assert_eq!(tracks.lines.last(), Some(&vec!["x".to_string()]));
+    }
+
+    /// The limit drops tracks; it does not make a list valid. A track past it that cannot be
+    /// mapped still fails the list.
+    #[test]
+    fn an_unmappable_track_past_the_limit_still_fails_the_list() {
+        assert_eq!(
+            count(vec![
+                repeat(RepeatCount::Count(20_000), vec![track(Fr(1.0))]),
+                TrackListItem::Track(TrackSize::FitContent(LengthPercentage::Px(100.0))),
+            ]),
+            None
         );
     }
 
