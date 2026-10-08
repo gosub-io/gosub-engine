@@ -10,6 +10,7 @@ pub use decoder::{
     DecodedImage, DecodedMedia, ImageDecodeError, MediaDecoder, MediaDecoderRegistry, PixelBuffer, RasterDecoder,
     SvgDecoder,
 };
+pub(crate) use decoder::{MAX_IMAGE_EDGE, MAX_KEPT_PIXELS};
 
 pub use media::Media;
 pub use media::MediaId;

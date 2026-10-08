@@ -128,13 +128,26 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
 /// Rasterize one `background-size` tile and install it as a repeating pattern offset by
 /// `background-position`. The caller's already-built fill path clips it to the element box.
 fn set_tiled_gradient(cr: &Context, g: &LinearGradient, tiling: &Tiling, rect: Rect) {
-    let tw = (tiling.tile_size.0.round() as i32).max(1);
-    let th = (tiling.tile_size.1.round() as i32).max(1);
+    let tile = g.rasterize_tile(tiling);
+    let (Ok(tw), Ok(th)) = (i32::try_from(tile.width), i32::try_from(tile.height)) else {
+        log::warn!("Gradient tile {}x{} too large for Cairo", tile.width, tile.height);
+        return;
+    };
 
     // Straight-alpha RGBA tile → premultiplied ARGB32 (host byte order: BGRA on little-endian).
-    let rgba = g.rasterize_tile(tw as u32, th as u32);
-    let stride = cairo::Format::ARgb32.stride_for_width(tw as u32).unwrap_or(tw * 4);
-    let mut data = vec![0u8; (stride * th) as usize];
+    let rgba = &tile.rgba;
+    let stride = match cairo::Format::ARgb32.stride_for_width(tile.width) {
+        Ok(stride) => stride,
+        Err(e) => {
+            log::warn!("No Cairo stride for a {tw}px gradient tile: {e:?}");
+            return;
+        }
+    };
+    let Some(len) = tile_buffer_len(stride, th) else {
+        log::warn!("Gradient tile buffer {stride}x{th} overflows; skipping");
+        return;
+    };
+    let mut data = vec![0u8; len];
     for row in 0..th as usize {
         for col in 0..tw as usize {
             let si = (row * tw as usize + col) * 4;
@@ -167,13 +180,45 @@ fn set_tiled_gradient(cr: &Context, g: &LinearGradient, tiling: &Tiling, rect: R
             pattern.set_extend(extend);
             // The pattern matrix maps user space → pattern (tile) space, so anchoring the tile
             // origin at (rect + position) is expressed as the inverse translation.
+            // A clamped tile is stretched back to `background-size` by `tile.scale`.
             let ox = rect.x + tiling.position.0 as f64;
             let oy = rect.y + tiling.position.1 as f64;
-            pattern.set_matrix(cairo::Matrix::new(1.0, 0.0, 0.0, 1.0, -ox, -oy));
+            let (sx, sy) = (1.0 / tile.scale.0, 1.0 / tile.scale.1);
+            pattern.set_matrix(cairo::Matrix::new(sx, 0.0, 0.0, sy, -ox * sx, -oy * sy));
             if let Err(e) = cr.set_source(&pattern) {
                 log::warn!("Failed to set Cairo tiled-gradient source: {e:?}");
             }
         }
         Err(e) => log::warn!("Failed to create Cairo gradient tile surface: {e:?}"),
+    }
+}
+
+/// Bytes in a `stride`-wide, `rows`-tall ARGB32 buffer, or `None` if either is negative or the
+/// product does not fit (an `i32` multiply would wrap to a small or negative length).
+fn tile_buffer_len(stride: i32, rows: i32) -> Option<usize> {
+    usize::try_from(stride).ok()?.checked_mul(usize::try_from(rows).ok()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tile_buffer_len_multiplies_normal_sizes() {
+        assert_eq!(tile_buffer_len(400, 30), Some(12_000));
+        assert_eq!(tile_buffer_len(4, 0), Some(0));
+    }
+
+    #[test]
+    fn tile_buffer_len_rejects_negative_sizes() {
+        assert_eq!(tile_buffer_len(-4, 10), None);
+        assert_eq!(tile_buffer_len(4, -10), None);
+    }
+
+    #[test]
+    fn tile_buffer_len_does_not_wrap_like_i32() {
+        // 2^20 * 2^12 = 2^32: an i32 product wraps to 0, the widened one is exact.
+        assert_eq!((1i32 << 20).wrapping_mul(1 << 12), 0);
+        assert_eq!(tile_buffer_len(1 << 20, 1 << 12), usize::try_from(1u64 << 32).ok());
     }
 }
