@@ -314,15 +314,17 @@ fn track_items(tokens: &[CssValue], in_repeat: bool) -> Option<Vec<TrackListItem
             }
             let comma = args.iter().position(|arg| matches!(arg, CssValue::Comma))?;
             let count = match &args[..comma] {
-                [CssValue::Number(count, _)]
-                    if count.fract() == 0.0 && *count >= 1.0 && *count <= f64::from(u16::MAX) =>
+                // Any count of 1 or more is valid. One past what a `u16` holds is kept at
+                // `u16::MAX`, which loses nothing: layout clamps the grid to 10,000 tracks
+                // (css-grid-1 §5.4) long before that.
+                [CssValue::Number(count, _)] if count.fract() == 0.0 && *count >= 1.0 =>
                 {
                     #[expect(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
-                        reason = "checked just above"
+                        reason = "a whole number from 1 up, capped to the range"
                     )]
-                    RepeatCount::Count(*count as u16)
+                    RepeatCount::Count(count.min(f64::from(u16::MAX)) as u16)
                 }
                 [word] if is_keyword(word, "auto-fill") => RepeatCount::AutoFill,
                 [word] if is_keyword(word, "auto-fit") => RepeatCount::AutoFit,
@@ -1945,6 +1947,23 @@ mod tests {
         assert!(track_items(&[repeat(2.0, vec![px(1.0)])], false).is_some());
         assert!(track_items(&[repeat(2.0, vec![repeat(2.0, vec![px(1.0)])])], false).is_none());
         assert!(track_items(&[repeat(0.0, vec![px(1.0)])], false).is_none());
+    }
+
+    /// A count too large for the typed style is still a valid declaration. It used to read as
+    /// nothing at all, which threw away the earlier declaration and left the grid with no
+    /// template; layout clamps the track count anyway.
+    #[test]
+    fn a_huge_repeat_count_is_kept_at_the_largest_count() {
+        let style = style_of("grid-template-columns: 5px; grid-template-columns: repeat(100000, 1px)");
+        assert_eq!(
+            &*style.grid.template_columns,
+            [TrackListItem::Repeat(
+                RepeatCount::Count(u16::MAX),
+                Arc::from([TrackListItem::Track(TrackSize::Single(TrackBreadth::Length(
+                    LengthPercentage::Px(1.0)
+                )))])
+            )]
+        );
     }
 
     fn px(value: f64) -> CssValue {
