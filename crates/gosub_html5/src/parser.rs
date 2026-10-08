@@ -3145,11 +3145,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.open_elements.pop();
 
                 // The speculative parser is not implemented, so we always proceed.
-                // Update the stream encoding if the meta element declares one.
-                // Note: a fully spec-compliant implementation would also restart the parse
-                // when the encoding changes (WHATWG §13.2.3.5); that is not yet supported.
+                // Change the encoding if the meta element declares one. The stream only
+                // does so while its confidence is tentative and makes it certain after,
+                // so later declarations are ignored (WHATWG HTML 13.2.3.4).
                 if let Some(enc) = meta_charset_encoding(token) {
-                    self.tokenizer.stream.set_encoding(enc);
+                    self.tokenizer.stream.change_encoding(enc);
                 }
             }
             Token::StartTag { name, .. } if name == "title" => {
@@ -4526,7 +4526,7 @@ mod test {
     use crate::node::node_impl::NodeDataTypeInternal;
     use gosub_css3::system::Css3System;
     use gosub_interface::config::ModuleConfiguration;
-    use gosub_shared::byte_stream::Encoding;
+    use gosub_shared::byte_stream::{Confidence, Encoding};
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
@@ -4942,5 +4942,59 @@ mod test {
         let asked =
             sheets_awaited_by(r#"<html><head><link rel="stylesheet" href="/a.css"></head><body></body></html>"#);
         assert!(asked.is_empty(), "expected no wait, got {asked:?}");
+    }
+
+    /// Parses `bytes` the way the engine does: a byte stream with a tentative (or, with
+    /// `certain`, a BOM/transport-given) encoding. Returns the stream and the printed tree.
+    fn parse_bytes(bytes: &[u8], certain: bool) -> (ByteStream, String) {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_bytes(bytes).unwrap();
+        if certain {
+            stream.set_confidence(Confidence::Certain);
+        }
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let _ = Parser::parse_document(&mut stream, &mut doc, None);
+        let tree = format!("{doc}");
+        (stream, tree)
+    }
+
+    /// Only the first `<meta charset>` changes a tentative encoding; it makes the
+    /// encoding certain, so the second one neither switches back nor re-decodes.
+    #[test]
+    fn only_the_first_meta_charset_changes_the_encoding() {
+        let (stream, tree) = parse_bytes(
+            "<meta charset=iso-8859-1><meta charset=utf-8><p>é</p>".as_bytes(),
+            false,
+        );
+        assert_eq!(stream.encoding(), Encoding::Latin1);
+        assert_eq!(stream.confidence(), Confidence::Certain);
+        assert!(
+            tree.contains("\u{00C3}\u{00A9}"),
+            "expected latin-1 decoding, got {tree}"
+        );
+    }
+
+    /// A meta naming the encoding already in use makes it certain without a change,
+    /// so a later, different declaration is ignored.
+    #[test]
+    fn meta_charset_matching_the_encoding_makes_it_certain() {
+        let (stream, tree) = parse_bytes(
+            "<meta charset=utf-8><meta charset=iso-8859-1><p>é</p>".as_bytes(),
+            false,
+        );
+        assert_eq!(stream.encoding(), Encoding::UTF8);
+        assert_eq!(stream.confidence(), Confidence::Certain);
+        assert!(tree.contains('é'), "expected utf-8 decoding, got {tree}");
+    }
+
+    /// An encoding from a BOM or the transport layer is certain, so meta is ignored.
+    #[test]
+    fn meta_charset_is_ignored_when_the_encoding_is_certain() {
+        let (stream, tree) = parse_bytes(
+            "\u{FEFF}<meta http-equiv=Content-Type content='text/html; charset=iso-8859-1'><p>é</p>".as_bytes(),
+            true,
+        );
+        assert_eq!(stream.encoding(), Encoding::UTF8);
+        assert!(tree.contains('é'), "expected utf-8 decoding, got {tree}");
     }
 }

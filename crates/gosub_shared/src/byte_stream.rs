@@ -7,7 +7,7 @@ pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_CR: char = '\u{000D}';
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
-#[derive(PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Encoding {
     /// Unknown encoding. Won't read anything from the stream until the encoding is set.
     Unknown,
@@ -19,6 +19,18 @@ pub enum Encoding {
     UTF16LE,
     /// Stream consists of 16-bit UTF characters (Big Endian)
     UTF16BE,
+}
+
+/// How sure the stream is of its encoding (WHATWG HTML 13.2.3.1). Only a tentative
+/// encoding may still be changed by a `<meta>` charset declaration in the document.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confidence {
+    /// A guess (default, or sniffed from the content); a `<meta>` declaration may change it.
+    Tentative,
+    /// Fixed by a BOM, the transport layer or an earlier encoding change.
+    Certain,
+    /// The input is already decoded text (e.g. a `&str`), so there is no byte encoding to change.
+    Irrelevant,
 }
 
 /// Defines a single character/element in the stream. This is either a UTF8 character, or
@@ -136,6 +148,8 @@ pub struct ByteStream {
     closed: bool,
     /// Current encoding
     encoding: Encoding,
+    /// Confidence in `encoding`; gates `change_encoding`
+    confidence: Confidence,
     /// Configuration for the stream
     config: Config,
 }
@@ -381,6 +395,7 @@ impl ByteStream {
             col_cache: std::cell::Cell::new((0, 1)),
             closed: false,
             encoding,
+            confidence: Confidence::Tentative,
         }
     }
 
@@ -388,6 +403,8 @@ impl ByteStream {
     pub fn from_str(s: &str, encoding: Encoding) -> Self {
         let mut stream = Self::new(encoding, None);
         stream.raw = Vec::from(s.as_bytes());
+        // Already-decoded text: a `<meta charset>` in it has nothing to re-decode.
+        stream.confidence = Confidence::Irrelevant;
         // Close before transcoding so the buffer is processed exactly once.
         stream.closed = true;
         stream.transcode_pending();
@@ -738,6 +755,7 @@ impl ByteStream {
     pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
         self.raw = Vec::from(s.as_bytes());
         self.closed = false;
+        self.confidence = Confidence::Irrelevant;
         if let Some(enc) = encoding {
             self.encoding = enc;
         }
@@ -775,18 +793,30 @@ impl ByteStream {
 }
 
 impl ByteStream {
+    /// Returns the encoding named by a byte order mark at the start of the source, if any.
+    /// An encoding found this way is certain (WHATWG HTML 13.2.3.1 BOM sniffing).
+    #[must_use]
+    pub fn detect_bom(&self) -> Option<Encoding> {
+        let buf = self.raw.as_slice();
+        if buf.starts_with(b"\xEF\xBB\xBF") {
+            Some(Encoding::UTF8)
+        } else if buf.starts_with(b"\xFF\xFE") {
+            Some(Encoding::UTF16LE)
+        } else if buf.starts_with(b"\xFE\xFF") {
+            Some(Encoding::UTF16BE)
+        } else {
+            None
+        }
+    }
+
     /// Detect the given encoding from stream analysis
     pub fn detect_encoding(&self) -> Encoding {
-        let mut buf = self.raw.as_slice();
-
         // Check for BOM
-        if buf.starts_with(b"\xEF\xBB\xBF") {
-            return Encoding::UTF8;
-        } else if buf.starts_with(b"\xFF\xFE") {
-            return Encoding::UTF16LE;
-        } else if buf.starts_with(b"\xFE\xFF") {
-            return Encoding::UTF16BE;
+        if let Some(encoding) = self.detect_bom() {
+            return encoding;
         }
+
+        let mut buf = self.raw.as_slice();
 
         // Cap the buffer size we will check to max 64KB
         const MAX_BUF_SIZE: usize = 64 * 1024;
@@ -808,6 +838,54 @@ impl ByteStream {
             // Default to UTF-8 for all other detected encodings (including ASCII-compatible ones)
             Encoding::UTF8
         }
+    }
+
+    /// Current encoding
+    #[must_use]
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
+    }
+
+    /// Current confidence in the encoding
+    #[must_use]
+    pub fn confidence(&self) -> Confidence {
+        self.confidence
+    }
+
+    /// Sets the confidence, e.g. to `Certain` when the encoding came from a BOM or the
+    /// transport layer.
+    pub fn set_confidence(&mut self, confidence: Confidence) {
+        self.confidence = confidence;
+    }
+
+    /// Changes the encoding while parsing (WHATWG HTML 13.2.3.4), as asked for by a
+    /// `<meta>` charset declaration. Only a tentative encoding is changed, and the
+    /// confidence is certain afterwards, so the source is re-decoded at most once.
+    /// Returns true when the source was re-decoded.
+    pub fn change_encoding(&mut self, e: Encoding) -> bool {
+        if self.confidence != Confidence::Tentative {
+            return false;
+        }
+
+        // 1. A UTF-16 encoding is never changed by the document itself.
+        // 2. A UTF-16 new encoding becomes UTF-8.
+        // 3. x-user-defined is not supported by `Encoding`, so there is nothing to map.
+        // 4. The same encoding only makes the confidence certain.
+        let e = match e {
+            Encoding::UTF16LE | Encoding::UTF16BE => Encoding::UTF8,
+            e => e,
+        };
+        if matches!(self.encoding, Encoding::UTF16LE | Encoding::UTF16BE) || self.encoding == e {
+            self.confidence = Confidence::Certain;
+            return false;
+        }
+
+        // 5./6. Re-decode with the new encoding and make the confidence certain. The
+        // spec restarts the parse when the bytes so far decode differently; that is not
+        // supported yet, so the input is re-decoded in place instead.
+        self.set_encoding(e);
+        self.confidence = Confidence::Certain;
+        true
     }
 
     pub fn set_encoding(&mut self, e: Encoding) {
@@ -1598,5 +1676,69 @@ mod test {
         let mut stream = ByteStream::from_str("é", Encoding::UTF8);
         stream.read_and_next();
         assert_eq!(stream.location().offset, 2);
+    }
+
+    // ── encoding confidence (WHATWG HTML 13.2.3.4) ──────────────────────────
+
+    #[test]
+    fn change_encoding_redecodes_once_then_is_certain() {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_bytes("aé".as_bytes()).unwrap();
+        assert_eq!(stream.confidence(), Confidence::Tentative);
+
+        assert!(stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::Latin1);
+        assert_eq!(stream.confidence(), Confidence::Certain);
+
+        // Every later declaration is ignored: no re-decode, encoding unchanged.
+        assert!(!stream.change_encoding(Encoding::UTF8));
+        assert!(!stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::Latin1);
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('\u{00C3}'));
+        assert_eq!(stream.read_and_next(), Ch('\u{00A9}'));
+    }
+
+    #[test]
+    fn change_encoding_to_same_encoding_is_certain_without_redecode() {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_bytes(b"abc").unwrap();
+        stream.next();
+
+        assert!(!stream.change_encoding(Encoding::UTF8));
+        assert_eq!(stream.confidence(), Confidence::Certain);
+        assert_eq!(stream.tell_bytes(), 1);
+
+        assert!(!stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::UTF8);
+    }
+
+    #[test]
+    fn change_encoding_ignored_unless_tentative() {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_bytes(b"\xEF\xBB\xBFabc").unwrap();
+        assert_eq!(stream.detect_bom(), Some(Encoding::UTF8));
+        stream.set_confidence(Confidence::Certain);
+        assert!(!stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::UTF8);
+
+        let mut stream = ByteStream::from_str("abc", Encoding::UTF8);
+        assert_eq!(stream.confidence(), Confidence::Irrelevant);
+        assert!(!stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::UTF8);
+    }
+
+    #[test]
+    fn change_encoding_keeps_utf16_and_maps_utf16_to_utf8() {
+        let mut stream = ByteStream::new(Encoding::UTF16LE, None);
+        stream.read_from_bytes(b"a\x00").unwrap();
+        assert!(!stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.encoding(), Encoding::UTF16LE);
+        assert_eq!(stream.confidence(), Confidence::Certain);
+
+        let mut stream = ByteStream::new(Encoding::Latin1, None);
+        stream.read_from_bytes(b"abc").unwrap();
+        assert!(stream.change_encoding(Encoding::UTF16BE));
+        assert_eq!(stream.encoding(), Encoding::UTF8);
     }
 }
