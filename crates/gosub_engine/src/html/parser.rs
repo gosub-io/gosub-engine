@@ -9,7 +9,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
 use gosub_interface::node::QuirksMode;
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -234,6 +234,11 @@ where
 
         let mut stream = ByteStream::new(encoding, None);
         stream.read_from_bytes(&buf)?;
+        // A BOM settles the encoding; a chardetng guess stays tentative, so a
+        // `<meta charset>` may still change it once.
+        if stream.detect_bom().is_some() {
+            stream.set_confidence(Confidence::Certain);
+        }
         let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
         let options = gosub_html5::parser::Html5ParserOptions {
             stylesheets,
