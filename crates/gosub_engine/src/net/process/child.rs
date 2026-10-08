@@ -377,11 +377,12 @@ async fn perform_inner(
 
     // The tag is how this request's observer finds the link (see
     // `NetProcessContext::observer_for`).
-    let mut builder = FetchRequest::builder(method, url)
+    let builder = FetchRequest::builder(method, url)
         .with_reference(gosub_sonar::RequestReference::Tagged(fetch.tag))
         .with_headers(headers)
         .with_streaming(streaming)
         .with_auto_decode(true);
+    let mut builder = fetch.context.apply(builder);
     if let Some(body) = fetch.body {
         // Plain bytes: the Content-Type already travelled in the headers.
         builder = builder.with_body(RequestBody::bytes(body));

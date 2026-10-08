@@ -105,10 +105,147 @@ pub struct NetFetch {
     /// `crate::net::emitter`); this process has no settings of its own.
     #[serde(default)]
     pub body_preview: Option<usize>,
-    // Only these cross. `FetchRequest::origin` / `referrer` / `mixed_content`
-    // (sonar 0.2.0) do not: the engine sets none of them yet. When it does, add
-    // them here - otherwise the network process rebuilds the request without
-    // them and mixed-content blocking silently disappears out-of-process.
+    /// Whose request this is: the fields of the `FetchRequest` that decide its
+    /// `Origin`, `Referer` and mixed-content handling, which the network process
+    /// would otherwise rebuild the request without.
+    #[serde(default)]
+    pub context: RequestContext,
+}
+
+/// The parts of a `FetchRequest` that say who is asking, as they travel. Without
+/// them the network process sends a document's request as nobody's: no
+/// `Referer`, no `Origin`, and no mixed-content check.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestContext {
+    /// `FetchRequest::origin`, ASCII-serialized; `null` is an opaque origin.
+    pub origin: Option<String>,
+    /// `FetchRequest::referrer`.
+    pub referrer: Option<String>,
+    /// `FetchRequest::referrer_policy` as its token (`strict-origin`, ...).
+    pub referrer_policy: Option<String>,
+    /// `FetchRequest::mixed_content`; `None` leaves the fetcher's own setting.
+    pub mixed_content: Option<MixedContent>,
+    /// `FetchRequest::mode`. Decides the CORS regime as much as `Sec-Fetch-Mode`:
+    /// a navigation rebuilt in the default no-cors mode, with an origin, would come
+    /// back opaque from any other origin.
+    pub mode: Option<Mode>,
+    /// `FetchRequest::destination` as its `Sec-Fetch-Dest` token (`document`, ...).
+    pub destination: Option<String>,
+}
+
+/// `RequestMode` as it travels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mode {
+    NoCors,
+    Cors,
+    SameOrigin,
+    Navigate,
+    Websocket,
+}
+
+/// `MixedContentPolicy` as it travels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MixedContent {
+    Allow,
+    Upgrade,
+    Block,
+}
+
+impl RequestContext {
+    /// What `req` says about who is asking.
+    pub fn of(req: &crate::net::types::FetchRequest) -> Self {
+        use gosub_sonar::{MixedContentPolicy, RequestMode};
+        Self {
+            origin: req.origin.as_ref().map(url::Origin::ascii_serialization),
+            referrer: req.referrer.as_ref().map(url::Url::to_string),
+            referrer_policy: Some(req.referrer_policy.as_str().to_string()),
+            mixed_content: req.mixed_content.map(|policy| match policy {
+                MixedContentPolicy::Allow => MixedContent::Allow,
+                MixedContentPolicy::Upgrade => MixedContent::Upgrade,
+                MixedContentPolicy::Block => MixedContent::Block,
+            }),
+            mode: Some(match req.mode {
+                RequestMode::NoCors => Mode::NoCors,
+                RequestMode::Cors => Mode::Cors,
+                RequestMode::SameOrigin => Mode::SameOrigin,
+                RequestMode::Navigate => Mode::Navigate,
+                RequestMode::Websocket => Mode::Websocket,
+            }),
+            destination: Some(req.destination.as_str().to_string()),
+        }
+    }
+
+    /// Put the context back on a request being rebuilt. A field that does not
+    /// parse is left off rather than guessed at: an origin that cannot be read
+    /// becomes an opaque one, which serializes to `null` like any other, so the
+    /// request never claims an origin the broker did not give it.
+    pub fn apply(self, mut builder: gosub_sonar::FetchRequestBuilder) -> gosub_sonar::FetchRequestBuilder {
+        use gosub_sonar::{MixedContentPolicy, ReferrerPolicy, RequestMode};
+        if let Some(origin) = self.origin {
+            let origin = match url::Url::parse(&origin) {
+                Ok(url) if origin != "null" => url.origin(),
+                _ => url::Origin::new_opaque(),
+            };
+            builder = builder.with_origin(origin);
+        }
+        if let Some(referrer) = self.referrer.and_then(|r| url::Url::parse(&r).ok()) {
+            builder = builder.with_referrer(referrer);
+        }
+        if let Some(policy) = self.referrer_policy.as_deref().and_then(ReferrerPolicy::parse_token) {
+            builder = builder.with_referrer_policy(policy);
+        }
+        if let Some(policy) = self.mixed_content {
+            builder = builder.with_mixed_content(match policy {
+                MixedContent::Allow => MixedContentPolicy::Allow,
+                MixedContent::Upgrade => MixedContentPolicy::Upgrade,
+                MixedContent::Block => MixedContentPolicy::Block,
+            });
+        }
+        if let Some(mode) = self.mode {
+            builder = builder.with_mode(match mode {
+                Mode::NoCors => RequestMode::NoCors,
+                Mode::Cors => RequestMode::Cors,
+                Mode::SameOrigin => RequestMode::SameOrigin,
+                Mode::Navigate => RequestMode::Navigate,
+                Mode::Websocket => RequestMode::Websocket,
+            });
+        }
+        if let Some(destination) = self.destination.as_deref().and_then(destination_from_token) {
+            builder = builder.with_destination(destination);
+        }
+        builder
+    }
+}
+
+/// The `RequestDestination` a `Sec-Fetch-Dest` token names; `None` for one that names none.
+fn destination_from_token(token: &str) -> Option<gosub_sonar::RequestDestination> {
+    use gosub_sonar::RequestDestination as D;
+    [
+        D::Empty,
+        D::Audio,
+        D::AudioWorklet,
+        D::Document,
+        D::Embed,
+        D::Font,
+        D::Frame,
+        D::Iframe,
+        D::Image,
+        D::Json,
+        D::Manifest,
+        D::Object,
+        D::PaintWorklet,
+        D::Report,
+        D::Script,
+        D::ServiceWorker,
+        D::SharedWorker,
+        D::Style,
+        D::Track,
+        D::Video,
+        D::Worker,
+        D::Xslt,
+    ]
+    .into_iter()
+    .find(|d| d.as_str() == token)
 }
 
 /// `SameSiteContext` as it travels.
@@ -495,6 +632,83 @@ pub enum FetchOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Who is asking survives the trip to the network process: origin, referrer,
+    /// referrer policy and mixed-content handling all come out as they went in.
+    #[test]
+    fn a_request_context_survives_the_link() {
+        use gosub_sonar::{MixedContentPolicy, ReferrerPolicy};
+        let target = url::Url::parse("http://target.test/form").unwrap();
+        let doc = url::Url::parse("https://site.test:8443/page?q=1").unwrap();
+        let req = crate::net::types::FetchRequest::builder(http::Method::POST, target.clone())
+            .with_origin(doc.origin())
+            .with_referrer(doc.clone())
+            .with_referrer_policy(ReferrerPolicy::SameOrigin)
+            .with_mixed_content(MixedContentPolicy::Allow)
+            .with_mode(gosub_sonar::RequestMode::Navigate)
+            .with_destination(gosub_sonar::RequestDestination::Document)
+            .build();
+
+        let context = RequestContext::of(&req);
+        let wire: RequestContext = serde_json::from_str(&serde_json::to_string(&context).unwrap()).unwrap();
+        let back = wire
+            .apply(crate::net::types::FetchRequest::builder(
+                http::Method::POST,
+                target.clone(),
+            ))
+            .build();
+        assert_eq!(back.origin, Some(doc.origin()));
+        assert_eq!(back.referrer, Some(doc));
+        assert_eq!(back.referrer_policy, ReferrerPolicy::SameOrigin);
+        assert_eq!(back.mixed_content, Some(MixedContentPolicy::Allow));
+        assert_eq!(back.mode, gosub_sonar::RequestMode::Navigate);
+        assert_eq!(back.destination, gosub_sonar::RequestDestination::Document);
+
+        // Nobody's request stays nobody's.
+        let bare = crate::net::types::FetchRequest::builder(http::Method::GET, target.clone()).build();
+        let back = RequestContext::of(&bare)
+            .apply(crate::net::types::FetchRequest::builder(
+                http::Method::GET,
+                target.clone(),
+            ))
+            .build();
+        assert_eq!((back.origin, back.referrer, back.mixed_content), (None, None, None));
+
+        // An opaque origin, or one that does not parse, comes back opaque: never a
+        // tuple origin the broker did not send.
+        for origin in ["null", "not an origin"] {
+            let context = RequestContext {
+                origin: Some(origin.into()),
+                ..RequestContext::default()
+            };
+            let back = context
+                .apply(crate::net::types::FetchRequest::builder(
+                    http::Method::POST,
+                    target.clone(),
+                ))
+                .build();
+            assert!(
+                matches!(back.origin, Some(url::Origin::Opaque(_))),
+                "{origin}: {:?}",
+                back.origin
+            );
+        }
+    }
+
+    /// A destination comes back from its `Sec-Fetch-Dest` token; a token naming none
+    /// leaves the request's own.
+    #[test]
+    fn a_destination_token_names_its_destination() {
+        use gosub_sonar::RequestDestination;
+        for d in [
+            RequestDestination::Document,
+            RequestDestination::Image,
+            RequestDestination::Empty,
+        ] {
+            assert_eq!(destination_from_token(d.as_str()), Some(d));
+        }
+        assert_eq!(destination_from_token("no-such-destination"), None);
+    }
 
     /// More distinct names than a `HeaderMap` holds: the rest is dropped, where
     /// `append` would panic and take the broker's reader with it.

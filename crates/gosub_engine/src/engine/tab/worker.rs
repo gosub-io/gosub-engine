@@ -932,7 +932,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .focused_link()
                     .and_then(|href| self.page_link_target(&href))
                 {
-                    self.navigate_to(url.to_string(), false, HistoryIntent::Push);
+                    self.follow_link(url.to_string());
                 }
                 ControlFlow::Continue
             }
@@ -1439,7 +1439,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
                         if let Some(url) = self.page_link_target(&href) {
-                            self.navigate_to(url.to_string(), false, HistoryIntent::Push);
+                            self.follow_link(url.to_string());
                         }
                         return ControlFlow::Continue;
                     }
@@ -1655,11 +1655,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 Ok(Action::Cursor(cursor)) => self.report_cursor(cursor),
                 Ok(Action::Navigate { url, method, body }) => {
+                    let initiator = self.current_url.clone();
                     self.navigate_request(
                         url.to_string(),
                         method,
                         body.map(RequestBody::form),
                         HistoryIntent::Push,
+                        initiator.as_ref(),
                     );
                 }
                 Ok(Action::Picker {
@@ -1714,7 +1716,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
         } else {
             (Method::GET, None)
         };
-        self.navigate_request(sub.url.to_string(), method, body, HistoryIntent::Push);
+        let initiator = self.current_url.clone();
+        self.navigate_request(
+            sub.url.to_string(),
+            method,
+            body,
+            HistoryIntent::Push,
+            initiator.as_ref(),
+        );
     }
 
     /// Emit `CursorChanged` if the shape differs from the last one reported.
@@ -1814,17 +1823,26 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// navigation does to session history once it commits.
     fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
         let _ = ignore_cache;
-        self.navigate_request(url, Method::GET, None, history);
+        self.navigate_request(url, Method::GET, None, history, None);
+    }
+
+    /// Follow a link the loaded document offered: the document is the navigation's
+    /// initiator, unlike a URL the user typed.
+    fn follow_link(&mut self, url: String) {
+        let initiator = self.current_url.clone();
+        self.navigate_request(url, Method::GET, None, HistoryIntent::Push, initiator.as_ref());
     }
 
     /// Navigate with an explicit method and optional body (form POSTs), cancelling any
-    /// in-flight navigation.
+    /// in-flight navigation. `initiator` is the document that started it - a link or a
+    /// form - and `None` for the user's own navigations (address bar, reload, history).
     fn navigate_request(
         &mut self,
         url: impl Into<String>,
         method: Method,
         body: Option<RequestBody>,
         history: HistoryIntent,
+        initiator: Option<&Url>,
     ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
@@ -1955,6 +1973,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
             .with_auto_decode(true);
+        req = navigation(req, initiator);
         if let Some(body) = body {
             req = req.with_body(body);
         }
@@ -2881,8 +2900,134 @@ impl ControlFlow {
     }
 }
 
+/// `req` as a navigation `initiator` started: a document's link or form, or `None` for the
+/// user's own (address bar, reload, history).
+///
+/// Every navigation is mode `navigate`, destination `document`: that is what `Sec-Fetch-Mode`
+/// and `-Dest` say, and a navigation is never CORS-checked, where the default no-cors mode
+/// would turn a response from another origin opaque once the request carries an origin.
+///
+/// One a document started carries its origin, which the fetcher sends as `Origin` on a POST
+/// and judges `Sec-Fetch-Site` by (Fetch, "append a request `Origin` header"; HTML, form
+/// submission and "navigate", whose request origin is the source document's), and the
+/// document as referrer. Mixed-content blocking is off for it: it governs a document's
+/// subresources, and a top-level navigation is never mixed content (Mixed Content, "Should
+/// fetching request be blocked as mixed content?", step 1) - without this an https page's
+/// form to an http site would be refused the moment it carries an origin.
+fn navigation(
+    req: crate::net::types::FetchRequestBuilder,
+    initiator: Option<&Url>,
+) -> crate::net::types::FetchRequestBuilder {
+    let req = req
+        .with_mode(gosub_sonar::RequestMode::Navigate)
+        .with_destination(gosub_sonar::RequestDestination::Document);
+    let Some(document) = initiator else {
+        return req;
+    };
+    req.with_origin(document.origin())
+        .with_referrer(document.clone())
+        .with_mixed_content(gosub_sonar::MixedContentPolicy::Allow)
+}
+
 #[cfg(test)]
 mod tests {
+    /// A link or form carries its document as the navigation's initiator; the user's own
+    /// navigation carries nobody.
+    mod navigation_initiator {
+        use super::super::navigation;
+        use crate::net::types::FetchRequest;
+        use gosub_sonar::MixedContentPolicy;
+        use url::Url;
+
+        #[test]
+        fn a_form_post_carries_its_documents_origin_and_referrer() {
+            let doc = Url::parse("https://site.test/page").unwrap();
+            let target = Url::parse("http://other.test/submit").unwrap();
+            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc)).build();
+            assert_eq!(req.origin, Some(doc.origin()));
+            assert_eq!(req.referrer, Some(doc));
+            // An https page's form to an http site is a navigation, not mixed content.
+            assert_eq!(req.mixed_content, Some(MixedContentPolicy::Allow));
+        }
+
+        #[test]
+        fn the_users_own_navigation_has_no_initiator() {
+            let target = Url::parse("https://site.test/").unwrap();
+            let req = navigation(FetchRequest::builder(http::Method::GET, target), None).build();
+            assert_eq!((req.origin, req.referrer, req.mixed_content), (None, None, None));
+            assert_eq!(req.mode, gosub_sonar::RequestMode::Navigate);
+        }
+
+        /// End to end: a cross-origin form POST sends its document's `Origin` and comes back
+        /// readable, where a no-cors request with an origin would come back opaque.
+        #[tokio::test]
+        async fn a_cross_origin_form_post_sends_origin_and_reads_the_response() {
+            use cow_utils::CowUtils;
+            use std::sync::Arc;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let seen = Arc::new(parking_lot::Mutex::new(String::new()));
+            let seen_srv = seen.clone();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                *seen_srv.lock() = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                let body = "<html><body>posted</body></html>";
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(body.as_bytes()).await;
+            });
+
+            let config = gosub_sonar::FetcherConfig {
+                proxy: gosub_sonar::ProxyConfig::Disabled,
+                ..gosub_sonar::FetcherConfig::default()
+            };
+            let fetcher = Arc::new(gosub_sonar::Fetcher::new(config, Arc::new(gosub_sonar::NullContext)).unwrap());
+            let shutdown = tokio_util::sync::CancellationToken::new();
+            tokio::spawn({
+                let fetcher = fetcher.clone();
+                let shutdown = shutdown.clone();
+                async move { fetcher.run(shutdown).await }
+            });
+
+            let doc = Url::parse("http://site.test/form").unwrap();
+            let target = Url::parse(&format!("http://127.0.0.1:{port}/submit")).unwrap();
+            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc))
+                .with_body(crate::net::types::RequestBody::form("a=1"))
+                .build();
+            let result = fetcher.fetch(req).await;
+            shutdown.cancel();
+
+            let request = seen.lock().clone();
+            assert!(request.contains("\r\norigin: http://site.test\r\n"), "{request}");
+            assert!(request.contains("\r\nsec-fetch-mode: navigate\r\n"), "{request}");
+            assert!(request.contains("\r\nsec-fetch-site: cross-site\r\n"), "{request}");
+            match result {
+                gosub_sonar::FetchResult::Buffered { meta, body } => {
+                    assert_eq!(meta.status, 200);
+                    assert_eq!(&body[..], b"<html><body>posted</body></html>");
+                }
+                other => panic!("not a readable response: {other:?}"),
+            }
+        }
+
+        /// A document without a tuple origin (a `file:` page) still initiates: its origin is
+        /// opaque, which the fetcher sends as `Origin: null`.
+        #[test]
+        fn a_file_document_initiates_with_an_opaque_origin() {
+            let doc = Url::parse("file:///home/user/form.html").unwrap();
+            let target = Url::parse("https://site.test/submit").unwrap();
+            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc)).build();
+            assert!(matches!(req.origin, Some(url::Origin::Opaque(_))));
+        }
+    }
+
     /// Accepting an offer places the already-fetched body; it never re-requests the URL.
     mod spooled_downloads {
         use super::super::place_spooled_download;

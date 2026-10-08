@@ -299,6 +299,15 @@ page's own. The embedder's request log and anything built on it (Beacon's
 developer panel, its activity strip) therefore see the same under isolation as
 without.
 
+**A request keeps who asked.** Besides its URL, method, headers and body, a
+request crosses to the network process with its initiating origin, referrer,
+referrer policy and mixed-content setting (`RequestContext`), and is rebuilt
+there with them. Those are what the fetcher derives `Referer`, `Origin`,
+`Sec-Fetch-Site` and mixed-content blocking from at every redirect hop, so a
+request sent out-of-process carries the same headers it would in-process. An
+origin the child cannot read is rebuilt as an opaque one, which sends `null`,
+never an origin the broker did not give.
+
 **Subresources are brokered.** A confined renderer cannot fetch, so it sends
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
 identity and cookies live - with the page's `Referer` and `Accept-Language`,

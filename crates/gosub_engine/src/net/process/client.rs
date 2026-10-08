@@ -3,8 +3,8 @@
 
 use crate::net::emitter::NetObserver;
 use crate::net::process::protocol::{
-    cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch, RequestTag,
-    ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
+    cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch,
+    RequestContext, RequestTag, ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
 };
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
@@ -31,6 +31,8 @@ pub struct Outbound {
     pub cookies: Option<CookieScope>,
     /// How much of the response body to preview, in bytes; `None` for none.
     pub body_preview: Option<usize>,
+    /// Who is asking: origin, referrer and mixed-content handling.
+    pub context: RequestContext,
 }
 
 impl Outbound {
@@ -45,6 +47,7 @@ impl Outbound {
             streaming: false,
             cookies: None,
             body_preview: None,
+            context: RequestContext::default(),
         }
     }
 }
@@ -487,6 +490,7 @@ impl NetProcess {
             streaming,
             cookies,
             body_preview,
+            context,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -510,6 +514,7 @@ impl NetProcess {
             streaming,
             cookies,
             body_preview,
+            context,
         }));
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.

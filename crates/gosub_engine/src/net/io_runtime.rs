@@ -363,6 +363,7 @@ fn dispatch_to_net_process(
     let streaming = req.streaming;
     // No in-process fetcher emits the terminal event that would drop this.
     let req_id = req.req_id;
+    let context = crate::net::process::protocol::RequestContext::of(&req);
     let mut headers = crate::net::process::protocol::flatten_headers(&req.headers);
 
     // The body crosses the link as plain bytes. Its Content-Type is folded into
@@ -399,6 +400,7 @@ fn dispatch_to_net_process(
             streaming,
             cookies,
             body_preview,
+            context,
         };
         let reply = net.fetch(out, &cancel, observer).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
