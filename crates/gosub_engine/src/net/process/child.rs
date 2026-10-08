@@ -396,16 +396,25 @@ async fn perform_inner(
         _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
-    // `Set-Cookie` goes to the vault from here; the broker never sees it.
+    // `Set-Cookie` goes to the vault from here; the broker never sees it: the
+    // reply drops it, and under a vault scope the broker stores no cookies
+    // of its own.
     if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
         tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta));
     }
+    let reply_headers = |headers: &http::HeaderMap| {
+        let mut list = flatten_headers(headers);
+        if scope.is_some() {
+            list.retain(|(name, _)| !name.eq_ignore_ascii_case(http::header::SET_COOKIE.as_str()));
+        }
+        list
+    };
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
-            headers: flatten_headers(&meta.headers),
+            headers: reply_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
         }),
@@ -420,7 +429,7 @@ async fn perform_inner(
                 status: meta.status,
                 status_text: meta.status_text,
                 final_url: meta.final_url.to_string(),
-                headers: flatten_headers(&meta.headers),
+                headers: reply_headers(&meta.headers),
                 peek: peek_buf.as_ref().to_vec(),
                 peer_addr: meta.peer_addr,
             };

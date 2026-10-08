@@ -83,7 +83,9 @@ engine then falls back in-process and says so.
   broker deserializes frames from every other child. Tabs and the embedder API
   see an ordinary jar that forwards; the network process gets its own line to
   the vault, so the cookie values attached to requests and the `Set-Cookie`
-  headers coming back flow between those two and never through the broker.
+  headers coming back flow between those two and never through the broker:
+  the reply carries no `Set-Cookie`, and the events it relays name both
+  headers with their values redacted.
   That line is not trusted to name zones: before dispatching a request the
   broker grants the vault a random per-request ticket bound to the tab's zone
   and document, the network process asks under the ticket, and the vault
