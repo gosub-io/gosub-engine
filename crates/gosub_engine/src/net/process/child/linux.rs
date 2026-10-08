@@ -199,12 +199,14 @@ pub(super) fn vault_cookies(vault: &Mutex<Option<VaultLink>>, scope: &CookieScop
 /// to the broker must not overtake the store. Whether the cookies are safe -
 /// stored, or none to store; `false` (no vault line, or the vault did not
 /// confirm) means the reply has to keep them, or nobody stores them at all.
+/// A value [`set_cookie_text`](super::set_cookie_text) cannot read is not
+/// sent, and the reply keeps it whatever this returns.
 pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, meta: &FetchResultMeta) -> bool {
     let set_cookie: Vec<String> = meta
         .headers
         .get_all(http::header::SET_COOKIE)
         .iter()
-        .filter_map(|v| v.to_str().ok().map(str::to_string))
+        .filter_map(|v| super::set_cookie_text(v.as_bytes()).map(str::to_string))
         .collect();
     if set_cookie.is_empty() {
         return true;
