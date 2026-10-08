@@ -3256,6 +3256,8 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "bitflags 2.13.1",
+ "brotli",
+ "brotli-decompressor",
  "bytes",
  "chrono",
  "cow-utils",

@@ -63,6 +63,8 @@ mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
+# Bounded WOFF2 inflate ahead of allsorts, which reads the Brotli stream to its end.
+brotli-decompressor = "5"
 # Download bodies are spooled to a temp file while the embedder decides (see net::router).
 tempfile = { workspace = true }
 
@@ -75,6 +77,8 @@ path = "src/bin/isolation-harness.rs"
 required-features = ["process-isolation"]
 
 [dev-dependencies]
+# Builds small Brotli bombs for the web-font size-cap tests.
+brotli = "8"
 
 [features]
 default = ["sqlite_cookie_store", "process-isolation"]
