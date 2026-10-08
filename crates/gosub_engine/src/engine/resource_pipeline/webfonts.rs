@@ -225,6 +225,10 @@ fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Option<Vec<u8>> {
     }
     match woff2_to_sfnt(&bytes) {
         Ok(sfnt) => {
+            if let Err(e) = check_sfnt_size(sfnt.len(), MAX_WEB_FONT_SIZE) {
+                log::warn!("Rejected WOFF2 web font from {font_url}: {e}");
+                return None;
+            }
             log::debug!(
                 "Decoded WOFF2 web font from {font_url} ({} → {} bytes)",
                 bytes.len(),
@@ -237,6 +241,16 @@ fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Option<Vec<u8>> {
             Some(bytes)
         }
     }
+}
+
+/// Check that the SFNT rebuilt from a WOFF2 font is at most `cap` bytes. The Brotli stream is
+/// already capped, but rebuilding adds the header and table directory, and the transformed
+/// `glyf`/`loca` tables expand when they are reconstructed, so the result can still exceed it.
+fn check_sfnt_size(len: usize, cap: u64) -> Result<(), String> {
+    if len as u64 > cap {
+        return Err(format!("rebuilt font is {len} bytes, over the {cap} byte cap"));
+    }
+    Ok(())
 }
 
 /// Check that a WOFF1 font unpacks to at most `cap` bytes. The backends (FreeType) size each
@@ -534,5 +548,15 @@ mod tests {
         assert!(decode_web_font(woff_font(cap + 1, 16), &url).is_none());
         let ok = woff_font(64, 16);
         assert_eq!(decode_web_font(ok.clone(), &url), Some(ok));
+    }
+
+    /// The SFNT rebuilt from a WOFF2 font is held to the cap too, since rebuilding can grow it
+    /// past the Brotli stream it came from.
+    #[test]
+    fn a_rebuilt_sfnt_over_the_cap_is_rejected() {
+        let cap = MAX_WEB_FONT_SIZE;
+        assert!(check_sfnt_size(cap as usize, cap).is_ok());
+        let err = check_sfnt_size(cap as usize + 1, cap).unwrap_err();
+        assert!(err.contains("rebuilt font"), "{err}");
     }
 }
