@@ -457,8 +457,8 @@ impl RendererPool {
             match renderer.try_lock() {
                 Some(mut guard) => guard.shutdown(),
                 // Busy with an exchange: the thread running it holds the last
-                // handle; when that drops, the link closes and the process
-                // exits on end-of-file. Its exit is collected by the sweep.
+                // handle, and dropping that kills the process (see
+                // `ResidentRenderer`'s `Drop`). Its exit is collected by the sweep.
                 None => {
                     state.needs_reap = true;
                     return;
