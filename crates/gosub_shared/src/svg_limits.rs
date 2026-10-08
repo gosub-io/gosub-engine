@@ -10,6 +10,11 @@
 //! [`SVG_PARSE_STACK_NEEDED`] and [`SVG_PARSE_STACK_SIZE`] are the other half: the depth limit
 //! only bounds the *number* of frames, and callers cannot say how much of their own stack is
 //! already spent - an inline `<svg>` is decoded partway down a recursive layout walk.
+//!
+//! The rest bound what one decode can amplify into: [`MAX_SVG_INFLATED_BYTES`] of text made
+//! from SVGZ and nested `data:` documents, [`MAX_NESTED_SVG_DOCUMENTS`] such documents, nested
+//! at most [`MAX_NESTED_SVG_LEVELS`] deep. Each nested document gets the same depth scan as the
+//! outer one.
 
 /// Maximum element nesting depth accepted in an SVG document.
 ///
@@ -27,6 +32,34 @@ pub const SVG_PARSE_STACK_NEEDED: usize = 2 * 1024 * 1024;
 /// Size of the stack segment allocated when [`SVG_PARSE_STACK_NEEDED`] is not left, giving the
 /// parse the same 4x margin a dedicated thread used to.
 pub const SVG_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+/// Most SVG text one decode may produce beyond the bytes it was handed: everything inflated
+/// from SVGZ, plus every nested `<image href="data:image/svg+xml,...">` document parsed.
+///
+/// Inflation is where the amplification lives - gzip turns 10 MiB into ~10 GiB - and nested
+/// documents are the other multiplier, since a `<use>` of an `<image>` parses its document again
+/// per instance. Both draw on this one budget, so neither can be stacked on the other.
+///
+/// Parsing holds the text, the XML tree and usvg's tree at once, several times the text in all.
+/// 32 MiB of text keeps that peak in the same range as the raster decoder's 128 MiB
+/// `MAX_DECODE_BYTES`, while staying well above real content: SVGZ map tiles and icon sprites
+/// inflate to single-digit MiB.
+pub const MAX_SVG_INFLATED_BYTES: usize = 32 * 1024 * 1024;
+
+/// Most nested SVG documents (`data:` images) one decode may parse, counting every level and
+/// every `<use>` instance.
+///
+/// usvg's node limit is per document, so without this the work a single decode does is that
+/// limit times however many documents it can be talked into parsing. Real SVG embeds a nested
+/// SVG rarely and a handful at most.
+pub const MAX_NESTED_SVG_DOCUMENTS: usize = 64;
+
+/// How deep `data:` SVG images may nest inside one another.
+///
+/// Each level parses on top of the one that embeds it, so each may need a fresh
+/// [`SVG_PARSE_STACK_SIZE`] stack segment; this caps how many. [`MAX_NESTED_SVG_DOCUMENTS`]
+/// would bound it as well, but at eight times the stack.
+pub const MAX_NESTED_SVG_LEVELS: usize = 8;
 
 /// Why a document must not be handed to the XML parser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
