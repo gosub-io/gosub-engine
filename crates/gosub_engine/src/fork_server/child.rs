@@ -499,6 +499,17 @@ fn fork_and_render<C: RenderConfiguration>(
                                 .recv::<ToForkServer>()
                                 .map_err(|e| std::io::Error::other(format!("broker sent no resource: {e}")))?
                             {
+                                // A shared body's fd follows its reply, broker to
+                                // renderer: the tile relay below, the other way.
+                                ToForkServer::Resource(
+                                    reply @ crate::fork_server::protocol::ResourceReply::Shared { .. },
+                                ) => {
+                                    let fd = broker.rx.recv_fd().map_err(|e| {
+                                        std::io::Error::other(format!("broker sent no shared body: {e}"))
+                                    })?;
+                                    link.send(&reply)?;
+                                    link.tx.send_fd(fd.as_raw_fd())?;
+                                }
                                 ToForkServer::Resource(reply) => link.send(&reply)?,
                                 other => {
                                     return Err(std::io::Error::other(format!(
