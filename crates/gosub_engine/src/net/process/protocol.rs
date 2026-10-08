@@ -23,7 +23,9 @@ pub fn flatten_headers(headers: &http::HeaderMap) -> HeaderList {
 }
 
 /// Rebuild a header map from the link. A pair that is not a valid header
-/// (only a confused or hostile peer sends one) is skipped.
+/// (only a confused or hostile peer sends one) is skipped, and so is
+/// everything past what a `HeaderMap` holds: `append` panics there, and a
+/// list from a child can name 32k distinct headers in well under a frame.
 pub fn rebuild_headers(headers: &HeaderList) -> http::HeaderMap {
     let mut map = http::HeaderMap::new();
     for (name, value) in headers {
@@ -31,10 +33,24 @@ pub fn rebuild_headers(headers: &HeaderList) -> http::HeaderMap {
         let value = http::HeaderValue::from_bytes(value);
         if let (Ok(name), Ok(value)) = (name, value) {
             // `append`, not `insert`: each value of a repeated header is its own pair.
-            map.append(name, value);
+            if map.try_append(name, value).is_err() {
+                break;
+            }
         }
     }
     map
+}
+
+/// `s` cut to at most `max` bytes, on a character boundary.
+pub fn cut_string(s: String, max: usize) -> String {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 /// Broker → network process.
@@ -178,6 +194,17 @@ pub enum FromNet {
 pub const MAX_EVENT_STRING: usize = 8 * 1024;
 /// Most headers an event may carry; the rest are dropped on receipt.
 pub const MAX_EVENT_HEADERS: usize = 256;
+
+/// Most header lines a reply may carry, and most bytes of them. Far past a
+/// real response (hyper refuses more than 100 lines on HTTP/1, Chromium more
+/// than 256 KiB of head), so a reply over either is a child gone wrong and is
+/// refused whole: cut, it would lose whichever headers came last, a
+/// `Content-Security-Policy` as easily as any other.
+pub const MAX_REPLY_HEADERS: usize = 1024;
+pub const MAX_REPLY_HEADER_BYTES: usize = 256 * 1024;
+/// Longest final URL a reply may report (Chromium's URL limit). Past it the
+/// reply is refused: a cut URL is a different URL.
+pub const MAX_REPLY_URL: usize = 2 * 1024 * 1024;
 
 /// A network event as it travels: the ones the engine reports to the embedder
 /// (see `EngineEventEmitter`), flattened to plain data. Durations in
@@ -343,16 +370,7 @@ impl NetEventWire {
     pub fn into_net(self, preview_cap: usize) -> Option<crate::net::events::NetEvent> {
         use crate::net::events::NetEvent;
         use std::time::Duration;
-        let cut = |s: String| -> String {
-            if s.len() <= MAX_EVENT_STRING {
-                return s;
-            }
-            let mut end = MAX_EVENT_STRING;
-            while !s.is_char_boundary(end) {
-                end -= 1;
-            }
-            s[..end].to_string()
-        };
+        let cut = |s: String| cut_string(s, MAX_EVENT_STRING);
         let url = |s: String| url::Url::parse(&cut(s)).ok();
         let headers = |mut list: HeaderList| {
             list.truncate(MAX_EVENT_HEADERS);
@@ -477,6 +495,16 @@ pub enum FetchOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// More distinct names than a `HeaderMap` holds: the rest is dropped, where
+    /// `append` would panic and take the broker's reader with it.
+    #[test]
+    fn rebuilding_too_many_headers_does_not_panic() {
+        let list: HeaderList = (0..40_000).map(|i| (format!("x-{i}"), b"v".to_vec())).collect();
+        let map = rebuild_headers(&list);
+        assert!(map.len() < list.len());
+        assert!(map.contains_key("x-0"), "the first ones are kept");
+    }
 
     /// A failure classified in the network process reaches the broker's
     /// observer classified, and a hostile preview is clipped to what was asked.
