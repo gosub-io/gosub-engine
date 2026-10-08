@@ -291,7 +291,11 @@ fn track_size(value: &CssValue) -> Option<TrackSize> {
 
 /// The items of a track list: tracks, `repeat()`s and `[line names]`. `None` when any part is
 /// not something this reads, which leaves the property unset.
-fn track_items(tokens: &[CssValue]) -> Option<Vec<TrackListItem>> {
+///
+/// The grammar has already turned away what css-grid-1 §7.2.3.1 forbids - a `repeat()` inside a
+/// `repeat()`, and a count below 1 - but this reads the same shape, so it does not take either
+/// on trust. `in_repeat` is whether `tokens` are a `repeat()`'s own tracks.
+fn track_items(tokens: &[CssValue], in_repeat: bool) -> Option<Vec<TrackListItem>> {
     let mut items = Vec::new();
     let mut index = 0;
     while index < tokens.len() {
@@ -305,10 +309,13 @@ fn track_items(tokens: &[CssValue]) -> Option<Vec<TrackListItem>> {
             }
             items.push(TrackListItem::LineNames(Arc::from(names)));
         } else if let Some(("repeat", args)) = as_function(token) {
+            if in_repeat {
+                return None;
+            }
             let comma = args.iter().position(|arg| matches!(arg, CssValue::Comma))?;
             let count = match &args[..comma] {
                 [CssValue::Number(count, _)]
-                    if count.fract() == 0.0 && *count >= 0.0 && *count <= f64::from(u16::MAX) =>
+                    if count.fract() == 0.0 && *count >= 1.0 && *count <= f64::from(u16::MAX) =>
                 {
                     #[expect(
                         clippy::cast_possible_truncation,
@@ -323,7 +330,7 @@ fn track_items(tokens: &[CssValue]) -> Option<Vec<TrackListItem>> {
             };
             items.push(TrackListItem::Repeat(
                 count,
-                Arc::from(track_items(&args[comma + 1..])?),
+                Arc::from(track_items(&args[comma + 1..], true)?),
             ));
         } else {
             items.push(TrackListItem::Track(track_size(token)?));
@@ -338,7 +345,7 @@ fn track_list(value: &CssValue) -> Option<TrackList> {
     if is_keyword(value, "none") {
         return Some(Arc::from([]));
     }
-    track_items(grid_tokens(value)).map(Arc::from)
+    track_items(grid_tokens(value), false).map(Arc::from)
 }
 
 /// `grid-auto-rows` and `-columns`: empty for the initial `auto`, which is what an implicit track
@@ -1899,6 +1906,45 @@ mod tests {
         let style = style_of("grid-template-rows: none");
         assert!(style.grid.template_rows.is_empty());
         assert!(style.declared.has(Prop::GridTemplateRows));
+    }
+
+    /// css-grid-1 §7.2.3.1: `repeat()` cannot be nested, and repeats at least once. A declaration
+    /// that breaks either is invalid, so the earlier one stands.
+    #[test]
+    fn an_invalid_repeat_drops_the_declaration() {
+        let earlier = [TrackListItem::Track(TrackSize::Single(TrackBreadth::Length(
+            LengthPercentage::Px(5.0),
+        )))];
+        for value in [
+            "repeat(2, repeat(2, 1px))",
+            "repeat(auto-fill, repeat(2, 1px))",
+            "1px repeat(2, 1px repeat(2, 1px))",
+            "repeat(0, 1px)",
+            "repeat(-1, 1px)",
+            "repeat(2.5, 1px)",
+        ] {
+            let style = style_of(&format!("grid-template-columns: 5px; grid-template-columns: {value}"));
+            assert_eq!(&*style.grid.template_columns, earlier, "{value}");
+        }
+        let style = style_of("grid-template-rows: 5px; grid-template: repeat(2, repeat(2, 1px)) / auto");
+        assert_eq!(&*style.grid.template_rows, earlier);
+    }
+
+    /// The typed reader does not lean on the grammar for either rule: handed a nested `repeat()`
+    /// or a zero count directly, it reads nothing.
+    #[test]
+    fn the_track_reader_refuses_an_invalid_repeat() {
+        let repeat = |count: f64, tracks: Vec<CssValue>| {
+            let mut args = vec![
+                CssValue::Number(count, crate::tokenizer::NumberKind::Integer),
+                CssValue::Comma,
+            ];
+            args.extend(tracks);
+            CssValue::Function("repeat".to_string(), args)
+        };
+        assert!(track_items(&[repeat(2.0, vec![px(1.0)])], false).is_some());
+        assert!(track_items(&[repeat(2.0, vec![repeat(2.0, vec![px(1.0)])])], false).is_none());
+        assert!(track_items(&[repeat(0.0, vec![px(1.0)])], false).is_none());
     }
 
     fn px(value: f64) -> CssValue {
