@@ -87,35 +87,45 @@ impl LinearGradient {
     /// [`clamp_tile_size`]; the returned `scale` stretches it back to the tile's real size.
     pub fn rasterize_tile(&self, tiling: &Tiling) -> GradientTile {
         let (tw, th) = clamp_tile_size(tiling.tile_size);
-        let (w, h) = (tw as f32, th as f32);
-        let ((x0, y0), (x1, y1)) = self.line(w, h);
+        let scale = (tile_scale(tiling.tile_size.0, tw), tile_scale(tiling.tile_size.1, th));
+        GradientTile {
+            rgba: self.rasterize_scaled(tw, th, scale),
+            width: tw,
+            height: th,
+            scale,
+        }
+    }
+
+    /// A `w`x`h` raster of a tile `scale` times its size. The gradient line belongs to the
+    /// tile, not the raster: [`clamp_tile_size`] caps each edge on its own, so the raster can
+    /// have another aspect ratio, and a line drawn across it would turn a diagonal gradient
+    /// once the backend stretches x and y apart. Each pixel centre is mapped back into the tile
+    /// instead. At `scale` `(1.0, 1.0)` that is the plain per-pixel rasterization.
+    fn rasterize_scaled(&self, w: u32, h: u32, scale: (f64, f64)) -> Vec<u8> {
+        let (sx, sy) = (scale.0 as f32, scale.1 as f32);
+        let ((x0, y0), (x1, y1)) = self.line(w as f32 * sx, h as f32 * sy);
         let (dx, dy) = (x1 - x0, y1 - y0);
         let len2 = dx * dx + dy * dy;
-        let (tw_us, th_us) = (tw as usize, th as usize);
-        let mut out = vec![0u8; tw_us * th_us * 4];
-        for py in 0..th_us {
-            for px in 0..tw_us {
-                // Sample at the pixel centre and project onto the gradient line.
-                let (sx, sy) = (px as f32 + 0.5, py as f32 + 0.5);
+        let (w_us, h_us) = (w as usize, h as usize);
+        let mut out = vec![0u8; w_us * h_us * 4];
+        for py in 0..h_us {
+            for px in 0..w_us {
+                // Sample at the pixel centre, in tile coordinates, and project onto the line.
+                let (cx, cy) = ((px as f32 + 0.5) * sx, (py as f32 + 0.5) * sy);
                 let t = if len2 <= 0.0 {
                     0.0
                 } else {
-                    (((sx - x0) * dx + (sy - y0) * dy) / len2).clamp(0.0, 1.0)
+                    (((cx - x0) * dx + (cy - y0) * dy) / len2).clamp(0.0, 1.0)
                 };
                 let c = self.color_at(t);
-                let i = (py * tw_us + px) * 4;
+                let i = (py * w_us + px) * 4;
                 out[i] = c.r8();
                 out[i + 1] = c.g8();
                 out[i + 2] = c.b8();
                 out[i + 3] = c.a8();
             }
         }
-        GradientTile {
-            rgba: out,
-            width: tw,
-            height: th,
-            scale: (tile_scale(tiling.tile_size.0, tw), tile_scale(tiling.tile_size.1, th)),
-        }
+        out
     }
 }
 
@@ -258,5 +268,37 @@ mod tests {
         assert_eq!(tile_scale(40_000.0, w) * f64::from(w), 40_000.0);
         assert_eq!(tile_scale(20.0, h), 1.0);
         assert_eq!(tile_scale(f32::INFINITY, w), 1.0);
+    }
+
+    /// A raster with another aspect ratio than its tile, as an edge-capped tile gets, keeps the
+    /// tile's gradient: each pixel matches the full-size raster at the point it stands for, hard
+    /// stop included, rather than the gradient turned to the raster's own diagonal.
+    #[test]
+    fn a_squashed_raster_keeps_a_diagonal_gradient_in_place() {
+        let stop = |offset: f32, color: Color| ColorStop { offset, color };
+        let g = LinearGradient {
+            stops: vec![
+                stop(0.0, Color::from_rgba(1.0, 0.0, 0.0, 1.0)),
+                stop(0.25, Color::from_rgba(1.0, 0.0, 0.0, 1.0)),
+                stop(0.25, Color::from_rgba(0.0, 0.0, 1.0, 1.0)),
+                stop(1.0, Color::from_rgba(0.0, 0.0, 1.0, 1.0)),
+            ],
+            ..lg(135.0)
+        };
+        // A 100x10 tile at full size, and squashed 5:1 along x into a 20x10 raster. Raster pixel
+        // `px` stands for tile x `5 * px + 2.5`, the centre of full-size pixel `5 * px + 2`.
+        let full = g.rasterize_scaled(100, 10, (1.0, 1.0));
+        let squashed = g.rasterize_scaled(20, 10, (5.0, 1.0));
+        let pixel = |rgba: &[u8], w: usize, x: usize, y: usize| rgba[(y * w + x) * 4..][..4].to_vec();
+        for y in 0..10 {
+            for x in 0..20 {
+                assert_eq!(
+                    pixel(&squashed, 20, x, y),
+                    pixel(&full, 100, 5 * x + 2, y),
+                    "at ({x}, {y})"
+                );
+            }
+        }
+        assert!(squashed.chunks(4).any(|p| p[0] == 255) && squashed.chunks(4).any(|p| p[2] == 255));
     }
 }
