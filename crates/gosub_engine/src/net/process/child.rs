@@ -397,14 +397,16 @@ async fn perform_inner(
         r = rx => r,
     };
     // `Set-Cookie` goes to the vault from here; the broker never sees it: the
-    // reply drops it, and under a vault scope the broker stores no cookies
-    // of its own.
-    if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
-        tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta));
-    }
+    // reply drops it once the vault has it. One the vault did not take stays on
+    // the reply instead, and the broker stores it through its own jar - the
+    // values pass the broker on that path, rather than being lost.
+    let vaulted = match (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
+        (Some(scope), Some(meta)) => tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta)),
+        _ => false,
+    };
     let reply_headers = |headers: &http::HeaderMap| {
         let mut list = flatten_headers(headers);
-        if scope.is_some() {
+        if vaulted {
             list.retain(|(name, _)| !name.eq_ignore_ascii_case(http::header::SET_COOKIE.as_str()));
         }
         list

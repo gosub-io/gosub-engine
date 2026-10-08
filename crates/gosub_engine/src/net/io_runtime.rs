@@ -820,9 +820,12 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
-                                let reply_tx = match (identity, cookie_scope.is_some()) {
-                                    (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
-                                    _ => reply_tx,
+                                // Under a vault scope the network process stored the cookies
+                                // and stripped them, so this finds none - unless the vault did
+                                // not take them, and then this is the only store they get.
+                                let reply_tx = match identity {
+                                    Some(id) => store_response_cookies_then_forward(id, reply_tx),
+                                    None => reply_tx,
                                 };
                                 let reply_tx = match (subresource, document) {
                                     (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
