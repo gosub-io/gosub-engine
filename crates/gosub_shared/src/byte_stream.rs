@@ -746,6 +746,9 @@ impl ByteStream {
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
         self.raw.clear();
         f.read_to_end(&mut self.raw)?;
+        // New bytes are a new document: whatever settled the last one's encoding says nothing
+        // about this one's. A caller that knows more (a BOM, the transport) marks it certain.
+        self.confidence = Confidence::Tentative;
         self.restart_transcode();
         self.close();
         self.reset_stream();
@@ -780,6 +783,8 @@ impl ByteStream {
 
     pub fn read_from_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.raw = bytes.to_vec();
+        // As in `read_from_file`: a new document starts tentative.
+        self.confidence = Confidence::Tentative;
         self.restart_transcode();
         self.close();
         self.reset_stream();
@@ -1726,6 +1731,22 @@ mod test {
         assert_eq!(stream.confidence(), Confidence::Irrelevant);
         assert!(!stream.change_encoding(Encoding::Latin1));
         assert_eq!(stream.encoding(), Encoding::UTF8);
+    }
+
+    /// A reused stream starts every new document tentative, whatever the last one settled, so
+    /// its own `<meta charset>` still counts.
+    #[test]
+    fn loading_new_bytes_makes_the_encoding_tentative_again() {
+        let mut stream = ByteStream::from_str("abc", Encoding::UTF8);
+        assert_eq!(stream.confidence(), Confidence::Irrelevant);
+        stream.read_from_bytes(b"abc").unwrap();
+        assert_eq!(stream.confidence(), Confidence::Tentative);
+
+        assert!(stream.change_encoding(Encoding::Latin1));
+        assert_eq!(stream.confidence(), Confidence::Certain);
+        stream.read_from_file(&b"abc"[..]).unwrap();
+        assert_eq!(stream.confidence(), Confidence::Tentative);
+        assert!(stream.change_encoding(Encoding::UTF8));
     }
 
     #[test]
