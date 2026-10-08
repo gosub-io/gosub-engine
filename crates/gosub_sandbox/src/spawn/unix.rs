@@ -34,6 +34,43 @@ const ENV_KEPT_PREFIXES: &[&str] = &["LC_", "XDG_", "FONTCONFIG_", "GOSUB_"];
 /// on every page while the variable is set, so it stays with the broker.
 const ENV_DROPPED_PREFIXES: &[&str] = &["GOSUB_DUMP_"];
 
+/// The descriptors [`sweep_close_on_exec`] reaches at most. A soft
+/// `RLIMIT_NOFILE` can be raised far past anything a broker opens, and every
+/// candidate costs a syscall between `fork` and `exec`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const MAX_SWEPT_FD: libc::c_int = 65_536;
+
+/// Flag every descriptor above stderr `FD_CLOEXEC`, one at a time, up to the
+/// open-file limit: where the kernel has no `close_range` that does it at
+/// once (macOS, Linux before 5.11). Only `getrlimit` and `fcntl`, both
+/// async-signal-safe: this runs in `pre_exec`, and before the child's own
+/// `RLIMIT_NOFILE` is applied, or the sweep would stop at that lower limit
+/// and miss the broker's descriptors above it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn sweep_close_on_exec() {
+    let mut rl = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: a valid resource id and a valid rlimit pointer.
+    let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) } == 0 {
+        libc::c_int::try_from(rl.rlim_cur)
+            .unwrap_or(MAX_SWEPT_FD)
+            .min(MAX_SWEPT_FD)
+    } else {
+        MAX_SWEPT_FD
+    };
+    for fd in 3..limit {
+        // SAFETY: fcntl on an integer that may or may not be an open descriptor;
+        // a closed one answers EBADF and is skipped.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+            // SAFETY: as above, on a descriptor just seen to be open.
+            unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+        }
+    }
+}
+
 /// Whether a child keeps `key`. Also what the escape audit holds a child's
 /// environment against.
 pub(crate) fn env_kept(key: &str) -> bool {
@@ -118,9 +155,15 @@ pub fn spawn(
     let raw = child_end.raw();
     let extra_fds: Vec<i32> = container.extra_fds.to_vec();
     // SAFETY: the closure runs post-fork/pre-exec and calls only
-    // async-signal-safe operations (setrlimit, setpriority, unshare, fcntl).
+    // async-signal-safe operations (getrlimit, setrlimit, setpriority, unshare,
+    // fcntl, close_range).
     unsafe {
         cmd.pre_exec(move || {
+            // Every descriptor a C library left without CLOEXEC would otherwise
+            // ride along; only the links named below survive the exec. First,
+            // while `RLIMIT_NOFILE` is still the broker's: where this is a
+            // sweep up to that limit, the child's 128 would hide the rest.
+            crate::mark_all_fds_close_on_exec();
             crate::apply_child_rlimits_with(data_limit)?;
             if let Some(bytes) = file_size_limit {
                 crate::apply_child_file_size_limit(bytes)?;
@@ -129,9 +172,6 @@ pub fn spawn(
             // meant to be network-isolated and silently isn't is worse than an
             // honest refusal to start.
             crate::isolate_namespaces(isolation)?;
-            // Every descriptor a C library left without CLOEXEC would otherwise
-            // ride along; only the links named below survive the exec.
-            crate::mark_all_fds_close_on_exec();
             gosub_ipc::channel::Channel::make_inheritable(raw)?;
             for fd in &extra_fds {
                 gosub_ipc::channel::Channel::make_inheritable(*fd)?;
@@ -247,6 +287,28 @@ fn sanitize_line(line: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{sanitize_line, MAX_RELAYED_LINE};
+
+    /// The sweep reaches a descriptor far above the child's 128, as long as
+    /// it runs under the broker's own `RLIMIT_NOFILE`.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn the_sweep_flags_a_high_descriptor() {
+        use super::sweep_close_on_exec;
+        // SAFETY: plain descriptor calls on descriptors this test owns.
+        unsafe {
+            let fd = libc::fcntl(2, libc::F_DUPFD, 300);
+            assert!(fd >= 300, "no descriptor at 300 or above");
+            assert_eq!(
+                libc::fcntl(fd, libc::F_GETFD) & libc::FD_CLOEXEC,
+                0,
+                "control: born inheritable"
+            );
+            sweep_close_on_exec();
+            let flagged = libc::fcntl(fd, libc::F_GETFD) & libc::FD_CLOEXEC != 0;
+            libc::close(fd);
+            assert!(flagged, "descriptor {fd} left inheritable");
+        }
+    }
 
     #[test]
     fn a_relayed_line_carries_no_escape_sequences() {

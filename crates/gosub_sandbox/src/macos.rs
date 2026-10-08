@@ -252,37 +252,11 @@ pub fn apply_child_file_size_limit(bytes: u64) -> std::io::Result<()> {
     set_rlimit(libc::RLIMIT_FSIZE, bytes as libc::rlim_t)
 }
 
-/// The descriptors this sweep reaches at most. A soft `RLIMIT_NOFILE` can be
-/// raised far past anything a broker opens, and every candidate costs a
-/// syscall between `fork` and `exec`.
-#[cfg(feature = "multi-process")]
-const MAX_SWEPT_FD: libc::c_int = 65_536;
-
 /// macOS has no `close_range`, so every descriptor above stderr is flagged
-/// `FD_CLOEXEC` one at a time, up to the open-file limit. Flags rather than
-/// closes, as on Linux, so the spawner can still pick the links that survive.
-/// Only `getrlimit` and `fcntl`, both async-signal-safe: this runs in `pre_exec`.
+/// one at a time (see [`crate::spawn::sweep_close_on_exec`]). Flags rather
+/// than closes, as on Linux, so the spawner can still pick the links that
+/// survive. Runs in `pre_exec`.
 #[cfg(feature = "multi-process")]
 pub fn mark_all_fds_close_on_exec() {
-    let mut rl = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    // SAFETY: a valid resource id and a valid rlimit pointer.
-    let limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) } == 0 {
-        libc::c_int::try_from(rl.rlim_cur)
-            .unwrap_or(MAX_SWEPT_FD)
-            .min(MAX_SWEPT_FD)
-    } else {
-        MAX_SWEPT_FD
-    };
-    for fd in 3..limit {
-        // SAFETY: fcntl on an integer that may or may not be an open descriptor;
-        // a closed one answers EBADF and is skipped.
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-        if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
-            // SAFETY: as above, on a descriptor just seen to be open.
-            unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
-        }
-    }
+    crate::spawn::sweep_close_on_exec();
 }

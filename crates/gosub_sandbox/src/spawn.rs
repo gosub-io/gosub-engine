@@ -39,6 +39,8 @@ mod unix;
 // What the escape audit holds a child's environment against (Linux only).
 #[cfg(target_os = "linux")]
 pub(crate) use unix::env_kept;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) use unix::sweep_close_on_exec;
 #[cfg(unix)]
 pub use unix::{spawn, Child};
 
