@@ -3,7 +3,7 @@
 
 use crate::fork_server::protocol::{
     ConfinementTier, FromForkServer, FromRenderer, HitRegion, MediaPrefs, PageSummary, ResourceReply, TileHeader,
-    ToForkServer, ToRenderer, MAX_HIT_TEXT,
+    ToForkServer, ToRenderer, MAX_HIT_TEXT, MAX_INLINE_CONTENT,
 };
 use crate::fork_server::protocol::{Effect, InputEvent, WireRect, MAX_EFFECTS};
 use crate::net::resource_loader::{LoadError, LoadedResource};
@@ -410,6 +410,17 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                             );
                         }
                         match loaded {
+                            // Too big for the link: this resource fails, the
+                            // renderer and the rest of its page do not.
+                            Ok(resource)
+                                if resource.body.len() + resource.content_type.as_ref().map_or(0, String::len)
+                                    > MAX_INLINE_CONTENT =>
+                            {
+                                ResourceReply::Failed(format!(
+                                    "{} bytes, more than a renderer link carries ({MAX_INLINE_CONTENT})",
+                                    resource.body.len()
+                                ))
+                            }
                             Ok(resource) => ResourceReply::Ok {
                                 status: resource.status,
                                 content_type: resource.content_type,
@@ -461,6 +472,19 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
         }
     }
+}
+
+/// A document too big for one message to a renderer is not sent: the send
+/// would fail, and a failed send is taken for a renderer gone. The caller
+/// renders it some other way or reports it.
+fn refuse_oversized_document(html: &str) -> anyhow::Result<()> {
+    if html.len() > MAX_INLINE_CONTENT {
+        anyhow::bail!(
+            "a {}-byte document is more than a renderer link carries ({MAX_INLINE_CONTENT})",
+            html.len()
+        );
+    }
+    Ok(())
 }
 
 /// Cut a renderer-supplied string to `max` characters. For text that is
@@ -1026,6 +1050,7 @@ impl ForkServer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
+        refuse_oversized_document(html)?;
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
@@ -1278,6 +1303,8 @@ impl ResidentRenderer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
+        // Refused before anything is sent: the renderer is still fine.
+        refuse_oversized_document(html)?;
         self.send(&ToRenderer::Navigate {
             tab: tab.to_string(),
             html: html.to_string(),
@@ -1442,6 +1469,81 @@ impl Drop for ForkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A subresource bigger than a frame fails on its own: the renderer gets
+    /// `Failed`, the exchange finishes, and the link still works.
+    #[test]
+    fn an_oversized_subresource_fails_alone() {
+        struct Big;
+        impl RenderResources for Big {
+            fn load(&self, _: &url::Url) -> Result<LoadedResource, LoadError> {
+                Ok(LoadedResource {
+                    status: 200,
+                    content_type: Some("image/png".into()),
+                    body: bytes::Bytes::from(vec![0u8; gosub_ipc::MAX_FRAME_LEN as usize + 1]),
+                })
+            }
+        }
+        let (ours, theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let mut ours = Endpoint::from_channel(ours).expect("endpoint");
+        let mut theirs = Endpoint::from_channel(theirs).expect("endpoint");
+        // Without the bound the broker's failed send ends the exchange and
+        // this side would wait for a reply for ever; with a timeout it fails.
+        let _ = theirs.rx.set_read_timeout(Some(Duration::from_secs(10)));
+        let renderer = std::thread::spawn(move || {
+            theirs
+                .send(&FromRenderer::NeedResource {
+                    url: "https://site.test/huge.png".into(),
+                    deferred: false,
+                })
+                .expect("ask");
+            let reply: ResourceReply = theirs.recv().expect("a reply that fits");
+            theirs
+                .send(&FromRenderer::Rendered {
+                    summary: PageSummary::default(),
+                    hit_regions: Vec::new(),
+                    effects: Vec::new(),
+                })
+                .expect("finish");
+            reply
+        });
+        let page = drive_render_exchange::<FromRenderer>(&mut ours, &Big, &TileMemory::default());
+        drop(ours);
+        assert!(page.is_ok(), "the exchange survives: {page:?}");
+        match renderer.join().expect("renderer thread") {
+            ResourceReply::Failed(why) => assert!(why.contains("more than a renderer link carries"), "{why}"),
+            other => panic!("not failed: {other:?}"),
+        }
+    }
+
+    /// A document bigger than a frame is refused before it is sent, and the
+    /// renderer is not marked dead for it.
+    #[test]
+    fn an_oversized_document_leaves_the_renderer_alive() {
+        let (ours, _theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let mut renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
+        struct Nothing;
+        impl RenderResources for Nothing {
+            fn load(&self, _: &url::Url) -> Result<LoadedResource, LoadError> {
+                Err(LoadError::Pending)
+            }
+        }
+        // Past the frame cap itself: the size whose send used to fail and
+        // take the renderer with it.
+        let html = "x".repeat(gosub_ipc::MAX_FRAME_LEN as usize + 1);
+        let result = renderer.navigate(
+            &html,
+            "https://site.test/",
+            "tab",
+            (800.0, 600.0),
+            0.0,
+            &Nothing,
+            &TileMemory::default(),
+            None,
+        );
+        assert!(result.is_err());
+        assert!(!renderer.is_dead(), "refused, not crashed");
+    }
 
     /// A renderer whose last handle is dropped is killed, whatever it is doing.
     #[cfg(target_os = "linux")]

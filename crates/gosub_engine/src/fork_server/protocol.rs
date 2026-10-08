@@ -623,6 +623,13 @@ pub enum FromRenderer {
     },
 }
 
+/// Most bytes of content - a subresource's body and type, a page's document -
+/// the broker puts in one message to a renderer: the link's frame cap, less
+/// room for the rest of the message. Past it the frame could not be sent,
+/// and a failed send is a renderer gone; a subresource past it is answered
+/// as failed instead, a document is not sent at all.
+pub const MAX_INLINE_CONTENT: usize = gosub_ipc::MAX_FRAME_LEN as usize - 64 * 1024;
+
 /// A fetched subresource (or its failure), as it travels broker → fork server
 /// → renderer. Mirrors `crate::net::resource_loader::LoadedResource`,
 /// which carries no serde.
