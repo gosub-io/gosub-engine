@@ -28,6 +28,9 @@ pub struct EngineEventEmitter {
     /// Bytes at the last forwarded progress event (progress arrives per read chunk from
     /// the transport, which is too chatty for the event bus).
     last_progress: std::sync::atomic::AtomicU64,
+    /// Whether the progress event that completes the body has been forwarded:
+    /// it passes the step once, not every time it is repeated.
+    completion_reported: std::sync::atomic::AtomicBool,
     /// Whether this request has already been reported as failed. See [`Self::report_failure`].
     failure_reported: std::sync::atomic::AtomicBool,
 }
@@ -54,6 +57,7 @@ impl EngineEventEmitter {
             kind,
             initiator,
             last_progress: std::sync::atomic::AtomicU64::new(0),
+            completion_reported: std::sync::atomic::AtomicBool::new(false),
             failure_reported: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -80,13 +84,20 @@ impl EngineEventEmitter {
         });
     }
 
-    /// Forward at most one progress event per `STEP` bytes received (always forwarding
-    /// the final one that reaches `expected`).
+    /// Forward at most one progress event per `STEP` bytes received, and the one that
+    /// reaches `expected` once: repeated, it would pass every time and fill the bus.
     fn should_report_progress(&self, received: u64, expected: Option<u64>) -> bool {
         use std::sync::atomic::Ordering;
         const STEP: u64 = 64 * 1024;
+        if Some(received) == expected {
+            if self.completion_reported.swap(true, Ordering::Relaxed) {
+                return false;
+            }
+            self.last_progress.store(received, Ordering::Relaxed);
+            return true;
+        }
         let last = self.last_progress.load(Ordering::Relaxed);
-        if received.saturating_sub(last) >= STEP || Some(received) == expected {
+        if received.saturating_sub(last) >= STEP {
             self.last_progress.store(received, Ordering::Relaxed);
             true
         } else {
@@ -350,6 +361,19 @@ mod tests {
             Initiator::Parser,
         );
         (emitter, rx)
+    }
+
+    /// The progress event that completes a body is forwarded once, however
+    /// often it is repeated: it is exempt from the byte step, so repeated it
+    /// would otherwise fill the control bus.
+    #[test]
+    fn the_completing_progress_is_forwarded_once() {
+        let (emitter, _rx) = emitter();
+        assert!(emitter.should_report_progress(100, Some(100)));
+        assert!(!emitter.should_report_progress(100, Some(100)));
+        assert!(!emitter.should_report_progress(100, Some(100)));
+        // The step still applies past it.
+        assert!(emitter.should_report_progress(100 + 64 * 1024, None));
     }
 
     /// Every `ResourceEvent::Failed` the receiver saw, as `(kind, message)`.
