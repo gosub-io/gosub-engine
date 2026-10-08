@@ -1,6 +1,6 @@
 use cairo::Context;
 use gosub_render_pipeline::common::geo::Dimension;
-use gosub_render_pipeline::common::media::{MediaId, MediaStore};
+use gosub_render_pipeline::common::media::{svg_raster_size, MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::render::backend::PixelFormat;
 use gosub_render_pipeline::tiler::Tile;
@@ -30,10 +30,15 @@ pub(crate) fn do_paint_svg(
     let dest_y = (rect.rect().y - tile.rect.y).round();
 
     // Rasterize at physical resolution (CSS size × dpr) so the icon is crisp instead of being
-    // upscaled from CSS-pixel resolution by the dpr-scaled context. `set_device_scale(dpr)`
-    // then maps the physical surface back to its CSS logical size for placement.
-    let phys_w = (target_dim.width as u32 * dpr.max(1) as u32).max(1);
-    let phys_h = (target_dim.height as u32 * dpr.max(1) as u32).max(1);
+    // upscaled from CSS-pixel resolution by the dpr-scaled context. The device scale then maps
+    // the physical surface back to its CSS logical size for placement: `dpr` within the pixel
+    // budget, less when `svg_raster_size` had to shrink the raster for a huge box.
+    let dpr_f = dpr.max(1) as f64;
+    let (phys_w, phys_h) = svg_raster_size(target_dim, dpr.max(1) as u32);
+    let device_scale = (
+        f64::from(phys_w) / (target_dim.width.floor() * dpr_f).max(1.0) * dpr_f,
+        f64::from(phys_h) / (target_dim.height.floor() * dpr_f).max(1.0) * dpr_f,
+    );
     // The cache stores physical pixels, so key it on the physical dimension (which also
     // encodes dpr) - a dpr change re-renders rather than reusing a stale-resolution bitmap.
     let phys_dim = Dimension::new(phys_w as f64, phys_h as f64);
@@ -41,7 +46,7 @@ pub(crate) fn do_paint_svg(
     {
         let cached = media.svg.rendered.read();
         if cached.is_usable(phys_dim, PixelFormat::PreMulArgb32) {
-            paint_surface(cr, &cached.data, phys_w, phys_h, dpr, dest_x, dest_y, media_id);
+            paint_surface(cr, &cached.data, phys_w, phys_h, device_scale, dest_x, dest_y, media_id);
             return;
         }
     }
@@ -66,7 +71,7 @@ pub(crate) fn do_paint_svg(
     let mut cached = media.svg.rendered.write();
     cached.store(phys_dim, PixelFormat::PreMulArgb32, new_data);
 
-    paint_surface(cr, &cached.data, phys_w, phys_h, dpr, dest_x, dest_y, media_id);
+    paint_surface(cr, &cached.data, phys_w, phys_h, device_scale, dest_x, dest_y, media_id);
 }
 
 /// Wrap the physical-pixel ARGB32 buffer in a Cairo surface, scale it back to CSS logical size
@@ -77,7 +82,7 @@ fn paint_surface(
     data: &[u8],
     phys_w: u32,
     phys_h: u32,
-    dpr: i32,
+    device_scale: (f64, f64),
     dest_x: f64,
     dest_y: f64,
     media_id: MediaId,
@@ -97,7 +102,7 @@ fn paint_surface(
     };
     // device_scale maps the physical surface (phys = CSS × dpr) back to CSS logical units, so it
     // places 1:1 on the device grid in the dpr-scaled tile context.
-    surface.set_device_scale(dpr.max(1) as f64, dpr.max(1) as f64);
+    surface.set_device_scale(device_scale.0, device_scale.1);
 
     _ = cr.set_source_surface(&surface, dest_x, dest_y);
     cr.source().set_filter(cairo::Filter::Good);

@@ -1,4 +1,5 @@
 use crate::common::geo::Dimension;
+use crate::common::media::decoder::fit_to_kept_pixels;
 use crate::render::backend::PixelFormat;
 use parking_lot::RwLock;
 use resvg::usvg;
@@ -25,6 +26,18 @@ impl RenderedSvg {
         self.format = format;
         self.data = data;
     }
+}
+
+/// Pixel size to rasterize an SVG at when it is drawn into a `css`-sized box at `dpr`.
+///
+/// The box size comes from the page, so `width: 60000px` on an inline `<svg>` would otherwise
+/// ask for a 14 GB pixmap. Like a decoded photograph, the raster is held to
+/// [`MAX_KEPT_PIXELS`](super::MAX_KEPT_PIXELS) and scaled up to the box when painted:
+/// an oversized SVG still shows, just less crisp. Within the budget this is the box size in
+/// physical pixels, whole CSS pixels times `dpr`, as the backends have always rendered it.
+pub fn svg_raster_size(css: Dimension, dpr: u32) -> (u32, u32) {
+    let dpr = f64::from(dpr.max(1));
+    fit_to_kept_pixels(css.width.floor() * dpr, css.height.floor() * dpr)
 }
 
 #[derive(Clone)]
@@ -57,6 +70,7 @@ impl std::fmt::Debug for Svg {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::media::MAX_KEPT_PIXELS;
 
     fn entry(format: PixelFormat) -> RenderedSvg {
         RenderedSvg {
@@ -92,6 +106,48 @@ mod tests {
             format: PixelFormat::Rgba8,
         };
         assert!(!fresh.is_usable(Dimension::ZERO, PixelFormat::Rgba8));
+    }
+
+    #[test]
+    fn raster_size_is_the_physical_box_size_within_the_budget() {
+        assert_eq!(svg_raster_size(Dimension::new(100.0, 50.0), 1), (100, 50));
+        assert_eq!(svg_raster_size(Dimension::new(100.0, 50.0), 2), (200, 100));
+        // Whole CSS pixels, then dpr, as the backends rendered before the cap.
+        assert_eq!(svg_raster_size(Dimension::new(10.5, 4.9), 2), (20, 8));
+        assert_eq!(svg_raster_size(Dimension::new(0.5, 0.5), 2), (1, 1));
+    }
+
+    #[test]
+    fn oversized_raster_is_held_to_the_budget_keeping_its_aspect_ratio() {
+        let (w, h) = svg_raster_size(Dimension::new(60000.0, 60000.0), 1);
+        assert!(u64::from(w) * u64::from(h) <= MAX_KEPT_PIXELS, "{w}x{h}");
+        assert_eq!(w, h);
+        assert!(w >= 2000, "the cap should not shrink it further than needed: {w}");
+
+        let (w, h) = svg_raster_size(Dimension::new(8000.0, 2000.0), 2);
+        assert!(u64::from(w) * u64::from(h) <= MAX_KEPT_PIXELS, "{w}x{h}");
+        let ratio = f64::from(w) / f64::from(h);
+        assert!((ratio - 4.0).abs() < 0.01, "ratio {ratio}");
+    }
+
+    #[test]
+    fn hostile_raster_sizes_stay_in_range() {
+        for (w, h, dpr) in [
+            (f64::MAX, f64::MAX, 2),
+            (f64::INFINITY, 10.0, 1),
+            (f64::NAN, f64::NAN, 1),
+            (-5.0, 0.0, 1),
+            (1.0, 1e12, 1),
+            (u32::MAX as f64, 1.0, u32::MAX),
+        ] {
+            let (rw, rh) = svg_raster_size(Dimension::new(w, h), dpr);
+            assert!(rw >= 1 && rh >= 1, "{w}x{h}@{dpr} gave {rw}x{rh}");
+            assert!(
+                u64::from(rw) * u64::from(rh) <= MAX_KEPT_PIXELS,
+                "{w}x{h}@{dpr} gave {rw}x{rh}"
+            );
+        }
+        assert_eq!(svg_raster_size(Dimension::new(f64::NAN, -1.0), 1), (1, 1));
     }
 
     #[test]

@@ -1,4 +1,5 @@
-use gosub_render_pipeline::common::media::{MediaId, MediaStore};
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::media::{svg_raster_size, MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::render::backend::PixelFormat;
 use resvg::usvg::Transform;
@@ -25,9 +26,17 @@ pub(crate) fn do_paint_svg(
     // the position into its shape path, which is why it only needs the bare `affine`.)
     let placement = affine * Affine::translate(Vec2::new(r.x, r.y));
 
+    // `draw_image` paints one unit per pixel, so a raster held below the box size by the pixel
+    // budget is scaled back up to it. Within the budget the raster is the box and this is 1.
+    let (target_w, target_h) = svg_raster_size(target_dim, 1);
+    let raster_dim = Dimension::new(f64::from(target_w), f64::from(target_h));
+    let box_w = target_dim.width.floor().max(1.0);
+    let box_h = target_dim.height.floor().max(1.0);
+    let placement = placement * Affine::scale_non_uniform(box_w / raster_dim.width, box_h / raster_dim.height);
+
     {
         let cached = media.svg.rendered.read();
-        if cached.is_usable(target_dim, PixelFormat::Rgba8) {
+        if cached.is_usable(raster_dim, PixelFormat::Rgba8) {
             let image = ImageData {
                 data: Blob::from(cached.data.clone()),
                 format: ImageFormat::Rgba8,
@@ -41,8 +50,6 @@ pub(crate) fn do_paint_svg(
     }
 
     let intrinsic = media.svg.tree.size().to_int_size();
-    let target_w = (target_dim.width as u32).max(1);
-    let target_h = (target_dim.height as u32).max(1);
     let scale_x = target_w as f32 / intrinsic.width().max(1) as f32;
     let scale_y = target_h as f32 / intrinsic.height().max(1) as f32;
     let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(target_w, target_h) else {
@@ -62,7 +69,7 @@ pub(crate) fn do_paint_svg(
     let new_data = pixmap.data().to_vec();
 
     let mut cached = media.svg.rendered.write();
-    cached.store(target_dim, PixelFormat::Rgba8, new_data);
+    cached.store(raster_dim, PixelFormat::Rgba8, new_data);
 
     let image = ImageData {
         data: Blob::from(cached.data.clone()),
