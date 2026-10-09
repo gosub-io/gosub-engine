@@ -81,6 +81,7 @@ use crate::engine::types::{EventChannel, ResourceChannel};
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap, REF_REGISTRY};
+use crate::net::ssrf::AddressSpace;
 use crate::net::types::{Initiator as EngineInitiator, ResourceKind as EngineResourceKind};
 use gosub_sonar::net::observer::NetObserver;
 use gosub_sonar::net::types::{Initiator, ResourceKind};
@@ -101,18 +102,24 @@ pub struct EngineNetContext {
     pub event_tx: EventChannel,
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     pub request_ref_tracker: Arc<RequestRefTracker>,
-    /// This fetcher serves subresources of public documents: refuse private
-    /// destinations at every hop (see [`crate::net::ssrf`]). Hostnames are
-    /// refused by the strict resolver; this covers the IP literals it never sees.
-    pub refuse_private: bool,
+    /// The address space of the documents this fetcher serves subresources
+    /// for: anything more private is refused at every hop (see
+    /// [`crate::net::ssrf`]). Hostnames are refused by the strict resolver;
+    /// this covers the IP literals it never sees. `Loopback`, which also serves
+    /// navigations, refuses nothing.
+    pub reach: AddressSpace,
 }
 
-/// The configuration of a fetcher that may not reach the private network:
-/// `cfg` with the strict resolver, which fails closed on any private answer
+/// The configuration of a fetcher that serves documents in `reach`: `cfg`
+/// with the strict resolver, which fails closed on any answer beyond `reach`
 /// and, being the only resolver the client has, cannot be rebound around.
-pub fn strict_config(cfg: &FetcherConfig) -> FetcherConfig {
+/// Nothing is beyond `Loopback`, so that one is `cfg` as it is.
+pub fn reach_config(cfg: &FetcherConfig, reach: AddressSpace) -> FetcherConfig {
+    if reach == AddressSpace::Loopback {
+        return cfg.clone();
+    }
     FetcherConfig {
-        dns_resolver: Some(Arc::new(crate::net::ssrf::StrictResolver)),
+        dns_resolver: Some(Arc::new(crate::net::ssrf::StrictResolver { reach })),
         ..cfg.clone()
     }
 }
@@ -200,10 +207,10 @@ impl FetcherContext for EngineNetContext {
     }
 
     fn is_url_allowed(&self, url: &url::Url) -> bool {
-        if !self.refuse_private {
+        if self.reach == AddressSpace::Loopback {
             return true;
         }
-        match crate::net::ssrf::literal_verdict(url) {
+        match crate::net::ssrf::literal_verdict(url, self.reach) {
             Some(reason) => {
                 log::info!("blocked {url}: {reason}");
                 false

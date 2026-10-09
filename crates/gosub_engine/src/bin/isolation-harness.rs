@@ -298,6 +298,7 @@ fn serve_once_bytes(body: Vec<u8>, content_type: &'static str) -> std::io::Resul
 fn resolve() -> i32 {
     use gosub_engine::net::process::client::NetProcess;
     use gosub_engine::net::process::protocol::FetchOutcome;
+    use gosub_engine::net::ssrf::AddressSpace;
 
     let Ok((port, server)) = serve_once() else {
         eprintln!("could not start the test server");
@@ -315,16 +316,16 @@ fn resolve() -> i32 {
         return 1;
     };
     let cancel = tokio_util::sync::CancellationToken::new();
-    let fetch = |url: String, refuse_private: bool| {
+    let fetch = |url: String, reach: AddressSpace| {
         let out = gosub_engine::net::process::client::Outbound {
-            refuse_private,
+            reach,
             ..gosub_engine::net::process::client::Outbound::get(url)
         };
         runtime.block_on(net.fetch(out, &cancel, None)).outcome
     };
 
     // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
-    match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
+    match fetch("http://gosub-hostname-probe.invalid/".into(), AddressSpace::Loopback) {
         FetchOutcome::Ok { status, .. } | FetchOutcome::Streaming { status, .. } => {
             eprintln!("a .invalid name must not resolve, got status {status}");
             net.shutdown();
@@ -333,25 +334,28 @@ fn resolve() -> i32 {
         FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
     }
 
-    // 2. The strict fetcher classifies the loopback literal at the hop.
-    match fetch(format!("http://127.0.0.1:{port}/"), true) {
-        FetchOutcome::Ok { .. } | FetchOutcome::Streaming { .. } => {
-            eprintln!("the strict fetcher reached loopback");
-            net.shutdown();
-            return 1;
-        }
-        FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
-            println!("strict fetcher refused loopback: {e}");
-        }
-        FetchOutcome::Error(e) => {
-            eprintln!("strict fetcher failed for the wrong reason: {e}");
-            net.shutdown();
-            return 1;
+    // 2. The strict fetchers classify the loopback literal at the hop: neither
+    // a public document nor one from the local network reaches loopback.
+    for reach in [AddressSpace::Public, AddressSpace::Local] {
+        match fetch(format!("http://127.0.0.1:{port}/"), reach) {
+            FetchOutcome::Ok { .. } | FetchOutcome::Streaming { .. } => {
+                eprintln!("the {reach:?} fetcher reached loopback");
+                net.shutdown();
+                return 1;
+            }
+            FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
+                println!("{reach:?} fetcher refused loopback: {e}");
+            }
+            FetchOutcome::Error(e) => {
+                eprintln!("{reach:?} fetcher failed for the wrong reason: {e}");
+                net.shutdown();
+                return 1;
+            }
         }
     }
 
     // 3. The process is still alive and serving.
-    let outcome = fetch(format!("http://127.0.0.1:{port}/"), false);
+    let outcome = fetch(format!("http://127.0.0.1:{port}/"), AddressSpace::Loopback);
     net.shutdown();
     drop(server);
     match outcome {

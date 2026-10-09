@@ -9,6 +9,7 @@ use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
     flatten_headers, rebuild_headers, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
 };
+use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
 use gosub_ipc::Endpoint;
 use http::Method;
@@ -89,38 +90,41 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     // each event back over the link tagged for its request, and the broker's
     // own observer for that request takes it from there. `cookies_for` must
     // stay silent: answering it would mean this process kept a jar.
-    let build = |refuse_private: bool| {
-        let cfg = if refuse_private {
-            crate::net::fetcher::strict_config(&FetcherConfig::default())
-        } else {
-            FetcherConfig::default()
-        };
+    let build = |reach: AddressSpace| {
         Fetcher::new(
-            cfg,
+            crate::net::fetcher::reach_config(&FetcherConfig::default(), reach),
             Arc::new(NetProcessContext {
-                refuse_private,
+                reach,
                 link_tx: Arc::clone(&link_tx),
                 previews: Arc::clone(&previews),
             }),
         )
         .map(Arc::new)
     };
-    // Two fetchers: one that may reach anything the user navigates to, and a
-    // strict one for subresources of public documents (see `net::ssrf`); the
-    // broker says which serves a request.
-    let (fetcher, strict) = match (build(false), build(true)) {
-        (Ok(f), Ok(s)) => (f, s),
-        (Err(e), _) | (_, Err(e)) => {
+    // One fetcher per address space a document can be in (see `net::ssrf`):
+    // loopback reaches anything the user navigates to, local refuses loopback,
+    // public refuses both. The broker says which serves a request.
+    let (loopback, local, public) = match (
+        build(AddressSpace::Loopback),
+        build(AddressSpace::Local),
+        build(AddressSpace::Public),
+    ) {
+        (Ok(loopback), Ok(local), Ok(public)) => (loopback, local, public),
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
             eprintln!("[net] could not build the fetcher: {e}");
             return 1;
         }
     };
 
     let shutdown = CancellationToken::new();
-    let (fetcher_run, strict_run) = (fetcher.clone(), strict.clone());
+    let running = (loopback.clone(), local.clone(), public.clone());
     let cancel = shutdown.clone();
     runtime.spawn(async move {
-        tokio::join!(fetcher_run.run(cancel.clone()), strict_run.run(cancel));
+        tokio::join!(
+            running.0.run(cancel.clone()),
+            running.1.run(cancel.clone()),
+            running.2.run(cancel)
+        );
     });
 
     let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -167,10 +171,10 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let token = CancellationToken::new();
                 cancels.lock().insert(tag, token.clone());
                 let previews = Arc::clone(&previews);
-                let fetcher = if fetch.refuse_private {
-                    strict.clone()
-                } else {
-                    fetcher.clone()
+                let fetcher = match fetch.reach {
+                    AddressSpace::Loopback => loopback.clone(),
+                    AddressSpace::Local => local.clone(),
+                    AddressSpace::Public => public.clone(),
                 };
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
@@ -307,9 +311,9 @@ fn share_large_body(_: &mut gosub_ipc::EndpointTx, _: RequestTag, outcome: Fetch
 /// The network process has no engine around it: no cookies (the broker or
 /// the vault attach those), no tabs. Its events go back over the link to
 /// the broker's observer of the request; what it does enforce itself is the
-/// per-hop URL policy of its strict fetcher.
+/// per-hop URL policy of its strict fetchers.
 struct NetProcessContext {
-    refuse_private: bool,
+    reach: AddressSpace,
     link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
     previews: Arc<Mutex<HashMap<RequestTag, usize>>>,
 }
@@ -383,10 +387,10 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     fn on_ref_active(&self, _: gosub_sonar::RequestReference) {}
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
     fn is_url_allowed(&self, url: &Url) -> bool {
-        if !self.refuse_private {
+        if self.reach == AddressSpace::Loopback {
             return true;
         }
-        match crate::net::ssrf::literal_verdict(url) {
+        match crate::net::ssrf::literal_verdict(url, self.reach) {
             Some(reason) => {
                 eprintln!("[net] blocked {url}: {reason}");
                 false

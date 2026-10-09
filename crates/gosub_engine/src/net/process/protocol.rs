@@ -103,10 +103,11 @@ pub struct NetFetch {
     /// the PoC's `vault` component.
     pub headers: HeaderList,
     pub body: Option<Vec<u8>>,
-    /// A subresource of a public document: served by the strict fetcher, which
-    /// refuses private-network destinations at every hop (`net::ssrf`). The
+    /// The most private address space the request may reach: its document's.
+    /// Served by the fetcher for that space, which refuses anything more
+    /// private at every hop (`net::ssrf`); `Loopback` refuses nothing. The
     /// broker decides this from the tab's document, never the requester.
-    pub refuse_private: bool,
+    pub reach: crate::net::ssrf::AddressSpace,
     /// The requester wants the body as it arrives. Honoured where the link can
     /// carry a ring fd (Linux); elsewhere the reply is buffered as usual.
     pub streaming: bool,
