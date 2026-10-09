@@ -3023,6 +3023,19 @@ mod rendertree_from_engine {
         assert!(ib.x > 0.0, "it stays on the line after \"before\", got {ib:?}");
     }
 
+    /// `height` does not apply to a non-replaced inline box (CSS 2 §10.6.1), so a percentage on
+    /// one is not turned into the block's height: the span stays one line tall.
+    #[test]
+    fn a_percentage_height_on_an_inline_span_is_ignored() {
+        let html = r#"<html><body style="margin: 0; font-size: 16px">
+          <div style="height: 100px"><span id="s" style="height: 100%">text</span></div>
+        </body></html>"#;
+        let [s] = border_boxes(html, &["s"])[..] else {
+            unreachable!()
+        };
+        assert!(s.height < 50.0, "one line, not the block's 100px, got {s:?}");
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block

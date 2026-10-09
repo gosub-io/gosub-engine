@@ -1093,7 +1093,15 @@ impl TaffyLayouter {
                         if let Some(c) = cursor.as_mut() {
                             c.take_lines(1, *lh as f32);
                         }
-                        self.emit_line(&[], Some(*lh), element_node, leaf_id, line_style, placement);
+                        self.emit_line(
+                            layout_tree,
+                            &[],
+                            Some(*lh),
+                            element_node,
+                            leaf_id,
+                            line_style,
+                            placement,
+                        );
                     } else {
                         // The break ends the line the segment leaves open rather than adding one,
                         // so it only makes that line taller - and that has to be charged *with*
@@ -1143,7 +1151,7 @@ impl TaffyLayouter {
         cursor: Option<&mut BandCursor>,
     ) {
         let Some(cursor) = cursor else {
-            self.emit_line(items, None, element_node, leaf_id, line_style, None);
+            self.emit_line(layout_tree, items, None, element_node, leaf_id, line_style, None);
             return;
         };
 
@@ -1160,7 +1168,15 @@ impl TaffyLayouter {
             let Some((taken, lines)) = self.fill_band(layout_tree, rest, band, capacity) else {
                 let placement = cursor.placement();
                 cursor.exhaust();
-                self.emit_line(rest, None, element_node, leaf_id, line_style, Some(placement));
+                self.emit_line(
+                    layout_tree,
+                    rest,
+                    None,
+                    element_node,
+                    leaf_id,
+                    line_style,
+                    Some(placement),
+                );
                 return;
             };
             if taken == 0 {
@@ -1168,7 +1184,15 @@ impl TaffyLayouter {
                 // drop to the next one rather than emitting an empty container. CSS puts a line
                 // that cannot fit beside a float below it, which is exactly this.
                 if !cursor.advance() {
-                    self.emit_line(rest, None, element_node, leaf_id, line_style, Some(cursor.placement()));
+                    self.emit_line(
+                        layout_tree,
+                        rest,
+                        None,
+                        element_node,
+                        leaf_id,
+                        line_style,
+                        Some(cursor.placement()),
+                    );
                     return;
                 }
                 continue;
@@ -1179,6 +1203,7 @@ impl TaffyLayouter {
             let chunk_end = trim_trailing_whitespace(layout_tree, &rest[..taken]);
             let placement = cursor.placement();
             self.emit_line(
+                layout_tree,
                 &rest[..chunk_end],
                 None,
                 element_node,
@@ -1290,8 +1315,10 @@ impl TaffyLayouter {
     /// Emit one line box as an anonymous flex container holding `items`. When `items` is empty and
     /// `empty_line_height` is `Some`, the container is pinned to that height so a blank line (from a
     /// standalone `<br>`) keeps its vertical extent; an empty line with no height is skipped.
+    #[allow(clippy::too_many_arguments)]
     fn emit_line(
         &mut self,
+        layout_tree: &LayoutTree,
         items: &[(LayoutElementId, TaffyNodeId)],
         empty_line_height: Option<f64>,
         element_node: &mut LayoutElementNode,
@@ -1360,7 +1387,10 @@ impl TaffyLayouter {
         // `<button style="height:100px"><img style="height:100%">` drew no image without this.
         let block_height = self.tree.style(leaf_id).ok().and_then(definite_content_height);
         if let Some(block_height) = block_height {
-            for (_, inline_taffy_node_id) in items {
+            for (inline_layout_element_id, inline_taffy_node_id) in items {
+                if !percent_height_resolves_in_line(layout_tree, *inline_layout_element_id) {
+                    continue;
+                }
                 let Ok(item) = self.tree.style(*inline_taffy_node_id) else {
                     continue;
                 };
@@ -2861,6 +2891,28 @@ fn clamp_replaced_to_max_height(
         width: (limit * iw / ih).min(measured.width),
         height: limit,
     }
+}
+
+/// Whether a percentage `height` on a line item resolves against the block the line is in: a
+/// box `height` applies to - an atomic inline (inline-block, a replaced element) or a float,
+/// whose containing block is that block. Not a non-replaced inline box, which `height` does not
+/// apply to (CSS 2 §10.6.1).
+fn percent_height_resolves_in_line(layout_tree: &LayoutTree, id: LayoutElementId) -> bool {
+    let Some(el) = layout_tree.arena.get(&id) else {
+        return false;
+    };
+    let doc = &layout_tree.render_tree.doc;
+    if matches!(
+        el.context,
+        ElementContext::Image(_) | ElementContext::Svg(_) | ElementContext::FormControl(_)
+    ) || float_side(&**doc, el.dom_node_id).is_some()
+    {
+        return true;
+    }
+    !matches!(
+        doc.computed_style(el.dom_node_id).declared_display(),
+        None | Some(CssDisplay::Inline)
+    )
 }
 
 /// The content-box height `style` fixes regardless of its content - a length, clamped by any
