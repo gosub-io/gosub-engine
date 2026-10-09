@@ -1304,6 +1304,8 @@ impl TaffyLayouter {
 
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.measure_cache.clear();
+        // A font registered since the last tree changes metrics as well as widths.
+        self.font_metrics.clear();
         self.tree = SendTaffyTree(TaffyTree::new());
         // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
         // text containers to lose sub-pixel width (e.g. 52.344 -> 52.0). This makes pango
