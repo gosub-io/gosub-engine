@@ -40,12 +40,16 @@ pub enum ResourceKind {
 impl ResourceKind {
     /// The `Accept` request-header value a browser sends for this resource kind. Only image types
     /// the engine decodes are named: a server negotiating formats would otherwise pick one it
-    /// cannot show. No `image/avif` - the raster decoder has no AVIF support.
+    /// cannot show. The raster decoder has no AVIF support, and `image/*` and `*/*` would still
+    /// match `image/avif`, so it is refused outright with `q=0` (RFC 9110 §12.5.1: the more
+    /// specific range wins).
     pub fn accept_header(self) -> &'static str {
         match self {
-            ResourceKind::Document => "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            ResourceKind::Document => {
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/avif;q=0,*/*;q=0.8"
+            }
             ResourceKind::Stylesheet => "text/css,*/*;q=0.1",
-            ResourceKind::Image => "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            ResourceKind::Image => "image/webp,image/apng,image/svg+xml,image/*,image/avif;q=0,*/*;q=0.8",
             _ => "*/*",
         }
     }
@@ -407,12 +411,14 @@ mod tests {
         }
     }
 
-    /// No `Accept` header names AVIF: nothing decodes it, so a server that negotiates would send
-    /// an image the engine then fails to show.
+    /// Every `Accept` header with a wildcard that matches AVIF refuses it: nothing decodes it, so
+    /// a server that negotiates would send an image the engine then fails to show.
     #[test]
-    fn accept_names_no_format_the_engine_cannot_decode() {
+    fn accept_refuses_a_format_the_engine_cannot_decode() {
         for kind in [ResourceKind::Document, ResourceKind::Image] {
-            assert!(!kind.accept_header().contains("image/avif"), "{kind:?}");
+            let header = kind.accept_header();
+            let avif: Vec<&str> = header.split(',').filter(|r| r.starts_with("image/avif")).collect();
+            assert_eq!(avif, ["image/avif;q=0"], "{kind:?}");
         }
     }
 }
