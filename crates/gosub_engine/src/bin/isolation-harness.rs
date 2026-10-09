@@ -6952,6 +6952,10 @@ fn engine_cookie_vault() -> i32 {
     // `respawn`: kill the vault after the first flow; the cookie must still
     // reach the next request, from the store the respawned vault reopens.
     let respawn = modes.iter().any(|m| m == "respawn");
+    // `net-respawn`: kill the network process instead; the respawned one must
+    // be handed a new line to the same vault, or the cookie it holds never
+    // reaches the next request.
+    let net_respawn = modes.iter().any(|m| m == "net-respawn");
     // `no-vault`: the broker's own jar, its cookies attached by the broker
     // and carried by the network process as sent.
     let no_vault = modes.iter().any(|m| m == "no-vault");
@@ -7119,8 +7123,49 @@ fn engine_cookie_vault() -> i32 {
             }
             println!("vault respawned: pid {pid} -> {new_pid}");
         }
+        #[cfg(target_os = "linux")]
+        if net_respawn {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            let after_kill_from = seen.lock().len();
+            after_kill_seen.store(after_kill_from, std::sync::atomic::Ordering::Relaxed);
+            let Some(pid) = engine.net_process_pid().await else {
+                eprintln!("no network process to kill");
+                return 1;
+            };
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+            // The broker notices on its reader thread, and the next request
+            // respawns; one sent before it noticed is lost, so ask again.
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+            while seen.lock().len() <= after_kill_from {
+                if tokio::time::Instant::now() > deadline {
+                    eprintln!("no request reached the server after the kill; seen {:?}", seen.lock());
+                    return 1;
+                }
+                if tab
+                    .navigate(format!("http://127.0.0.1:{port}/style.css"))
+                    .await
+                    .is_err()
+                {
+                    eprintln!("navigate after the kill failed");
+                    return 1;
+                }
+                let asked = tokio::time::Instant::now();
+                while seen.lock().len() <= after_kill_from && asked.elapsed() < std::time::Duration::from_secs(2) {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+            match engine.net_process_pid().await {
+                Some(new_pid) if new_pid != pid => println!("network process respawned: pid {pid} -> {new_pid}"),
+                other => {
+                    eprintln!("the network process was not respawned (pid {pid} -> {other:?})");
+                    return 1;
+                }
+            }
+        }
         #[cfg(not(target_os = "linux"))]
-        let _ = (respawn, &after_kill_seen);
+        let _ = (respawn, net_respawn, &after_kill_seen);
         let _ = engine.shutdown().await;
         0
     });
@@ -7138,14 +7183,14 @@ fn engine_cookie_vault() -> i32 {
         eprintln!("the stylesheet request must carry the cookie the page set, and the page request must not");
         return 1;
     }
-    if respawn {
+    if respawn || net_respawn {
         let third_has = seen.get(after_kill_from..).is_some_and(|later| {
             later
                 .iter()
                 .any(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")))
         });
         if !third_has {
-            eprintln!("after the vault died, the next request must still carry the cookie (from the store)");
+            eprintln!("after the vault or network process died, the next request must still carry the cookie");
             return 1;
         }
     }
@@ -7157,7 +7202,13 @@ fn engine_cookie_vault() -> i32 {
         } else {
             " and the network process"
         },
-        if respawn { ", across a vault respawn" } else { "" }
+        if respawn {
+            ", across a vault respawn"
+        } else if net_respawn {
+            ", across a network process respawn"
+        } else {
+            ""
+        }
     );
     0
 }

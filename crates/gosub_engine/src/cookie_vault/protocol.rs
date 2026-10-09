@@ -93,6 +93,10 @@ pub enum ToVault {
     Audit {
         tag: Tag,
     },
+    /// Broker only: a line to a respawned network process follows as a file
+    /// descriptor, sent twice (one per half: the vault may not `dup`). It is
+    /// served once the line it replaces has ended.
+    NetLine,
     Shutdown,
 }
 

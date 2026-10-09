@@ -76,7 +76,13 @@ engine then falls back in-process and says so.
   same reason. `ioctl` reaches only the socket requests the stack makes
   (`FIONREAD`, `FIONBIO`, `FIOCLEX`); anything else fails with `ENOTTY`, so a
   terminal answers only to those numbers (`FIONREAD` is its `TIOCINQ`, a byte
-  count) and `TCGETS`, `TIOCSTI` and the rest are refused.
+  count) and `TCGETS`, `TIOCSTI` and the rest are refused. A network process
+  that dies is respawned on the next request, at most once every 5 s; what
+  was in flight fails, and until it is back requests fail rather than fall
+  back to fetching in the broker. With the vault, the new process gets a new
+  line to it: the vault's end goes over the vault's broker link, and the
+  vault serves it on the thread that served the old one, since it may start
+  no thread after lockdown.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the

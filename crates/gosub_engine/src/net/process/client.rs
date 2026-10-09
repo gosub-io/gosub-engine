@@ -352,23 +352,43 @@ const READY_TIMEOUT: Duration = Duration::from_secs(10);
 /// so a well-behaved child is never killed mid-drain.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
-/// A running network process and the link to it.
+/// A network process that died is respawned at most this often.
+const RESPAWN_COOLDOWN: Duration = Duration::from_secs(5);
+
+/// How a respawned network process's vault line reaches the vault: the
+/// vault's end of a fresh channel, whose other end the new process inherited.
+pub type Relink = Box<dyn Fn(gosub_ipc::channel::Channel) + Send + Sync>;
+
+/// Requests waiting for a reply, by tag.
+type Pending = Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>>;
+
+/// A running network process and the link to it. One that dies is respawned
+/// on the next use (see [`NetProcess::ensure_alive`]); what was in flight on
+/// it fails.
 pub struct NetProcess {
     /// The broker's observer of each request that asked for one, by tag;
     /// kept until the request's last event, which for a streamed body comes
     /// after its reply.
     reported: Reported,
     tx: Arc<Mutex<EndpointTx>>,
-    pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>>,
+    pending: Pending,
     next_tag: AtomicU64,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
     /// Bounds concurrent requests (see [`MAX_INFLIGHT`]).
     inflight: Arc<tokio::sync::Semaphore>,
     /// The child holds a direct line to the cookie vault: requests may carry a
-    /// cookie scope instead of a header.
+    /// cookie scope instead of a header. A respawned one is given a line too.
     vault_linked: bool,
     /// Who is waiting for an audit report, if anyone.
     audit_waiter: AuditWaiter,
+    /// Cleared by the reader thread of the current link when it ends.
+    alive: Mutex<Arc<AtomicBool>>,
+    /// Serializes respawns and remembers the last attempt.
+    respawn: Mutex<Option<std::time::Instant>>,
+    /// Set by `shutdown`: no respawn after the engine let go.
+    closed: AtomicBool,
+    /// How a respawned process's vault line is handed to the vault.
+    relink: Mutex<Option<Relink>>,
 }
 
 /// Audits in flight, by tag: each call waits for its own answer, and a late one
@@ -382,178 +402,225 @@ impl std::fmt::Debug for NetProcess {
     }
 }
 
+/// A freshly spawned network process, before anything was sent to it.
+struct Launched {
+    tx: EndpointTx,
+    rx: gosub_ipc::EndpointRx,
+    child: gosub_sandbox::spawn::Child,
+    vault_linked: bool,
+}
+
+/// Re-exec this binary as the network process; the link is connected,
+/// nothing sent. With `vault`, the child also inherits its line to the vault.
+fn launch(vault: Option<VaultLine>) -> anyhow::Result<Launched> {
+    // A process that carries a child role but is running broker code got here
+    // because the embedder never dispatched, so re-exec put it into its own
+    // `main`. Spawning from here would do the same thing again, and again:
+    // an unbounded chain of processes, each opening whatever the embedder
+    // opens. Refuse, and name the omission.
+    if crate::child_process::is_child_process() {
+        anyhow::bail!(
+            "this process was started as an engine child role but is running embedder startup, \
+             which means gosub_engine::child_process::dispatch() was not called at the top of \
+             main(); refusing to spawn further processes"
+        );
+    }
+
+    let exe = std::env::current_exe()?;
+    let (ours, theirs) = gosub_ipc::channel::Channel::pair()?;
+
+    // The vault line rides along as an extra inherited fd, named in argv
+    // before the primary link (which `spawn` appends).
+    let vault_spec = vault.as_ref().map(|line| line.0.to_argv());
+    let mut args: Vec<&str> = vec![crate::child_process::ROLE_FLAG, NET_ROLE];
+    if let Some(spec) = vault_spec.as_deref() {
+        args.push(spec);
+    }
+    #[cfg(target_os = "linux")]
+    let extra_fds: Vec<i32> = vault.iter().map(|line| line.0.raw()).collect();
+    #[cfg(not(target_os = "linux"))]
+    let extra_fds: Vec<i32> = Vec::new();
+
+    let child = gosub_sandbox::spawn::spawn(
+        &exe,
+        &args,
+        theirs,
+        // The one component that keeps its network namespace.
+        gosub_sandbox::NamespaceIsolation::KeepNetwork,
+        gosub_sandbox::spawn::ContainerProfile {
+            name: "gosub-net",
+            internet: true,
+            fs_grant: None,
+            data_limit: None,
+            extra_fds: &extra_fds,
+            // A multi-thread runtime plus its blocking pool.
+            max_tasks: 1024,
+            file_size_limit: None,
+        },
+    )?;
+    drop(vault); // the child holds its copy of the vault line
+
+    if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {
+        log::warn!("could not apply parent-side confinement to the network process: {e}");
+    }
+
+    let mut endpoint = Endpoint::from_channel(ours)?;
+    // A child that stops reading must not pin blocking-pool threads forever.
+    let _ = endpoint.tx.set_write_timeout(Some(REPLY_TIMEOUT));
+    let (tx, rx) = endpoint.split();
+    Ok(Launched {
+        tx,
+        rx,
+        child,
+        vault_linked: !extra_fds.is_empty(),
+    })
+}
+
+/// Read the link until it ends: replies to their waiters, events to their
+/// observers. At the end `alive` is cleared and everything still waiting is
+/// woken, as failed.
+fn start_reader(
+    mut rx: gosub_ipc::EndpointRx,
+    waiters: Pending,
+    observers: Reported,
+    audit_reply: AuditWaiter,
+    ready_tx: std::sync::mpsc::SyncSender<()>,
+    alive: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    // A plain thread, not a task: it blocks on the link, and must keep
+    // draining even when every runtime worker is busy waiting on a reply.
+    std::thread::Builder::new()
+        .name("net-process-reader".into())
+        .spawn(move || {
+            while let Ok(msg) = rx.recv::<FromNet>() {
+                match msg {
+                    FromNet::Pong => {
+                        let _ = ready_tx.send(());
+                    }
+                    FromNet::Audit { tag, report } => {
+                        if let Some(waiter) = audit_reply.lock().remove(&tag) {
+                            let _ = waiter.send(report);
+                        }
+                    }
+                    // Only to an observer this side registered for the tag: a
+                    // child cannot report on a request nobody asked it about.
+                    FromNet::Event { tag, event } => {
+                        let observer = observers.lock().get(&tag).cloned();
+                        if let Some(observer) = observer {
+                            observer.on_wire(event);
+                            if observer.is_done() {
+                                observers.lock().remove(&tag);
+                            }
+                        }
+                    }
+                    FromNet::Reply { tag, outcome } => {
+                        // A streamed head is followed by its ring fd; take it
+                        // now, before the next message, whoever is waiting.
+                        let reply = match outcome {
+                            FetchOutcome::Streaming { .. } => match recv_ring(&mut rx) {
+                                Ok(ring) => NetReply {
+                                    outcome,
+                                    ring: Some(ring),
+                                    stream_end: None,
+                                },
+                                Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
+                            },
+                            outcome => NetReply {
+                                outcome,
+                                ring: None,
+                                stream_end: None,
+                            },
+                        };
+                        if let Some(waiter) = waiters.lock().remove(&tag) {
+                            let _ = waiter.send(reply);
+                        }
+                    }
+                    // A body too large for a frame follows as a sealed memfd: read
+                    // it now, before the next message, and hand on the plain `Ok`
+                    // it stands for.
+                    FromNet::SharedReply {
+                        tag,
+                        status,
+                        status_text,
+                        final_url,
+                        headers,
+                        peer_addr,
+                        len,
+                    } => {
+                        let reply = match recv_shared_body(&mut rx, len) {
+                            Ok(body) => NetReply {
+                                outcome: FetchOutcome::Ok {
+                                    status,
+                                    status_text,
+                                    final_url,
+                                    headers,
+                                    body,
+                                    peer_addr,
+                                },
+                                ring: None,
+                                stream_end: None,
+                            },
+                            Err(e) => NetReply::error(format!("shared body did not arrive: {e}")),
+                        };
+                        if let Some(waiter) = waiters.lock().remove(&tag) {
+                            let _ = waiter.send(reply);
+                        }
+                    }
+                }
+            }
+            // The link is gone, so no reply will ever arrive. Dropping the
+            // senders wakes every waiter with a disconnect instead of leaving
+            // them to time out one by one.
+            waiters.lock().clear();
+            audit_reply.lock().clear();
+            // Whatever was still being reported on ends here, as failed:
+            // its events died with the process.
+            let abandoned: Vec<Arc<ReportedRequest>> = observers.lock().drain().map(|(_, r)| r).collect();
+            for request in abandoned {
+                request.fail("the network process went away");
+            }
+            // Only then marked dead: the maps are shared with the process a
+            // respawn starts, and a request that finds this one dead respawns
+            // and registers there. Cleared after that, it would be failed
+            // with this process. One that reaches the dead link before this
+            // store fails its send and removes itself.
+            alive.store(false, Ordering::Release);
+        })?;
+    Ok(())
+}
+
 impl NetProcess {
     /// Re-exec this binary as the network process and connect to it. With
     /// `vault`, the child also inherits its line to the cookie vault.
     pub fn spawn(vault: Option<VaultLine>) -> anyhow::Result<Self> {
-        // A process that carries a child role but is running broker code got here
-        // because the embedder never dispatched, so re-exec put it into its own
-        // `main`. Spawning from here would do the same thing again, and again:
-        // an unbounded chain of processes, each opening whatever the embedder
-        // opens. Refuse, and name the omission.
-        if crate::child_process::is_child_process() {
-            anyhow::bail!(
-                "this process was started as an engine child role but is running embedder startup, \
-                 which means gosub_engine::child_process::dispatch() was not called at the top of \
-                 main(); refusing to spawn further processes"
-            );
-        }
-
-        let exe = std::env::current_exe()?;
-        let (ours, theirs) = gosub_ipc::channel::Channel::pair()?;
-
-        // The vault line rides along as an extra inherited fd, named in argv
-        // before the primary link (which `spawn` appends).
-        let vault_spec = vault.as_ref().map(|line| line.0.to_argv());
-        let mut args: Vec<&str> = vec![crate::child_process::ROLE_FLAG, NET_ROLE];
-        if let Some(spec) = vault_spec.as_deref() {
-            args.push(spec);
-        }
-        #[cfg(target_os = "linux")]
-        let extra_fds: Vec<i32> = vault.iter().map(|line| line.0.raw()).collect();
-        #[cfg(not(target_os = "linux"))]
-        let extra_fds: Vec<i32> = Vec::new();
-
-        let child = gosub_sandbox::spawn::spawn(
-            &exe,
-            &args,
-            theirs,
-            // The one component that keeps its network namespace.
-            gosub_sandbox::NamespaceIsolation::KeepNetwork,
-            gosub_sandbox::spawn::ContainerProfile {
-                name: "gosub-net",
-                internet: true,
-                fs_grant: None,
-                data_limit: None,
-                extra_fds: &extra_fds,
-                // A multi-thread runtime plus its blocking pool.
-                max_tasks: 1024,
-                file_size_limit: None,
-            },
-        )?;
-        drop(vault); // the child holds its copy of the vault line
-
-        if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {
-            log::warn!("could not apply parent-side confinement to the network process: {e}");
-        }
-
-        let mut endpoint = Endpoint::from_channel(ours)?;
-        // A child that stops reading must not pin blocking-pool threads forever.
-        let _ = endpoint.tx.set_write_timeout(Some(REPLY_TIMEOUT));
-        let (tx, mut rx) = endpoint.split();
-
-        let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let launched = launch(vault)?;
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let reported: Reported = Arc::new(Mutex::new(HashMap::new()));
-        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
-
-        // A plain thread, not a task: it blocks on the link, and must keep
-        // draining even when every runtime worker is busy waiting on a reply.
-        let waiters = pending.clone();
-        let observers = Arc::clone(&reported);
         let audit_waiter: AuditWaiter = Arc::new(Mutex::new(HashMap::new()));
-        let audit_reply = Arc::clone(&audit_waiter);
-        std::thread::Builder::new()
-            .name("net-process-reader".into())
-            .spawn(move || {
-                while let Ok(msg) = rx.recv::<FromNet>() {
-                    match msg {
-                        FromNet::Pong => {
-                            let _ = ready_tx.send(());
-                        }
-                        FromNet::Audit { tag, report } => {
-                            if let Some(waiter) = audit_reply.lock().remove(&tag) {
-                                let _ = waiter.send(report);
-                            }
-                        }
-                        // Only to an observer this side registered for the tag: a
-                        // child cannot report on a request nobody asked it about.
-                        FromNet::Event { tag, event } => {
-                            let observer = observers.lock().get(&tag).cloned();
-                            if let Some(observer) = observer {
-                                observer.on_wire(event);
-                                if observer.is_done() {
-                                    observers.lock().remove(&tag);
-                                }
-                            }
-                        }
-                        FromNet::Reply { tag, outcome } => {
-                            // A streamed head is followed by its ring fd; take it
-                            // now, before the next message, whoever is waiting.
-                            let reply = match outcome {
-                                FetchOutcome::Streaming { .. } => match recv_ring(&mut rx) {
-                                    Ok(ring) => NetReply {
-                                        outcome,
-                                        ring: Some(ring),
-                                        stream_end: None,
-                                    },
-                                    Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
-                                },
-                                outcome => NetReply {
-                                    outcome,
-                                    ring: None,
-                                    stream_end: None,
-                                },
-                            };
-                            if let Some(waiter) = waiters.lock().remove(&tag) {
-                                let _ = waiter.send(reply);
-                            }
-                        }
-                        // A body too large for a frame follows as a sealed memfd: read
-                        // it now, before the next message, and hand on the plain `Ok`
-                        // it stands for.
-                        FromNet::SharedReply {
-                            tag,
-                            status,
-                            status_text,
-                            final_url,
-                            headers,
-                            peer_addr,
-                            len,
-                        } => {
-                            let reply = match recv_shared_body(&mut rx, len) {
-                                Ok(body) => NetReply {
-                                    outcome: FetchOutcome::Ok {
-                                        status,
-                                        status_text,
-                                        final_url,
-                                        headers,
-                                        body,
-                                        peer_addr,
-                                    },
-                                    ring: None,
-                                    stream_end: None,
-                                },
-                                Err(e) => NetReply::error(format!("shared body did not arrive: {e}")),
-                            };
-                            if let Some(waiter) = waiters.lock().remove(&tag) {
-                                let _ = waiter.send(reply);
-                            }
-                        }
-                    }
-                }
-                // The link is gone, so no reply will ever arrive. Dropping the
-                // senders wakes every waiter with a disconnect instead of leaving
-                // them to time out one by one.
-                waiters.lock().clear();
-                audit_reply.lock().clear();
-                // Whatever was still being reported on ends here, as failed:
-                // its events died with the process.
-                let abandoned: Vec<Arc<ReportedRequest>> = observers.lock().drain().map(|(_, r)| r).collect();
-                for request in abandoned {
-                    request.fail("the network process went away");
-                }
-            })?;
+        let alive = Arc::new(AtomicBool::new(true));
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        start_reader(
+            launched.rx,
+            Arc::clone(&pending),
+            Arc::clone(&reported),
+            Arc::clone(&audit_waiter),
+            ready_tx,
+            Arc::clone(&alive),
+        )?;
 
         let net = Self {
             reported,
-            tx: Arc::new(Mutex::new(tx)),
+            tx: Arc::new(Mutex::new(launched.tx)),
             pending,
             next_tag: AtomicU64::new(1),
-            child: Mutex::new(Some(child)),
+            child: Mutex::new(Some(launched.child)),
             inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
-            vault_linked: !extra_fds.is_empty(),
+            vault_linked: launched.vault_linked,
             audit_waiter,
+            alive: Mutex::new(alive),
+            respawn: Mutex::new(None),
+            closed: AtomicBool::new(false),
+            relink: Mutex::new(None),
         };
 
         // Confirm the child really is a network process before returning it as
@@ -579,6 +646,108 @@ impl NetProcess {
         }
 
         Ok(net)
+    }
+
+    /// The network process's pid, while it has one.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.lock().as_ref().map(gosub_sandbox::spawn::Child::id)
+    }
+
+    /// Whether the current link is up.
+    pub fn is_alive(&self) -> bool {
+        self.alive.lock().load(Ordering::Acquire)
+    }
+
+    /// Register how a respawned process's vault line reaches the vault.
+    pub fn on_relink(&self, relink: Relink) {
+        *self.relink.lock() = Some(relink);
+    }
+
+    /// Respawn a dead network process: a new one, with a new line to the
+    /// vault when this one had one, in place of the old. At most once per
+    /// [`RESPAWN_COOLDOWN`]; until it is back, requests fail. Blocking, up to
+    /// [`READY_TIMEOUT`]: call it off the runtime's workers.
+    pub fn ensure_alive(&self) {
+        if self.is_alive() || self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut last = self.respawn.lock();
+        if self.is_alive() || self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        if last.is_some_and(|at| at.elapsed() < RESPAWN_COOLDOWN) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+        log::warn!("the network process died; respawning it");
+        self.kill();
+
+        // A new line for the vault, never none in place of one: without it
+        // the vaulted requests would have no cookies, and the broker would
+        // not attach them either.
+        #[cfg(target_os = "linux")]
+        let (vault_end, net_line) = if self.vault_linked {
+            match gosub_ipc::channel::Channel::pair() {
+                Ok((vault_end, net_end)) => (Some(vault_end), Some(VaultLine(net_end))),
+                Err(e) => {
+                    log::error!("no vault line for a new network process ({e}); requests fail");
+                    return;
+                }
+            }
+        } else {
+            (None, None)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let (vault_end, net_line): (Option<gosub_ipc::channel::Channel>, Option<VaultLine>) = (None, None);
+
+        let launched = match launch(net_line) {
+            Ok(launched) => launched,
+            Err(e) => {
+                log::error!("the network process could not be respawned ({e}); requests fail");
+                return;
+            }
+        };
+        let alive = Arc::new(AtomicBool::new(true));
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        if let Err(e) = start_reader(
+            launched.rx,
+            Arc::clone(&self.pending),
+            Arc::clone(&self.reported),
+            Arc::clone(&self.audit_waiter),
+            ready_tx,
+            Arc::clone(&alive),
+        ) {
+            log::error!("the network process reader could not start ({e}); requests fail");
+            return;
+        }
+        let mut tx = launched.tx;
+        *self.child.lock() = Some(launched.child);
+        if tx.send(&ToNet::Ping).is_err() || ready_rx.recv_timeout(READY_TIMEOUT).is_err() {
+            log::error!("the respawned network process did not answer; requests fail");
+            self.kill();
+            return;
+        }
+        *self.tx.lock() = tx;
+        *self.alive.lock() = alive;
+
+        // Handed over once the new process is in place. `respawn` and
+        // `relink` are still held; a vault that respawns on the way relinks
+        // through `relink_vault`, which takes neither.
+        if let Some(vault_end) = vault_end {
+            match self.relink.lock().as_ref() {
+                Some(relink) => relink(vault_end),
+                None => log::warn!("no way to hand the vault the new network line; requests go without cookies"),
+            }
+        }
+        log::info!("the network process is back");
+    }
+
+    /// End the current child at once and reap it.
+    fn kill(&self) {
+        if let Some(mut child) = self.child.lock().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
     /// Whether the child resolves cookies against the vault itself.
@@ -805,6 +974,10 @@ impl NetProcess {
     /// in-flight requests before exiting (see [`ToNet::Shutdown`]), so give it
     /// [`SHUTDOWN_GRACE`] to do that; kill only one that fails to.
     pub fn shutdown(&self) {
+        // Under `respawn`: a respawn under way finishes first, and its child
+        // is the one ended here; one that starts after sees `closed`.
+        let _respawn = self.respawn.lock();
+        self.closed.store(true, Ordering::Release);
         let _ = self.tx.lock().send(&ToNet::Shutdown);
 
         let Some(mut child) = self.child.lock().take() else {
