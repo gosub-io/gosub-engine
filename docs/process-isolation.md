@@ -421,18 +421,24 @@ loads, in both the in-process and the network-process arrangement. Both are
 decided from the tab's *own* document (what the broker recorded for the
 navigation that produced it), never from anything the requester sent.
 
-- **Private-network protection** (`net::ssrf`). A subresource of a document on
-  the public internet may not reach loopback, private, link-local, CGNAT,
-  multicast or the other reserved ranges - the classic SSRF through
-  `<img src="http://169.254.169.254/…">`. Navigations are never restricted, and
-  a document that itself lives on the private network may load its neighbours.
-  The decision and the connection are one step: such requests go through a
-  *strict* fetcher (one per zone, and one in the network process) whose DNS
-  resolver refuses a name if *any* answer is private and which classifies IP
+- **Private-network protection** (`net::ssrf`). Addresses fall in the three
+  spaces of Local Network Access: public, local (the private ranges, CGNAT,
+  link-local, benchmarking, unique-local) and loopback (`127.0.0.0/8`, `::1`).
+  The engine adds `0.0.0.0` to loopback, since connecting to it reaches this
+  host, and puts multicast, broadcast and the other reserved ranges in local,
+  where the spec leaves them public. A subresource may reach its document's space or a more public
+  one: a document on the public internet reaches neither the local network nor
+  loopback - the classic SSRF through `<img src="http://169.254.169.254/…">` -
+  and a document on the local network may load its neighbours, link-local
+  included, but not this machine's own services. Navigations are never
+  restricted. The decision and the connection are one step: such requests go
+  through a *strict* fetcher for the document's space (one per zone and space,
+  and one per space in the network process) whose DNS resolver refuses a name
+  if *any* answer is more private than that space and which classifies IP
   literals - including the `2130706433` / `0x7f000001` / `127.1` spellings and
   the NAT64/6to4/IPv4-mapped IPv6 embeddings - at every redirect hop. There is
-  no second lookup for a rebinding attack to poison. Whether the *document*
-  lives on the private network is settled the same way: by the address its
+  no second lookup for a rebinding attack to poison. Which space the
+  *document* is in is settled the same way: by the address its
   navigation's response came from (the connection's peer, carried over from
   the network process), recorded per navigation when the response arrives and
   used for that document's loads once the tab commits it - never by resolving

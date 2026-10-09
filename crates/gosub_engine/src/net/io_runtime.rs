@@ -2,7 +2,7 @@ use crate::cookies::SameSiteContext;
 use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
-use crate::net::fetcher::{fetcher_config_from, strict_config, EngineNetContext, Fetcher};
+use crate::net::fetcher::{fetcher_config_from, reach_config, EngineNetContext, Fetcher};
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReference, REF_REGISTRY};
 use crate::net::ssrf::AddressSpace;
 use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
@@ -95,13 +95,34 @@ impl IoHandle {
 }
 
 pub struct ZoneEntry {
-    fetcher: Arc<Fetcher>,
-    /// Same zone, may not reach the private network: serves subresources of
-    /// public documents (see `net::ssrf`). Its own connection pool, on purpose:
-    /// a pooled connection is a resolution already made.
-    strict: Arc<Fetcher>,
+    fetchers: ZoneFetchers,
     shutdown: CancellationToken,
     join: JoinHandle<()>,
+}
+
+/// A zone's fetchers, one per address space a document can be in (see
+/// `net::ssrf`). Each has its own connection pool, on purpose: a pooled
+/// connection is a resolution already made.
+#[derive(Clone)]
+pub struct ZoneFetchers {
+    /// Navigations, and subresources of documents on this machine: reaches
+    /// anything.
+    loopback: Arc<Fetcher>,
+    /// Subresources of documents from the local network: not loopback.
+    local: Arc<Fetcher>,
+    /// Subresources of public documents: neither loopback nor the local network.
+    public: Arc<Fetcher>,
+}
+
+impl ZoneFetchers {
+    /// The fetcher for requests that may reach `reach` and nothing more private.
+    pub fn for_reach(&self, reach: AddressSpace) -> Arc<Fetcher> {
+        match reach {
+            AddressSpace::Loopback => self.loopback.clone(),
+            AddressSpace::Local => self.local.clone(),
+            AddressSpace::Public => self.public.clone(),
+        }
+    }
 }
 
 /// Routes I/O requests to per-zone fetchers, spawning them on first use.
@@ -127,7 +148,7 @@ impl IoRouter {
             event_tx: engine_ctx.event_tx.clone(),
             request_reference_map: engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
-            refuse_private: false,
+            reach: AddressSpace::Loopback,
         };
         #[cfg(feature = "process-isolation")]
         let net_process = start_net_process(&engine_ctx);
@@ -197,61 +218,56 @@ impl IoRouter {
         None
     }
 
-    /// The zone's fetcher; the strict one when the request may not reach the
-    /// private network.
-    pub fn get_or_spawn_zone_fetcher(
-        &self,
-        zone_id: ZoneId,
-        refuse_private: bool,
-    ) -> Result<Arc<Fetcher>, EngineError> {
-        let pick = |entry: &ZoneEntry| {
-            if refuse_private {
-                entry.strict.clone()
-            } else {
-                entry.fetcher.clone()
-            }
-        };
+    /// The zone's fetchers, spawned on first use.
+    pub fn get_or_spawn_zone_fetchers(&self, zone_id: ZoneId) -> Result<ZoneFetchers, EngineError> {
         if let Some(entry) = self.zones.get(&zone_id) {
-            return Ok(pick(&entry));
+            return Ok(entry.fetchers.clone());
         }
 
         let zone_shutdown = CancellationToken::new();
 
-        let context = |refuse_private: bool| {
-            Arc::new(EngineNetContext {
+        // Read the settings store now rather than at engine start, so `net.*` overrides made
+        // after `start()` apply to every zone that fetches from then on.
+        let cfg = fetcher_config_from(&self.engine_ctx.config_store);
+        let fetcher = |reach: AddressSpace| {
+            let context = Arc::new(EngineNetContext {
                 resource_tx: self.engine_ctx.resource_tx.clone(),
                 event_tx: self.engine_ctx.event_tx.clone(),
                 request_reference_map: self.engine_ctx.request_reference_map.clone(),
                 request_ref_tracker: Arc::new(RequestRefTracker::new()),
-                refuse_private,
-            })
+                reach,
+            });
+            Fetcher::new(reach_config(&cfg, reach), context)
+                .map(Arc::new)
+                .map_err(|e| EngineError::NetworkError(e.to_string()))
         };
-        // Read the settings store now rather than at engine start, so `net.*` overrides made
-        // after `start()` apply to every zone that fetches from then on.
-        let cfg = fetcher_config_from(&self.engine_ctx.config_store);
-        let f =
-            Arc::new(Fetcher::new(cfg.clone(), context(false)).map_err(|e| EngineError::NetworkError(e.to_string()))?);
-        let strict = Arc::new(
-            Fetcher::new(strict_config(&cfg), context(true)).map_err(|e| EngineError::NetworkError(e.to_string()))?,
-        );
+        let fetchers = ZoneFetchers {
+            loopback: fetcher(AddressSpace::Loopback)?,
+            local: fetcher(AddressSpace::Local)?,
+            public: fetcher(AddressSpace::Public)?,
+        };
 
-        let (f_run, strict_run) = (f.clone(), strict.clone());
+        let running = fetchers.clone();
         let cancel = zone_shutdown.clone();
         let title = format!("I/O Fetcher Zone {}", zone_id);
         let join_handle = spawn_named(&title, async move {
-            tokio::join!(f_run.run(cancel.clone()), strict_run.run(cancel));
+            tokio::join!(
+                running.loopback.run(cancel.clone()),
+                running.local.run(cancel.clone()),
+                running.public.run(cancel)
+            );
         });
 
-        let entry = ZoneEntry {
-            fetcher: f,
-            strict,
-            shutdown: zone_shutdown,
-            join: join_handle,
-        };
-        let picked = pick(&entry);
-        self.zones.insert(zone_id, entry);
+        self.zones.insert(
+            zone_id,
+            ZoneEntry {
+                fetchers: fetchers.clone(),
+                shutdown: zone_shutdown,
+                join: join_handle,
+            },
+        );
 
-        Ok(picked)
+        Ok(fetchers)
     }
 
     #[instrument(
@@ -361,7 +377,7 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
 fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
-    refuse_private: bool,
+    reach: AddressSpace,
     cookies: Option<CookieScope>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
@@ -412,7 +428,7 @@ fn dispatch_to_net_process(
             method,
             headers,
             body,
-            refuse_private,
+            reach,
             streaming,
             cookies,
             body_preview,
@@ -446,7 +462,7 @@ type CookieScope = std::convert::Infallible;
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
-    _refuse_private: bool,
+    _reach: AddressSpace,
     _cookies: Option<CookieScope>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
@@ -774,16 +790,13 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             // neither attaches nor stores any.
                             let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
                             let net = router.net_process();
-                            // Both of the zone's fetchers: which one serves the request
+                            // All of the zone's fetchers: which one serves the request
                             // is decided in the task, after the address-space lookup.
                             let fetchers = match &net {
                                 Some(_) => None,
-                                None => match (
-                                    router.get_or_spawn_zone_fetcher(zone_id, false),
-                                    router.get_or_spawn_zone_fetcher(zone_id, true),
-                                ) {
-                                    (Ok(lenient), Ok(strict)) => Some((lenient, strict)),
-                                    (Err(e), _) | (_, Err(e)) => {
+                                None => match router.get_or_spawn_zone_fetchers(zone_id) {
+                                    Ok(fetchers) => Some(fetchers),
+                                    Err(e) => {
                                         log::error!("Failed to create fetcher for zone {zone_id}: {e}");
                                         continue;
                                     }
@@ -829,16 +842,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
 
                                 // Policy for what a page loads, decided from the document the
                                 // request is for - never from anything a renderer sent. A
-                                // subresource of a public document may not reach the private
-                                // network, and its cross-origin bytes pass through ORB. The
-                                // document is placed by where its response came from, which
+                                // subresource may not reach an address space more private than
+                                // its document's, and its cross-origin bytes pass through ORB.
+                                // The document is placed by where its response came from, which
                                 // the tab's identity recorded when it arrived; see
-                                // `TabIdentity::document_space`.
-                                let refuse_private = subresource
-                                    && identity
+                                // `TabIdentity::document_space`. A navigation reaches anything.
+                                let reach = if subresource {
+                                    identity
                                         .as_ref()
                                         .map_or(AddressSpace::Public, |id| id.document_space(reference))
-                                        == AddressSpace::Public;
+                                } else {
+                                    AddressSpace::Loopback
+                                };
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
@@ -866,7 +881,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     (Some(net), _) => dispatch_to_net_process(
                                         net,
                                         req,
-                                        refuse_private,
+                                        reach,
                                         cookie_scope,
                                         handle.cancel.clone(),
                                         reply_tx,
@@ -875,8 +890,8 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         #[cfg(not(feature = "process-isolation"))]
                                         None,
                                     ),
-                                    (None, Some((lenient, strict))) => {
-                                        let fetcher = if refuse_private { strict } else { lenient };
+                                    (None, Some(fetchers)) => {
+                                        let fetcher = fetchers.for_reach(reach);
                                         fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
                                     }
                                     (None, None) => {}
@@ -1145,7 +1160,10 @@ mod tests {
         let router = IoRouter::new(ctx);
         let z = ZoneId::new();
 
-        let f = router.get_or_spawn_zone_fetcher(z, false).unwrap();
+        let f = router
+            .get_or_spawn_zone_fetchers(z)
+            .unwrap()
+            .for_reach(AddressSpace::Loopback);
         assert!(Arc::strong_count(&f) >= 1, "fetcher Arc should be alive");
 
         let stopped = router.shutdown_zone(z).await;
@@ -1161,13 +1179,19 @@ mod tests {
         let z1 = ZoneId::new();
         let z2 = ZoneId::new();
 
-        let _f1 = router.get_or_spawn_zone_fetcher(z1, false).unwrap();
-        let f2 = router.get_or_spawn_zone_fetcher(z2, false).unwrap();
+        let _f1 = router.get_or_spawn_zone_fetchers(z1).unwrap();
+        let f2 = router
+            .get_or_spawn_zone_fetchers(z2)
+            .unwrap()
+            .for_reach(AddressSpace::Public);
 
         let stopped = router.shutdown_zone(z1).await;
         assert!(stopped, "z1 should have been stopped");
 
-        let f2_again = router.get_or_spawn_zone_fetcher(z2, false).unwrap();
+        let f2_again = router
+            .get_or_spawn_zone_fetchers(z2)
+            .unwrap()
+            .for_reach(AddressSpace::Public);
         assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
         // Clean up remaining zones to avoid leaking tasks in test

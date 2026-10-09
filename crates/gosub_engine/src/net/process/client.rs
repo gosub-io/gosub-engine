@@ -6,6 +6,7 @@ use crate::net::process::protocol::{
     cut_string, rebuild_headers, CookieScope, FetchOutcome, FromNet, HeaderList, NetEventWire, NetFetch,
     RequestContext, RequestTag, ToNet, MAX_EVENT_STRING, MAX_REPLY_HEADERS, MAX_REPLY_HEADER_BYTES, MAX_REPLY_URL,
 };
+use crate::net::ssrf::AddressSpace;
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
@@ -22,8 +23,9 @@ pub struct Outbound {
     pub method: String,
     pub headers: HeaderList,
     pub body: Option<Vec<u8>>,
-    /// Serve through the strict fetcher (see `net::ssrf`).
-    pub refuse_private: bool,
+    /// The most private address space the request may reach: its document's
+    /// (see `net::ssrf`); `Loopback` refuses nothing.
+    pub reach: AddressSpace,
     /// Deliver the body through a ring as it arrives, where the link can carry one.
     pub streaming: bool,
     /// Whose cookies to attach, resolved by the network process against the
@@ -43,7 +45,7 @@ impl Outbound {
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
-            refuse_private: false,
+            reach: AddressSpace::Loopback,
             streaming: false,
             cookies: None,
             body_preview: None,
@@ -836,7 +838,7 @@ impl NetProcess {
             method,
             headers,
             body,
-            refuse_private,
+            reach,
             streaming,
             cookies,
             body_preview,
@@ -860,7 +862,7 @@ impl NetProcess {
             method,
             headers,
             body,
-            refuse_private,
+            reach,
             streaming,
             cookies,
             body_preview,

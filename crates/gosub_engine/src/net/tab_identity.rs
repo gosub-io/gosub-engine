@@ -46,8 +46,8 @@ impl TabIdentity {
     /// The address space of the document a request with `reference` was made
     /// for. A navigation's own subresources name it; anything else the tab asks
     /// for (a renderer's loads, a favicon, a download) is for the document it
-    /// shows. Public unless a response was recorded as private: no record, no
-    /// exemption from the private-network policy.
+    /// shows. Public unless a response was recorded in a more private space: no
+    /// record, no exemption from the private-network policy.
     pub fn document_space(&self, reference: Option<RequestReference>) -> AddressSpace {
         let navigation = match reference {
             Some(RequestReference::Navigation(id)) => Some(id),
@@ -161,7 +161,7 @@ mod tests {
     fn a_document_is_placed_by_its_own_navigation() {
         use crate::engine::types::NavigationId;
         use crate::net::req_ref_tracker::RequestReference::{Document, Navigation};
-        use crate::net::ssrf::AddressSpace::{Private, Public};
+        use crate::net::ssrf::AddressSpace::{Local, Public};
 
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
@@ -170,21 +170,21 @@ mod tests {
         assert_eq!(space(None), Public, "nothing committed yet");
 
         let intranet = NavigationId::new();
-        reg.record_navigation(tab, intranet, Private);
+        reg.record_navigation(tab, intranet, Local);
         assert_eq!(
             space(Some(Navigation(intranet))),
-            Private,
+            Local,
             "its own loads, before the commit"
         );
         assert_eq!(space(Some(Document(1))), Public, "not yet the tab's document");
         reg.commit_navigation(tab, intranet);
-        assert_eq!(space(Some(Document(1))), Private);
-        assert_eq!(space(None), Private);
+        assert_eq!(space(Some(Document(1))), Local);
+        assert_eq!(space(None), Local);
 
         // A rebound navigation that answers 204 from loopback, then one served
         // from a public address: neither has committed, so the tab is unchanged.
         let rebound = NavigationId::new();
-        reg.record_navigation(tab, rebound, Private);
+        reg.record_navigation(tab, rebound, Local);
         let public = NavigationId::new();
         reg.record_navigation(tab, public, Public);
         assert_eq!(space(Some(Navigation(public))), Public);
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(space(Some(Document(1))), Public);
         assert_eq!(
             space(Some(Navigation(intranet))),
-            Private,
+            Local,
             "late loads keep their own document's"
         );
         assert_eq!(
@@ -206,20 +206,20 @@ mod tests {
     #[test]
     fn the_committed_navigation_is_kept_past_the_cap() {
         use crate::engine::types::NavigationId;
-        use crate::net::ssrf::AddressSpace::{Private, Public};
+        use crate::net::ssrf::AddressSpace::{Local, Public};
 
         let reg = TabIdentityRegistry::new();
         let tab = TabId::new();
         reg.register(tab, jar());
         let shown = NavigationId::new();
-        reg.record_navigation(tab, shown, Private);
+        reg.record_navigation(tab, shown, Local);
         reg.commit_navigation(tab, shown);
         for _ in 0..3 * KEPT_NAVIGATIONS {
             reg.record_navigation(tab, NavigationId::new(), Public);
         }
         let id = reg.get(tab).unwrap();
         assert_eq!(id.navigations.len(), KEPT_NAVIGATIONS);
-        assert_eq!(id.document_space(None), Private);
+        assert_eq!(id.document_space(None), Local);
     }
 
     #[test]
