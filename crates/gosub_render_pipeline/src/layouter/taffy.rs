@@ -375,6 +375,10 @@ pub struct TaffyLayouter {
     baseline_shifts: HashMap<TaffyNodeId, (f32, f32)>,
     /// First-line ascent (half-leading included) and line height per font, for baselines.
     font_metrics: HashMap<FontMetricsKey, (f32, f32)>,
+    /// The line boxes and DOM nodes of the whole taffy tree, for baseline alignment. Built on
+    /// its first run for a tree rather than on every run: a table relays out each of its cells,
+    /// and rebuilding both per cell would cost the whole document every time.
+    baseline_index: Option<BaselineIndex>,
     /// Line items whose percentage height resolves against the block the line is in, with the
     /// line box they sit in and the fraction: resolved once the tree is built, since a line inside
     /// an inline box only finds its block then. See [`TaffyLayouter::resolve_line_percent_heights`].
@@ -389,6 +393,12 @@ type FontMetricsKey = (String, u32, i32, u32);
 
 /// An item on a line and its baseline below the line's top, `None` when it takes no part.
 type ItemBaseline = (TaffyNodeId, Option<f32>);
+
+/// The parts of [`BaselineCtx`] that depend on the tree alone, not on the run.
+struct BaselineIndex {
+    line_boxes: std::collections::HashSet<TaffyNodeId>,
+    dom_of: HashMap<TaffyNodeId, DomNodeId>,
+}
 
 /// What baseline alignment reads besides the taffy tree.
 struct BaselineCtx<'a> {
@@ -530,6 +540,7 @@ impl TaffyLayouter {
             abspos_insets: HashMap::new(),
             baseline_shifts: HashMap::new(),
             font_metrics: HashMap::new(),
+            baseline_index: None,
             percent_line_items: HashMap::new(),
             inline_level: std::collections::HashSet::new(),
         }
@@ -817,34 +828,48 @@ impl TaffyLayouter {
     /// put them, at the line's top; lengths, percentages, `sub` and `super` are treated as
     /// `baseline`.
     fn align_baselines(&mut self, layout_tree: &LayoutTree, root: TaffyNodeId, size: Size<AvailableSpace>) {
-        const MAX_ROUNDS: usize = 4;
-
-        let line_boxes: std::collections::HashSet<TaffyNodeId> = self.anon_container_map.values().copied().collect();
+        let index = self.baseline_index.take().unwrap_or_else(|| BaselineIndex {
+            line_boxes: self.anon_container_map.values().copied().collect(),
+            dom_of: self
+                .layout_taffy_mapping
+                .iter()
+                .filter_map(|(layout_id, taffy_id)| Some((*taffy_id, layout_tree.arena.get(layout_id)?.dom_node_id)))
+                .collect(),
+        });
         let mut lines = Vec::new();
         let mut stack = vec![root];
         while let Some(node) = stack.pop() {
-            if line_boxes.contains(&node) {
+            if index.line_boxes.contains(&node) {
                 lines.push(node);
             }
             stack.extend(self.tree.children(node).unwrap_or_default());
         }
-        if lines.is_empty() {
-            return;
+        if !lines.is_empty() {
+            self.align_lines(layout_tree, &index, &lines, root, size);
         }
-        let dom_of: HashMap<TaffyNodeId, DomNodeId> = self
-            .layout_taffy_mapping
-            .iter()
-            .filter_map(|(layout_id, taffy_id)| Some((*taffy_id, layout_tree.arena.get(layout_id)?.dom_node_id)))
-            .collect();
+        self.baseline_index = Some(index);
+    }
+
+    /// The rounds of [`Self::align_baselines`] over `lines`, the line boxes under `root`.
+    fn align_lines(
+        &mut self,
+        layout_tree: &LayoutTree,
+        index: &BaselineIndex,
+        lines: &[TaffyNodeId],
+        root: TaffyNodeId,
+        size: Size<AvailableSpace>,
+    ) {
+        const MAX_ROUNDS: usize = 4;
+
         let ctx = BaselineCtx {
-            line_boxes: &line_boxes,
-            dom_of: &dom_of,
+            line_boxes: &index.line_boxes,
+            dom_of: &index.dom_of,
             doc: &*layout_tree.render_tree.doc,
         };
 
         for _ in 0..MAX_ROUNDS {
             let mut changed = false;
-            for line in &lines {
+            for line in lines {
                 for (item, shift) in self.line_shifts(&ctx, *line) {
                     changed |= self.shift_item(item, shift);
                 }
@@ -1291,6 +1316,7 @@ impl TaffyLayouter {
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
         self.baseline_shifts.clear();
+        self.baseline_index = None;
         self.percent_line_items.clear();
         self.inline_level.clear();
 
