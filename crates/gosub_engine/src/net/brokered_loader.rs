@@ -118,6 +118,35 @@ impl ResourceLoader for BrokeredLoader {
 }
 
 impl BrokeredLoader {
+    /// The request a page's own fetch would have made: `Referer` (what a
+    /// hotlink-protected image or a `file:` load is judged by) and the tab's
+    /// language preference. A subresource on a page's behalf, whatever `kind`
+    /// the renderer named: the network kind stays `Asset`, so the I/O side
+    /// applies the private-network and opaque-response policies to it. A
+    /// `Document` here would read as a navigation there, which reaches
+    /// loopback and skips the opaque-response filter, and the renderer is
+    /// the one naming it. `kind` only picks the mixed-content handling.
+    fn request(&self, url: &Url, kind: ResourceKind, document: Option<Url>) -> FetchRequest {
+        let mut headers = http::HeaderMap::new();
+        if let Some(langs) = &self.accept_language {
+            if let Ok(value) = langs.parse() {
+                headers.insert(http::header::ACCEPT_LANGUAGE, value);
+            }
+        }
+        let mut builder = FetchRequest::builder(Method::GET, url.clone())
+            .with_req_id(RequestId::new())
+            .with_reference(REF_REGISTRY.to_net(self.reference))
+            .with_headers(headers)
+            .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
+            .with_initiator(gosub_sonar::net::types::Initiator::Application)
+            .with_streaming(false)
+            .with_auto_decode(true);
+        if let Some(doc) = document {
+            builder = builder.subresource_of(&doc, kind);
+        }
+        builder.build()
+    }
+
     fn load_inner(&self, url: &Url, kind: ResourceKind) -> Result<FetchResult, LoadError> {
         let document = self.document.clone();
         // `data:` carries its own bytes, and the I/O runtime answers it without
@@ -136,29 +165,7 @@ impl BrokeredLoader {
             return Err(LoadError::UnsupportedUrl(url.to_string()));
         }
         warn_if_current_thread_runtime();
-
-        // The request a page's own fetch would have made: `Referer` (what a
-        // hotlink-protected image or a `file:` load is judged by) and the
-        // tab's language preference. A subresource on a page's behalf: the
-        // I/O side applies the private-network and opaque-response policies.
-        let mut headers = http::HeaderMap::new();
-        if let Some(langs) = &self.accept_language {
-            if let Ok(value) = langs.parse() {
-                headers.insert(http::header::ACCEPT_LANGUAGE, value);
-            }
-        }
-        let mut builder = FetchRequest::builder(Method::GET, url.clone())
-            .with_req_id(RequestId::new())
-            .with_reference(REF_REGISTRY.to_net(self.reference))
-            .with_headers(headers)
-            .with_kind(kind.to_net())
-            .with_initiator(gosub_sonar::net::types::Initiator::Application)
-            .with_streaming(false)
-            .with_auto_decode(true);
-        if let Some(doc) = document {
-            builder = builder.subresource_of(&doc, kind);
-        }
-        let req = builder.build();
+        let req = self.request(url, kind, document);
 
         let cancel = self.cancel.child_token();
         let handle = FetchHandle {
@@ -340,6 +347,36 @@ mod tests {
         assert!(
             started.elapsed() < std::time::Duration::from_secs(5),
             "it must not try to connect"
+        );
+    }
+
+    /// The renderer names the kind, so it never decides how the I/O side
+    /// treats the request: a `Document` it asks for is still a subresource
+    /// (`Asset`), and only the mixed-content handling follows the kind.
+    #[test]
+    fn a_renderer_named_document_stays_a_subresource() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let _in_rt = rt.enter();
+        let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+        let ctx = Arc::new(crate::engine::EngineContext {
+            event_tx,
+            ..Default::default()
+        });
+        let io = crate::net::io_runtime::spawn_io_thread(ctx);
+        let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
+        let page = Url::parse("https://site.test/").unwrap();
+        let url = Url::parse("http://site.test/frame.html").unwrap();
+
+        let req = loader.request(&url, ResourceKind::Document, Some(page.clone()));
+        assert_eq!(req.kind, gosub_sonar::net::types::ResourceKind::Asset);
+        let image = loader.request(&url, ResourceKind::Image, Some(page));
+        assert_ne!(
+            req.mixed_content, image.mixed_content,
+            "the kind still picks the mixed-content handling"
         );
     }
 }
