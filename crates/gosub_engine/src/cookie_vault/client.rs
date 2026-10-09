@@ -277,6 +277,18 @@ impl CookieVault {
         *self.relink.lock() = Some(relink);
     }
 
+    /// Hand the vault its end of a respawned network process's line. The fd
+    /// goes twice: the vault may not `dup`, and an endpoint is two halves.
+    pub fn adopt_net_line(&self, line: NetVaultLink) {
+        self.ensure_alive();
+        let mut tx = self.tx.lock();
+        if tx.send(&ToVault::NetLine).is_err() || tx.send_fd(line.0.raw()).is_err() || tx.send_fd(line.0.raw()).is_err()
+        {
+            log::warn!("could not hand the cookie vault the network process's new line");
+        }
+        // `line` drops here: the vault holds its duplicates.
+    }
+
     /// Whether the current link is up.
     pub fn is_alive(&self) -> bool {
         self.alive.lock().load(Ordering::Acquire)
