@@ -192,8 +192,9 @@ impl InternalPages {
     }
 }
 
-/// The engine's built-in pages. Deliberately unbranded and dependency-free (inline CSS,
-/// system fonts): embedders override the ones they want to style.
+/// The engine's built-in pages. Dependency-free (inline CSS and SVG, system fonts) and
+/// plain apart from the Gosub submarine on home: embedders override the ones they want
+/// to style.
 pub mod builtins {
     use super::{PageProvider, PageRequest, PageResponse};
     use std::sync::Arc;
@@ -231,13 +232,17 @@ pub mod builtins {
              body{{margin:0;padding:32px 40px;font-family:sans-serif;font-size:14px;color:#1c2333;background:#ffffff}}\
              h1{{font-size:24px;margin:0 0 4px 0}} h2{{font-size:16px;margin:24px 0 8px 0}}\
              .sub{{color:#5c6675;margin:0 0 20px 0}}\
-             .gr span{{display:inline-block;padding:3px 14px 3px 0;vertical-align:top;overflow:hidden}}\
+             .gr{{display:flex;flex-wrap:wrap;align-items:flex-start;padding:2px 8px}}\
+             .gr.st{{background:#f3f5f9}} .gr.hd{{border-bottom:1px solid #d5dae3}}\
+             .gr>span{{flex:none;padding:3px 14px 3px 0;overflow:hidden}}\
              .hd span,.k{{color:#5c6675}} code{{font-family:monospace;font-size:13px}}\
              .url{{letter-spacing:0.03em}}\
              a{{color:#1d5fd1}} .muted{{color:#8a94a6}} .cur{{font-weight:bold}}\
-             .nf{{max-width:560px}}\
              .hint{{background:#eef4fd;border-left:3px solid #1d5fd1;padding:10px 14px;margin:0 0 8px 0}}\
-             .pg{{padding:8px 0;border-bottom:1px solid #e6e9ef}} .foot{{color:#8a94a6;font-size:12px;margin-top:20px}}\
+             .foot{{color:#8a94a6;font-size:12px;margin-top:20px}}\
+             .hdr{{display:flex;align-items:center;padding:0 0 20px 0;margin:0 0 20px 0;border-bottom:1px solid #e6e9ef}}\
+             .hdr h1{{font-size:30px}} .hdr .sub{{margin:0}} .hdr-text{{padding-left:18px}}\
+             .ln{{padding:6px 0}} .ln .muted{{font-size:13px}}\
              </style></head><body>{}</body></html>",
             escape(title),
             body
@@ -246,7 +251,7 @@ pub mod builtins {
 
     /// One row of tabular data. `<table>` markup is avoided for now: the
     /// current auto table layout misplaces columns (tables are being reworked
-    /// on the lattice branch), so rows are fixed-width inline-block cells
+    /// on the lattice branch), so rows are flex rows of fixed-width cells
     /// instead. A width of 0 gives the cell its natural size.
     fn grid_row(cls: &str, cells: &[(u32, String)]) -> String {
         let mut row = format!("<div class=\"gr{cls}\">");
@@ -261,14 +266,69 @@ pub mod builtins {
         row
     }
 
+    /// The class that shades every other data row of a table, counting from 0.
+    fn stripe(i: usize) -> &'static str {
+        if i % 2 == 1 {
+            " st"
+        } else {
+            ""
+        }
+    }
+
     const BLANK: &str =
         "<!DOCTYPE html><html><head><title></title></head><body style=\"margin:0;background:#ffffff\"></body></html>";
 
-    fn home(_r: &PageRequest<'_>) -> PageResponse {
-        page(
-            "New Tab",
-            "<h1>Gosub</h1><p class=\"sub\">A new tab. See <a href=\"gosub://help\">gosub://help</a> for the internal pages.</p>",
+    /// The submarine from the Gosub logo, in black.
+    const SUBMARINE: &str = include_str!("internal_pages/submarine.svg");
+
+    /// Places on the web, for the home page.
+    const LINKS: &[(&str, &str, &str)] = &[
+        ("https://gosub.io", "gosub.io", "The Gosub project"),
+        (
+            "https://github.com/gosub-io/gosub-engine",
+            "GitHub",
+            "Source code, issues and pull requests",
+        ),
+        ("https://chat.developer.gosub.io", "Zulip", "Developer chat"),
+        ("https://chat.gosub.io", "Discord", "Community chat"),
+    ];
+
+    /// The top of every page but blank: the submarine, "Gosub", and which page this is.
+    fn header(what: &str) -> String {
+        format!(
+            "<div class=\"hdr\">{SUBMARINE}<div class=\"hdr-text\"><h1>Gosub</h1>\
+             <p class=\"sub\">{}</p></div></div>",
+            escape(what)
         )
+    }
+
+    /// A link over its description, one per row, so a phone-width tab needs no columns.
+    fn link_row(href: &str, text: &str, desc: &str) -> String {
+        format!("<div class=\"ln\"><a href=\"{href}\">{text}</a><div class=\"muted\">{desc}</div></div>")
+    }
+
+    /// A row for internal page `name`, with what it is for when it is a built-in.
+    fn page_row(name: &str) -> String {
+        let name = escape(name);
+        let desc = PAGES.iter().find(|(n, _)| *n == name).map_or("", |(_, d)| d);
+        link_row(
+            &format!("gosub://{name}"),
+            &format!("<span class=\"url\">gosub://{name}</span>"),
+            desc,
+        )
+    }
+
+    fn home(_r: &PageRequest<'_>) -> PageResponse {
+        let mut body = header("Home");
+        body.push_str("<h2>In the browser</h2>");
+        for (name, _) in PAGES.iter().filter(|(name, _)| *name != "home") {
+            body.push_str(&page_row(name));
+        }
+        body.push_str("<h2>On the web</h2>");
+        for (href, name, desc) in LINKS {
+            body.push_str(&link_row(href, name, desc));
+        }
+        page("Home", &body)
     }
 
     /// The built-in pages and what each is for, in the order `help` lists them.
@@ -283,20 +343,10 @@ pub mod builtins {
     ];
 
     fn help(r: &PageRequest<'_>) -> PageResponse {
-        let mut body = String::from(
-            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p>",
-        );
-        for (name, desc) in PAGES {
-            body.push_str(&grid_row(
-                "",
-                &[
-                    (
-                        170,
-                        format!("<a href=\"gosub://{name}\" class=\"url\">gosub://{name}</a>"),
-                    ),
-                    (0, desc.to_string()),
-                ],
-            ));
+        let mut body = header("Internal pages");
+        body.push_str("<p class=\"sub\">Also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p>");
+        for (name, _) in PAGES {
+            body.push_str(&page_row(name));
         }
         let _ = r;
         page("Help", &body)
@@ -312,10 +362,10 @@ pub mod builtins {
                 format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
             ),
         ];
-        let mut body = String::from("<h1>Version</h1>");
-        for (k, v) in rows {
+        let mut body = header("Version");
+        for (i, (k, v)) in rows.into_iter().enumerate() {
             body.push_str(&grid_row(
-                "",
+                stripe(i),
                 &[
                     (150, format!("<span class=\"k\">{}</span>", escape(k))),
                     (0, format!("<code>{}</code>", escape(&v))),
@@ -327,7 +377,8 @@ pub mod builtins {
 
     fn history(r: &PageRequest<'_>) -> PageResponse {
         let h = &r.tab.history;
-        let mut body = String::from("<h1>Session history</h1><p class=\"sub\">This tab, oldest first. Bold is the current entry; the parent column shows the branch structure.</p>");
+        let mut body = header("Session history");
+        body.push_str("<p class=\"sub\">This tab, oldest first. Bold is the current entry; the parent column shows the branch structure.</p>");
         if h.entries.is_empty() {
             body.push_str("<p class=\"muted\">No entries yet.</p>");
         } else {
@@ -340,12 +391,13 @@ pub mod builtins {
                     (0, "URL".into()),
                 ],
             ));
-            for e in &h.entries {
-                let cls = if Some(e.id) == h.current { " cur" } else { "" };
+            for (i, e) in h.entries.iter().enumerate() {
+                let cur = if Some(e.id) == h.current { " cur" } else { "" };
+                let cls = format!("{}{cur}", stripe(i));
                 let title = e.title.as_deref().unwrap_or("");
                 let parent = e.parent.map(|p| p.0.to_string()).unwrap_or_else(|| "–".to_string());
                 body.push_str(&grid_row(
-                    cls,
+                    &cls,
                     &[
                         (40, e.id.0.to_string()),
                         (70, parent),
@@ -367,10 +419,11 @@ pub mod builtins {
 
     fn stats(r: &PageRequest<'_>) -> PageResponse {
         let s = &r.tab.stats;
-        let mut body = String::from("<h1>Stats</h1><p class=\"sub\">This tab's rendering state, and process-wide engine timings since start.</p>");
+        let mut body = header("Stats");
+        body.push_str("<p class=\"sub\">This tab's rendering state, and process-wide engine timings since start.</p>");
 
         body.push_str("<h2>Tab</h2>");
-        for (k, v) in [
+        for (i, (k, v)) in [
             (
                 "Viewport",
                 format!("{} × {} CSS px", s.viewport_width, s.viewport_height),
@@ -388,9 +441,12 @@ pub mod builtins {
             ),
             ("Scene epoch", format!("{}", s.scene_epoch)),
             ("Render backend", r.tab.render_backend.to_string()),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             body.push_str(&grid_row(
-                "",
+                stripe(i),
                 &[
                     (150, format!("<span class=\"k\">{}</span>", escape(k))),
                     (0, escape(&v)),
@@ -417,9 +473,9 @@ pub mod builtins {
                 ],
             ));
             let ms = |us: u64| format!("{:.2} ms", us as f64 / 1000.0);
-            for t in timings {
+            for (i, t) in timings.into_iter().enumerate() {
                 body.push_str(&grid_row(
-                    "",
+                    stripe(i),
                     &[
                         (340, format!("<code>{}</code>", escape(&t.namespace))),
                         (70, t.count.to_string()),
@@ -437,16 +493,11 @@ pub mod builtins {
     fn config(r: &PageRequest<'_>) -> PageResponse {
         let mut keys = r.settings.find("*");
         keys.sort();
-        let mut body = String::from("<h1>Engine settings</h1><p class=\"sub\">Read-only dump of the settings store; bold rows differ from their default.</p>");
-        body.push_str(&grid_row(
-            " hd",
-            &[
-                (260, "Key".into()),
-                (150, "Value".into()),
-                (150, "Default".into()),
-                (0, "Description".into()),
-            ],
-        ));
+        let mut body = header("Engine settings");
+        body.push_str(
+            "<p class=\"sub\">Read-only dump of the settings store; bold rows differ from their default.</p>",
+        );
+        // Key and value over the description, one setting per row, so it reads at phone width.
         for key in keys {
             let Some(info) = r.settings.get_info(&key) else {
                 continue;
@@ -457,37 +508,40 @@ pub mod builtins {
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| info.default.clone());
-            let cls = if current != info.default { " cur" } else { "" };
-            body.push_str(&grid_row(
-                cls,
-                &[
-                    (260, format!("<code>{}</code>", escape(&key))),
-                    (150, format!("<code>{}</code>", escape(&current.value_string()))),
-                    (
-                        150,
-                        format!(
-                            "<span class=\"muted\"><code>{}</code></span>",
-                            escape(&info.default.value_string())
-                        ),
-                    ),
-                    (0, escape(&info.description)),
-                ],
+            let changed = current != info.default;
+            body.push_str(&format!(
+                "<div class=\"ln{}\"><code>{}</code> <span class=\"k\">=</span> <code>{}</code>\
+                 <div class=\"muted\">{}",
+                if changed { " cur" } else { "" },
+                escape(&key),
+                escape(&current.value_string()),
+                escape(&info.description)
             ));
+            if changed {
+                body.push_str(&format!(
+                    " Default: <code>{}</code>.",
+                    escape(&info.default.value_string())
+                ));
+            }
+            body.push_str("</div></div>");
         }
         page("Engine settings", &body)
     }
 
     pub(super) fn not_found(r: &PageRequest<'_>, known: &[String]) -> PageResponse {
-        let mut body = String::from("<div class=\"nf\">");
+        let mut body = header(if r.name.is_empty() {
+            "Which page?"
+        } else {
+            "Page not found"
+        });
         if r.name.is_empty() {
             body.push_str(
-                "<h1>Which page?</h1><p class=\"sub\">An internal address needs a page name, \
+                "<p class=\"sub\">An internal address needs a page name, \
                  as in <span class=\"url\">gosub://help</span>.</p>",
             );
         } else {
             body.push_str(&format!(
-                "<h1>Page not found</h1>\
-                 <p class=\"sub\"><span class=\"url\">{}</span> is not one of the internal pages.</p>",
+                "<p class=\"sub\"><span class=\"url\">{}</span> is not one of the internal pages.</p>",
                 escape(r.url.as_str())
             ));
             if let Some(guess) = closest(r.name, known) {
@@ -499,17 +553,10 @@ pub mod builtins {
         }
         body.push_str("<h2>Internal pages</h2>");
         for name in known {
-            let name = escape(name);
-            body.push_str(&format!(
-                "<div class=\"pg\"><a href=\"gosub://{name}\" class=\"url\">gosub://{name}</a>"
-            ));
-            if let Some((_, desc)) = PAGES.iter().find(|(n, _)| *n == name) {
-                body.push_str(&format!("<div class=\"muted\">{desc}</div>"));
-            }
-            body.push_str("</div>");
+            body.push_str(&page_row(name));
         }
         body.push_str(
-            "<p class=\"foot\">Each page is also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p></div>",
+            "<p class=\"foot\">Each page is also reachable as <span class=\"url\">about:&lt;name&gt;</span>.</p>",
         );
         page("Page not found", &body)
     }
@@ -582,6 +629,10 @@ mod tests {
         assert!(resolve(&pages, "gosub://version").contains("gosub_engine"));
         assert!(resolve(&pages, "about:version").contains("gosub_engine"));
         assert!(resolve(&pages, "gosub://help").contains("gosub://history"));
+        let home = resolve(&pages, "gosub://home");
+        assert!(home.contains("<svg"), "the submarine");
+        assert!(home.contains("href=\"gosub://help\""));
+        assert!(home.contains("href=\"https://gosub.io\""));
         let nf = resolve(&pages, "gosub://nope");
         assert!(nf.contains("Page not found"));
         assert!(nf.contains("gosub://nope"));
