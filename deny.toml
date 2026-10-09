@@ -73,4 +73,6 @@ unknown-git = "deny"
 allow-git = [
     # vello is consumed from a pinned git revision until an upstream release lands.
     "https://github.com/linebender/vello",
+    # gosub-sonar from a pinned revision until the release with the cookie-hook reference.
+    "https://github.com/gosub-io/gosub-sonar",
 ]

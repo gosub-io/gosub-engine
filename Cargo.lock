@@ -3098,6 +3098,7 @@ dependencies = [
 [[package]]
 name = "gosub-sonar"
 version = "0.10.0"
+source = "git+https://github.com/gosub-io/gosub-sonar?rev=594e0d37a75370ea8ed7e49aea5c47750e9f6b9d#594e0d37a75370ea8ed7e49aea5c47750e9f6b9d"
 dependencies = [
  "anyhow",
  "bytes",
