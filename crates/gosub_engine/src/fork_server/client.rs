@@ -474,14 +474,16 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
     }
 }
 
-/// A document too big for one message to a renderer is not sent: the send
-/// would fail, and a failed send is taken for a renderer gone. The caller
-/// renders it some other way or reports it.
-fn refuse_oversized_document(html: &str) -> anyhow::Result<()> {
-    if html.len() > MAX_INLINE_CONTENT {
+/// A document message too big for one frame to a renderer is not sent: the
+/// send would fail, and a failed send is taken for a renderer gone. Measured
+/// whole, since the URL and the tile hashes travel with the document. The
+/// caller renders it some other way or reports it.
+fn refuse_oversized_document<T: serde::Serialize>(message: &T) -> anyhow::Result<()> {
+    let len = gosub_ipc::frame_len(message)?;
+    if len > u64::from(gosub_ipc::MAX_FRAME_LEN) {
         anyhow::bail!(
-            "a {}-byte document is more than a renderer link carries ({MAX_INLINE_CONTENT})",
-            html.len()
+            "a {len}-byte document message is more than a renderer link carries ({})",
+            gosub_ipc::MAX_FRAME_LEN
         );
     }
     Ok(())
@@ -1050,8 +1052,7 @@ impl ForkServer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
-        refuse_oversized_document(html)?;
-        self.link.send(&ToForkServer::RenderPage {
+        let message = ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
             tab: tab.to_string(),
@@ -1061,7 +1062,9 @@ impl ForkServer {
             media: media_prefs(),
             known_tiles: known_tiles.hashes(),
             hovered_node,
-        })?;
+        };
+        refuse_oversized_document(&message)?;
+        self.link.send(&message)?;
         // The render bound for the render, the short one again after: a failed
         // exchange stops this fork server anyway, so only success restores it.
         let _ = self.link.rx.set_read_timeout(Some(RENDER_GAP));
@@ -1304,8 +1307,7 @@ impl ResidentRenderer {
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
         // Refused before anything is sent: the renderer is still fine.
-        refuse_oversized_document(html)?;
-        self.send(&ToRenderer::Navigate {
+        let message = ToRenderer::Navigate {
             tab: tab.to_string(),
             html: html.to_string(),
             url: url.to_string(),
@@ -1316,7 +1318,9 @@ impl ResidentRenderer {
             scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,
-        })?;
+        };
+        refuse_oversized_document(&message)?;
+        self.send(&message)?;
         self.exchange(loader, known_tiles)
     }
 
@@ -1529,20 +1533,28 @@ mod tests {
             }
         }
         // Past the frame cap itself: the size whose send used to fail and
-        // take the renderer with it.
-        let html = "x".repeat(gosub_ipc::MAX_FRAME_LEN as usize + 1);
-        let result = renderer.navigate(
-            &html,
-            "https://site.test/",
-            "tab",
-            (800.0, 600.0),
-            0.0,
-            &Nothing,
-            &TileMemory::default(),
-            None,
-        );
-        assert!(result.is_err());
-        assert!(!renderer.is_dead(), "refused, not crashed");
+        // take the renderer with it. Then a document that fits on its own,
+        // with a URL that takes the message past the cap.
+        let cap = gosub_ipc::MAX_FRAME_LEN as usize;
+        let long_url = format!("https://site.test/{}", "u".repeat(128 * 1024));
+        let cases = [
+            ("x".repeat(cap + 1), "https://site.test/".to_string()),
+            ("x".repeat(cap - 64 * 1024), long_url),
+        ];
+        for (html, url) in &cases {
+            let result = renderer.navigate(
+                html,
+                url,
+                "tab",
+                (800.0, 600.0),
+                0.0,
+                &Nothing,
+                &TileMemory::default(),
+                None,
+            );
+            assert!(result.is_err());
+            assert!(!renderer.is_dead(), "refused, not crashed");
+        }
     }
 
     /// A renderer whose last handle is dropped is killed, whatever it is doing.
