@@ -568,8 +568,6 @@ fn start_reader(
                     }
                 }
             }
-            // Cleared first: a request that finds the process gone respawns it.
-            alive.store(false, Ordering::Release);
             // The link is gone, so no reply will ever arrive. Dropping the
             // senders wakes every waiter with a disconnect instead of leaving
             // them to time out one by one.
@@ -581,6 +579,12 @@ fn start_reader(
             for request in abandoned {
                 request.fail("the network process went away");
             }
+            // Only then marked dead: the maps are shared with the process a
+            // respawn starts, and a request that finds this one dead respawns
+            // and registers there. Cleared after that, it would be failed
+            // with this process. One that reaches the dead link before this
+            // store fails its send and removes itself.
+            alive.store(false, Ordering::Release);
         })?;
     Ok(())
 }
