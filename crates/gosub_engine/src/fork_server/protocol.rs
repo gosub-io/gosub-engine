@@ -623,14 +623,6 @@ pub enum FromRenderer {
     },
 }
 
-/// Most bytes of a subresource - its body and type - the broker puts in one
-/// message to a renderer: the link's frame cap, less room for the rest of
-/// the message. Past it the frame could not be sent, and a failed send is a
-/// renderer gone, so it is answered as failed instead. A document is
-/// measured as its whole message, which also carries the URL and tile hashes.
-#[cfg(all(feature = "process-isolation", target_os = "linux"))]
-pub const MAX_INLINE_CONTENT: usize = gosub_ipc::MAX_FRAME_LEN as usize - 64 * 1024;
-
 /// A fetched subresource (or its failure), as it travels broker → fork server
 /// → renderer. Mirrors `crate::net::resource_loader::LoadedResource`,
 /// which carries no serde.
@@ -644,6 +636,14 @@ pub enum ResourceReply {
     Failed(String),
     /// A deferred request the broker is still fetching; render without it.
     Pending,
+    /// [`ResourceReply::Ok`] for a body too large for one frame: the body follows
+    /// as a sealed memfd of `len` bytes (`gosub_ipc::shm::create_sealed_blob`), the
+    /// next thing on the link - the tile channel in reverse.
+    Shared {
+        status: u16,
+        content_type: Option<String>,
+        len: u64,
+    },
 }
 
 #[cfg(test)]

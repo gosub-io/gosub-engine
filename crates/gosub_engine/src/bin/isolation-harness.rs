@@ -198,6 +198,7 @@ fn main() {
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
+        "engine-renderer-large-image" => with_font_backend!(engine_renderer_large_image),
         "engine-remote-title" => with_font_backend!(engine_remote_title),
         "engine-gpu-backend-parses" => with_font_backend!(engine_gpu_backend_parses),
         "renderer-soak" => with_font_backend!(renderer_soak),
@@ -5159,6 +5160,156 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// A page whose image is larger than one link frame (16 MiB) still renders: the
+/// broker hands the body over as a sealed memfd, the renderer reads it under its
+/// own sandbox, and the renderer lives. It used to fail the send, which ended the
+/// exchange and crashed the site's renderer.
+fn engine_renderer_large_image<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_interface::font_system::Confinement;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-renderer-large-image needs a Full-tier font system");
+            return 2;
+        }
+        // A real PNG, padded past the frame cap: decoders stop at IEND.
+        const IMAGE_LEN: usize = 20 * 1024 * 1024;
+        let mut image = SAMPLE_PNG.to_vec();
+        image.resize(IMAGE_LEN, 0);
+        let page =
+            "<html><body style=\"margin:0\"><p>text</p><img src=\"/big.png\" width=\"64\" height=\"64\"></body></html>";
+        let Ok(port) = serve_routes(vec![
+            ("/", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/big.png", "image/png", image, std::time::Duration::ZERO),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            if engine.renderer_pool().is_none() && !cfg!(feature = "cairo-tiles") {
+                eprintln!("no forked rasterizer compiled in (engine feature `cairo-tiles`); nothing to spawn");
+                return 2;
+            }
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.tab_builder().create().await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            // The image served to the renderer, then a render after it, and no crash.
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            let (mut served, mut rendered_after) = (None, false);
+            while tokio::time::Instant::now() < deadline && !rendered_after {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                tokio::select! {
+                    event = events.recv() => match event {
+                        Ok(EngineEvent::RendererCrashed { error, .. }) => {
+                            eprintln!("the renderer crashed: {error}");
+                            return 1;
+                        }
+                        Ok(EngineEvent::Navigation { event: NavigationEvent::Failed { error, .. }, .. }) => {
+                            eprintln!("navigation failed: {error}");
+                            return 1;
+                        }
+                        _ => {}
+                    },
+                    event = firehose.recv() => match event {
+                        Ok(event) if event.kind == "remote.resource"
+                            && event.data["url"].as_str().is_some_and(|u| u.ends_with("/big.png"))
+                            && event.data["outcome"] == "served" => {
+                            served = event.data["bytes"].as_u64();
+                        }
+                        Ok(event) if served.is_some()
+                            && (event.kind == "remote.navigate" || event.kind == "remote.media") => {
+                            rendered_after = true;
+                        }
+                        _ => {}
+                    },
+                    _ = tokio::time::sleep(remaining) => break,
+                }
+            }
+            println!("image served to the renderer: {served:?} bytes; rendered after it: {rendered_after}");
+            if served != Some(IMAGE_LEN as u64) {
+                eprintln!("the {IMAGE_LEN}-byte image never reached the renderer");
+                return 1;
+            }
+            if !rendered_after {
+                eprintln!("no render followed the large image");
+                return 1;
+            }
+
+            engine.close_zone(zone).await;
+            if engine.shutdown().await.is_err() {
+                eprintln!("engine shutdown failed");
+                return 1;
+            }
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 /// Standard base64 (RFC 4648, padded); enough for a `data:` URI in a test.
 fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -7669,8 +7820,11 @@ fn oversized() -> i32 {
     use gosub_engine::net::process::client::{NetProcess, Outbound};
     use gosub_engine::net::process::protocol::FetchOutcome;
 
-    let body = vec![b'x'; gosub_ipc::endpoint::MAX_FRAME_LEN as usize + 1024 * 1024];
-    let Ok((port, server)) = serve_once_bytes(body, "application/octet-stream") else {
+    // Past one frame. On Linux it crosses whole, as a sealed memfd behind its head;
+    // elsewhere there is no memfd, and it is refused before anything is written.
+    let size = gosub_ipc::endpoint::MAX_FRAME_LEN as usize + 1024 * 1024;
+    let body: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+    let Ok((port, server)) = serve_once_bytes(body.clone(), "application/octet-stream") else {
         eprintln!("could not start the test server");
         return 1;
     };
@@ -7693,16 +7847,24 @@ fn oversized() -> i32 {
     let elapsed = started.elapsed();
     drop(server);
     match outcome {
-        FetchOutcome::Error(e) if e.contains("too large") => {
+        FetchOutcome::Ok { body: got, .. } if cfg!(target_os = "linux") => {
+            if got != body {
+                eprintln!("the {size}-byte body arrived as {} bytes, or changed", got.len());
+                net.shutdown();
+                return 1;
+            }
+            println!("{size}-byte body crossed whole in {elapsed:?}");
+        }
+        FetchOutcome::Error(e) if !cfg!(target_os = "linux") && e.contains("too large") => {
             println!("oversized body refused in {elapsed:?}: {e}");
         }
         FetchOutcome::Error(e) => {
-            eprintln!("expected a too-large error, got: {e}");
+            eprintln!("the oversized body failed: {e}");
             net.shutdown();
             return 1;
         }
         FetchOutcome::Ok { body, .. } => {
-            eprintln!("a {}-byte body cannot have crossed a frame", body.len());
+            eprintln!("a {}-byte body cannot have crossed a frame here", body.len());
             net.shutdown();
             return 1;
         }
@@ -7713,12 +7875,12 @@ fn oversized() -> i32 {
         }
     }
     if elapsed > std::time::Duration::from_secs(30) {
-        eprintln!("the refusal took {elapsed:?}: that is the reply timeout, not an answer");
+        eprintln!("the answer took {elapsed:?}: that is the reply timeout, not an answer");
         net.shutdown();
         return 1;
     }
 
-    // The refusal happened before anything was written, so the link still works.
+    // Either way the link still works: nothing was left half-written on it.
     let Ok((port, server)) = serve_once() else {
         eprintln!("could not start the second test server");
         return 1;
@@ -7735,7 +7897,7 @@ fn oversized() -> i32 {
             1
         }
         FetchOutcome::Error(e) => {
-            eprintln!("the link did not survive the refusal: {e}");
+            eprintln!("the link did not survive the oversized body: {e}");
             1
         }
         FetchOutcome::Streaming { .. } => {

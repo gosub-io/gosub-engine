@@ -71,8 +71,9 @@ pub(super) fn begin_stream(
 
 impl Streamed {
     /// Head and ring fd back to back, under one lock, so nothing else on the
-    /// link comes between them; then the body. A write error means the broker
-    /// went away, which the recv loop notices too.
+    /// link comes between them; then the body. A write error on the head means
+    /// the broker went away, which the recv loop notices too; on the fd, the
+    /// link is out of step and the process ends.
     pub(super) async fn deliver(self, tag: RequestTag, link_tx: &Arc<Mutex<EndpointTx>>) {
         use std::os::fd::AsRawFd as _;
         {
@@ -83,9 +84,11 @@ impl Streamed {
                     outcome: self.head,
                 })
                 .is_err()
-                || tx.send_fd(self.ring.as_raw_fd()).is_err()
             {
                 return;
+            }
+            if let Err(e) = tx.send_fd(self.ring.as_raw_fd()) {
+                super::fd_never_followed(&e);
             }
         }
         drop(self.ring); // the broker holds its duplicate; the mapping keeps ours

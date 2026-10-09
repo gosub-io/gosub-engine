@@ -40,11 +40,51 @@ fn tile_len(width: u32, height: u32) -> io::Result<usize> {
 /// Producer side: create a sealed, immutable memfd holding one rendered tile,
 /// ready to pass to the consumer. `fill` receives the zeroed pixel buffer.
 pub fn create_sealed_tile(width: u32, height: u32, fill: impl FnOnce(&mut [u8])) -> io::Result<OwnedFd> {
-    let len = tile_len(width, height)?;
+    create_sealed(c"gosub-tile", tile_len(width, height)?, fill)
+}
 
+/// Largest blob [`create_sealed_blob`] makes and [`read_sealed_blob`] accepts: the
+/// image decoders' input ceiling, so nothing past it could be used anyway, and twice
+/// the fetcher's default body cap.
+pub const MAX_BLOB_LEN: usize = 128 * 1024 * 1024;
+
+/// Producer side: a sealed, immutable memfd holding `len` bytes (at most
+/// [`MAX_BLOB_LEN`]), for a payload too large for one frame - a subresource body
+/// on its way to a renderer, the tile channel in reverse. `fill` receives the
+/// zeroed buffer.
+pub fn create_sealed_blob(len: usize, fill: impl FnOnce(&mut [u8])) -> io::Result<OwnedFd> {
+    if len == 0 || len > MAX_BLOB_LEN {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("blob of {len} bytes out of range"),
+        ));
+    }
+    create_sealed(c"gosub-blob", len, fill)
+}
+
+/// Consumer side of [`create_sealed_blob`]: the blob's `len` bytes, read from the
+/// start. Plain `read`s only - no `mmap`, `fstat` or `fcntl` - so a renderer's
+/// syscall filter needs nothing it does not already allow. The sender is the
+/// trusted side; `len` is checked against [`MAX_BLOB_LEN`] so a bug there fails
+/// here rather than allocating without bound.
+pub fn read_sealed_blob(fd: OwnedFd, len: usize) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    if len == 0 || len > MAX_BLOB_LEN {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("blob of {len} bytes out of range"),
+        ));
+    }
+    let mut body = vec![0u8; len];
+    std::fs::File::from(fd).read_exact(&mut body)?;
+    Ok(body)
+}
+
+/// A sealed memfd of `len` bytes, filled by `fill`.
+fn create_sealed(name: &std::ffi::CStr, len: usize, fill: impl FnOnce(&mut [u8])) -> io::Result<OwnedFd> {
     // SAFETY: plain libc calls on values we own; the raw fd is wrapped in an
     // OwnedFd immediately, so every early return below closes it.
-    let raw = unsafe { libc::memfd_create(c"gosub-tile".as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+    let raw = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
     if raw < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -54,7 +94,7 @@ pub fn create_sealed_tile(width: u32, height: u32, fill: impl FnOnce(&mut [u8]))
         return Err(io::Error::last_os_error());
     }
 
-    // Write the pixels through a temporary mapping, then unmap: F_SEAL_WRITE
+    // Write the contents through a temporary mapping, then unmap: F_SEAL_WRITE
     // below is refused while any writable mapping exists.
     unsafe {
         let ptr = libc::mmap(
@@ -73,8 +113,7 @@ pub fn create_sealed_tile(width: u32, height: u32, fill: impl FnOnce(&mut [u8]))
     }
 
     // Freeze size and contents, and seal the seals themselves. After this no
-    // process - including this one - can modify the tile, so it is safe to
-    // hand out.
+    // process - including this one - can modify it, so it is safe to hand out.
     let all = REQUIRED_SEALS | libc::F_SEAL_SEAL;
     if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_ADD_SEALS, all) } < 0 {
         return Err(io::Error::last_os_error());
@@ -230,6 +269,27 @@ mod tests {
         let seals = REQUIRED_SEALS | libc::F_SEAL_SEAL;
         assert_eq!(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_ADD_SEALS, seals) }, 0);
         assert!(map_sealed_tile(fd, 8, 4).is_err());
+    }
+
+    /// A blob reads back exactly, through `read` alone, and is sealed against change.
+    #[test]
+    fn sealed_blob_roundtrip() {
+        let data: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let fd = create_sealed_blob(data.len(), |buf| buf.copy_from_slice(&data)).unwrap();
+        let seals = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GET_SEALS) };
+        assert_eq!(seals & REQUIRED_SEALS, REQUIRED_SEALS);
+        assert_eq!(read_sealed_blob(fd, data.len()).unwrap(), data);
+    }
+
+    #[test]
+    fn blob_lengths_out_of_range_refused() {
+        assert!(create_sealed_blob(0, |_| {}).is_err());
+        assert!(create_sealed_blob(MAX_BLOB_LEN + 1, |_| {}).is_err());
+        let fd = create_sealed_blob(4, |buf| buf.copy_from_slice(b"abcd")).unwrap();
+        assert!(read_sealed_blob(fd, MAX_BLOB_LEN + 1).is_err());
+        // Claiming more than the fd holds fails rather than padding.
+        let fd = create_sealed_blob(4, |buf| buf.copy_from_slice(b"abcd")).unwrap();
+        assert!(read_sealed_blob(fd, 5).is_err());
     }
 
     #[test]

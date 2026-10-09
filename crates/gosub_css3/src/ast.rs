@@ -740,17 +740,22 @@ fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
                 // a bare `src: url(...eot)` first for IE<9 and a full `src:` list after it for
                 // everyone else. Appending instead of replacing leaves the IE-only EOT at the
                 // head of the list, where it is fetched and rejected before any usable format.
-                let mut entries: Vec<(String, Option<String>)> = Vec::new();
+                let mut entries: Vec<SrcEntry> = Vec::new();
                 for n in value_nodes {
                     if let Ok(v) = CssValue::parse_ast_node(n) {
                         collect_src_entries(&v, &mut entries);
                     }
                 }
-                sources = entries
+                let supported: Vec<String> = entries
                     .into_iter()
-                    .filter(|(_, format)| format.as_deref().is_none_or(font_format_is_usable))
-                    .map(|(url, _)| url)
+                    .filter(|entry| source_is_supported(entry.format.as_deref(), &entry.techs))
+                    .map(|entry| entry.url)
                     .collect();
+                // A `src` with no supported entry is a parse error (CSS Fonts 4, "Parsing the
+                // src descriptor"), so it is ignored and an earlier one stands.
+                if !supported.is_empty() {
+                    sources = supported;
+                }
             }
             "unicode-range" => {
                 // Reconstruct the raw range list; consumers scan it for `U+xxxx` tokens, so
@@ -784,18 +789,44 @@ fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
     })
 }
 
-/// Whether a `format()` hint names something the font backends can actually decode.
+/// Whether a `src` entry is one this engine supports, so worth downloading (CSS Fonts 4,
+/// "Parsing the src descriptor" and "Selecting items in the src"): no format hint, or one
+/// naming a format the backends decode, and every `tech()` one they handle. An unknown or
+/// unsupported format, or any unsupported tech, means the entry is skipped unfetched - the
+/// spec's own example skips a fictitious `format("zebra")`.
 ///
-/// Only the two formats no backend here reads are rejected: `embedded-opentype` (EOT, an IE-only
-/// container) and `svg` (SVG fonts, long dropped from every engine). An unrecognised hint is kept
-/// and tried, so a format we have not heard of never costs us a usable face.
-fn font_format_is_usable(format: &str) -> bool {
-    !matches!(format, "embedded-opentype" | "svg")
+/// Formats: WOFF, WOFF 2, TrueType and OpenType. Not `collection`, since nothing here picks
+/// the face a `#fragment` names, as the spec requires; not `embedded-opentype` (IE only) or
+/// `svg` (SVG fonts). Of the format strings, only the legacy ones the spec lists are
+/// accepted; the `-variations` forms carry `tech(variations)`.
+///
+/// Techs: OpenType features, which every backend shapes, and variations, which at the least
+/// render a variable font's default instance. Not the colour-font techs, `palettes` or
+/// `incremental`, so an author's fallback for those is the one used.
+fn source_is_supported(format: Option<&str>, techs: &[String]) -> bool {
+    let tech_supported = |tech: &str| matches!(tech, "features-opentype" | "variations");
+    let format_supported = match format {
+        None => true,
+        Some("woff" | "woff2" | "truetype" | "opentype") => true,
+        Some("woff-variations" | "woff2-variations" | "truetype-variations" | "opentype-variations") => {
+            tech_supported("variations")
+        }
+        Some(_) => false,
+    };
+    format_supported && techs.iter().all(|tech| tech_supported(tech))
 }
 
 /// Recursively collect `url(...)` targets from an `@font-face` `src` value, each paired with the
 /// `format(...)` hint that follows it, if any.
-fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>) {
+/// One `url()` of a `src` list, with the `format()` and `tech()` hints that follow it, both
+/// lowercased: format names and tech keywords are ASCII case-insensitive.
+struct SrcEntry {
+    url: String,
+    format: Option<String>,
+    techs: Vec<String>,
+}
+
+fn collect_src_entries(value: &CssValue, out: &mut Vec<SrcEntry>) {
     match value {
         CssValue::Function(name, args) if name.eq_ignore_ascii_case("url") => {
             if let Some(url) = args.iter().find_map(|a| match a {
@@ -803,7 +834,11 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>
                 _ => None,
             }) {
                 if !url.is_empty() {
-                    out.push((url, None));
+                    out.push(SrcEntry {
+                        url,
+                        format: None,
+                        techs: Vec::new(),
+                    });
                 }
             }
         }
@@ -814,7 +849,19 @@ fn collect_src_entries(value: &CssValue, out: &mut Vec<(String, Option<String>)>
                 _ => None,
             });
             if let (Some(hint), Some(last)) = (hint, out.last_mut()) {
-                last.1 = Some(hint);
+                last.format = Some(hint);
+            }
+        }
+        // As does a `tech()`, which may name several.
+        CssValue::Function(name, args) if name.eq_ignore_ascii_case("tech") => {
+            if let Some(last) = out.last_mut() {
+                last.techs = args
+                    .iter()
+                    .filter_map(|a| match a {
+                        CssValue::String(s) => Some(s.trim_matches(['"', '\'']).cow_to_ascii_lowercase().into_owned()),
+                        _ => None,
+                    })
+                    .collect();
             }
         }
         CssValue::List(list) => {
@@ -1089,7 +1136,7 @@ mod tests {
 
     #[test]
     fn sources_without_a_format_hint_are_kept() {
-        // No hint means no reason to reject it, and an unrecognised hint is tried too.
+        // No hint means no reason to reject it; an unknown format is skipped, unfetched.
         let stylesheet = Css3::parse_str(
             r#"
             @font-face {
@@ -1105,7 +1152,69 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(stylesheet.font_faces[0].sources, vec!["a.woff2", "b.ttf", "c.bin"]);
+        assert_eq!(stylesheet.font_faces[0].sources, vec!["a.woff2", "b.ttf"]);
+    }
+
+    /// The sources a single `@font-face` keeps, in order.
+    fn font_face_sources(css: &str) -> Vec<String> {
+        let stylesheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").unwrap();
+        stylesheet
+            .font_faces
+            .first()
+            .map(|f| f.sources.clone())
+            .unwrap_or_default()
+    }
+
+    /// CSS Fonts 4's own example: a fictitious format is skipped and the next is used.
+    #[test]
+    fn an_unknown_format_is_skipped() {
+        let sources = font_face_sources(
+            r#"@font-face { font-family: x;
+                src: url(ideal.woff2) format("woff2"), url(unsupported.zeb) format("zebra"),
+                     url(basic.ttf) format("opentype"); }"#,
+        );
+        assert_eq!(sources, vec!["ideal.woff2", "basic.ttf"]);
+    }
+
+    /// Keywords and the spec's legacy strings name the same formats, case aside; a
+    /// `-variations` string is its format plus `tech(variations)`. `collection` is skipped:
+    /// nothing here picks the face its `#fragment` names.
+    #[test]
+    fn format_keywords_strings_and_variations() {
+        let sources = font_face_sources(
+            r#"@font-face { font-family: x;
+                src: url(a) format(woff2), url(b) format("WOFF"), url(c) format(TrueType),
+                     url(d) format("opentype-variations"), url(e) format("collection"),
+                     url(f) format(collection); }"#,
+        );
+        assert_eq!(sources, vec!["a", "b", "c", "d"]);
+    }
+
+    /// Every tech must be supported: one that is not drops the entry, so the author's
+    /// fallback is used.
+    #[test]
+    fn an_unsupported_tech_drops_the_source() {
+        let sources = font_face_sources(
+            r#"@font-face { font-family: x;
+                src: url(color.otf) format(opentype) tech(color-COLRv1),
+                     url(inc.otf) format(opentype) tech(incremental),
+                     url(both.otf) format(opentype) tech(variations, color-SVG),
+                     url(var.woff2) format(woff2) tech(variations, features-opentype),
+                     url(plain.woff2) format(woff2); }"#,
+        );
+        assert_eq!(sources, vec!["var.woff2", "plain.woff2"]);
+    }
+
+    /// A `src` with nothing supported in it is a parse error, so the earlier one stands
+    /// instead of the face losing every source.
+    #[test]
+    fn a_src_with_nothing_supported_leaves_the_earlier_one() {
+        let sources = font_face_sources(
+            r#"@font-face { font-family: x;
+                src: url(a.woff2) format(woff2);
+                src: url(b.eot) format("embedded-opentype"), url(c.svg) format(svg); }"#,
+        );
+        assert_eq!(sources, vec!["a.woff2"]);
     }
 
     #[test]

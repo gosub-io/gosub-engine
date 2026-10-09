@@ -74,10 +74,30 @@ impl ForkedResourceLoader {
                 content_type,
                 body: bytes::Bytes::from(body),
             }),
+            ResourceReply::Shared {
+                status,
+                content_type,
+                len,
+            } => Ok(LoadedResource {
+                status,
+                content_type,
+                body: bytes::Bytes::from(receive_shared_body(&mut link, len)?),
+            }),
             ResourceReply::Failed(reason) => Err(LoadError::Failed(reason)),
             ResourceReply::Pending => Err(LoadError::Pending),
         }
     }
+}
+
+/// The body of a [`ResourceReply::Shared`]: the sealed memfd that follows it on
+/// `link`, read out whole.
+pub(crate) fn receive_shared_body(link: &mut Endpoint, len: u64) -> Result<Vec<u8>, LoadError> {
+    let fd = link
+        .rx
+        .recv_fd()
+        .map_err(|e| LoadError::Failed(format!("the broker's shared body never arrived: {e}")))?;
+    let len = usize::try_from(len).map_err(|_| LoadError::Failed(format!("a {len}-byte body is too large")))?;
+    gosub_ipc::shm::read_sealed_blob(fd, len).map_err(|e| LoadError::Failed(format!("reading the shared body: {e}")))
 }
 
 /// [`ForkedResourceLoader`] in deferred mode; see [`ForkedResourceLoader::deferred`].

@@ -65,7 +65,28 @@ pub struct ReportedRequest {
     done: AtomicBool,
     /// Longest body preview accepted from the child, in bytes.
     preview_cap: usize,
+    /// Non-terminal events other than progress passed on so far; see
+    /// [`MAX_EVENTS_PER_REQUEST`].
+    events: std::sync::atomic::AtomicUsize,
+    /// When progress was last passed on; see [`PROGRESS_INTERVAL`].
+    last_progress: Mutex<Option<std::time::Instant>>,
+    /// Whether the progress event that completes the body has been passed on.
+    completed: AtomicBool,
 }
+
+/// Non-terminal events a request may report, progress aside. A redirect hop
+/// costs a handful (resolved, connected, sent, redirected) and there are at
+/// most twenty; past this the child is flooding, and the rest is dropped.
+const MAX_EVENTS_PER_REQUEST: usize = 256;
+
+/// Progress is passed on at most this often per request: a progress bar needs
+/// no more, and a child sending it for every byte would otherwise fill the
+/// embedder's control bus.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
+
+/// After a streamed body ends, how long the child's own terminal event has to
+/// arrive over the link before the broker ends the request itself.
+const STREAM_END_GRACE: Duration = Duration::from_secs(2);
 
 impl ReportedRequest {
     fn new(inner: Arc<dyn NetObserver + Send + Sync>, url: String, preview_cap: usize) -> Self {
@@ -75,6 +96,9 @@ impl ReportedRequest {
             started: std::time::Instant::now(),
             done: AtomicBool::new(false),
             preview_cap,
+            events: std::sync::atomic::AtomicUsize::new(0),
+            last_progress: Mutex::new(None),
+            completed: AtomicBool::new(false),
         }
     }
 
@@ -85,16 +109,75 @@ impl ReportedRequest {
 
     /// An event the child reported. A terminal one claims the end first, so
     /// a cancel racing it on another thread finds the request already ended.
+    ///
+    /// Everything here came from the child, so it is held to what a real
+    /// request produces: progress at most every [`PROGRESS_INTERVAL`] (and the
+    /// completing one once), at most [`MAX_EVENTS_PER_REQUEST`] others, and a
+    /// terminal event that cannot be read still ends the request, as failed.
     fn on_wire(&self, event: NetEventWire) {
-        if event.is_terminal() {
+        let terminal = event.is_terminal();
+        if terminal {
             if self.done.swap(true, Ordering::Relaxed) {
                 return;
             }
-        } else if self.is_done() {
+        } else if self.is_done() || !self.admit(&event) {
             return;
         }
-        if let Some(event) = event.into_net(self.preview_cap) {
-            self.inner.on_event(event);
+        match event.into_net(self.preview_cap) {
+            Some(event) => self.inner.on_event(event),
+            // The end was claimed above; nothing else will report it.
+            None if terminal => self.emit_failed("the network process reported an end the broker could not read"),
+            None => {}
+        }
+    }
+
+    /// Whether a non-terminal event is within the request's budget.
+    fn admit(&self, event: &NetEventWire) -> bool {
+        let NetEventWire::Progress {
+            received_bytes,
+            expected_length,
+            ..
+        } = event
+        else {
+            return self.events.fetch_add(1, Ordering::Relaxed) < MAX_EVENTS_PER_REQUEST;
+        };
+        if *expected_length == Some(*received_bytes) {
+            return !self.completed.swap(true, Ordering::Relaxed);
+        }
+        let mut last = self.last_progress.lock();
+        let now = std::time::Instant::now();
+        if last.is_some_and(|at| now.duration_since(at) < PROGRESS_INTERVAL) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+
+    /// The streamed body is over, however it ended. The child's terminal event
+    /// follows it over the link; if it has not come within `grace`, the
+    /// request ends here - a child that never sends one would otherwise leave
+    /// it open in the embedder's log for good.
+    fn body_ended(&self, end: BodyEnd, grace: Duration) {
+        std::thread::sleep(grace);
+        if self.is_done() {
+            return;
+        }
+        match end {
+            BodyEnd::Complete(received_bytes) => {
+                if self.done.swap(true, Ordering::Relaxed) {
+                    return;
+                }
+                let Ok(url) = url::Url::parse(&self.url) else {
+                    return;
+                };
+                self.inner.on_event(crate::net::events::NetEvent::Finished {
+                    received_bytes,
+                    elapsed: self.started.elapsed(),
+                    url,
+                });
+            }
+            BodyEnd::Failed(message) => self.fail(&message),
+            BodyEnd::Abandoned => self.cancel(),
         }
     }
 
@@ -125,6 +208,11 @@ impl ReportedRequest {
         if self.done.swap(true, Ordering::Relaxed) {
             return;
         }
+        self.emit_failed(message);
+    }
+
+    /// Report the failure; the caller has claimed the end.
+    fn emit_failed(&self, message: &str) {
         let Ok(url) = url::Url::parse(&self.url) else {
             return;
         };
@@ -153,6 +241,37 @@ impl ReportedRequest {
 
 type Reported = Arc<Mutex<HashMap<RequestTag, Arc<ReportedRequest>>>>;
 
+/// How a streamed body ended, as the broker saw it.
+enum BodyEnd {
+    Complete(u64),
+    Failed(String),
+    /// Nothing read the body to its end.
+    Abandoned,
+}
+
+/// A streamed request still open when its reply arrived: what ends it once
+/// the body has, if the child does not (see [`ReportedRequest::body_ended`]).
+pub struct StreamEnd {
+    request: Arc<ReportedRequest>,
+    reported: Reported,
+    tag: RequestTag,
+}
+
+impl StreamEnd {
+    fn ended(self, end: BodyEnd) {
+        self.request.body_ended(end, STREAM_END_GRACE);
+        self.reported.lock().remove(&self.tag);
+    }
+}
+
+impl std::fmt::Debug for StreamEnd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamEnd")
+            .field("tag", &self.tag)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The ring's descriptor, where one can exist; nothing where it cannot.
 #[cfg(target_os = "linux")]
 type RingFd = std::os::fd::OwnedFd;
@@ -165,6 +284,9 @@ type RingFd = std::convert::Infallible;
 pub struct NetReply {
     pub outcome: FetchOutcome,
     pub ring: Option<RingFd>,
+    /// For a streamed reply whose request is still open: ends it once the body
+    /// has, should the child not.
+    pub stream_end: Option<StreamEnd>,
 }
 
 impl NetReply {
@@ -172,6 +294,7 @@ impl NetReply {
         Self {
             outcome: FetchOutcome::Error(msg.into()),
             ring: None,
+            stream_end: None,
         }
     }
 }
@@ -179,6 +302,22 @@ impl NetReply {
 #[cfg(target_os = "linux")]
 fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<RingFd> {
     rx.recv_fd()
+}
+
+/// The body behind a [`FromNet::SharedReply`]: its sealed memfd, read out whole.
+#[cfg(target_os = "linux")]
+fn recv_shared_body(rx: &mut gosub_ipc::EndpointRx, len: u64) -> std::io::Result<Vec<u8>> {
+    let fd = rx.recv_fd()?;
+    let len = usize::try_from(len).map_err(|_| std::io::Error::other("shared body length out of range"))?;
+    gosub_ipc::shm::read_sealed_blob(fd, len)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_shared_body(_rx: &mut gosub_ipc::EndpointRx, _len: u64) -> std::io::Result<Vec<u8>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no fd passing on this platform",
+    ))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -346,10 +485,46 @@ impl NetProcess {
                                     Ok(ring) => NetReply {
                                         outcome,
                                         ring: Some(ring),
+                                        stream_end: None,
                                     },
                                     Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
                                 },
-                                outcome => NetReply { outcome, ring: None },
+                                outcome => NetReply {
+                                    outcome,
+                                    ring: None,
+                                    stream_end: None,
+                                },
+                            };
+                            if let Some(waiter) = waiters.lock().remove(&tag) {
+                                let _ = waiter.send(reply);
+                            }
+                        }
+                        // A body too large for a frame follows as a sealed memfd: read
+                        // it now, before the next message, and hand on the plain `Ok`
+                        // it stands for.
+                        FromNet::SharedReply {
+                            tag,
+                            status,
+                            status_text,
+                            final_url,
+                            headers,
+                            peer_addr,
+                            len,
+                        } => {
+                            let reply = match recv_shared_body(&mut rx, len) {
+                                Ok(body) => NetReply {
+                                    outcome: FetchOutcome::Ok {
+                                        status,
+                                        status_text,
+                                        final_url,
+                                        headers,
+                                        body,
+                                        peer_addr,
+                                    },
+                                    ring: None,
+                                    stream_end: None,
+                                },
+                                Err(e) => NetReply::error(format!("shared body did not arrive: {e}")),
                             };
                             if let Some(waiter) = waiters.lock().remove(&tag) {
                                 let _ = waiter.send(reply);
@@ -464,7 +639,7 @@ impl NetProcess {
         if let Some(reported) = &reported {
             self.reported.lock().insert(tag, Arc::clone(reported));
         }
-        let reply = self.fetch_tagged(tag, out, cancel).await;
+        let mut reply = self.fetch_tagged(tag, out, cancel).await;
         if let Some(reported) = reported {
             if cancel.is_cancelled() {
                 reported.cancel();
@@ -472,9 +647,15 @@ impl NetProcess {
                 reported.finish(&reply.outcome);
             }
             // A streamed body is still being reported on; the reader loop
-            // lets go of it at its last event.
+            // lets go of it at its last event, or the body's end does.
             if reported.is_done() {
                 self.reported.lock().remove(&tag);
+            } else if reply.ring.is_some() {
+                reply.stream_end = Some(StreamEnd {
+                    request: reported,
+                    reported: Arc::clone(&self.reported),
+                    tag,
+                });
             }
         }
         reply
@@ -651,6 +832,7 @@ impl Drop for NetProcess {
 
 /// Rebuild the engine's own result type from what came back over the wire.
 pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResult, NetError> {
+    let stream_end = reply.stream_end;
     let (status, status_text, final_url, headers, peer_addr, body) = match reply.outcome {
         FetchOutcome::Ok {
             status,
@@ -715,7 +897,7 @@ pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResu
         Body::Ring { peek, ring } => crate::net::types::FetchResult::Stream {
             meta: meta(true),
             peek_buf: gosub_sonar::types::PeekBuf::from_vec(peek),
-            shared: drain_ring(ring),
+            shared: drain_ring(ring, stream_end),
         },
     })
 }
@@ -754,50 +936,56 @@ const RING_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Must run inside the I/O runtime, which the pump is spawned on.
 ///
 /// [`SharedBody`]: gosub_sonar::net::shared_body::SharedBody
-fn drain_ring(ring: RingFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
+fn drain_ring(ring: RingFd, stream_end: Option<StreamEnd>) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
     use gosub_sonar::net::shared_body::{ReaderOptions, SharedBody};
     let (chunks_tx, chunks_rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(RING_CHUNKS_AHEAD);
     let spawned = std::thread::Builder::new()
         .name("net-ring-consumer".into())
         .spawn(move || {
             #[cfg(target_os = "linux")]
-            {
+            let end = (|| {
                 let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
                     Ok(c) => c,
                     Err(e) => {
-                        let _ = chunks_tx.blocking_send(Err(std::io::Error::other(format!(
-                            "body stream could not be opened: {e}"
-                        ))));
-                        return;
+                        let message = format!("body stream could not be opened: {e}");
+                        let _ = chunks_tx.blocking_send(Err(std::io::Error::other(message.clone())));
+                        return BodyEnd::Failed(message);
                     }
                 };
                 let mut buf = vec![0u8; 64 * 1024];
+                let mut received = 0u64;
                 loop {
                     match consumer.read(&mut buf) {
                         // EOF: dropping the sender ends the stream cleanly.
-                        Ok(0) => return,
+                        Ok(0) => return BodyEnd::Complete(received),
                         Ok(n) => {
+                            received += n as u64;
                             if chunks_tx
                                 .blocking_send(Ok(bytes::Bytes::copy_from_slice(&buf[..n])))
                                 .is_err()
                             {
-                                return; // the body was dropped unread
+                                return BodyEnd::Abandoned; // the body was dropped unread
                             }
                         }
                         Err(e) => {
-                            let _ =
-                                chunks_tx.blocking_send(Err(std::io::Error::other(format!("body stream failed: {e}"))));
-                            return;
+                            let message = format!("body stream failed: {e}");
+                            let _ = chunks_tx.blocking_send(Err(std::io::Error::other(message.clone())));
+                            return BodyEnd::Failed(message);
                         }
                     }
                 }
-            }
+            })();
             #[cfg(not(target_os = "linux"))]
-            {
+            let end = {
                 let _ = ring;
-                let _ = chunks_tx.blocking_send(Err(std::io::Error::other(
-                    "body streams are not carried on this platform",
-                )));
+                let message = "body streams are not carried on this platform".to_string();
+                let _ = chunks_tx.blocking_send(Err(std::io::Error::other(message.clone())));
+                BodyEnd::Failed(message)
+            };
+            // The body is over for its reader; the request may still be open.
+            drop(chunks_tx);
+            if let Some(stream_end) = stream_end {
+                stream_end.ended(end);
             }
         });
     if spawned.is_err() {
@@ -845,7 +1033,12 @@ mod tests {
         })
         .unwrap();
         let outcome: FetchOutcome = serde_json::from_slice(&wire).unwrap();
-        let result = outcome_to_result(NetReply { outcome, ring: None }).unwrap();
+        let result = outcome_to_result(NetReply {
+            outcome,
+            ring: None,
+            stream_end: None,
+        })
+        .unwrap();
         assert_eq!(result.meta().unwrap().peer_addr, Some(peer));
     }
 
@@ -863,6 +1056,7 @@ mod tests {
                 peer_addr: None,
             },
             ring: None,
+            stream_end: None,
         };
         let url = "https://site.test/".to_string();
         let failed = |reply: NetReply| match reply.outcome {
@@ -891,6 +1085,102 @@ mod tests {
         assert_eq!(failed(NetProcess::plausible_reply(error, &url)).len(), MAX_EVENT_STRING);
     }
 
+    /// What a request's observer was told, by kind.
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<&'static str>>);
+
+    impl NetObserver for Recorded {
+        fn on_event(&self, event: crate::net::events::NetEvent) {
+            use crate::net::events::NetEvent;
+            self.0.lock().push(match event {
+                NetEvent::Finished { .. } => "finished",
+                NetEvent::Failed { .. } => "failed",
+                NetEvent::Cancelled { .. } => "cancelled",
+                NetEvent::Progress { .. } => "progress",
+                NetEvent::DnsResolved { .. } => "dns",
+                _ => "other",
+            });
+        }
+    }
+
+    fn reported() -> (Arc<Recorded>, ReportedRequest) {
+        let seen = Arc::new(Recorded::default());
+        let request = ReportedRequest::new(seen.clone(), "https://site.test/".into(), 0);
+        (seen, request)
+    }
+
+    /// A terminal event whose URL cannot be read still ends the request: it
+    /// claims the end, so nothing else would.
+    #[test]
+    fn an_unreadable_end_still_ends_the_request() {
+        let (seen, request) = reported();
+        request.on_wire(NetEventWire::Finished {
+            received_bytes: 1,
+            elapsed_us: 1,
+            url: "not a url".into(),
+        });
+        assert!(request.is_done());
+        assert_eq!(*seen.0.lock(), vec!["failed"]);
+    }
+
+    /// A streamed body that ends without the child saying so is ended by the
+    /// broker, the way the body ended.
+    #[test]
+    fn a_stream_without_a_terminal_event_is_ended_by_its_body() {
+        let (seen, request) = reported();
+        request.body_ended(BodyEnd::Complete(10), Duration::ZERO);
+        assert_eq!(*seen.0.lock(), vec!["finished"]);
+
+        let (seen, request) = reported();
+        request.body_ended(BodyEnd::Failed("cut off".into()), Duration::ZERO);
+        assert_eq!(*seen.0.lock(), vec!["failed"]);
+
+        // The child's own end, when it comes in time, is the one reported.
+        let (seen, request) = reported();
+        request.on_wire(NetEventWire::Finished {
+            received_bytes: 10,
+            elapsed_us: 1,
+            url: "https://site.test/".into(),
+        });
+        request.body_ended(BodyEnd::Abandoned, Duration::ZERO);
+        assert_eq!(*seen.0.lock(), vec!["finished"]);
+    }
+
+    /// A child repeating events gets a request's worth through, not a flood:
+    /// the completing progress once, other progress at most every interval,
+    /// and at most a fixed number of anything else.
+    #[test]
+    fn a_flooding_child_is_held_to_a_requests_worth_of_events() {
+        let (seen, request) = reported();
+        for _ in 0..10_000 {
+            request.on_wire(NetEventWire::Progress {
+                received_bytes: 100,
+                expected_length: Some(100),
+                elapsed_us: 1,
+            });
+        }
+        for i in 0..10_000u64 {
+            request.on_wire(NetEventWire::Progress {
+                received_bytes: i * 65_536,
+                expected_length: None,
+                elapsed_us: 1,
+            });
+        }
+        for _ in 0..10_000 {
+            request.on_wire(NetEventWire::DnsResolved {
+                host: "site.test".into(),
+                elapsed_us: 1,
+                addr_count: 1,
+            });
+        }
+        let seen = seen.0.lock();
+        let count = |kind| seen.iter().filter(|k| **k == kind).count();
+        assert_eq!(count("dns"), MAX_EVENTS_PER_REQUEST);
+        // One completing, then whatever the interval let through while the
+        // loop ran - a handful, not ten thousand.
+        assert!(count("progress") < 50, "{} progress events", count("progress"));
+    }
+
     /// The body's consumer attaches after the head has already crossed the
     /// ring; it must still see every byte.
     #[test]
@@ -911,7 +1201,7 @@ mod tests {
         });
         let shared = {
             let _in_rt = rt.enter();
-            drain_ring(fd)
+            drain_ring(fd, None)
         };
         // Late, as the real consumer is: the head of the body is in the ring,
         // and the consumer thread has had every chance to read it.
