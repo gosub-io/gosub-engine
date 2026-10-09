@@ -148,6 +148,7 @@ impl IoRouter {
             event_tx: engine_ctx.event_tx.clone(),
             request_reference_map: engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
+            tab_identities: Arc::clone(&engine_ctx.tab_identities),
             reach: AddressSpace::Loopback,
         };
         #[cfg(feature = "process-isolation")]
@@ -235,6 +236,7 @@ impl IoRouter {
                 event_tx: self.engine_ctx.event_tx.clone(),
                 request_reference_map: self.engine_ctx.request_reference_map.clone(),
                 request_ref_tracker: Arc::new(RequestRefTracker::new()),
+                tab_identities: Arc::clone(&self.engine_ctx.tab_identities),
                 reach,
             });
             Fetcher::new(reach_config(&cfg, reach), context)
@@ -373,12 +375,18 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
 /// Hand a request to the network process and answer the caller when it replies.
 /// The wait runs as a task, not a thread, and follows `cancel`: an abandoned
 /// navigation frees its slot and tells the child to drop the request.
+///
+/// Under a vault `grant` the network process asks the vault for each hop's
+/// cookies itself; the grant is revoked once the reply is in, and the hops it
+/// was used at are checked against the redirects the request reported. A
+/// network process that claimed hops it never reported is lying about where
+/// its requests went, and is killed (the next request respawns it).
 #[cfg(feature = "process-isolation")]
 fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
     reach: AddressSpace,
-    cookies: Option<CookieScope>,
+    grant: Option<Grant>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
     observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -422,6 +430,11 @@ fn dispatch_to_net_process(
         },
     };
 
+    #[cfg(target_os = "linux")]
+    let cookies = grant.as_ref().map(|grant| grant.scope.clone());
+    #[cfg(not(target_os = "linux"))]
+    let cookies: Option<crate::net::process::protocol::CookieScope> = grant.map(|grant| match grant {});
+
     spawn_named("net-process-request", async move {
         let out = crate::net::process::client::Outbound {
             url,
@@ -442,6 +455,22 @@ fn dispatch_to_net_process(
         }
         let reply = net.fetch(out, &cancel, observer).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
+        #[cfg(target_os = "linux")]
+        if let Some(grant) = grant {
+            // Only a reply the child sent carries every redirect it reported;
+            // one the broker gave up waiting for proves nothing either way.
+            let answered = reply.redirects.is_some();
+            let redirects = reply.redirects.clone().unwrap_or_default();
+            let unexplained = tokio::task::spawn_blocking(move || grant.vault.revoke(&grant.scope, redirects))
+                .await
+                .unwrap_or_default();
+            if answered && !unexplained.is_empty() {
+                log::error!(
+                    "the network process used a cookie ticket at {unexplained:?}, which no redirect it reported                      explains; killing it"
+                );
+                net.condemn();
+            }
+        }
         let _ = reply_tx.send(match reply.outcome {
             FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
             _ => match crate::net::process::client::outcome_to_result(reply) {
@@ -463,7 +492,7 @@ fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
     _reach: AddressSpace,
-    _cookies: Option<CookieScope>,
+    _grant: Option<Grant>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
     _observer: Option<Arc<dyn crate::net::emitter::NetObserver + Send + Sync>>,
@@ -489,15 +518,23 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
         samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
+        navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
 }
 
-/// What a granted scope hands back: the scope to send, and the wrapper that
-/// revokes the grant once the reply has passed through.
-type Revoke = Box<dyn FnOnce(oneshot::Sender<FetchResult>) -> oneshot::Sender<FetchResult> + Send>;
+/// A grant the vault holds for one request: the scope the network process
+/// asks under, and the vault to revoke it with once the reply is in (see
+/// [`dispatch_to_net_process`]).
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+struct Grant {
+    vault: Arc<crate::cookie_vault::client::CookieVault>,
+    scope: CookieScope,
+}
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+type Grant = std::convert::Infallible;
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-async fn grant_scope(identity: Option<&TabIdentity>, scope: CookieScope) -> Option<(CookieScope, Revoke)> {
+async fn grant_scope(identity: Option<&TabIdentity>, scope: CookieScope) -> Option<Grant> {
     let vault = {
         let jar = identity?.cookie_jar.read();
         Arc::clone(
@@ -512,23 +549,11 @@ async fn grant_scope(identity: Option<&TabIdentity>, scope: CookieScope) -> Opti
     if !matches!(granted, Ok(true)) {
         return None;
     }
-    let revoke_scope = scope.clone();
-    let revoke: Revoke = Box::new(move |reply_tx| {
-        let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
-        spawn_named("io-cookie-revoke", async move {
-            let result = inner_rx.await;
-            vault.revoke(&revoke_scope);
-            if let Ok(result) = result {
-                let _ = reply_tx.send(result);
-            }
-        });
-        inner_tx
-    });
-    Some((scope, revoke))
+    Some(Grant { vault, scope })
 }
 
 #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
-async fn grant_scope(_identity: Option<&TabIdentity>, _scope: CookieScope) -> Option<(CookieScope, Revoke)> {
+async fn grant_scope(_identity: Option<&TabIdentity>, _scope: CookieScope) -> Option<Grant> {
     None
 }
 
@@ -574,21 +599,11 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     }
 }
 
-/// Classify a request against the document that caused it, so `SameSite`
-/// cookies are withheld from genuinely cross-site loads. "Site" is the
-/// registrable domain (eTLD+1), not the exact host: `api.example.com` under a
-/// `example.com` document is same-site, per the jar's own matching.
+/// Classify a request against the document that caused it; see
+/// [`request_context`](crate::engine::cookies::request_context). The first
+/// hop of a navigation is to the document's own URL, so same-site.
 fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteContext {
-    let hosts_same_site = |top: &url::Url| match (top.host_str(), url.host_str()) {
-        (Some(a), Some(b)) => crate::engine::cookies::same_site(a, b),
-        _ => false,
-    };
-    match top_level {
-        // A request with no document behind it is the document load itself.
-        None => SameSiteContext::SameSite,
-        Some(top) if top.scheme() == url.scheme() && hosts_same_site(top) => SameSiteContext::SameSite,
-        Some(_) => SameSiteContext::CrossSite,
-    }
+    crate::engine::cookies::request_context(top_level, url, false)
 }
 
 /// Wrap a reply channel so `Set-Cookie` is recorded on this side before the
@@ -786,8 +801,10 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             // closed or never registered, which sends no cookies.
                             let identity = tab_id.and_then(|id| router.tab_identities().get(id));
                             // With a vault the network process talks to directly, the
-                            // request carries whose cookies it wants and this process
-                            // neither attaches nor stores any.
+                            // request carries whose cookies it wants and the network
+                            // process asks for them per hop. In process, the fetcher asks
+                            // the tab's jar per hop (`EngineNetContext::cookies_for`).
+                            // Either way this side neither attaches nor stores any.
                             let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
                             let net = router.net_process();
                             // All of the zone's fetchers: which one serves the request
@@ -827,14 +844,16 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 let document = policy_document(&req, identity.as_ref());
                                 // The vault must hold the grant before the network process
                                 // can ask under it; a refused grant means no cookies at all.
-                                let (cookie_scope, reply_tx) = match cookie_scope {
-                                    Some(scope) => match grant_scope(identity.as_ref(), scope).await {
-                                        Some((scope, revoke)) => (Some(scope), revoke(reply_tx)),
-                                        None => (None, reply_tx),
-                                    },
-                                    None => (None, reply_tx),
+                                let grant = match cookie_scope {
+                                    Some(scope) => grant_scope(identity.as_ref(), scope).await,
+                                    None => None,
                                 };
-                                if cookie_scope.is_some() {
+                                // Only a network process without a vault grant cannot ask
+                                // for cookies per hop: it gets them here, once, for the
+                                // first URL, and a cookie a redirect hop sets reaches no jar
+                                // (its final response's does, below).
+                                let cookies_per_hop = grant.is_some() || net.is_none();
+                                if cookies_per_hop {
                                     req.headers.remove(http::header::COOKIE);
                                 } else {
                                     attach_request_cookies(&mut req, identity.as_ref()).await;
@@ -855,14 +874,16 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                     AddressSpace::Loopback
                                 };
 
-                                // The reply is intercepted so `Set-Cookie` is stored on this
-                                // side too; the requester still receives the untouched result.
-                                // Under a vault scope the network process stored the cookies
-                                // and stripped them, so this finds none - unless the vault did
-                                // not take them, and then this is the only store they get.
+                                // A network process's reply is intercepted so `Set-Cookie` is
+                                // stored on this side too; the requester still receives the
+                                // untouched result. Under a vault grant the network process
+                                // stored the cookies and stripped them, so this finds none -
+                                // unless the vault did not take them, and then this is the
+                                // only store they get. In process, the fetcher already handed
+                                // every hop's to the jar.
                                 let reply_tx = match identity {
-                                    Some(id) => store_response_cookies_then_forward(id, reply_tx),
-                                    None => reply_tx,
+                                    Some(id) if net.is_some() => store_response_cookies_then_forward(id, reply_tx),
+                                    _ => reply_tx,
                                 };
                                 let reply_tx = match (subresource, document) {
                                     (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
@@ -882,7 +903,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                         net,
                                         req,
                                         reach,
-                                        cookie_scope,
+                                        grant,
                                         handle.cancel.clone(),
                                         reply_tx,
                                         #[cfg(feature = "process-isolation")]

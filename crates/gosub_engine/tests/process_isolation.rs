@@ -193,6 +193,30 @@ fn a_cookie_flows_from_the_vault_through_the_network_process() {
     );
 }
 
+/// A cookie a redirect sets rides on the hop it redirects to: asked of the
+/// vault by the network process hop by hop, or of the tab's jar by the
+/// fetcher in process. Through the network process the vault's audit finds
+/// the hop among the redirects reported, and the process lives on.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_redirects_cookie_rides_on_its_next_hop() {
+    for mode in [
+        &["engine-cookie-vault", "redirect"][..],
+        &["engine-cookie-vault", "redirect", "in-process"][..],
+    ] {
+        let out = Command::new(harness())
+            .args(mode)
+            .output()
+            .expect("spawn isolation-harness");
+        assert!(
+            out.status.success(),
+            "{mode:?} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
 /// Without the vault the broker attaches the cookies; the network process
 /// must send them as they came.
 #[cfg(target_os = "linux")]

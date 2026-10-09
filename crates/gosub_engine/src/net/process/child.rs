@@ -7,7 +7,7 @@
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{
-    flatten_headers, rebuild_headers, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
+    flatten_headers, rebuild_headers, CookieScope, FetchOutcome, FromNet, NetEventWire, NetFetch, RequestTag, ToNet,
 };
 use crate::net::ssrf::AddressSpace;
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
@@ -84,12 +84,16 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     // observer answers when the response headers are in.
     let previews: Arc<Mutex<HashMap<RequestTag, usize>>> = Arc::new(Mutex::new(HashMap::new()));
 
+    // The vault ticket of each request in flight that has one, by tag; what
+    // the fetcher's cookie hooks ask the vault under, hop by hop.
+    let tickets: Tickets = Arc::new(Mutex::new(HashMap::new()));
+
     // In-process, `EngineNetContext` turns the fetcher's events into engine
     // events and resolves request references against engine state. This
     // process holds no tab map, no jar, no event bus, so its observer sends
     // each event back over the link tagged for its request, and the broker's
-    // own observer for that request takes it from there. `cookies_for` must
-    // stay silent: answering it would mean this process kept a jar.
+    // own observer for that request takes it from there. Its cookie hooks
+    // keep no jar either: they ask the vault, under the request's ticket.
     let build = |reach: AddressSpace| {
         Fetcher::new(
             crate::net::fetcher::reach_config(&FetcherConfig::default(), reach),
@@ -97,6 +101,8 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 reach,
                 link_tx: Arc::clone(&link_tx),
                 previews: Arc::clone(&previews),
+                vault: Arc::clone(&vault),
+                tickets: Arc::clone(&tickets),
             }),
         )
         .map(Arc::new)
@@ -178,9 +184,9 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 };
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
-                let vault = vault.clone();
+                let tickets = tickets.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token, &vault, &previews).await;
+                    let performed = perform(&fetcher, fetch, token, &tickets, &previews).await;
                     cancels.lock().remove(&tag);
                     match performed {
                         Performed::Done(outcome) => {
@@ -308,14 +314,37 @@ fn share_large_body(_: &mut gosub_ipc::EndpointTx, _: RequestTag, outcome: Fetch
     Some(outcome)
 }
 
-/// The network process has no engine around it: no cookies (the broker or
-/// the vault attach those), no tabs. Its events go back over the link to
-/// the broker's observer of the request; what it does enforce itself is the
-/// per-hop URL policy of its strict fetchers.
+/// The network process has no engine around it: no jar, no tabs. Its events
+/// go back over the link to the broker's observer of the request; its cookie
+/// hooks ask the vault under the request's ticket; what it does enforce
+/// itself is the per-hop URL policy of its strict fetchers.
 struct NetProcessContext {
     reach: AddressSpace,
     link_tx: Arc<Mutex<gosub_ipc::EndpointTx>>,
     previews: Arc<Mutex<HashMap<RequestTag, usize>>>,
+    vault: Arc<Mutex<Option<VaultLink>>>,
+    tickets: Tickets,
+}
+
+/// A request's vault ticket, and how the last `Set-Cookie` it handed the
+/// vault went: `(url, stored)`. The last one is the final response's when
+/// that had any, which decides whether the reply may drop its cookies.
+struct TicketState {
+    scope: CookieScope,
+    last_store: Option<(String, bool)>,
+}
+
+type Tickets = Arc<Mutex<HashMap<RequestTag, TicketState>>>;
+
+impl NetProcessContext {
+    /// The ticket of the request `reference` names, if it has one.
+    fn scope_of(&self, reference: gosub_sonar::RequestReference) -> Option<(RequestTag, CookieScope)> {
+        let gosub_sonar::RequestReference::Tagged(tag) = reference else {
+            return None;
+        };
+        let scope = self.tickets.lock().get(&tag)?.scope.clone();
+        Some((tag, scope))
+    }
 }
 
 /// The observer of one request in this process: each event the fetcher
@@ -386,6 +415,44 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
     fn on_ref_active(&self, _: gosub_sonar::RequestReference) {}
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
+
+    // Asked at every hop. The vault answers each in a context it works out
+    // from the grant itself, so a hop this process made up buys nothing the
+    // page could not have had (see `cookie_vault::child::serve_net`).
+    fn cookies_for(&self, reference: gosub_sonar::RequestReference, url: &Url) -> Option<String> {
+        let (_, scope) = self.scope_of(reference)?;
+        tokio::task::block_in_place(|| platform::vault_cookies(&self.vault, &scope, url.as_str()))
+    }
+
+    // Two tickets get the same answers from the vault when their grants say
+    // the same: zone, document, context and URL. Only then may their
+    // requests share a fetch, the leader's ticket asking for both.
+    fn cookie_jar_key(&self, reference: gosub_sonar::RequestReference) -> String {
+        match self.scope_of(reference) {
+            Some((_, scope)) => format!(
+                "{} {} {:?} {} {}",
+                scope.zone,
+                scope.top_level.as_deref().unwrap_or(""),
+                scope.samesite,
+                scope.navigation,
+                scope.url
+            ),
+            None => String::new(),
+        }
+    }
+
+    fn on_cookies_received(&self, reference: gosub_sonar::RequestReference, url: &Url, values: &[&str]) {
+        let Some((tag, scope)) = self.scope_of(reference) else {
+            return;
+        };
+        let set_cookie = values.iter().map(|v| v.to_string()).collect();
+        let stored =
+            tokio::task::block_in_place(|| platform::vault_store(&self.vault, &scope, url.as_str(), set_cookie));
+        if let Some(ticket) = self.tickets.lock().get_mut(&tag) {
+            ticket.last_store = Some((url.to_string(), stored));
+        }
+    }
+
     fn is_url_allowed(&self, url: &Url) -> bool {
         if self.reach == AddressSpace::Loopback {
             return true;
@@ -412,7 +479,7 @@ async fn perform(
     fetcher: &Arc<Fetcher>,
     fetch: NetFetch,
     cancel: CancellationToken,
-    vault: &Mutex<Option<VaultLink>>,
+    tickets: &Tickets,
     previews: &Mutex<HashMap<RequestTag, usize>>,
 ) -> Performed {
     let streaming = fetch.streaming && platform::STREAMING;
@@ -422,27 +489,36 @@ async fn perform(
     if let Some(cap) = fetch.body_preview {
         previews.lock().insert(tag, cap);
     }
-    let performed = perform_inner(fetcher, fetch, cancel, vault, streaming).await;
+    if let Some(scope) = fetch.cookies.clone() {
+        tickets.lock().insert(
+            tag,
+            TicketState {
+                scope,
+                last_store: None,
+            },
+        );
+    }
+    let performed = perform_inner(fetcher, fetch, cancel, tickets, streaming).await;
     previews.lock().remove(&tag);
+    tickets.lock().remove(&tag);
     performed
 }
 
-/// [`perform`] proper; split so the preview entry is removed on every return.
+/// [`perform`] proper; split so the preview and ticket entries are removed on
+/// every return.
 async fn perform_inner(
     fetcher: &Arc<Fetcher>,
     fetch: NetFetch,
     cancel: CancellationToken,
-    vault: &Mutex<Option<VaultLink>>,
+    tickets: &Tickets,
     streaming: bool,
 ) -> Performed {
     let done = Performed::Done;
     // Cookies come from the vault, never from the broker, when this process
-    // has its own line to it. The scope is the broker's word on whose they are.
+    // has its own line to it: the fetcher asks for them at every hop, under
+    // the ticket (see `NetProcessContext::cookies_for`).
     let scope = fetch.cookies.clone();
-    let cookie_header = match &scope {
-        Some(scope) => tokio::task::block_in_place(|| platform::vault_cookies(vault, scope, &fetch.url)),
-        None => None,
-    };
+    let fetch_tag = fetch.tag;
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
         Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
@@ -454,13 +530,10 @@ async fn perform_inner(
 
     let mut headers = rebuild_headers(&fetch.headers);
     // Under a vault scope the broker's `Cookie` never counts: the vault's
-    // answer for this request does, or none at all. Without one, the broker
+    // answer for each hop does, or none at all. Without one, the broker
     // attached the cookies itself and they go as sent.
     if scope.is_some() {
         headers.remove(http::header::COOKIE);
-        if let Some(value) = cookie_header.as_deref().and_then(|v| v.parse().ok()) {
-            headers.insert(http::header::COOKIE, value);
-        }
     }
 
     // The tag is how this request's observer finds the link (see
@@ -484,12 +557,21 @@ async fn perform_inner(
         _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
-    // `Set-Cookie` goes to the vault from here; the broker never sees it: the
-    // reply drops it once the vault has it. One the vault did not take stays on
-    // the reply instead, and the broker stores it through its own jar - the
-    // values pass the broker on that path, rather than being lost.
+    // `Set-Cookie` went to the vault hop by hop, the final response's last;
+    // the broker never sees it: the reply drops it once the vault has it. One
+    // the vault did not take stays on the reply instead, and the broker stores
+    // it through its own jar - the values pass the broker on that path, rather
+    // than being lost. A final response whose cookies the fetcher never handed
+    // over (credentials kept off it, or none it could read) has nothing the
+    // vault should have taken.
     let vaulted = match (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
-        (Some(scope), Some(meta)) => tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta)),
+        (Some(_), Some(meta)) => {
+            let last = tickets.lock().get(&fetch_tag).and_then(|t| t.last_store.clone());
+            match last {
+                Some((url, stored)) if url == meta.final_url.as_str() => stored,
+                _ => true,
+            }
+        }
         _ => false,
     };
     let reply_headers = |headers: &http::HeaderMap| reply_headers(headers, vaulted);

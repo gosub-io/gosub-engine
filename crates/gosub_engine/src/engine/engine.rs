@@ -1870,6 +1870,70 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A cookie a redirect sets reaches the jar before the redirect is
+    /// followed, and rides on the next hop: the login shape, where a `302`
+    /// hands out the session and sends the browser to the page that needs it.
+    #[tokio::test]
+    async fn a_cookie_set_on_a_redirect_rides_on_the_next_hop() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let home_request = Arc::new(Mutex::new(String::new()));
+        let captured = home_request.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let head = if request.starts_with("GET /login ") {
+                    "HTTP/1.1 302 Found\r\nLocation: /home\r\nSet-Cookie: sid=hop1; Path=/\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                } else {
+                    if request.starts_with("GET /home ") {
+                        *captured.lock() = request;
+                    }
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                };
+                let _ = stream.write_all(head.as_bytes()).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/login"))
+            .await
+            .expect("navigation");
+
+        let mut request = String::new();
+        for _ in 0..100 {
+            request = home_request.lock().clone();
+            if !request.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        use cow_utils::CowUtils;
+        assert!(
+            request.cow_to_ascii_lowercase().contains("cookie: sid=hop1"),
+            "the redirect's cookie should ride on the next hop, got:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[tokio::test]
     async fn cookie_store_persists_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();

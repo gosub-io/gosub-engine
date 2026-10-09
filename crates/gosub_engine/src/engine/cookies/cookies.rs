@@ -75,6 +75,12 @@ impl CookieJarHandle {
         Arc::ptr_eq(&this.0, &other.0)
     }
 
+    /// Which jar this handle points at: equal for two handles exactly when
+    /// [`ptr_eq`](Self::ptr_eq) holds, while both are alive.
+    pub(crate) fn jar_id(&self) -> usize {
+        Arc::as_ptr(&self.0).cast::<()>() as usize
+    }
+
     pub fn read(&self) -> RwLockReadGuard<'_, Box<dyn CookieJar + Send + Sync>> {
         self.0.read()
     }

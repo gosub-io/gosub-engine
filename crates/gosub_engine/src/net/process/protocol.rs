@@ -302,18 +302,23 @@ pub type Ticket = u128;
 pub struct CookieScope {
     /// A per-request capability the broker granted to the vault before
     /// dispatch; the vault answers the network process for granted tickets
-    /// only, and from the grant's own scope. It covers one request: one `Get`
-    /// at [`Self::url`] and one `Store`, until the broker revokes it or it
-    /// expires. `0` on the broker's link.
+    /// only, and from the grant's own scope. It covers one request, redirect
+    /// hops included: a `Get` and a `Store` per hop, up to a cap, until the
+    /// broker revokes it or it expires. `0` on the broker's link.
     pub ticket: Ticket,
-    /// The URL the request was granted for: under a ticket, the only one the
-    /// network process may read cookies for. The `Store` names where the
-    /// request ended instead, which a redirect may have moved - that much
-    /// stays the network process's word, as `final_url` does.
+    /// The URL the request was granted for. A `Get` here is answered in
+    /// [`Self::samesite`]; one anywhere else is a redirect hop, which only
+    /// the network process saw, so the vault answers it in the context the
+    /// grant's own [`Self::top_level`] gives that URL, never a laxer one, and
+    /// the broker checks it against the redirects reported when it revokes.
     pub url: String,
     pub zone: String,
     pub top_level: Option<String>,
     pub samesite: SameSite,
+    /// Whether the request is a top-level navigation: a hop of one to another
+    /// site is a cross-site navigation (`Lax` cookies go), of anything else a
+    /// cross-site request (`SameSite=None` only).
+    pub navigation: bool,
 }
 
 /// Network process → broker.

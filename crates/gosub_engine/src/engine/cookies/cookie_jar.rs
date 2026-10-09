@@ -158,6 +158,47 @@ pub enum SameSiteContext {
     CrossSite,
 }
 
+impl SameSiteContext {
+    /// The stricter of two contexts: the one fewer cookies are eligible in.
+    /// A redirect chain is only as same-site as its least same-site hop
+    /// (RFC 6265bis §5.2), so this is how a chain's context accumulates. The
+    /// vault keeps one per ticket; nothing else follows a whole chain.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub(crate) fn stricter(self, other: Self) -> Self {
+        let rank = |c: Self| match c {
+            Self::SameSite => 2,
+            Self::CrossSiteNavigation => 1,
+            Self::CrossSite => 0,
+        };
+        if rank(other) < rank(self) {
+            other
+        } else {
+            self
+        }
+    }
+}
+
+/// Classify a request to `url` against the document that caused it, so
+/// `SameSite` cookies are withheld from genuinely cross-site loads. "Site" is
+/// the registrable domain (eTLD+1) together with the scheme, not the exact
+/// host: `api.example.com` under an `example.com` document is same-site, per
+/// the jar's own matching. A request with no document behind it is the
+/// document load itself. A cross-site `navigation` is a cross-site top-level
+/// navigation, where `Lax` cookies still go; anything else cross-site gets
+/// `SameSite=None` cookies only.
+pub(crate) fn request_context(top_level: Option<&Url>, url: &Url, navigation: bool) -> SameSiteContext {
+    let hosts_same_site = |top: &Url| match (top.host_str(), url.host_str()) {
+        (Some(a), Some(b)) => same_site(a, b),
+        _ => false,
+    };
+    match top_level {
+        None => SameSiteContext::SameSite,
+        Some(top) if top.scheme() == url.scheme() && hosts_same_site(top) => SameSiteContext::SameSite,
+        Some(_) if navigation => SameSiteContext::CrossSiteNavigation,
+        Some(_) => SameSiteContext::CrossSite,
+    }
+}
+
 /// A cookie jar keeps the cookies for one single zone.
 ///
 /// The optional `top_level` URL on `store_response_cookies` / `get_request_cookies`

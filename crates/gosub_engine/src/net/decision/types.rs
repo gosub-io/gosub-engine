@@ -72,6 +72,9 @@ pub enum BlockReason {
     Cors(CorsFailure),
     /// The request required a stored response and the cache had none.
     NotCached,
+    /// The port is one the Fetch standard blocks (SMTP, IRC and the rest), so
+    /// nothing was sent ([Fetch] §2.9).
+    BadPort,
 }
 
 impl BlockReason {
@@ -83,6 +86,7 @@ impl BlockReason {
             gosub_sonar::net::types::BlockReason::UnsupportedScheme => BlockReason::UnsupportedScheme,
             gosub_sonar::net::types::BlockReason::Cors(error) => BlockReason::Cors(CorsFailure::from_net(error)),
             gosub_sonar::net::types::BlockReason::NotCached => BlockReason::NotCached,
+            gosub_sonar::net::types::BlockReason::BadPort => BlockReason::BadPort,
         }
     }
 }
@@ -96,6 +100,7 @@ impl std::fmt::Display for BlockReason {
             BlockReason::UnsupportedScheme => "unsupported URL scheme",
             BlockReason::Cors(failure) => return write!(f, "blocked by CORS: {failure}"),
             BlockReason::NotCached => "not in the cache",
+            BlockReason::BadPort => "blocked port",
         };
         f.write_str(s)
     }

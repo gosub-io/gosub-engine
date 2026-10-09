@@ -4,8 +4,9 @@
 //! Identity is never a claim. On the broker's link the `zone` is the broker's
 //! own bookkeeping. On the network process's link every `Get`/`Store` names a
 //! ticket the broker granted for that one request, and the vault answers from
-//! the grant's scope, not the caller's: one `Get` at the granted URL, one
-//! `Store`. `visible_only` is the HttpOnly split -
+//! the grant's scope, not the caller's: a `Get` and a `Store` per redirect hop,
+//! up to a cap, each hop in a context no laxer than the grant's document gives
+//! it. `visible_only` is the HttpOnly split -
 //! the `document.cookie` view versus the full set that goes on the wire -
 //! enforced here rather than in whoever asks.
 
@@ -65,9 +66,14 @@ pub enum ToVault {
         tag: Tag,
         scope: CookieScope,
     },
-    /// Broker only: the request is over.
+    /// Broker only: the request is over. `redirects` are the hop URLs the
+    /// network process reported for it; answered with [`FromVault::Revoked`],
+    /// naming every URL the ticket was used at that is neither the granted
+    /// one nor among them.
     Revoke {
+        tag: Tag,
         ticket: Ticket,
+        redirects: Vec<String>,
     },
     /// Every cookie of a zone, `(url, "name=value")`, for the embedder API.
     GetAll {
@@ -114,6 +120,13 @@ pub enum FromVault {
     },
     Stored {
         tag: Tag,
+    },
+    /// Answer to [`ToVault::Revoke`]: the URLs the ticket read or stored at
+    /// that no reported redirect explains. Empty from an honest network
+    /// process; anything here, it claimed hops it never reported.
+    Revoked {
+        tag: Tag,
+        unexplained: Vec<String>,
     },
     Audit {
         tag: Tag,
