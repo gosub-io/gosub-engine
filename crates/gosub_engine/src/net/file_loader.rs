@@ -142,15 +142,18 @@ async fn load(url: &Url) -> std::io::Result<(&'static str, Bytes)> {
     }
     // Regular files only: a page naming `/dev/zero` or `/proc/kcore` would
     // otherwise have this process read without end, and a FIFO would hold the
-    // reading thread until its timeout. And only up to a bound, so a file
-    // bigger than the engine would hold in memory is refused before a byte
-    // of it is read.
+    // reading thread until its timeout. Refused by the path before the open,
+    // so a device the page names is never opened, and again by the file as
+    // opened (`open_regular`): a path swapped between the two is judged as
+    // it then is. And only up to a bound, so a file bigger than the engine
+    // would hold in memory is refused before a byte of it is read.
     if !meta.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a regular file",
         ));
     }
+    let (file, meta) = open_regular(&path).await?;
     if meta.len() > MAX_FILE_BYTES {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -164,11 +167,7 @@ async fn load(url: &Url) -> std::io::Result<(&'static str, Bytes)> {
     let mut body = Vec::new();
     // The size was a moment ago. Read one byte past the cap: a file that
     // grew meanwhile is refused whole, never served cut as if complete.
-    tokio::fs::File::open(&path)
-        .await?
-        .take(MAX_FILE_BYTES + 1)
-        .read_to_end(&mut body)
-        .await?;
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut body).await?;
     if body.len() as u64 > MAX_FILE_BYTES {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -176,6 +175,25 @@ async fn load(url: &Url) -> std::io::Result<(&'static str, Bytes)> {
         ));
     }
     Ok((content_type_for(&path), Bytes::from(body)))
+}
+
+/// Open `path` for reading if it is a regular file, judged on the file as
+/// opened. The open does not block: a FIFO would otherwise hold it until a
+/// writer came, whatever is checked after.
+async fn open_regular(path: &Path) -> std::io::Result<(tokio::fs::File, std::fs::Metadata)> {
+    let mut open = tokio::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    open.custom_flags(libc::O_NONBLOCK);
+    let file = open.open(path).await?;
+    let meta = file.metadata().await?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok((file, meta))
 }
 
 /// Most bytes of one local file served into the engine.
@@ -341,6 +359,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gosub-file-loader-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A FIFO in a file's place is refused at the open, which returns at
+    /// once: no writer ever comes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_fifo_is_refused_without_waiting_for_a_writer() {
+        let dir = temp_dir();
+        let fifo = dir.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        assert!(made.success());
+        let opened = tokio::time::timeout(std::time::Duration::from_secs(5), open_regular(&fifo))
+            .await
+            .expect("the open blocked on the FIFO");
+        assert_eq!(opened.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

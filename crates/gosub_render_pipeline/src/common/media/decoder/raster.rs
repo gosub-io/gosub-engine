@@ -9,8 +9,20 @@ pub const MAX_DECODE_BYTES: u64 = 128 * 1024 * 1024;
 /// rather than whatever the camera produced. 4 Mpx is 2048² - past what a viewport shows.
 pub const MAX_KEPT_PIXELS: u64 = 4 * 1024 * 1024;
 
-/// Decodes every raster format the `image` crate is compiled with (PNG/JPEG/GIF today). `image`
-/// sniffs the real format from the bytes, so a wrong MIME hint between raster formats is harmless.
+/// The raster formats decoded: the web's. `image` decodes whatever its features enable across
+/// the whole build graph, and a dependency elsewhere in it (a GUI crate turning on TIFF) widens
+/// that, so the set is checked here rather than left to the workspace's `image` features.
+const WEB_FORMATS: &[image::ImageFormat] = &[
+    image::ImageFormat::Png,
+    image::ImageFormat::Jpeg,
+    image::ImageFormat::Gif,
+    image::ImageFormat::WebP,
+    image::ImageFormat::Bmp,
+    image::ImageFormat::Ico,
+];
+
+/// Decodes the raster formats in [`WEB_FORMATS`], sniffed from the bytes, so a wrong MIME hint
+/// between them is harmless and a format outside them is refused before any decoder sees it.
 /// Decoding is bounded ([`MAX_IMAGE_EDGE`], [`MAX_DECODE_BYTES`]) and huge images are kept
 /// downscaled ([`MAX_KEPT_PIXELS`]): a page cannot exhaust a renderer's memory with photographs,
 /// and an absurd header fails cleanly instead of allocating.
@@ -37,7 +49,7 @@ impl MediaDecoder for RasterDecoder {
     }
 
     fn supports_magic(&self, bytes: &[u8]) -> bool {
-        image::guess_format(bytes).is_ok()
+        web_format(bytes).is_ok()
     }
 
     fn decode(&self, bytes: &[u8]) -> Result<DecodedMedia, ImageDecodeError> {
@@ -54,9 +66,7 @@ impl MediaDecoder for RasterDecoder {
     }
 
     fn dimensions(&self, bytes: &[u8]) -> Option<(u32, u32)> {
-        let (width, height) = image::ImageReader::new(std::io::Cursor::new(bytes))
-            .with_guessed_format()
-            .ok()?
+        let (width, height) = image::ImageReader::with_format(std::io::Cursor::new(bytes), web_format(bytes).ok()?)
             .into_dimensions()
             .ok()?;
         // The same bound `decode` enforces: an absurd header is not a size for layout.
@@ -67,13 +77,28 @@ impl MediaDecoder for RasterDecoder {
 /// Decode with the size and allocation limits applied by the decoder itself, so an
 /// oversized header is refused before anything is allocated for it.
 fn decode_bounded(bytes: &[u8]) -> Result<image::RgbaImage, image::ImageError> {
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), web_format(bytes)?);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_EDGE);
     limits.max_image_height = Some(MAX_IMAGE_EDGE);
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     reader.limits(limits);
     Ok(reader.decode()?.to_rgba8())
+}
+
+/// The format of `bytes` when it is one of [`WEB_FORMATS`], an error otherwise.
+fn web_format(bytes: &[u8]) -> Result<image::ImageFormat, image::ImageError> {
+    let format = image::guess_format(bytes)?;
+    if WEB_FORMATS.contains(&format) {
+        return Ok(format);
+    }
+    let hint = image::error::ImageFormatHint::Exact(format);
+    Err(image::ImageError::Unsupported(
+        image::error::UnsupportedError::from_format_and_kind(
+            hint.clone(),
+            image::error::UnsupportedErrorKind::Format(hint),
+        ),
+    ))
 }
 
 /// Fit a `width`x`height` pixel buffer into [`MAX_KEPT_PIXELS`], keeping its aspect ratio.
@@ -207,5 +232,28 @@ mod tests {
         bytes.extend_from_slice(&ihdr);
         bytes.extend_from_slice(&[0, 0, 0, 0]); // wrong CRC; the lenient path must refuse too
         assert!(RasterDecoder.decode(&bytes).is_err());
+    }
+
+    /// Only web formats are decoded: a well-formed image in a format no
+    /// browser serves (farbfeld, 1x1) is refused, not handed to its decoder.
+    #[test]
+    fn a_format_outside_the_web_set_is_not_decoded() {
+        let mut bytes = b"farbfeld".to_vec();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&[0xff; 8]);
+        assert!(RasterDecoder.decode(&bytes).is_err());
+        assert!(RasterDecoder.dimensions(&bytes).is_none());
+    }
+
+    /// The set is the decoder's own, not whatever `image` features the build graph turned
+    /// on: TIFF (which a GUI dependency can enable) is recognised and still not decoded.
+    #[test]
+    fn a_recognised_format_outside_the_web_set_is_refused() {
+        let tiff = b"II*\0\x08\0\0\0\0\0";
+        assert_eq!(image::guess_format(tiff).ok(), Some(image::ImageFormat::Tiff));
+        assert!(!RasterDecoder.supports_magic(tiff));
+        assert!(RasterDecoder.decode(tiff).is_err());
+        assert!(RasterDecoder.dimensions(tiff).is_none());
     }
 }

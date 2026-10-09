@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout base repo (for AUTHORS file)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
 
@@ -23,33 +23,40 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Names and emails are the commit author's own text: never expanded
+          # (no `printf %b`), cut to printable characters, and written under a
+          # delimiter they cannot guess, so none can end the output block and
+          # set another output. Each goes into the comment as inline code, so
+          # an `@name` mentions nobody and markdown stays text.
           MISSING=""
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            name=$(echo "$line" | cut -d';' -f1)
-            email=$(echo "$line" | cut -d';' -f2)
-            if ! grep -Fq "$email" AUTHORS && ! grep -Fq "$name" AUTHORS; then
-              MISSING="$MISSING\n- $name <$email>"
+          while IFS=$'\t' read -r name email; do
+            [ -z "$name$email" ] && continue
+            name=$(printf '%s' "$name" | tr -cd '[:print:]' | tr '`' "'")
+            email=$(printf '%s' "$email" | tr -cd '[:print:]' | tr '`' "'")
+            # An empty string is in every file; it vouches for nobody.
+            if ! { [ -n "$email" ] && grep -Fq -- "$email" AUTHORS; } \
+              && ! { [ -n "$name" ] && grep -Fq -- "$name" AUTHORS; }; then
+              MISSING+="- \`$name <$email>\`"$'\n'
             fi
           done < <(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits \
               --paginate \
-              --jq '.[] | "\(.commit.author.name);\(.commit.author.email)"' \
+              --jq '.[] | [.commit.author.name, .commit.author.email] | @tsv' \
             | grep -v noreply.github.com | sort -u)
 
           if [ -n "$MISSING" ]; then
             echo "missing=true" >> "$GITHUB_OUTPUT"
+            delimiter="authors_$(openssl rand -hex 16)"
             {
-              echo 'missing_authors<<EOF'
-              printf '%b' "$MISSING"
-              echo
-              echo 'EOF'
+              echo "missing_authors<<$delimiter"
+              printf '%s' "$MISSING"
+              echo "$delimiter"
             } >> "$GITHUB_OUTPUT"
           else
             echo "missing=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Find existing bot comment
-        uses: peter-evans/find-comment@v4
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: fc
         with:
           issue-number: ${{ github.event.pull_request.number }}
@@ -58,7 +65,7 @@ jobs:
 
       - name: Post or update notice comment
         if: steps.author_check.outputs.missing == 'true'
-        uses: peter-evans/create-or-update-comment@v5
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
@@ -73,7 +80,7 @@ jobs:
 
       - name: Remove notice comment (all authors found)
         if: steps.author_check.outputs.missing == 'false' && steps.fc.outputs.comment-id != ''
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             github.rest.issues.deleteComment({

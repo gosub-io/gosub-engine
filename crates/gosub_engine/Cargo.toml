@@ -71,6 +71,9 @@ tempfile = { workspace = true }
 # Exercises the isolated components from a binary that dispatches child roles the
 # way an embedder must; `tests/process_isolation.rs` runs it. Pointless without
 # the machinery it drives.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [[bin]]
 name = "isolation-harness"
 path = "src/bin/isolation-harness.rs"

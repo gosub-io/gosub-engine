@@ -12,6 +12,7 @@
 //! others without an upstream change to sonar. Inspecting by reference and then passing
 //! ownership along needs no such change.
 
+use crate::net::emitter::report_url;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -77,8 +78,8 @@ impl TimingEmitter {
     fn record(&self, namespace: Timing, duration: std::time::Duration, url: &url::Url) {
         let us = duration.as_micros() as u64;
         match self.scope {
-            Some(scope) => gosub_shared::timing::record_in(scope, namespace, us, Some(url.to_string())),
-            None => gosub_shared::timing::record(namespace, us, Some(url.to_string())),
+            Some(scope) => gosub_shared::timing::record_in(scope, namespace, us, Some(report_url(url).to_string())),
+            None => gosub_shared::timing::record(namespace, us, Some(report_url(url).to_string())),
         }
     }
 

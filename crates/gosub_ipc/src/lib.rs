@@ -37,4 +37,4 @@ pub mod ring;
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub mod shm;
 
-pub use endpoint::{local_pair, Endpoint, EndpointRx, EndpointTx, MAX_FRAME_LEN};
+pub use endpoint::{frame_len, local_pair, Endpoint, EndpointRx, EndpointTx, MAX_FRAME_LEN};

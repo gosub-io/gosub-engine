@@ -62,14 +62,23 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
     // Threads before lockdown - and *running* before it: a thread's own
     // start-up makes syscalls (`rseq`, `set_robust_list`) the allowlist does
     // not carry, so the filter waits until the thread says it is past them.
+    // No thread can start after it, so the one network-link thread serves
+    // every line: the first, then each a respawned network process is given
+    // (`ToVault::NetLine`), in turn.
+    let mut next_lines = None;
     if let Some(link) = net_link {
         let jars = Arc::clone(&jars);
         let grants = Arc::clone(&grants);
         let snapshots = Arc::clone(&broker_tx);
+        let (lines_tx, lines_rx) = std::sync::mpsc::channel::<Endpoint>();
+        next_lines = Some(lines_tx);
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel::<()>(1);
         let spawned = std::thread::Builder::new().name("vault-net".into()).spawn(move || {
             let _ = started_tx.send(());
-            serve_net(link, jars, grants, snapshots)
+            serve_net(link, Arc::clone(&jars), Arc::clone(&grants), Arc::clone(&snapshots));
+            while let Ok(link) = lines_rx.recv() {
+                serve_net(link, Arc::clone(&jars), Arc::clone(&grants), Arc::clone(&snapshots));
+            }
         });
         if let Err(e) = spawned {
             eprintln!("[vault] could not start the network link: {e}");
@@ -116,6 +125,20 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
                     break;
                 }
             }
+            // Read whether or not there is a thread to serve it: the
+            // descriptors are on the link either way.
+            ToVault::NetLine => match adopt_net_line(&mut broker_rx) {
+                Ok(link) => match &next_lines {
+                    Some(lines) => {
+                        let _ = lines.send(link);
+                    }
+                    None => eprintln!("[vault] a network line for a vault started without one; dropped"),
+                },
+                Err(e) => {
+                    eprintln!("[vault] the new network line did not arrive ({e})");
+                    break;
+                }
+            },
             msg => {
                 if let Some(reply) = handle(msg, &jars, &broker_tx) {
                     if broker_tx.lock().send(&reply).is_err() {
@@ -126,6 +149,17 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
         }
     }
     0
+}
+
+/// A new network line: the descriptor follows its message twice, one per
+/// half of the endpoint, since this process may not `dup`.
+fn adopt_net_line(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<Endpoint> {
+    let tx_fd = rx.recv_fd()?;
+    let rx_fd = rx.recv_fd()?;
+    Ok(Endpoint::from_halves(
+        std::os::unix::net::UnixStream::from(tx_fd),
+        std::os::unix::net::UnixStream::from(rx_fd),
+    ))
 }
 
 /// The network process's line: `Get`/`Store` only, each under a granted
@@ -199,23 +233,21 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                 url,
                 set_cookie,
             } => {
-                match claim(&scope, &url, true) {
-                    Some(scope) => {
-                        handle(
-                            ToVault::Store {
-                                tag,
-                                scope,
-                                url,
-                                set_cookie,
-                            },
-                            &jars,
-                            &snapshots,
-                        );
+                let stored = match claim(&scope, &url, true) {
+                    Some(scope) => store(&jars, &snapshots, &scope, &url, set_cookie),
+                    None => {
+                        eprintln!("[vault] cookies stored outside a grant; refused");
+                        false
                     }
-                    None => eprintln!("[vault] cookies stored outside a grant; dropped"),
-                }
-                // Acknowledged either way: the asker is waiting.
-                if tx.lock().send(&FromVault::Stored { tag }).is_err() {
+                };
+                // Answered either way: the asker is waiting, and keeps the
+                // cookies on its reply unless they are `Stored`.
+                let reply = if stored {
+                    FromVault::Stored { tag }
+                } else {
+                    FromVault::Refused { tag }
+                };
+                if tx.lock().send(&reply).is_err() {
                     return;
                 }
             }
@@ -268,20 +300,8 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             url,
             set_cookie,
         } => {
-            let Ok(url) = Url::parse(&url) else {
-                return None;
-            };
-            let zone = scope.zone;
-            let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
-            let mut headers = http::HeaderMap::new();
-            for value in set_cookie {
-                if let Ok(value) = http::HeaderValue::from_str(&value) {
-                    headers.append(http::header::SET_COOKIE, value);
-                }
-            }
-            mutate(jars, snapshots, &zone, |jar| {
-                jar.store_response_cookies(&url, &headers, top.as_ref())
-            })
+            store(jars, snapshots, &scope, &url, set_cookie);
+            None
         }
         ToVault::GetAll { tag, zone } => {
             let cookies = jars
@@ -308,10 +328,40 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             }
         }),
         ToVault::PurgeExpired { zone } => mutate(jars, snapshots, &zone, |jar| jar.purge_expired()),
-        ToVault::Ping | ToVault::Shutdown | ToVault::Grant { .. } | ToVault::Revoke { .. } | ToVault::Audit { .. } => {
-            None
+        ToVault::Ping
+        | ToVault::Shutdown
+        | ToVault::Grant { .. }
+        | ToVault::Revoke { .. }
+        | ToVault::Audit { .. }
+        | ToVault::NetLine => None,
+    }
+}
+
+/// Record `set_cookie` from a response at `url` in the scope's zone. `false`
+/// when nothing could be: the URL does not parse or the zone is not open.
+fn store(
+    jars: &Jars,
+    snapshots: &Arc<Mutex<EndpointTx>>,
+    scope: &CookieScope,
+    url: &str,
+    set_cookie: Vec<String>,
+) -> bool {
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
+    let mut headers = http::HeaderMap::new();
+    for value in set_cookie {
+        if let Ok(value) = http::HeaderValue::from_bytes(value.as_bytes()) {
+            headers.append(http::header::SET_COOKIE, value);
         }
     }
+    let mut stored = false;
+    mutate(jars, snapshots, &scope.zone, |jar| {
+        jar.store_response_cookies(&url, &headers, top.as_ref());
+        stored = true;
+    });
+    stored
 }
 
 /// Apply `change` to a zone's jar and publish the result. The snapshot goes
@@ -335,4 +385,44 @@ fn mutate(
         eprintln!("[vault] zone {zone}: jar snapshot not sent, its cookies are not being persisted: {e}");
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::process::protocol::SameSite;
+
+    /// A cookie the network process sends as UTF-8 is recorded as such, and
+    /// `Stored` means the jar holds it; a zone that is not open stores nothing.
+    #[test]
+    fn a_non_ascii_cookie_is_stored() {
+        let jars: Jars = Arc::new(Mutex::new(HashMap::new()));
+        jars.lock().insert("z".into(), DefaultCookieJar::default());
+        let (ours, _broker) = gosub_ipc::local_pair();
+        let snapshots = Arc::new(Mutex::new(ours.split().0));
+        let scope = CookieScope {
+            ticket: 0,
+            url: "https://site.test/".into(),
+            zone: "z".into(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        let set_cookie = vec!["name=h\u{e9}llo; Path=/".to_string()];
+        assert!(store(
+            &jars,
+            &snapshots,
+            &scope,
+            "https://site.test/",
+            set_cookie.clone()
+        ));
+        let url = Url::parse("https://site.test/").unwrap();
+        let header = jars.lock()["z"].get_request_cookies(&url, None, SameSite::SameSite.into());
+        assert_eq!(header.as_deref(), Some("name=h\u{e9}llo"));
+
+        let closed = CookieScope {
+            zone: "closed".into(),
+            ..scope
+        };
+        assert!(!store(&jars, &snapshots, &closed, "https://site.test/", set_cookie));
+    }
 }

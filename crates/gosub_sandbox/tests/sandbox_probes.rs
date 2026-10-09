@@ -300,6 +300,8 @@ mod probe_inventory {
         "broker-seccomp",
         "broker-seccomp-mount",
         "broker-seccomp-io-uring",
+        #[cfg(target_arch = "x86_64")]
+        "broker-seccomp-x32",
         "service-fs-unscoped",
         "service-device-unscoped",
         "cgroup-memory-limit",
@@ -722,6 +724,15 @@ mod sandbox_enforcement {
             Some(SIGSYS),
             "expected SIGSYS (io_uring denied), got {st:?}"
         );
+    }
+
+    /// The deny-list names syscall numbers; the x32 ABI gives each a second
+    /// one under the same architecture. The broker refuses that whole range.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn broker_denies_x32_syscalls() {
+        let st = probe("broker-seccomp-x32");
+        assert_eq!(st.signal(), Some(SIGSYS), "expected SIGSYS (x32 denied), got {st:?}");
     }
 
     /// A service granted `openat` (filesystem or device) with no path to scope

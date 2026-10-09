@@ -3052,6 +3052,107 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A box measured against an absolutely positioned ancestor that was itself corrected takes
+    /// its percentage of the corrected size: the outer box is 50% of 300px, the inner one 50% of
+    /// that, through a static wrapper that is neither box's containing block.
+    #[test]
+    fn a_nested_abspos_percentage_follows_its_corrected_ancestor() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="position: relative; height: 300px"><div style="height: 100px"><span id="outer" style="position: absolute; display: inline-block; width: 50px; height: 50%"><div style="height: 20px"><div id="inner" style="position: absolute; width: 10px; height: 50%"></div></div></span></div></div>
+        </body></html>"#;
+        let [outer, inner] = border_boxes(html, &["outer", "inner"])[..] else {
+            unreachable!()
+        };
+        assert!((outer.height - 150.0).abs() < 0.5, "50% of 300px, got {outer:?}");
+        assert!(
+            (inner.height - 75.0).abs() < 0.5,
+            "50% of the outer 150px, got {inner:?}"
+        );
+    }
+
+    /// A line inside an inline box is still in the block around it: a percentage height on an
+    /// inline-block inside a plain `<span>` resolves against that block, not the span's auto height.
+    #[test]
+    fn a_percentage_height_inside_an_inline_span_resolves_against_the_block() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="height: 100px"><span><span id="a" style="display: inline-block; width: 50px; height: 100%"></span></span></div>
+        </body></html>"#;
+        let [a] = border_boxes(html, &["a"])[..] else {
+            unreachable!()
+        };
+        assert!((a.height - 100.0).abs() < 0.5, "100% of the 100px block, got {a:?}");
+    }
+
+    /// A block whose percentage height resolves against a definite parent is definite too, so a
+    /// line item's percentage resolves through it: 100% of 50% of 300px.
+    #[test]
+    fn a_percentage_height_resolves_through_a_percentage_height_block() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="height: 300px"><div style="height: 50%"><span id="b" style="display: inline-block; width: 50px; height: 100%"></span></div></div>
+        </body></html>"#;
+        let [b] = border_boxes(html, &["b"])[..] else {
+            unreachable!()
+        };
+        assert!((b.height - 150.0).abs() < 0.5, "100% of a 150px block, got {b:?}");
+    }
+
+    /// A line item's percentage height that rests on the viewport, through percentage heights up
+    /// to the root, follows a resize that only recomputes geometry (`relayout`).
+    #[test]
+    fn a_viewport_based_line_percentage_follows_a_relayout() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html style="height: 100%"><body style="margin: 0; height: 100%">
+          <div style="height: 50%"><span id="c" style="display: inline-block; width: 50px; height: 100%"></span></div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut layouter = TaffyLayouter::new();
+        let mut tree = layouter.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let height = |tree: &crate::layouter::LayoutTree| {
+            tree.arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == "c")
+                        }
+                        _ => false,
+                    })
+                })
+                .expect("#c in the layout tree")
+                .box_model
+                .border_box
+                .height
+        };
+        assert!(
+            (height(&tree) - 300.0).abs() < 0.5,
+            "50% of 600px, got {}",
+            height(&tree)
+        );
+        layouter.relayout(
+            &mut tree,
+            Some(Dimension {
+                width: 800.0,
+                height: 400.0,
+            }),
+        );
+        assert!(
+            (height(&tree) - 200.0).abs() < 0.5,
+            "50% of 400px, got {}",
+            height(&tree)
+        );
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block

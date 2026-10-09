@@ -71,8 +71,9 @@ pub(super) fn begin_stream(
 
 impl Streamed {
     /// Head and ring fd back to back, under one lock, so nothing else on the
-    /// link comes between them; then the body. A write error means the broker
-    /// went away, which the recv loop notices too.
+    /// link comes between them; then the body. A write error on the head means
+    /// the broker went away, which the recv loop notices too; on the fd, the
+    /// link is out of step and the process ends.
     pub(super) async fn deliver(self, tag: RequestTag, link_tx: &Arc<Mutex<EndpointTx>>) {
         use std::os::fd::AsRawFd as _;
         {
@@ -83,9 +84,11 @@ impl Streamed {
                     outcome: self.head,
                 })
                 .is_err()
-                || tx.send_fd(self.ring.as_raw_fd()).is_err()
             {
                 return;
+            }
+            if let Err(e) = tx.send_fd(self.ring.as_raw_fd()) {
+                super::fd_never_followed(&e);
             }
         }
         drop(self.ring); // the broker holds its duplicate; the mapping keeps ours
@@ -146,7 +149,7 @@ impl VaultLink {
         loop {
             let reply = self.link.recv::<FromVault>().ok()?;
             let got = match &reply {
-                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } => *tag,
+                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } | FromVault::Refused { tag } => *tag,
                 _ => return None,
             };
             if got == tag {
@@ -196,27 +199,34 @@ pub(super) fn vault_cookies(vault: &Mutex<Option<VaultLink>>, scope: &CookieScop
 }
 
 /// Hand a response's `Set-Cookie` headers to the vault. Waited for: the reply
-/// to the broker must not overtake the store.
-pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, meta: &FetchResultMeta) {
+/// to the broker must not overtake the store. Whether the cookies are safe -
+/// stored, or none to store; `false` (no vault line, or the vault did not
+/// confirm) means the reply has to keep them, or nobody stores them at all.
+/// A value [`set_cookie_text`](super::set_cookie_text) cannot read is not
+/// sent, and the reply keeps it whatever this returns.
+pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, meta: &FetchResultMeta) -> bool {
     let set_cookie: Vec<String> = meta
         .headers
         .get_all(http::header::SET_COOKIE)
         .iter()
-        .filter_map(|v| v.to_str().ok().map(str::to_string))
+        .filter_map(|v| super::set_cookie_text(v.as_bytes()).map(str::to_string))
         .collect();
     if set_cookie.is_empty() {
-        return;
+        return true;
     }
     let mut guard = vault.lock();
     let Some(link) = guard.as_mut() else {
-        return;
+        return false;
     };
-    let _ = link.exchange(|tag| ToVault::Store {
-        tag,
-        scope: scope.clone(),
-        url: meta.final_url.to_string(),
-        set_cookie,
-    });
+    matches!(
+        link.exchange(|tag| ToVault::Store {
+            tag,
+            scope: scope.clone(),
+            url: meta.final_url.to_string(),
+            set_cookie,
+        }),
+        Some(FromVault::Stored { .. })
+    )
 }
 
 #[cfg(test)]

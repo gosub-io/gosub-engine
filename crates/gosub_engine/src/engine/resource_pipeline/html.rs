@@ -742,6 +742,10 @@ mod tests {
                     IoCommand::AuditNet { reply_tx } => {
                         let _ = reply_tx.send(None);
                     }
+                    #[cfg(feature = "process-isolation")]
+                    IoCommand::NetPid { reply_tx } => {
+                        let _ = reply_tx.send(None);
+                    }
                 }
             }
         });

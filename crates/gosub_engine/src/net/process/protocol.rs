@@ -41,6 +41,20 @@ pub fn rebuild_headers(headers: &HeaderList) -> http::HeaderMap {
     map
 }
 
+/// `headers` with every `name` value replaced by
+/// [`REDACTED`](crate::net::emitter::REDACTED). For the events a network
+/// process sends: the `Cookie` it attached and the `Set-Cookie` it received
+/// pass between it and the cookie vault, never through the broker, and an
+/// event exists only to be reported. The header still shows it was there.
+pub fn without_cookie_values(mut headers: HeaderList, name: http::header::HeaderName) -> HeaderList {
+    for (n, value) in headers.iter_mut() {
+        if n.eq_ignore_ascii_case(name.as_str()) {
+            *value = crate::net::emitter::REDACTED.as_bytes().to_vec();
+        }
+    }
+    headers
+}
+
 /// `s` cut to at most `max` bytes, on a character boundary.
 pub fn cut_string(s: String, max: usize) -> String {
     if s.len() <= max {
@@ -310,6 +324,19 @@ pub enum FromNet {
         tag: RequestTag,
         outcome: FetchOutcome,
     },
+    /// A [`FetchOutcome::Ok`] reply whose body is too large for one frame: the
+    /// head here, the body as a sealed memfd of `len` bytes
+    /// (`gosub_ipc::shm::create_sealed_blob`) right behind it. The broker's reader
+    /// makes it the `Ok` it stands for. Linux only, like the ring.
+    SharedReply {
+        tag: RequestTag,
+        status: u16,
+        status_text: String,
+        final_url: String,
+        headers: HeaderList,
+        peer_addr: Option<std::net::SocketAddr>,
+        len: u64,
+    },
     /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
     Audit {
         tag: RequestTag,
@@ -427,7 +454,7 @@ impl NetEventWire {
             NetEvent::RequestSent { url, method, headers } => Self::RequestSent {
                 url: url.to_string(),
                 method: method.as_str().to_string(),
-                headers: flatten_headers(headers),
+                headers: without_cookie_values(flatten_headers(headers), http::header::COOKIE),
             },
             NetEvent::BodyPreview { url, body, truncated } => Self::BodyPreview {
                 url: url.to_string(),
@@ -443,7 +470,7 @@ impl NetEventWire {
             NetEvent::ResponseHeaders { url, status, headers } => Self::ResponseHeaders {
                 url: url.to_string(),
                 status: *status,
-                headers: flatten_headers(headers),
+                headers: without_cookie_values(flatten_headers(headers), http::header::SET_COOKIE),
             },
             NetEvent::Progress {
                 received_bytes,
@@ -708,6 +735,60 @@ mod tests {
             assert_eq!(destination_from_token(d.as_str()), Some(d));
         }
         assert_eq!(destination_from_token("no-such-destination"), None);
+    }
+
+    /// The network process reports that a `Cookie` went out and a `Set-Cookie`
+    /// came back, never their values: those stay between it and the vault.
+    #[test]
+    fn cookie_values_do_not_cross_in_events() {
+        use crate::net::emitter::REDACTED;
+        use crate::net::events::NetEvent;
+        let url = url::Url::parse("https://site.test/").unwrap();
+        let mut sent = http::HeaderMap::new();
+        sent.append(http::header::COOKIE, "sid=secret".parse().unwrap());
+        sent.append(http::header::ACCEPT, "text/html".parse().unwrap());
+        let mut received = http::HeaderMap::new();
+        received.append(http::header::SET_COOKIE, "sid=secret; HttpOnly".parse().unwrap());
+        received.append(http::header::SET_COOKIE, "b=2".parse().unwrap());
+        received.append(http::header::CONTENT_TYPE, "text/html".parse().unwrap());
+
+        let request = NetEventWire::from_net(&NetEvent::RequestSent {
+            url: url.clone(),
+            method: http::Method::GET,
+            headers: sent,
+        });
+        let response = NetEventWire::from_net(&NetEvent::ResponseHeaders {
+            url,
+            status: 200,
+            headers: received,
+        });
+        let pairs = |headers: &HeaderList| -> Vec<(String, String)> {
+            headers
+                .iter()
+                .map(|(n, v)| (n.clone(), String::from_utf8_lossy(v).into_owned()))
+                .collect()
+        };
+        match request {
+            Some(NetEventWire::RequestSent { headers, .. }) => assert_eq!(
+                pairs(&headers),
+                vec![
+                    ("cookie".to_string(), REDACTED.to_string()),
+                    ("accept".to_string(), "text/html".to_string()),
+                ]
+            ),
+            other => panic!("not a request: {other:?}"),
+        }
+        match response {
+            Some(NetEventWire::ResponseHeaders { headers, .. }) => assert_eq!(
+                pairs(&headers),
+                vec![
+                    ("set-cookie".to_string(), REDACTED.to_string()),
+                    ("set-cookie".to_string(), REDACTED.to_string()),
+                    ("content-type".to_string(), "text/html".to_string()),
+                ]
+            ),
+            other => panic!("not a response: {other:?}"),
+        }
     }
 
     /// More distinct names than a `HeaderMap` holds: the rest is dropped, where

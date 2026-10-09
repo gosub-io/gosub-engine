@@ -21,6 +21,12 @@ use std::sync::mpsc::{self, Receiver, Sender};
 /// unbounded memory.
 pub const MAX_FRAME_LEN: u32 = 16 * 1024 * 1024;
 
+/// The payload length `msg` would be sent as, to compare with
+/// [`MAX_FRAME_LEN`] before a send that must not fail.
+pub fn frame_len<T: Serialize>(msg: &T) -> io::Result<u64> {
+    bincode::serialized_size(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
 /// Send half of an IPC link.
 pub enum EndpointTx {
     #[cfg(feature = "multi-process")]

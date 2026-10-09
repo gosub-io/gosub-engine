@@ -98,8 +98,8 @@ fn is_auto_size(size: LengthPercentageAuto) -> bool {
 /// Re-place every absolutely positioned box against the containing block CSS gives it.
 ///
 /// Returns the boxes that also need *resizing*, keyed by DOM node - see [`RebasedInsets`]. The
-/// caller feeds these back through a second layout pass; on that pass the map comes back empty
-/// because taffy has already put the boxes where this pass would.
+/// caller feeds these back through another layout pass, until a pass returns the map it was given:
+/// a box nested in a corrected one is only measured right once its ancestor has been.
 pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) -> HashMap<DomNodeId, RebasedInsets> {
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
     let mut stretched: HashMap<DomNodeId, RebasedInsets> = HashMap::new();

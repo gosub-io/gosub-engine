@@ -50,4 +50,7 @@ pub(super) fn vault_cookies(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieSc
     None
 }
 
-pub(super) fn vault_store(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieScope, _meta: &FetchResultMeta) {}
+/// No vault line here: nothing is stored, so the reply keeps its cookies.
+pub(super) fn vault_store(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieScope, _meta: &FetchResultMeta) -> bool {
+    false
+}

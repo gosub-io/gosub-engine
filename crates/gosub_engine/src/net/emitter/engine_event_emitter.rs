@@ -2,7 +2,7 @@ use crate::engine::events::{CancelReason, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId, ResourceChannel};
 use crate::engine::LoadError;
 use crate::events::{EngineEvent, ResourceUpdate};
-use crate::net::emitter::NetObserver;
+use crate::net::emitter::{report_url, NetObserver};
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{Initiator, ResourceKind};
@@ -142,7 +142,7 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::RequestSent {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url: url.to_string(),
+                    url: report_url(&url).to_string(),
                     method: method.to_string(),
                     // Names always, values only where they are safe to pass on: this event
                     // is an API, and it goes wherever the embedder puts it.
@@ -160,7 +160,7 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::BodyPreview {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url: url.to_string(),
+                    url: report_url(&url).to_string(),
                     body,
                     truncated,
                 });
@@ -169,7 +169,7 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::Started {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url: url.to_string(),
+                    url: report_url(&url).to_string(),
                     kind: self.kind,
                     initiator: self.initiator,
                 });
@@ -178,8 +178,8 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::Redirected {
                     request_id: self.req_id,
                     reference: self.reference,
-                    from: from.to_string(),
-                    to: to.to_string(),
+                    from: report_url(&from).to_string(),
+                    to: report_url(&to).to_string(),
                     status,
                 });
             }
@@ -187,7 +187,7 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::Headers {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url: url.to_string(),
+                    url: report_url(&url).to_string(),
                     status,
                     content_length: headers
                         .get(http::header::CONTENT_LENGTH)
@@ -197,9 +197,14 @@ impl NetObserver for EngineEventEmitter {
                         .get(http::header::CONTENT_TYPE)
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string()),
+                    // `Set-Cookie` is redacted like a request's `Cookie`; see `header_value`.
                     headers: headers
                         .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                        .map(|(k, v)| {
+                            let name = k.to_string();
+                            let value = crate::net::emitter::header_value(&name, v.to_str().unwrap_or(""));
+                            (name, value)
+                        })
                         .collect(),
                 });
             }
@@ -253,19 +258,19 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::Finished {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url,
+                    url: report_url(&url).into_owned(),
                     received_bytes,
                     elapsed: Some(elapsed),
                 });
             }
             NetEvent::Blocked { url, reason } => self.report_failure(
-                url.to_string(),
+                report_url(&url).to_string(),
                 LoadError::Blocked {
                     reason: BlockReason::from_net(reason),
                 },
             ),
             NetEvent::TlsFailed { url, error } => self.report_failure(
-                url.to_string(),
+                report_url(&url).to_string(),
                 LoadError::Tls {
                     message: format!(
                         "TLS handshake with {} failed: {:?} ({})",
@@ -274,7 +279,7 @@ impl NetObserver for EngineEventEmitter {
                 },
             ),
             NetEvent::Failed { url, error } => {
-                self.report_failure(url.to_string(), classify(&error));
+                self.report_failure(report_url(&url).to_string(), classify(&error));
             }
             // A preflight is an internal hop of a CORS request, not a resource.
             NetEvent::CorsPreflight { url } => {
@@ -285,7 +290,7 @@ impl NetObserver for EngineEventEmitter {
                 self.emit(ResourceEvent::Cancelled {
                     request_id: self.req_id,
                     reference: self.reference,
-                    url: url.to_string(),
+                    url: report_url(&url).to_string(),
                     reason: CancelReason::Custom(reason.to_string()),
                 });
             }

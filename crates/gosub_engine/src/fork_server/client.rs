@@ -349,6 +349,42 @@ impl RenderStream for FromRenderer {
     }
 }
 
+/// Largest body a [`ResourceReply::Ok`] carries in-band: half a frame, leaving the
+/// rest of the message room. A larger one goes as [`ResourceReply::Shared`] - in a
+/// frame it would fail to send, and a failed send ends the exchange and with it the
+/// renderer, which a page with one large image should not be able to do.
+const MAX_IN_BAND_RESOURCE: usize = gosub_ipc::MAX_FRAME_LEN as usize / 2;
+
+/// Send `resource` to the renderer as [`ResourceReply::Shared`] and its body as a
+/// sealed memfd. A body the link cannot carry - past `gosub_ipc::shm::MAX_BLOB_LEN`,
+/// or on a link without fd passing - is answered `Failed`: the renderer goes on
+/// without it, as it would without any resource that failed to load.
+fn send_shared_resource<M: RenderStream>(link: &mut Endpoint, resource: LoadedResource) -> std::io::Result<()> {
+    let len = resource.body.len();
+    let fd = if link.tx.supports_fd_passing() {
+        gosub_ipc::shm::create_sealed_blob(len, |buf| buf.copy_from_slice(&resource.body))
+    } else {
+        Err(std::io::Error::other("this link cannot pass fds"))
+    };
+    match fd {
+        Ok(fd) => {
+            M::send_resource(
+                link,
+                ResourceReply::Shared {
+                    status: resource.status,
+                    content_type: resource.content_type,
+                    len: len as u64,
+                },
+            )?;
+            link.tx.send_fd(std::os::fd::AsRawFd::as_raw_fd(&fd))
+        }
+        Err(e) => M::send_resource(
+            link,
+            ResourceReply::Failed(format!("a {len}-byte body cannot reach the renderer: {e}")),
+        ),
+    }
+}
+
 /// Drive the broker's half of a render exchange, whoever the renderer is.
 /// Tiles stream in one at a time (each fd mapped and released before the
 /// next message), the summary closes the exchange, and a `Refused`
@@ -410,6 +446,10 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                             );
                         }
                         match loaded {
+                            Ok(resource) if resource.body.len() > MAX_IN_BAND_RESOURCE => {
+                                send_shared_resource::<M>(link, resource)?;
+                                continue;
+                            }
                             Ok(resource) => ResourceReply::Ok {
                                 status: resource.status,
                                 content_type: resource.content_type,
@@ -461,6 +501,21 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
         }
     }
+}
+
+/// A document message too big for one frame to a renderer is not sent: the
+/// send would fail, and a failed send is taken for a renderer gone. Measured
+/// whole, since the URL and the tile hashes travel with the document. The
+/// caller renders it some other way or reports it.
+fn refuse_oversized_document<T: serde::Serialize>(message: &T) -> anyhow::Result<()> {
+    let len = gosub_ipc::frame_len(message)?;
+    if len > u64::from(gosub_ipc::MAX_FRAME_LEN) {
+        anyhow::bail!(
+            "a {len}-byte document message is more than a renderer link carries ({})",
+            gosub_ipc::MAX_FRAME_LEN
+        );
+    }
+    Ok(())
 }
 
 /// Cut a renderer-supplied string to `max` characters. For text that is
@@ -1026,7 +1081,7 @@ impl ForkServer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
-        self.link.send(&ToForkServer::RenderPage {
+        let message = ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
             tab: tab.to_string(),
@@ -1036,7 +1091,9 @@ impl ForkServer {
             media: media_prefs(),
             known_tiles: known_tiles.hashes(),
             hovered_node,
-        })?;
+        };
+        refuse_oversized_document(&message)?;
+        self.link.send(&message)?;
         // The render bound for the render, the short one again after: a failed
         // exchange stops this fork server anyway, so only success restores it.
         let _ = self.link.rx.set_read_timeout(Some(RENDER_GAP));
@@ -1278,7 +1335,8 @@ impl ResidentRenderer {
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
-        self.send(&ToRenderer::Navigate {
+        // Refused before anything is sent: the renderer is still fine.
+        let message = ToRenderer::Navigate {
             tab: tab.to_string(),
             html: html.to_string(),
             url: url.to_string(),
@@ -1289,7 +1347,9 @@ impl ResidentRenderer {
             scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,
-        })?;
+        };
+        refuse_oversized_document(&message)?;
+        self.send(&message)?;
         self.exchange(loader, known_tiles)
     }
 
@@ -1443,6 +1503,43 @@ impl Drop for ForkServer {
 mod tests {
     use super::*;
 
+    /// A document bigger than a frame is refused before it is sent, and the
+    /// renderer is not marked dead for it.
+    #[test]
+    fn an_oversized_document_leaves_the_renderer_alive() {
+        let (ours, _theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let mut renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
+        struct Nothing;
+        impl RenderResources for Nothing {
+            fn load(&self, _: &url::Url) -> Result<LoadedResource, LoadError> {
+                Err(LoadError::Pending)
+            }
+        }
+        // Past the frame cap itself: the size whose send used to fail and
+        // take the renderer with it. Then a document that fits on its own,
+        // with a URL that takes the message past the cap.
+        let cap = gosub_ipc::MAX_FRAME_LEN as usize;
+        let long_url = format!("https://site.test/{}", "u".repeat(128 * 1024));
+        let cases = [
+            ("x".repeat(cap + 1), "https://site.test/".to_string()),
+            ("x".repeat(cap - 64 * 1024), long_url),
+        ];
+        for (html, url) in &cases {
+            let result = renderer.navigate(
+                html,
+                url,
+                "tab",
+                (800.0, 600.0),
+                0.0,
+                &Nothing,
+                &TileMemory::default(),
+                None,
+            );
+            assert!(result.is_err());
+            assert!(!renderer.is_dead(), "refused, not crashed");
+        }
+    }
+
     /// A renderer whose last handle is dropped is killed, whatever it is doing.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1467,6 +1564,62 @@ mod tests {
         };
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(status.signal(), Some(9), "SIGKILL");
+    }
+
+    /// A body too large for one frame reaches the renderer whole, through a sealed
+    /// memfd, where it used to fail the send and with it the renderer; one past
+    /// what a blob may hold is answered `Failed` and the exchange goes on.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_body_too_large_for_a_frame_reaches_the_renderer() {
+        use crate::fork_server::loader::ForkedResourceLoader;
+        use crate::net::resource_loader::ResourceLoader;
+
+        struct Bodies;
+        impl RenderResources for Bodies {
+            fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+                let len = match url.path() {
+                    "/in-band" => MAX_IN_BAND_RESOURCE,
+                    "/shared" => MAX_IN_BAND_RESOURCE + 1,
+                    _ => gosub_ipc::shm::MAX_BLOB_LEN + 1,
+                };
+                Ok(LoadedResource {
+                    status: 200,
+                    content_type: Some("image/png".into()),
+                    body: bytes::Bytes::from((0..len).map(|i| (i % 251) as u8).collect::<Vec<u8>>()),
+                })
+            }
+        }
+
+        let (ours, theirs) = gosub_ipc::channel::Channel::pair().expect("link pair");
+        let broker = std::thread::spawn(move || {
+            let mut link = Endpoint::from_channel(ours).expect("endpoint");
+            // Ends with an error once the renderer side hangs up; the loads are the point.
+            let _ = drive_render_exchange::<FromRenderer>(&mut link, &Bodies, &TileMemory::default());
+        });
+
+        let loader = ForkedResourceLoader::disconnected();
+        loader.connect(std::sync::Arc::new(parking_lot::Mutex::new(
+            Endpoint::from_channel(theirs).expect("endpoint"),
+        )));
+        let url = |path: &str| url::Url::parse(&format!("https://site.test{path}")).unwrap();
+        let expected = |len: usize| (0..len).map(|i| (i % 251) as u8).collect::<Vec<u8>>();
+
+        let in_band = ResourceLoader::load(&*loader, &url("/in-band")).expect("in band");
+        assert_eq!(in_band.body.len(), MAX_IN_BAND_RESOURCE);
+        let shared = ResourceLoader::load(&*loader, &url("/shared")).expect("through a memfd");
+        assert_eq!(shared.status, 200);
+        assert_eq!(shared.content_type.as_deref(), Some("image/png"));
+        assert_eq!(&shared.body[..], &expected(MAX_IN_BAND_RESOURCE + 1)[..]);
+        match ResourceLoader::load(&*loader, &url("/too-large")) {
+            Err(LoadError::Failed(reason)) => assert!(reason.contains("cannot reach the renderer"), "{reason}"),
+            other => panic!("expected a failed load, got {other:?}"),
+        }
+        // Still talking after all three: the exchange survived.
+        assert!(ResourceLoader::load(&*loader, &url("/in-band")).is_ok());
+
+        drop(loader);
+        broker.join().expect("broker thread");
     }
 
     /// What an input pass may ask for is bounded like a hit region: over the cap

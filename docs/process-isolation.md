@@ -76,14 +76,25 @@ engine then falls back in-process and says so.
   same reason. `ioctl` reaches only the socket requests the stack makes
   (`FIONREAD`, `FIONBIO`, `FIOCLEX`); anything else fails with `ENOTTY`, so a
   terminal answers only to those numbers (`FIONREAD` is its `TIOCINQ`, a byte
-  count) and `TCGETS`, `TIOCSTI` and the rest are refused.
+  count) and `TCGETS`, `TIOCSTI` and the rest are refused. A network process
+  that dies is respawned on the next request, at most once every 5 s; what
+  was in flight fails, and until it is back requests fail rather than fall
+  back to fetching in the broker. With the vault, the new process gets a new
+  line to it: the vault's end goes over the vault's broker link, and the
+  vault serves it on the thread that served the old one, since it may start
+  no thread after lockdown.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the
   broker deserializes frames from every other child. Tabs and the embedder API
   see an ordinary jar that forwards; the network process gets its own line to
   the vault, so the cookie values attached to requests and the `Set-Cookie`
-  headers coming back flow between those two and never through the broker.
+  headers coming back flow between those two, not through the broker: the
+  reply drops a `Set-Cookie` once the vault confirms it stored it, and the
+  events it relays name both headers with their values redacted. A
+  `Set-Cookie` the vault did not store - refused, no vault line, or a value
+  that is not UTF-8 and so never sent - stays on the reply, and the broker
+  stores it as it would without isolation, rather than lose the cookie.
   That line is not trusted to name zones: before dispatching a request the
   broker grants the vault a random per-request ticket bound to the tab's zone
   and document, the network process asks under the ticket, and the vault
@@ -281,6 +292,17 @@ holds the whole body for the transport; a consumer that stops draining stalls
 the producer (backpressure) and, after a bounded wait, ends the stream. Linux
 only; elsewhere the network process buffers as before.
 
+**No body is too large for a frame.** A link frame holds at most 16 MiB. A
+buffered body larger than half of that crosses as a sealed memfd
+(`gosub_ipc::shm::create_sealed_blob`, up to 128 MiB) behind its head, the tile
+channel's mechanism: network process to broker as `FromNet::SharedReply`, and
+broker to renderer as `ResourceReply::Shared` (relayed through the fork server
+like a tile fd, the other way). The receiver reads it with plain `read`s, so
+the renderer's filter needs nothing new. Before this a 20 MiB image failed to
+load under the network process, and killed the site's renderer under the
+renderer tier. Linux only; elsewhere a body past a frame is refused with an
+error, and the link carries on.
+
 **Requests report back as if fetched in-process.** The network process has no
 tabs and no event bus, so its fetcher's observer sends every event the engine
 reports - name resolved, connected, request sent, headers, progress, finished,
@@ -312,7 +334,7 @@ never an origin the broker did not give.
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
 identity and cookies live - with the page's `Referer` and `Accept-Language`,
 as the page's own fetch would, and `file:` only for a page that itself came
-from disk - and replies with bytes. The private-network and opaque-response
+from disk - and replies with bytes (a large body as a sealed memfd, above). The private-network and opaque-response
 policies below are decided from the document the request is for, which the
 broker stamps on it, so a page still shown keeps asking as itself while the
 tab loads the next one. The renderer also gets the user's media preferences

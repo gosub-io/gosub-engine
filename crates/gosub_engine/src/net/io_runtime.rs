@@ -84,6 +84,14 @@ impl IoHandle {
         self.tx_submit.send(IoCommand::AuditNet { reply_tx: tx }).ok()?;
         rx.await.ok().flatten()
     }
+
+    /// The network process's pid; `None` without one.
+    #[cfg(feature = "process-isolation")]
+    pub async fn net_pid(&self) -> Option<u32> {
+        let (tx, rx) = oneshot::channel();
+        self.tx_submit.send(IoCommand::NetPid { reply_tx: tx }).ok()?;
+        rx.await.ok().flatten()
+    }
 }
 
 pub struct ZoneEntry {
@@ -317,12 +325,20 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
         Ok(net) => {
             log::info!("network stack running in a separate, sandboxed process");
             let net = Arc::new(net);
-            // A respawned vault hands this process a new line through here.
+            // A respawned vault hands this process a new line through here,
+            // and a respawned network process hands the vault its end. Weak
+            // that way round: the vault already holds this process.
             #[cfg(target_os = "linux")]
             if let (Some(vault), true) = (engine_ctx.cookie_vault.get(), net.vault_linked()) {
                 let relinked = Arc::clone(&net);
                 vault.on_relink(Box::new(move |line| {
                     relinked.relink_vault(crate::net::process::client::VaultLine(line.0));
+                }));
+                let vault = Arc::downgrade(vault);
+                net.on_relink(Box::new(move |line| {
+                    if let Some(vault) = vault.upgrade() {
+                        vault.adopt_net_line(crate::cookie_vault::client::NetVaultLink(line));
+                    }
                 }));
             }
             Some(net)
@@ -402,6 +418,12 @@ fn dispatch_to_net_process(
             body_preview,
             context,
         };
+        // A process that died is respawned before the request goes out;
+        // blocking, so off the runtime's workers.
+        if !net.is_alive() {
+            let respawning = Arc::clone(&net);
+            let _ = tokio::task::spawn_blocking(move || respawning.ensure_alive()).await;
+        }
         let reply = net.fetch(out, &cancel, observer).await;
         crate::net::req_ref_tracker::REF_REGISTRY.forget_request(req_id);
         let _ = reply_tx.send(match reply.outcome {
@@ -820,9 +842,12 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
 
                                 // The reply is intercepted so `Set-Cookie` is stored on this
                                 // side too; the requester still receives the untouched result.
-                                let reply_tx = match (identity, cookie_scope.is_some()) {
-                                    (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
-                                    _ => reply_tx,
+                                // Under a vault scope the network process stored the cookies
+                                // and stripped them, so this finds none - unless the vault did
+                                // not take them, and then this is the only store they get.
+                                let reply_tx = match identity {
+                                    Some(id) => store_response_cookies_then_forward(id, reply_tx),
+                                    None => reply_tx,
                                 };
                                 let reply_tx = match (subresource, document) {
                                     (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
@@ -865,11 +890,18 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             router.tab_identities().commit_navigation(tab_id, nav_id);
                         }
                         #[cfg(feature = "process-isolation")]
+                        Some(IoCommand::NetPid { reply_tx }) => {
+                            let _ = reply_tx.send(router.net_process().and_then(|net| net.pid()));
+                        }
+                        #[cfg(feature = "process-isolation")]
                         Some(IoCommand::AuditNet { reply_tx }) => {
                             let net = router.net_process();
                             spawn_named("io-audit-net", async move {
                                 let report = match net {
-                                    Some(net) => tokio::task::spawn_blocking(move || net.audit().ok().flatten())
+                                    Some(net) => tokio::task::spawn_blocking(move || {
+                                        net.ensure_alive();
+                                        net.audit().ok().flatten()
+                                    })
                                         .await
                                         .ok()
                                         .flatten(),
