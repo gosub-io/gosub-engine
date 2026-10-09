@@ -162,6 +162,23 @@ fn a_dead_cookie_vault_is_respawned_with_its_zones() {
     }
 }
 
+/// A network process that dies is respawned on the next request, and given
+/// a new line to the same vault: the cookie it held still reaches that request.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dead_network_process_is_respawned_with_its_vault_line() {
+    let out = Command::new(harness())
+        .args(["engine-cookie-vault", "net-respawn"])
+        .output()
+        .expect("spawn isolation-harness");
+    assert!(
+        out.status.success(),
+        "net-respawn failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// With the vault and the network process on, a cookie a page sets reaches the
 /// page's next request without the engine process ever attaching it.
 #[cfg(target_os = "linux")]

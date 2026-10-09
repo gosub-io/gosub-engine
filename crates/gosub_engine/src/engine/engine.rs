@@ -596,6 +596,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.io_handle.as_ref()?.audit_net().await
     }
 
+    /// The network process's pid; `None` when networking is in-process
+    /// (tools and tests).
+    #[cfg(feature = "process-isolation")]
+    pub async fn net_process_pid(&self) -> Option<u32> {
+        self.io_handle.as_ref()?.net_pid().await
+    }
+
     /// The cookie vault, when one runs (tools and tests).
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn cookie_vault(&self) -> Option<&Arc<crate::cookie_vault::client::CookieVault>> {

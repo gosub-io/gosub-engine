@@ -183,6 +183,9 @@ pub(crate) enum IoCommand {
     AuditNet {
         reply_tx: oneshot::Sender<Option<gosub_sandbox::audit::AuditReport>>,
     },
+    /// The network process's pid, when there is one (tools and tests).
+    #[cfg(feature = "process-isolation")]
+    NetPid { reply_tx: oneshot::Sender<Option<u32>> },
 }
 
 /// Which picker an input opens; the `type` attribute, for the six types the engine does not
