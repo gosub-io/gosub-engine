@@ -315,7 +315,7 @@ fn store(
     let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
     let mut headers = http::HeaderMap::new();
     for value in set_cookie {
-        if let Ok(value) = http::HeaderValue::from_str(&value) {
+        if let Ok(value) = http::HeaderValue::from_bytes(value.as_bytes()) {
             headers.append(http::header::SET_COOKIE, value);
         }
     }
@@ -348,4 +348,44 @@ fn mutate(
         eprintln!("[vault] zone {zone}: jar snapshot not sent, its cookies are not being persisted: {e}");
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::process::protocol::SameSite;
+
+    /// A cookie the network process sends as UTF-8 is recorded as such, and
+    /// `Stored` means the jar holds it; a zone that is not open stores nothing.
+    #[test]
+    fn a_non_ascii_cookie_is_stored() {
+        let jars: Jars = Arc::new(Mutex::new(HashMap::new()));
+        jars.lock().insert("z".into(), DefaultCookieJar::default());
+        let (ours, _broker) = gosub_ipc::local_pair();
+        let snapshots = Arc::new(Mutex::new(ours.split().0));
+        let scope = CookieScope {
+            ticket: 0,
+            url: "https://site.test/".into(),
+            zone: "z".into(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        let set_cookie = vec!["name=h\u{e9}llo; Path=/".to_string()];
+        assert!(store(
+            &jars,
+            &snapshots,
+            &scope,
+            "https://site.test/",
+            set_cookie.clone()
+        ));
+        let url = Url::parse("https://site.test/").unwrap();
+        let header = jars.lock()["z"].get_request_cookies(&url, None, SameSite::SameSite.into());
+        assert_eq!(header.as_deref(), Some("name=h\u{e9}llo"));
+
+        let closed = CookieScope {
+            zone: "closed".into(),
+            ..scope
+        };
+        assert!(!store(&jars, &snapshots, &closed, "https://site.test/", set_cookie));
+    }
 }
