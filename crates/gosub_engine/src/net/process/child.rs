@@ -279,9 +279,22 @@ fn share_large_body(
     };
     // A write error means the broker went away; the recv loop ends the process.
     if link_tx.send(&head).is_ok() {
-        let _ = link_tx.send_fd(std::os::fd::AsRawFd::as_raw_fd(&fd));
+        if let Err(e) = link_tx.send_fd(std::os::fd::AsRawFd::as_raw_fd(&fd)) {
+            fd_never_followed(&e);
+        }
     }
     None
+}
+
+/// A head that announced an fd went out and the fd did not. The broker's reader
+/// now waits for an fd that will never come, then reads the next frame as one,
+/// and no later message puts the link back in step. Closing this end does not
+/// close the link (the recv loop holds the socket too), so the process ends:
+/// the broker sees the link close and fails what was in flight.
+#[cfg(target_os = "linux")]
+fn fd_never_followed(e: &std::io::Error) -> ! {
+    eprintln!("[net] an fd announced to the broker could not be sent ({e}); the link is out of step, exiting");
+    std::process::exit(1)
 }
 
 /// No memfd to share a body through: every outcome goes as it is, and one past
