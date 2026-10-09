@@ -3069,6 +3069,65 @@ mod rendertree_from_engine {
         // max-height 80px, less 10px of padding under border-box: a 70px content box.
         assert!((b.height - 35.0).abs() < 0.5, "50% of a 70px content box, got {b:?}");
     }
+
+    /// The items on a line share a baseline (CSS 2 §10.8.1). An inline-block's is the baseline of
+    /// its last line box, so text after a three-line box sits level with its last line. Every
+    /// item used to sit at the top of the line instead, which put "after" level with "one".
+    #[test]
+    fn text_after_an_inline_block_sits_on_its_last_line() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div>before <span id="ib" style="display: inline-block">one<br>two<br>three</span> <span id="after">after</span></div>
+        </body></html>"#;
+        let [ib, after] = border_boxes(html, &["ib", "after"])[..] else {
+            unreachable!()
+        };
+        // Same font throughout, so equal baselines mean equal bottoms.
+        assert!(
+            (after.y + after.height - (ib.y + ib.height)).abs() < 1.0,
+            "\"after\" ends where the box's last line does, got {after:?} beside {ib:?}"
+        );
+        assert!(
+            ib.y.abs() < 1.0,
+            "the box itself is the tallest thing on the line, got {ib:?}"
+        );
+    }
+
+    /// An inline-block with no line boxes has its bottom margin edge as its baseline, so text
+    /// beside an empty 50px box sits on the box's bottom - unless the box asks for `top`.
+    #[test]
+    fn an_empty_inline_block_puts_its_baseline_at_its_bottom() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span id="box" style="display: inline-block; width: 20px; height: 50px"></span><span id="t">text</span></div>
+          <div><span id="top" style="display: inline-block; width: 20px; height: 50px; vertical-align: top"></span><span id="t2">text</span></div>
+        </body></html>"#;
+        let [boxed, t, top, t2] = border_boxes(html, &["box", "t", "top", "t2"])[..] else {
+            unreachable!()
+        };
+        assert!(boxed.y.abs() < 0.5, "the box sets the line's top, got {boxed:?}");
+        assert!(
+            t.y > boxed.y + 25.0 && t.y + t.height > boxed.y + boxed.height,
+            "the text sits on the box's bottom edge, its descent below it, got {t:?} beside {boxed:?}"
+        );
+        assert!(
+            (t2.y - top.y).abs() < 0.5,
+            "vertical-align: top is not baseline-aligned, got {t2:?} beside {top:?}"
+        );
+    }
+
+    /// A larger font on the same line moves the smaller text down to share its baseline.
+    #[test]
+    fn mixed_font_sizes_share_a_baseline() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div><span id="small">small</span> <span id="big" style="font-size: 40px">big</span></div>
+        </body></html>"#;
+        let [small, big] = border_boxes(html, &["small", "big"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            small.y > big.y + 10.0,
+            "the small text drops to the big text's baseline, got {small:?} beside {big:?}"
+        );
+    }
 }
 
 #[cfg(test)]
