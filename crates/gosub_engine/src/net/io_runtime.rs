@@ -466,7 +466,8 @@ fn dispatch_to_net_process(
                 .unwrap_or_default();
             if answered && !unexplained.is_empty() {
                 log::error!(
-                    "the network process used a cookie ticket at {unexplained:?}, which no redirect it reported                      explains; killing it"
+                    "the network process used a cookie ticket at {unexplained:?}, which no redirect it \
+                     reported explains; killing it"
                 );
                 net.condemn();
             }
