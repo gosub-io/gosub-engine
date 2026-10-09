@@ -14,6 +14,44 @@
 // no-panic rule still governs everything the engine itself links.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+/// Clear `CAP_SYS_PTRACE` from this process's *effective* set, so a probe run as
+/// root (a privileged container, CI as root) attaches the way a compromised
+/// sibling would: a tracer holding the capability is let past the dumpable
+/// check, which would make `no-ptrace` fail on the very hosts it matters least.
+/// The permitted set is left alone - commoncap requires the tracer's permitted
+/// set to cover the tracee's, and dropping it there would refuse the unprotected
+/// control too, for a reason that has nothing to do with the dumpable flag.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+fn drop_effective_ptrace_capability() {
+    #[repr(C)]
+    struct CapHeader {
+        version: u32,
+        pid: libc::c_int,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct CapData {
+        effective: u32,
+        permitted: u32,
+        inheritable: u32,
+    }
+    const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+    const CAP_SYS_PTRACE: u32 = 19;
+
+    let mut header = CapHeader {
+        version: LINUX_CAPABILITY_VERSION_3,
+        pid: 0,
+    };
+    let mut data = [CapData::default(); 2];
+    // SAFETY: a v3 header and the two data words v3 reads and writes.
+    let rc = unsafe { libc::syscall(libc::SYS_capget, &mut header, data.as_mut_ptr()) };
+    assert_eq!(rc, 0, "capget: {}", std::io::Error::last_os_error());
+    data[0].effective &= !(1 << CAP_SYS_PTRACE);
+    // SAFETY: as above; only ever lowers the effective set.
+    let rc = unsafe { libc::syscall(libc::SYS_capset, &mut header, data.as_ptr()) };
+    assert_eq!(rc, 0, "capset: {}", std::io::Error::last_os_error());
+}
+
 /// Fork a child that optionally marks itself non-dumpable, then try to
 /// `PTRACE_ATTACH` to it from here (its parent, so Yama permits the attempt).
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
@@ -1052,6 +1090,7 @@ fn run_platform_probe(probe: &str) {
         // descendants, so a child attaching to its parent would fail for
         // reasons that have nothing to do with the dumpable flag and the test
         // would pass vacuously.
+        drop_effective_ptrace_capability();
         assert!(
             attach_refused(false).is_none(),
             "control: an unprotected child should be traceable"

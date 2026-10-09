@@ -194,9 +194,15 @@ mod runner {
 
     /// Fork, and have the child exit at once. Not reaped here: `wait4` is not on
     /// every allowlist, and a zombie until this process ends is no harm.
+    ///
+    /// A raw `clone(SIGCHLD)` rather than `libc::fork()`: glibc 2.41+ blocks
+    /// every signal around its `clone`, so a trapped fork there dies of a
+    /// blocked SIGSYS instead of reaching `audit_sigsys`. The flags are the
+    /// plain fork the filter judges either way.
     fn try_fork() -> Outcome {
-        // SAFETY: the child does nothing but `_exit`.
-        let pid = unsafe { libc::fork() };
+        // SAFETY: the child does nothing but `_exit`; every other argument is 0
+        // (no new stack, no TID pointers, no TLS), so their order per arch is moot.
+        let pid = unsafe { libc::syscall(libc::SYS_clone, libc::SIGCHLD as libc::c_long, 0, 0, 0, 0) };
         if pid < 0 {
             return Outcome::Errno(errno());
         }
