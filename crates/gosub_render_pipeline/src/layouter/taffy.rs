@@ -25,7 +25,8 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    ComputedStyle, Display as CssDisplay, LineHeight, TextAlign, TextTransform as CssTextTransform, WhiteSpace,
+    ComputedStyle, Display as CssDisplay, LineHeight, Overflow as CssOverflow, TextAlign,
+    TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
 };
 use gosub_interface::used;
 use parking_lot::{Mutex, RwLock};
@@ -368,6 +369,16 @@ pub struct TaffyLayouter {
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
+    /// Items pushed down to share their line's baseline: the item's own CSS `margin-top`, and
+    /// the shift added to it. Kept with the taffy tree, so a relayout of the same tree starts
+    /// from the CSS margin rather than stacking a second shift on the first.
+    baseline_shifts: HashMap<TaffyNodeId, (f32, f32)>,
+    /// First-line ascent (half-leading included) and line height per font, for baselines.
+    font_metrics: HashMap<FontMetricsKey, (f32, f32)>,
+    /// The line boxes and DOM nodes of the whole taffy tree, for baseline alignment. Built on
+    /// its first run for a tree rather than on every run: a table relays out each of its cells,
+    /// and rebuilding both per cell would cost the whole document every time.
+    baseline_index: Option<BaselineIndex>,
     /// Line items whose percentage height resolves against the block the line is in, with the
     /// line box they sit in and the fraction: resolved once the tree is built, since a line inside
     /// an inline box only finds its block then. See [`TaffyLayouter::resolve_line_percent_heights`].
@@ -375,6 +386,27 @@ pub struct TaffyLayouter {
     /// The anonymous line boxes and the non-replaced inline boxes: what a line item's percentage
     /// basis is looked up through, since neither is a containing block.
     inline_level: std::collections::HashSet<TaffyNodeId>,
+}
+
+/// family, size, weight and line-height, the inputs that set a font's line metrics.
+type FontMetricsKey = (String, u32, i32, u32);
+
+/// An item on a line and its baseline below the line's top, `None` when it takes no part.
+type ItemBaseline = (TaffyNodeId, Option<f32>);
+
+/// The parts of [`BaselineCtx`] that depend on the tree alone, not on the run.
+struct BaselineIndex {
+    line_boxes: std::collections::HashSet<TaffyNodeId>,
+    dom_of: HashMap<TaffyNodeId, DomNodeId>,
+}
+
+/// What baseline alignment reads besides the taffy tree.
+struct BaselineCtx<'a> {
+    /// The anonymous containers that are line boxes.
+    line_boxes: &'a std::collections::HashSet<TaffyNodeId>,
+    /// The DOM node behind each taffy node that has one, for its computed style.
+    dom_of: &'a HashMap<TaffyNodeId, DomNodeId>,
+    doc: &'a dyn PipelineDocument,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -506,6 +538,9 @@ impl TaffyLayouter {
             dom_to_layout_mapping: HashMap::new(),
             float_insets: HashMap::new(),
             abspos_insets: HashMap::new(),
+            baseline_shifts: HashMap::new(),
+            font_metrics: HashMap::new(),
+            baseline_index: None,
             percent_line_items: HashMap::new(),
             inline_level: std::collections::HashSet::new(),
         }
@@ -725,29 +760,11 @@ impl TaffyLayouter {
             None => Size::MAX_CONTENT,
         };
 
-        // Clone the Arc and take the measure cache so the closure can capture them
-        // without holding a borrow of `self` while `self.tree` is mutably borrowed.
-        let font_system = Arc::clone(&self.font_system);
-        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
-
-        if let Err(e) =
-            self.tree
-                .compute_layout_with_measure(self.root_id, size, |inputs, _node_id, node_context, style| {
-                    taffy::compute_leaf_layout(
-                        inputs,
-                        style,
-                        |_, basis| basis,
-                        |known, available| {
-                            measure_node(&font_system, &mut measure_cache, known, available, node_context)
-                        },
-                    )
-                })
-        {
+        if let Err(e) = self.compute_taffy(self.root_id, size) {
             log::error!("Failed to compute taffy layout: {:?}", e);
-            self.measure_cache = measure_cache;
             return (Vec::new(), HashMap::new());
         }
-        self.measure_cache = measure_cache;
+        self.align_baselines(layout_tree, self.root_id, size);
 
         // Convert to the box-model tree so the rest of the pipeline is layout-engine agnostic.
         let root_id = layout_tree.root_id;
@@ -776,6 +793,300 @@ impl TaffyLayouter {
         let stretched = post_process_abspos(layout_tree, icb);
 
         (placed, stretched)
+    }
+
+    /// Run taffy over the subtree at `node`, measuring leaves through the shared font system.
+    fn compute_taffy(&mut self, node: TaffyNodeId, size: Size<AvailableSpace>) -> Result<(), taffy::TaffyError> {
+        // Clone the Arc and take the measure cache so the closure can capture them
+        // without holding a borrow of `self` while `self.tree` is mutably borrowed.
+        let font_system = Arc::clone(&self.font_system);
+        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
+        let result = self
+            .tree
+            .compute_layout_with_measure(node, size, |inputs, _node_id, node_context, style| {
+                taffy::compute_leaf_layout(
+                    inputs,
+                    style,
+                    |_, basis| basis,
+                    |known, available| measure_node(&font_system, &mut measure_cache, known, available, node_context),
+                )
+            });
+        self.measure_cache = measure_cache;
+        result
+    }
+
+    /// Put the items of every line box under `root` on a shared baseline (CSS 2 §10.8.1).
+    ///
+    /// Taffy cannot do this itself: a measured leaf - all of our text - reports no baseline, and
+    /// block layout reports only a first one, where an inline-block's is its *last* line's. So the
+    /// baselines are read off the laid-out tree here, each item that sits too high is pushed down
+    /// with extra `margin-top`, and taffy runs again; the line box grows to fit, as CSS's would.
+    /// A line whose items already agree - one font, no boxes - changes nothing and costs no rerun.
+    /// Nested inline-blocks settle one level per round, so the rounds are capped.
+    ///
+    /// `vertical-align: top | bottom | middle | text-top | text-bottom` items are left where taffy
+    /// put them, at the line's top; lengths, percentages, `sub` and `super` are treated as
+    /// `baseline`.
+    fn align_baselines(&mut self, layout_tree: &LayoutTree, root: TaffyNodeId, size: Size<AvailableSpace>) {
+        let index = self.baseline_index.take().unwrap_or_else(|| BaselineIndex {
+            line_boxes: self.anon_container_map.values().copied().collect(),
+            dom_of: self
+                .layout_taffy_mapping
+                .iter()
+                .filter_map(|(layout_id, taffy_id)| Some((*taffy_id, layout_tree.arena.get(layout_id)?.dom_node_id)))
+                .collect(),
+        });
+        let mut lines = Vec::new();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if index.line_boxes.contains(&node) {
+                lines.push(node);
+            }
+            stack.extend(self.tree.children(node).unwrap_or_default());
+        }
+        if !lines.is_empty() {
+            self.align_lines(layout_tree, &index, &lines, root, size);
+        }
+        self.baseline_index = Some(index);
+    }
+
+    /// The rounds of [`Self::align_baselines`] over `lines`, the line boxes under `root`.
+    fn align_lines(
+        &mut self,
+        layout_tree: &LayoutTree,
+        index: &BaselineIndex,
+        lines: &[TaffyNodeId],
+        root: TaffyNodeId,
+        size: Size<AvailableSpace>,
+    ) {
+        const MAX_ROUNDS: usize = 4;
+
+        let ctx = BaselineCtx {
+            line_boxes: &index.line_boxes,
+            dom_of: &index.dom_of,
+            doc: &*layout_tree.render_tree.doc,
+        };
+
+        for _ in 0..MAX_ROUNDS {
+            let mut changed = false;
+            for line in lines {
+                for (item, shift) in self.line_shifts(&ctx, *line) {
+                    changed |= self.shift_item(item, shift);
+                }
+            }
+            if !changed {
+                break;
+            }
+            if let Err(e) = self.compute_taffy(root, size) {
+                log::warn!("Failed to lay out again after baseline alignment: {:?}", e);
+                break;
+            }
+        }
+    }
+
+    /// How far down each item of `line` has to move for its row to share one baseline: zero for
+    /// the item whose baseline is lowest, and for items that take no part.
+    fn line_shifts(&mut self, ctx: &BaselineCtx<'_>, line: TaffyNodeId) -> Vec<(TaffyNodeId, f32)> {
+        // Every item is aligned flex-start, so its margin box starts at its row's top; that is
+        // how the wrapped rows - which taffy does not expose - are told apart.
+        // Each row: its top, then its items with their baselines from that top.
+        let mut rows: Vec<(f32, Vec<ItemBaseline>)> = Vec::new();
+        for item in self.tree.children(line).unwrap_or_default() {
+            if self.tree.style(item).is_ok_and(|s| s.position == Position::Absolute) {
+                continue;
+            }
+            let Ok(layout) = self.tree.layout(item).copied() else {
+                continue;
+            };
+            let css_margin_top = self
+                .baseline_shifts
+                .get(&item)
+                .map_or(layout.margin.top, |(css, _)| *css);
+            let baseline = self.item_baseline(ctx, item).map(|b| css_margin_top + b);
+            let top = layout.location.y - layout.margin.top;
+            match rows.iter_mut().find(|(row_top, _)| (row_top - top).abs() < 0.5) {
+                Some((_, items)) => items.push((item, baseline)),
+                None => rows.push((top, vec![(item, baseline)])),
+            }
+        }
+
+        let mut shifts = Vec::new();
+        for (_, items) in rows {
+            let line_baseline = items.iter().filter_map(|(_, b)| *b).fold(f32::MIN, f32::max);
+            shifts.extend(
+                items
+                    .into_iter()
+                    .map(|(item, b)| (item, b.map_or(0.0, |b| line_baseline - b))),
+            );
+        }
+        shifts
+    }
+
+    /// Give `item` `shift` px of extra top margin. Returns whether that changed anything.
+    fn shift_item(&mut self, item: TaffyNodeId, shift: f32) -> bool {
+        let current = self.baseline_shifts.get(&item).copied();
+        if (shift - current.map_or(0.0, |(_, s)| s)).abs() < 0.25 {
+            return false;
+        }
+        let Ok(style) = self.tree.style(item) else {
+            return false;
+        };
+        let mut style = style.clone();
+        // An `auto` or percentage margin cannot simply be added to; leave such items be.
+        let Some(css_margin_top) = current.map(|(css, _)| css).or(lpa_length(style.margin.top)) else {
+            return false;
+        };
+        style.margin.top = LengthPercentageAuto::length(css_margin_top + shift);
+        if self.tree.set_style(item, style).is_err() {
+            return false;
+        }
+        self.baseline_shifts.insert(item, (css_margin_top, shift));
+        true
+    }
+
+    /// Where `item`'s baseline is, down from its border-box top, as an item on a line - or `None`
+    /// when it takes no part in baseline alignment.
+    fn item_baseline(&mut self, ctx: &BaselineCtx<'_>, item: TaffyNodeId) -> Option<f32> {
+        let layout = *self.tree.layout(item).ok()?;
+        // The bottom margin edge: the baseline of a replaced box, or of a box with no line in it.
+        let bottom = layout.size.height + layout.margin.bottom;
+        let style = ctx.dom_of.get(&item).map(|dom| ctx.doc.computed_style(*dom));
+        if let Some(style) = &style {
+            if style.has(gosub_interface::style::Prop::VerticalAlign)
+                && matches!(
+                    style.box_group.vertical_align,
+                    CssVerticalAlign::Top
+                        | CssVerticalAlign::Bottom
+                        | CssVerticalAlign::Middle
+                        | CssVerticalAlign::TextTop
+                        | CssVerticalAlign::TextBottom
+                )
+            {
+                return None;
+            }
+        }
+
+        match self.tree.get_node_context(item).cloned() {
+            Some(TaffyContext::Text(text)) => Some(self.font_metrics(&text.font_info).0),
+            Some(TaffyContext::Image(_) | TaffyContext::Svg(_)) => Some(bottom),
+            // A control that shows a line of text keeps it centred; its baseline is that text's.
+            Some(TaffyContext::FormControl(control)) => match control.control {
+                FormControl::TextField { multiline: false, .. }
+                | FormControl::Button { .. }
+                | FormControl::Select { .. } => {
+                    let (ascent, line_height) = self.font_metrics(&control.font_info);
+                    Some((layout.size.height - line_height) / 2.0 + ascent)
+                }
+                _ => Some(bottom),
+            },
+            None => {
+                let style = style?;
+                match style.box_group.display {
+                    CssDisplay::InlineBlock => {
+                        // CSS 2 §10.8.1: the last line box's baseline, unless the box clips.
+                        let clips = style.box_group.overflow_x != CssOverflow::Visible
+                            || style.box_group.overflow_y != CssOverflow::Visible;
+                        if clips {
+                            Some(bottom)
+                        } else {
+                            Some(self.node_baseline(ctx, item, true).unwrap_or(bottom))
+                        }
+                    }
+                    // A table's baseline is its first row's, a flex or grid container's its
+                    // first line's.
+                    CssDisplay::InlineTable | CssDisplay::Table | CssDisplay::InlineFlex | CssDisplay::InlineGrid => {
+                        Some(self.node_baseline(ctx, item, false).unwrap_or(bottom))
+                    }
+                    // An inline box: its first line. An empty one has none and takes no part.
+                    _ => self.node_baseline(ctx, item, false),
+                }
+            }
+        }
+    }
+
+    /// The first (or `last`) baseline inside `node`, down from its border-box top.
+    fn node_baseline(&mut self, ctx: &BaselineCtx<'_>, node: TaffyNodeId, last: bool) -> Option<f32> {
+        if ctx.line_boxes.contains(&node) {
+            // The line's first or last row: the one with the smallest or largest top.
+            let mut rows: Vec<(f32, f32)> = Vec::new();
+            for item in self.tree.children(node).unwrap_or_default() {
+                if self.tree.style(item).is_ok_and(|s| s.position == Position::Absolute) {
+                    continue;
+                }
+                let Ok(layout) = self.tree.layout(item).copied() else {
+                    continue;
+                };
+                let Some(baseline) = self.item_baseline(ctx, item) else {
+                    continue;
+                };
+                let top = layout.location.y - layout.margin.top;
+                let baseline = layout.location.y + baseline;
+                match rows.iter_mut().find(|(row_top, _)| (row_top - top).abs() < 0.5) {
+                    Some((_, row_baseline)) => *row_baseline = row_baseline.max(baseline),
+                    None => rows.push((top, baseline)),
+                }
+            }
+            let pick = |a: &&(f32, f32), b: &&(f32, f32)| a.0.total_cmp(&b.0);
+            let row = if last {
+                rows.iter().max_by(pick)
+            } else {
+                rows.iter().min_by(pick)
+            };
+            return row.map(|(_, baseline)| *baseline);
+        }
+
+        match self.tree.get_node_context(node).cloned() {
+            Some(TaffyContext::Text(text)) => {
+                let (ascent, line_height) = self.font_metrics(&text.font_info);
+                let height = self.tree.layout(node).ok()?.size.height;
+                Some(if last { height - line_height + ascent } else { ascent })
+            }
+            Some(_) => None,
+            None => {
+                let mut children = self.tree.children(node).unwrap_or_default();
+                if last {
+                    children.reverse();
+                }
+                for child in children {
+                    if self.tree.style(child).is_ok_and(|s| s.position == Position::Absolute) {
+                        continue;
+                    }
+                    if let Some(baseline) = self.node_baseline(ctx, child, last) {
+                        return Some(self.tree.layout(child).ok()?.location.y + baseline);
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// `font_info`'s first-line ascent, half-leading included, and its line height.
+    fn font_metrics(&mut self, font_info: &FontInfo) -> (f32, f32) {
+        let key = (
+            font_info.family.clone(),
+            (font_info.size as f32).to_bits(),
+            font_info.weight,
+            font_info.line_height.map_or(u32::MAX, |v| (v as f32).to_bits()),
+        );
+        if let Some(metrics) = self.font_metrics.get(&key) {
+            return *metrics;
+        }
+        let style = gosub_interface::font_system::TextStyle {
+            family: font_info.family.clone(),
+            size: font_info.size as f32,
+            weight: gosub_interface::font_system::FontWeight(font_info.weight.clamp(1, 1000) as u16),
+            style: gosub_interface::font::FontStyle::Normal,
+            stretch: gosub_interface::font_system::FontStretch::NORMAL,
+            line_height: font_info.line_height.map(|v| v as f32),
+            letter_spacing: 0.0,
+            max_width: None,
+            align: gosub_interface::font_system::TextAlign::Start,
+            display_scale: 1.0,
+        };
+        let shaped = self.font_system.lock().shape("x", &style);
+        let metrics = (shaped.ascent, shaped.line_height);
+        self.font_metrics.insert(key, metrics);
+        metrics
     }
 
     pub(super) fn dom_to_layout_mapping(&self) -> &HashMap<DomNodeId, LayoutElementId> {
@@ -819,26 +1130,11 @@ impl TaffyLayouter {
     pub(super) fn measure_max_content_width(&mut self, cell_layout_id: LayoutElementId) -> Option<f32> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
 
-        let font_system = Arc::clone(&self.font_system);
-        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
         let size = Size {
             width: AvailableSpace::MaxContent,
             height: AvailableSpace::MaxContent,
         };
-        let computed =
-            self.tree
-                .compute_layout_with_measure(taffy_id, size, |inputs, _node_id, node_context, style| {
-                    taffy::compute_leaf_layout(
-                        inputs,
-                        style,
-                        |_, basis| basis,
-                        |known, available| {
-                            measure_node(&font_system, &mut measure_cache, known, available, node_context)
-                        },
-                    )
-                });
-        self.measure_cache = measure_cache;
-        if computed.is_err() {
+        if self.compute_taffy(taffy_id, size).is_err() {
             return None;
         }
         Some(self.tree.layout(taffy_id).map(|l| l.size.width).unwrap_or(0.0))
@@ -900,29 +1196,17 @@ impl TaffyLayouter {
             .get_node_by_id(cell_layout_id)
             .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))?;
 
-        // Same borrow dance as `layout()`: the closure must not capture `self`
-        // while `self.tree` is mutably borrowed by the compute call.
-        let font_system = Arc::clone(&self.font_system);
-        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
         let size = Size {
             width: AvailableSpace::Definite(border_box_width),
             height: AvailableSpace::MaxContent,
         };
-        let result = self
-            .tree
-            .compute_layout_with_measure(taffy_id, size, |inputs, _node_id, node_context, style| {
-                taffy::compute_leaf_layout(
-                    inputs,
-                    style,
-                    |_, basis| basis,
-                    |known, available| measure_node(&font_system, &mut measure_cache, known, available, node_context),
-                )
-            });
-        self.measure_cache = measure_cache;
-        if let Err(e) = result {
+        if let Err(e) = self.compute_taffy(taffy_id, size) {
             log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
             return None;
         }
+        // The cell's lines wrap at its new width, so their rows - and the baselines shared
+        // along them - are not the ones the full layout aligned.
+        self.align_baselines(layout_tree, taffy_id, size);
 
         // The cell is the computation root, so its taffy location is meaningless
         // here; cancel it out so the subtree stays anchored at the cell's
@@ -1020,6 +1304,8 @@ impl TaffyLayouter {
 
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.measure_cache.clear();
+        // A font registered since the last tree changes metrics as well as widths.
+        self.font_metrics.clear();
         self.tree = SendTaffyTree(TaffyTree::new());
         // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
         // text containers to lose sub-pixel width (e.g. 52.344 -> 52.0). This makes pango
@@ -1031,6 +1317,8 @@ impl TaffyLayouter {
         self.layout_taffy_mapping.clear();
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
+        self.baseline_shifts.clear();
+        self.baseline_index = None;
         self.percent_line_items.clear();
         self.inline_level.clear();
 
@@ -1437,6 +1725,10 @@ impl TaffyLayouter {
             // The block's `text-align`: positions runs that don't fill the line box.
             justify_content: line_style.justify,
             align_self: (!line_style.cell_aligned).then_some(AlignSelf::FLEX_START),
+            // Each item keeps its own height at the top of its row, where baseline alignment
+            // (`align_baselines`) moves it down from. The default, stretch, made every inline
+            // box as tall as the tallest thing on its line, background and all.
+            align_items: Some(AlignItems::FLEX_START),
             // FlexStart ensures multi-row intrinsic height = sum of all row heights.
             // Taffy's default (None = Stretch) fails to include wrapped rows in the
             // container's auto height, causing rows beyond the first to overflow.
