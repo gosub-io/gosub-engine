@@ -1188,7 +1188,15 @@ mod tests {
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.tab_builder().create().await.expect("tab");
 
-        tab.navigate("http://127.0.0.1:9/nope").await.expect("navigate");
+        // A port nothing listens on, and not a bad port (Fetch §2.9): port 9, which this used,
+        // is one, and gosub-sonar refuses those before connecting from #149 on. Bound, then let go.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .expect("a free port")
+            .port();
+        tab.navigate(format!("http://127.0.0.1:{port}/nope"))
+            .await
+            .expect("navigate");
 
         let error = tokio::time::timeout(Duration::from_secs(10), async {
             loop {

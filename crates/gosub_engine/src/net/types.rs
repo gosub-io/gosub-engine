@@ -38,14 +38,14 @@ pub enum ResourceKind {
 }
 
 impl ResourceKind {
-    /// The `Accept` request-header value a browser sends for this resource kind.
+    /// The `Accept` request-header value a browser sends for this resource kind. Only image types
+    /// the engine decodes are named: a server negotiating formats would otherwise pick one it
+    /// cannot show. No `image/avif` - the raster decoder has no AVIF support.
     pub fn accept_header(self) -> &'static str {
         match self {
-            ResourceKind::Document => {
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-            }
+            ResourceKind::Document => "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             ResourceKind::Stylesheet => "text/css,*/*;q=0.1",
-            ResourceKind::Image => "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            ResourceKind::Image => "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             _ => "*/*",
         }
     }
@@ -404,6 +404,15 @@ mod tests {
                 assert_eq!(&b[..], b"DATA");
             }
             _ => panic!("expected buffered"),
+        }
+    }
+
+    /// No `Accept` header names AVIF: nothing decodes it, so a server that negotiates would send
+    /// an image the engine then fails to show.
+    #[test]
+    fn accept_names_no_format_the_engine_cannot_decode() {
+        for kind in [ResourceKind::Document, ResourceKind::Image] {
+            assert!(!kind.accept_header().contains("image/avif"), "{kind:?}");
         }
     }
 }
