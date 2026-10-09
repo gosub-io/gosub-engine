@@ -756,10 +756,10 @@ impl TaffyLayouter {
     /// untouched (the subsequent `relayout_cell` at the final width rewrites
     /// taffy's internal layout anyway).
     ///
-    /// Min-content is deliberately NOT asked of taffy: an inline-block is a
-    /// non-wrapping flex row here, so taffy's min-content of a cell holding one
-    /// sums every item in it - Wikipedia's comma-separated infobox lists came out
-    /// as one 1100px unbreakable run and the 22em infobox grew past the page.
+    /// Min-content is deliberately NOT asked of taffy: while an inline-block was a
+    /// non-wrapping flex row, taffy's min-content of a cell holding one summed
+    /// every item in it - Wikipedia's comma-separated infobox lists came out as
+    /// one 1100px unbreakable run and the 22em infobox grew past the page.
     /// The widest unbreakable *word* is what min-content means, and
     /// `word_width` measures that through the same shaper.
     /// Ascent of `text`'s first line under `font_info` - the distance from the line-box
@@ -1351,6 +1351,25 @@ impl TaffyLayouter {
         };
         if let Err(e) = self.tree.add_child(leaf_id, taffy_container_id) {
             log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
+        }
+
+        // A percentage height on an inline-level box resolves against its containing block,
+        // which is the block this line is in (CSS 2 §10.5). The line box is ours, not CSS's,
+        // and its auto height would make taffy resolve the percentage against nothing, so turn
+        // it into the length it stands for whenever the block's height is definite.
+        // `<button style="height:100px"><img style="height:100%">` drew no image without this.
+        let block_height = self.tree.style(leaf_id).ok().and_then(definite_content_height);
+        if let Some(block_height) = block_height {
+            for (_, inline_taffy_node_id) in items {
+                let Ok(item) = self.tree.style(*inline_taffy_node_id) else {
+                    continue;
+                };
+                if let taffy::ExpandedDimension::Percent(fraction) = item.size.height.expand() {
+                    let mut item = item.clone();
+                    item.size.height = Dimension::length(fraction * block_height);
+                    let _ = self.tree.set_style(*inline_taffy_node_id, item);
+                }
+            }
         }
 
         for (inline_layout_element_id, inline_taffy_node_id) in items {
@@ -2842,6 +2861,32 @@ fn clamp_replaced_to_max_height(
         width: (limit * iw / ih).min(measured.width),
         height: limit,
     }
+}
+
+/// The content-box height `style` fixes regardless of its content - a length, clamped by any
+/// `min-height`/`max-height` lengths - or `None` when it depends on something else.
+fn definite_content_height(style: &Style) -> Option<f32> {
+    let taffy::ExpandedDimension::Length(mut height) = style.size.height.expand() else {
+        return None;
+    };
+    if let Some(max) = lpa_length(style.max_size.height) {
+        height = height.min(max);
+    }
+    if let Some(min) = lpa_length(style.min_size.height) {
+        height = height.max(min);
+    }
+    if style.box_sizing == BoxSizing::BorderBox {
+        let edge = |value: LengthPercentage| match value.expand() {
+            taffy::ExpandedLengthPercentage::Length(px) => Some(px),
+            _ => None,
+        };
+        let edges = edge(style.padding.top)?
+            + edge(style.padding.bottom)?
+            + edge(style.border.top)?
+            + edge(style.border.bottom)?;
+        height = (height - edges).max(0.0);
+    }
+    Some(height)
 }
 
 /// The length a `min-`/`max-` size holds, or `None` when it is a percentage, `auto` or `calc()`.

@@ -2958,6 +2958,88 @@ mod rendertree_from_engine {
             gosub_interface::style::Color::rgba(195, 199, 203, 255)
         );
     }
+
+    /// Lay `html` out in an 800x600 viewport and return the border box of each element whose
+    /// `id` is in `ids`, in that order.
+    fn border_boxes(html: &str, ids: &[&str]) -> Vec<crate::common::geo::Rect> {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let tree = TaffyLayouter::new().layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        ids.iter()
+            .map(|id| {
+                tree.arena
+                    .values()
+                    .find(|el| {
+                        doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                            crate::common::document::node::NodeType::Element(ref d) => {
+                                d.attributes.get("id").is_some_and(|v| v == id)
+                            }
+                            _ => false,
+                        })
+                    })
+                    .unwrap_or_else(|| panic!("#{id} in the layout tree"))
+                    .box_model
+                    .border_box
+            })
+            .collect()
+    }
+
+    /// An inline-block is a block container inside (CSS Display 3 §2: `inline flow-root`), so
+    /// its block children stack. It was mapped onto a non-wrapping flex row, which put them
+    /// side by side: Beacon's "did you mean" box showed its label, title and address on one line.
+    #[test]
+    fn an_inline_blocks_block_children_stack() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          before <span id="ib" style="display: inline-block; padding: 4px"><div id="a">first line</div><div id="b">second</div></span> after
+        </body></html>"#;
+        let [ib, a, b] = border_boxes(html, &["ib", "a", "b"])[..] else {
+            unreachable!()
+        };
+
+        assert!(
+            b.y >= a.y + a.height - 0.5,
+            "the second block goes under the first, got {a:?} and {b:?}"
+        );
+        assert!(
+            (a.x - b.x).abs() < 0.5,
+            "both start at the content edge, got {a:?} and {b:?}"
+        );
+        // Shrink-to-fit: as wide as the longer child, not the line.
+        assert!(
+            ib.width < 400.0 && (ib.width - (a.width + 8.0)).abs() < 1.0,
+            "the inline-block wraps its widest child, got {ib:?} around {a:?}"
+        );
+        assert!(ib.x > 0.0, "it stays on the line after \"before\", got {ib:?}");
+    }
+
+    /// A percentage height on an inline-level box resolves against the block it sits in, through
+    /// the anonymous line box the layouter puts around it. Taken from WPT
+    /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block
+    /// laid out as a block container first exposed: its children moved into line boxes.
+    #[test]
+    fn a_percentage_height_on_the_line_resolves_against_the_block() {
+        let html = r#"<html><body style="margin: 0">
+          <div id="block" style="height: 100px"><span id="a" style="display: inline-block; width: 50px; height: 100%"></span></div>
+          <div id="ib" style="display: inline-block; height: 200px; max-height: 80px; padding: 5px; box-sizing: border-box"><span id="b" style="display: inline-block; width: 50px; height: 50%"></span></div>
+        </body></html>"#;
+        let [a, b] = border_boxes(html, &["a", "b"])[..] else {
+            unreachable!()
+        };
+        assert!((a.height - 100.0).abs() < 0.5, "100% of a 100px block, got {a:?}");
+        // max-height 80px, less 10px of padding under border-box: a 70px content box.
+        assert!((b.height - 35.0).abs() < 0.5, "50% of a 70px content box, got {b:?}");
+    }
 }
 
 #[cfg(test)]
