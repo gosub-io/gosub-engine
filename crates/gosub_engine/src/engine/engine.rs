@@ -1176,7 +1176,7 @@ mod tests {
     }
 
     /// A failing navigation must reach the embedder classified, not as a string it has to
-    /// parse. A bound port with no listener refuses connections, so this is a transport failure.
+    /// parse. A port with nothing bound to it refuses connections, so this is a transport failure.
     #[tokio::test(flavor = "current_thread")]
     async fn failed_navigation_reports_a_typed_error() {
         use crate::events::NavigationEvent;
@@ -1189,13 +1189,13 @@ mod tests {
         let tab = zone.tab_builder().create().await.expect("tab");
 
         // A port nothing listens on, and not a bad port (Fetch §2.9): port 9, which this used,
-        // is one, and gosub-sonar refuses those before connecting from #149 on. The socket stays
-        // bound without listening until the failure arrives, so nothing else can take the port.
-        let reserved = tokio::net::TcpSocket::new_v4().expect("a TCP socket");
-        reserved
-            .bind("127.0.0.1:0".parse().expect("a loopback address"))
-            .expect("a free port");
-        let port = reserved.local_addr().expect("the bound address").port();
+        // is one, and gosub-sonar refuses those before connecting from #149 on. Bound, then let
+        // go: keeping it bound without listening is refused on Linux, but macOS drops the SYN and
+        // the connect times out instead.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .expect("a free port")
+            .port();
         tab.navigate(format!("http://127.0.0.1:{port}/nope"))
             .await
             .expect("navigate");
@@ -1222,7 +1222,6 @@ mod tests {
         );
         // And it still prints something a shell can show.
         assert!(!error.to_string().is_empty());
-        drop(reserved);
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
