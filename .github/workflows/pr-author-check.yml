@@ -23,26 +23,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Names and emails are the commit author's own text: never expanded
+          # (no `printf %b`), cut to printable characters, and written under a
+          # delimiter they cannot guess, so none can end the output block and
+          # set another output. Each goes into the comment as inline code, so
+          # an `@name` mentions nobody and markdown stays text.
           MISSING=""
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            name=$(echo "$line" | cut -d';' -f1)
-            email=$(echo "$line" | cut -d';' -f2)
-            if ! grep -Fq "$email" AUTHORS && ! grep -Fq "$name" AUTHORS; then
-              MISSING="$MISSING\n- $name <$email>"
+          while IFS=$'\t' read -r name email; do
+            [ -z "$name$email" ] && continue
+            name=$(printf '%s' "$name" | tr -cd '[:print:]' | tr '`' "'")
+            email=$(printf '%s' "$email" | tr -cd '[:print:]' | tr '`' "'")
+            # An empty string is in every file; it vouches for nobody.
+            if ! { [ -n "$email" ] && grep -Fq -- "$email" AUTHORS; } \
+              && ! { [ -n "$name" ] && grep -Fq -- "$name" AUTHORS; }; then
+              MISSING+="- \`$name <$email>\`"$'\n'
             fi
           done < <(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits \
               --paginate \
-              --jq '.[] | "\(.commit.author.name);\(.commit.author.email)"' \
+              --jq '.[] | [.commit.author.name, .commit.author.email] | @tsv' \
             | grep -v noreply.github.com | sort -u)
 
           if [ -n "$MISSING" ]; then
             echo "missing=true" >> "$GITHUB_OUTPUT"
+            delimiter="authors_$(openssl rand -hex 16)"
             {
-              echo 'missing_authors<<EOF'
-              printf '%b' "$MISSING"
-              echo
-              echo 'EOF'
+              echo "missing_authors<<$delimiter"
+              printf '%s' "$MISSING"
+              echo "$delimiter"
             } >> "$GITHUB_OUTPUT"
           else
             echo "missing=false" >> "$GITHUB_OUTPUT"
