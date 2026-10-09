@@ -75,9 +75,10 @@ a renderer.
   (high, DoS; also on the in-process path). `<img src="file:///dev/zero">`
   from any local HTML file. The file loader serves regular files, up to
   256 MiB read with a bound, and a directory as a generated listing; a device
-  or a FIFO is refused. The type is a `stat` before the `open`, so a path
-  swapped between the two is opened as it then is: the read stays bounded,
-  and a FIFO swapped in holds the request until its timeout.
+  or a FIFO is refused. The type is checked on the path before the `open`
+  and on the opened file after it, and the open does not block, so a FIFO
+  or device swapped in between is opened, refused and closed without a
+  read.
 - **The broker's own lockdown was never applied** (medium). `lock_down_broker`
   existed in the sandbox crate with no caller in the engine or any example;
   every statement about the broker's Landlock scope held for nobody. It is

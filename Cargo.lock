@@ -3278,6 +3278,7 @@ dependencies = [
  "gosub_shared",
  "http",
  "image",
+ "libc",
  "log",
  "mime",
  "mimetype-detector",
