@@ -46,6 +46,15 @@ impl ResourceLoader for DirectBrokeredLoader {
                 content_type,
                 body: bytes::Bytes::from(body),
             }),
+            ToForkServer::Resource(ResourceReply::Shared {
+                status,
+                content_type,
+                len,
+            }) => Ok(LoadedResource {
+                status,
+                content_type,
+                body: bytes::Bytes::from(crate::fork_server::loader::receive_shared_body(&mut link, len)?),
+            }),
             ToForkServer::Resource(ResourceReply::Pending) => Err(LoadError::Pending),
             ToForkServer::Resource(ResourceReply::Failed(reason)) => Err(LoadError::Failed(reason)),
             other => Err(LoadError::Failed(format!("expected a resource, got {other:?}"))),

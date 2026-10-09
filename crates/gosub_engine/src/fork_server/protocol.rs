@@ -636,6 +636,14 @@ pub enum ResourceReply {
     Failed(String),
     /// A deferred request the broker is still fetching; render without it.
     Pending,
+    /// [`ResourceReply::Ok`] for a body too large for one frame: the body follows
+    /// as a sealed memfd of `len` bytes (`gosub_ipc::shm::create_sealed_blob`), the
+    /// next thing on the link - the tile channel in reverse.
+    Shared {
+        status: u16,
+        content_type: Option<String>,
+        len: u64,
+    },
 }
 
 #[cfg(test)]

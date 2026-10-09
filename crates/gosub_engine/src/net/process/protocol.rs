@@ -310,6 +310,19 @@ pub enum FromNet {
         tag: RequestTag,
         outcome: FetchOutcome,
     },
+    /// A [`FetchOutcome::Ok`] reply whose body is too large for one frame: the
+    /// head here, the body as a sealed memfd of `len` bytes
+    /// (`gosub_ipc::shm::create_sealed_blob`) right behind it. The broker's reader
+    /// makes it the `Ok` it stands for. Linux only, like the ring.
+    SharedReply {
+        tag: RequestTag,
+        status: u16,
+        status_text: String,
+        final_url: String,
+        headers: HeaderList,
+        peer_addr: Option<std::net::SocketAddr>,
+        len: u64,
+    },
     /// Answer to [`ToNet::Audit`]; `None` where the audit cannot run.
     Audit {
         tag: RequestTag,

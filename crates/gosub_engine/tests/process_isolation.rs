@@ -71,8 +71,8 @@ fn a_navigation_through_the_network_process_reports_its_requests() {
     );
 }
 
-/// A body too large for one IPC frame is answered with an error, promptly,
-/// and the network process keeps serving.
+/// A body too large for one IPC frame crosses whole as a sealed memfd on Linux
+/// (and is refused, promptly, elsewhere), and the network process keeps serving.
 #[test]
 fn an_oversized_body_is_refused_without_stalling_the_link() {
     let out = run("oversized");
@@ -702,6 +702,25 @@ fn a_remote_page_titles_its_history_entry() {
     assert!(
         out.status.success(),
         "remote history title failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// An image past the 16 MiB frame cap reaches the confined renderer through a
+/// sealed memfd, read under the renderer's own sandbox, and the renderer lives.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_image_larger_than_a_frame_reaches_the_renderer() {
+    let out = run("engine-renderer-large-image");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "large image through the renderer failed:\n{}\n{}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
