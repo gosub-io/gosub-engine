@@ -74,7 +74,15 @@ pub struct ReportedRequest {
     last_progress: Mutex<Option<std::time::Instant>>,
     /// Whether the progress event that completes the body has been passed on.
     completed: AtomicBool,
+    /// Where the child said the request was redirected, kept apart from the
+    /// event budget: a vault ticket's hops are checked against these, and a
+    /// flood of other events must not push a real redirect out.
+    redirects: Mutex<Vec<String>>,
 }
+
+/// Redirects kept per request for the vault's check: well past any chain a
+/// ticket's claims can cover.
+const MAX_REPORTED_REDIRECTS: usize = 128;
 
 /// Non-terminal events a request may report, progress aside. A redirect hop
 /// costs a handful (resolved, connected, sent, redirected) and there are at
@@ -101,7 +109,13 @@ impl ReportedRequest {
             events: std::sync::atomic::AtomicUsize::new(0),
             last_progress: Mutex::new(None),
             completed: AtomicBool::new(false),
+            redirects: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The redirects the child reported for the request so far.
+    fn redirects(&self) -> Vec<String> {
+        self.redirects.lock().clone()
     }
 
     /// Whether the request has had its last event.
@@ -117,6 +131,12 @@ impl ReportedRequest {
     /// completing one once), at most [`MAX_EVENTS_PER_REQUEST`] others, and a
     /// terminal event that cannot be read still ends the request, as failed.
     fn on_wire(&self, event: NetEventWire) {
+        if let NetEventWire::Redirected { to, .. } = &event {
+            let mut redirects = self.redirects.lock();
+            if !self.is_done() && redirects.len() < MAX_REPORTED_REDIRECTS {
+                redirects.push(to.clone());
+            }
+        }
         let terminal = event.is_terminal();
         if terminal {
             if self.done.swap(true, Ordering::Relaxed) {
@@ -289,6 +309,11 @@ pub struct NetReply {
     /// For a streamed reply whose request is still open: ends it once the body
     /// has, should the child not.
     pub stream_end: Option<StreamEnd>,
+    /// Where the network process reported the request was redirected, in
+    /// order: what a vault ticket's hops are checked against. `None` when the
+    /// child never answered (cancelled, timed out, gone): its redirect events
+    /// may still be on their way then, so the list proves nothing either way.
+    pub redirects: Option<Vec<String>>,
 }
 
 impl NetReply {
@@ -297,6 +322,7 @@ impl NetReply {
             outcome: FetchOutcome::Error(msg.into()),
             ring: None,
             stream_end: None,
+            redirects: None,
         }
     }
 }
@@ -524,6 +550,7 @@ fn start_reader(
                                     outcome,
                                     ring: Some(ring),
                                     stream_end: None,
+                                    redirects: Some(Vec::new()),
                                 },
                                 Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
                             },
@@ -531,6 +558,7 @@ fn start_reader(
                                 outcome,
                                 ring: None,
                                 stream_end: None,
+                                redirects: Some(Vec::new()),
                             },
                         };
                         if let Some(waiter) = waiters.lock().remove(&tag) {
@@ -561,6 +589,7 @@ fn start_reader(
                                 },
                                 ring: None,
                                 stream_end: None,
+                                redirects: Some(Vec::new()),
                             },
                             Err(e) => NetReply::error(format!("shared body did not arrive: {e}")),
                         };
@@ -744,6 +773,12 @@ impl NetProcess {
         log::info!("the network process is back");
     }
 
+    /// The child misbehaved in a way only a compromised one would: end it now.
+    /// Its requests fail, and the next request respawns a fresh one.
+    pub fn condemn(&self) {
+        self.kill();
+    }
+
     /// End the current child at once and reap it.
     fn kill(&self) {
         if let Some(mut child) = self.child.lock().take() {
@@ -798,6 +833,14 @@ impl NetProcess {
         observer: Option<Arc<dyn NetObserver + Send + Sync>>,
     ) -> NetReply {
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
+        // A request under a vault ticket is always followed, observer or not:
+        // its redirects are what the ticket's hops are checked against.
+        let observer = match observer {
+            None if out.cookies.is_some() => {
+                Some(Arc::new(crate::net::emitter::null_emitter::NullEmitter) as Arc<dyn NetObserver + Send + Sync>)
+            }
+            observer => observer,
+        };
         let reported = observer.map(|inner| {
             Arc::new(ReportedRequest::new(
                 inner,
@@ -812,6 +855,9 @@ impl NetProcess {
         }
         let mut reply = self.fetch_tagged(tag, out, cancel).await;
         if let Some(reported) = reported {
+            if let Some(redirects) = reply.redirects.as_mut() {
+                *redirects = reported.redirects();
+            }
             if cancel.is_cancelled() {
                 reported.cancel();
             } else {
@@ -1212,6 +1258,7 @@ mod tests {
             outcome,
             ring: None,
             stream_end: None,
+            redirects: None,
         })
         .unwrap();
         assert_eq!(result.meta().unwrap().peer_addr, Some(peer));
@@ -1232,6 +1279,7 @@ mod tests {
             },
             ring: None,
             stream_end: None,
+            redirects: None,
         };
         let url = "https://site.test/".to_string();
         let failed = |reply: NetReply| match reply.outcome {

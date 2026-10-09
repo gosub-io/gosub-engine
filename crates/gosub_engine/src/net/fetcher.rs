@@ -102,6 +102,9 @@ pub struct EngineNetContext {
     pub event_tx: EventChannel,
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     pub request_ref_tracker: Arc<RequestRefTracker>,
+    /// Each tab's jar and document: what the cookie hooks answer from, hop by
+    /// hop, for the tab a request's reference belongs to.
+    pub tab_identities: Arc<crate::net::tab_identity::TabIdentityRegistry>,
     /// The address space of the documents this fetcher serves subresources
     /// for: anything more private is refused at every hop (see
     /// [`crate::net::ssrf`]). Hostnames are refused by the strict resolver;
@@ -187,6 +190,32 @@ pub(crate) fn observer_for_request(
     observer
 }
 
+impl EngineNetContext {
+    /// The identity of the tab a request's reference belongs to, and whether
+    /// the request is that tab's navigation (only a navigation's own request
+    /// is referenced by it; its subresources reference the document).
+    fn identity_for(
+        &self,
+        reference: gosub_sonar::RequestReference,
+    ) -> Option<(crate::net::tab_identity::TabIdentity, bool)> {
+        let reference = REF_REGISTRY.from_net(reference)?;
+        let tab_id = self.request_reference_map.read().get(&reference).copied()?;
+        let identity = self.tab_identities.get(tab_id)?;
+        let navigation = matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_));
+        Some((identity, navigation))
+    }
+}
+
+/// Run `f`, which may block on a jar that answers over IPC (the vault), from
+/// inside the fetcher's async redirect loop: on a multi-threaded runtime the
+/// worker hands its other tasks off first.
+fn blocking_jar_call<T>(f: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
+        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
+
 impl FetcherContext for EngineNetContext {
     fn observer_for(
         &self,
@@ -217,6 +246,50 @@ impl FetcherContext for EngineNetContext {
             }
             None => true,
         }
+    }
+
+    // Asked at every hop, so a cookie a redirect sets rides on the next one,
+    // and each hop is judged against the tab's document on its own. A chain
+    // that leaves the site and comes back is not remembered here, as the
+    // reference names a document rather than one request: the hop back is
+    // judged same-site.
+    fn cookies_for(&self, reference: gosub_sonar::RequestReference, url: &url::Url) -> Option<String> {
+        let (identity, navigation) = self.identity_for(reference)?;
+        let top_level = identity.top_level.as_ref();
+        let context = crate::engine::cookies::request_context(top_level, url, navigation);
+        blocking_jar_call(|| identity.cookie_jar.read().get_request_cookies(url, top_level, context))
+    }
+
+    // Two requests get the same answers from the hooks when they ask the same
+    // jar from the same document, the same way (a navigation's hops are judged
+    // as one); only then may they share a fetch.
+    fn cookie_jar_key(&self, reference: gosub_sonar::RequestReference) -> String {
+        match self.identity_for(reference) {
+            Some((identity, navigation)) => format!(
+                "{:x} {} {navigation}",
+                identity.cookie_jar.jar_id(),
+                identity.top_level.as_ref().map_or("", |u| u.as_str())
+            ),
+            None => String::new(),
+        }
+    }
+
+    fn on_cookies_received(&self, reference: gosub_sonar::RequestReference, url: &url::Url, values: &[&str]) {
+        let Some((identity, _)) = self.identity_for(reference) else {
+            return;
+        };
+        let mut headers = http::HeaderMap::new();
+        for value in values {
+            if let Ok(value) = http::HeaderValue::from_bytes(value.as_bytes()) {
+                headers.append(http::header::SET_COOKIE, value);
+            }
+        }
+        blocking_jar_call(|| {
+            identity
+                .cookie_jar
+                .write()
+                .store_response_cookies(url, &headers, identity.top_level.as_ref())
+        });
     }
 
     fn on_ref_active(&self, reference: gosub_sonar::RequestReference) {

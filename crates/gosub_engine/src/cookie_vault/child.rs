@@ -21,7 +21,7 @@
 //! never through the broker.
 
 use crate::cookie_vault::protocol::{CookieScope, FromVault, Ticket, ToVault};
-use crate::engine::cookies::{CookieJar as _, DefaultCookieJar};
+use crate::engine::cookies::{request_context, CookieJar as _, DefaultCookieJar, SameSiteContext};
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -35,12 +35,40 @@ type Jars = Arc<Mutex<HashMap<String, DefaultCookieJar>>>;
 /// Tickets the broker granted, each for one request of the network process.
 type Grants = Arc<Mutex<HashMap<Ticket, (CookieScope, Instant, Used)>>>;
 
-/// What a ticket was spent on: a request reads its cookies once and stores
-/// its response's once.
+/// What a ticket was spent on: a request reads its cookies and stores its
+/// response's once per redirect hop.
 #[derive(Default)]
 struct Used {
-    get: bool,
-    store: bool,
+    gets: usize,
+    stores: usize,
+    /// The chain's context so far, `None` before the first `Get`: the grant's,
+    /// made stricter by every hop (a chain is only as same-site as its least
+    /// same-site hop).
+    chain: Option<SameSiteContext>,
+    /// Every URL the ticket was used at other than the granted one: hops only
+    /// the network process saw, for the broker to check at revoke against the
+    /// redirects it was told about.
+    hops: Vec<String>,
+}
+
+/// Most `Get`s, and most `Store`s, one ticket buys. A chain at its longest is
+/// 21 hops (20 redirects are followed), a retry runs it again and an
+/// authentication challenge resends a hop; past this the network process is
+/// claiming hops no request makes, and the rest go without cookies.
+const MAX_CLAIMS_PER_TICKET: usize = 64;
+
+/// Whether `hop` is the resource at `granted`: the same URL, the fragment
+/// aside (it never goes on the wire), or its `http` to `https` upgrade, which
+/// HSTS and mixed content make without a redirect.
+fn same_resource(granted: &Url, hop: &Url) -> bool {
+    let mut granted = granted.clone();
+    let mut hop = hop.clone();
+    granted.set_fragment(None);
+    hop.set_fragment(None);
+    if granted == hop {
+        return true;
+    }
+    granted.scheme() == "http" && hop.scheme() == "https" && granted.set_scheme("https").is_ok() && granted == hop
 }
 
 /// Longer than any request may live; a grant the broker never revoked
@@ -116,8 +144,12 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
                     break;
                 }
             }
-            ToVault::Revoke { ticket } => {
-                grants.lock().remove(&ticket);
+            ToVault::Revoke { tag, ticket, redirects } => {
+                let used = grants.lock().remove(&ticket);
+                let unexplained = used.map_or_else(Vec::new, |(_, _, used)| unexplained_hops(used.hops, &redirects));
+                if broker_tx.lock().send(&FromVault::Revoked { tag, unexplained }).is_err() {
+                    break;
+                }
             }
             ToVault::Audit { tag } => {
                 let report = gosub_sandbox::audit::run(gosub_sandbox::audit::Role::Vault, &[]);
@@ -151,6 +183,15 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
     0
 }
 
+/// The hops a ticket was used at that none of the `redirects` the broker was
+/// told about explains.
+fn unexplained_hops(hops: Vec<String>, redirects: &[String]) -> Vec<String> {
+    let reported: Vec<Url> = redirects.iter().filter_map(|r| Url::parse(r).ok()).collect();
+    hops.into_iter()
+        .filter(|hop| Url::parse(hop).map_or(true, |hop| !reported.iter().any(|r| same_resource(r, &hop))))
+        .collect()
+}
+
 /// A new network line: the descriptor follows its message twice, one per
 /// half of the endpoint, since this process may not `dup`.
 fn adopt_net_line(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<Endpoint> {
@@ -164,33 +205,70 @@ fn adopt_net_line(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<Endpoint> {
 
 /// The network process's line: `Get`/`Store` only, each under a granted
 /// ticket, and acted on with the grant's scope - the zone and document the
-/// broker recorded, whatever the message claims. A ticket buys one `Get` at
-/// the URL it was granted for and one `Store` at a web URL. A `Store` still
-/// publishes its snapshot on the broker link, which is where persistence
-/// happens.
+/// broker recorded, whatever the message claims. A ticket buys a `Get` and a
+/// `Store` per redirect hop, at web URLs, up to [`MAX_CLAIMS_PER_TICKET`].
+///
+/// A hop is the network process's word: it alone saw the `Location`. So a
+/// `Get` anywhere but the granted URL is answered in the context the grant's
+/// own document gives that URL, made stricter by the chain so far, never
+/// laxer than the grant: a hop to another site gets `SameSite=None` cookies,
+/// `Lax` too under a navigation, never `Strict` ones. What a false hop can
+/// buy is what the page could have had the broker fetch for it anyway. Every
+/// such URL is kept, and the broker checks them against the redirects it was
+/// told about when it revokes the ticket.
+///
+/// A `Store` still publishes its snapshot on the broker link, which is where
+/// persistence happens.
 fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<EndpointTx>>) {
     let (tx, mut rx) = link.split();
     let tx = Arc::new(Mutex::new(tx));
-    // Spends the ticket's `Get` or `Store`. A refused claim spends nothing.
+    // Spends one of the ticket's `Get`s or `Store`s, and answers with the
+    // scope to act on: the grant's, in the hop's context. A refused claim
+    // spends nothing.
     let claim = |claimed: &CookieScope, url: &str, store: bool| -> Option<CookieScope> {
         let mut grants = grants.lock();
         let (scope, since, used) = grants.get_mut(&claimed.ticket)?;
         if since.elapsed() >= GRANT_TTL {
             return None;
         }
-        if store {
-            let web = Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
-            if used.store || !web {
-                return None;
-            }
-            used.store = true;
-        } else {
-            if used.get || url != scope.url {
-                return None;
-            }
-            used.get = true;
+        let url = Url::parse(url)
+            .ok()
+            .filter(|u| matches!(u.scheme(), "http" | "https"))?;
+        let spent = if store { &mut used.stores } else { &mut used.gets };
+        if *spent >= MAX_CLAIMS_PER_TICKET {
+            return None;
         }
-        Some(scope.clone())
+        *spent += 1;
+        let granted: SameSiteContext = scope.samesite.into();
+        let at_granted = Url::parse(&scope.url).is_ok_and(|g| same_resource(&g, &url));
+        let hop = if at_granted {
+            granted
+        } else {
+            if !used.hops.iter().any(|h| h == url.as_str()) {
+                used.hops.push(url.to_string());
+            }
+            // With no document recorded, the request is the document load,
+            // and the granted URL is the document a hop is judged against: a
+            // missing `top_level` must not make every hop same-site.
+            let top = scope
+                .top_level
+                .as_deref()
+                .and_then(|t| Url::parse(t).ok())
+                .or_else(|| Url::parse(&scope.url).ok());
+            request_context(top.as_ref(), &url, scope.navigation).stricter(granted)
+        };
+        // A store is answered in no context; only what goes out narrows.
+        let chain = if store {
+            used.chain.unwrap_or(granted)
+        } else {
+            let chain = used.chain.map_or(hop, |chain| chain.stricter(hop));
+            used.chain = Some(chain);
+            chain
+        };
+        Some(CookieScope {
+            samesite: chain.into(),
+            ..scope.clone()
+        })
     };
     while let Ok(msg) = rx.recv::<ToVault>() {
         match msg {
@@ -406,6 +484,7 @@ mod tests {
             zone: "z".into(),
             top_level: None,
             samesite: SameSite::SameSite,
+            navigation: false,
         };
         let set_cookie = vec!["name=h\u{e9}llo; Path=/".to_string()];
         assert!(store(
@@ -424,5 +503,32 @@ mod tests {
             ..scope
         };
         assert!(!store(&jars, &snapshots, &closed, "https://site.test/", set_cookie));
+    }
+
+    /// The audit lets through a hop a reported redirect explains, its `https`
+    /// upgrade and a fragment, and names the rest.
+    #[test]
+    fn the_audit_names_only_hops_no_redirect_explains() {
+        let redirects = vec!["http://site.test/next".to_string()];
+        let hops = vec![
+            "http://site.test/next".to_string(),
+            "https://site.test/next".to_string(),
+            "http://site.test/next#part".to_string(),
+            "https://elsewhere.test/".to_string(),
+            "not a url".to_string(),
+        ];
+        assert_eq!(
+            unexplained_hops(hops, &redirects),
+            vec!["https://elsewhere.test/".to_string(), "not a url".to_string()]
+        );
+    }
+
+    /// An upgrade goes one way: an `https` grant does not cover its `http` form.
+    #[test]
+    fn same_resource_covers_the_upgrade_only() {
+        let url = |s: &str| Url::parse(s).unwrap();
+        assert!(same_resource(&url("http://a.test/x"), &url("https://a.test/x")));
+        assert!(!same_resource(&url("https://a.test/x"), &url("http://a.test/x")));
+        assert!(!same_resource(&url("http://a.test/x"), &url("https://a.test/y")));
     }
 }

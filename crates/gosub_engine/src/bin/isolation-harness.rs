@@ -6721,6 +6721,7 @@ fn vault() -> i32 {
             zone: zone.to_string(),
             top_level: None,
             samesite: SameSite::SameSite,
+            navigation: false,
         };
         let visible = vault.get(scope.clone(), &url, true).unwrap_or_default();
         if visible.contains("sid=") || !visible.contains("theme=dark") {
@@ -6795,6 +6796,7 @@ fn vault() -> i32 {
             zone: zone.to_string(),
             top_level: None,
             samesite: SameSite::SameSite,
+            navigation: false,
         };
         if ask(&mut net_link, claimed.clone()).is_some() {
             eprintln!("the network line answered a ticket nobody granted");
@@ -6814,11 +6816,15 @@ fn vault() -> i32 {
             eprintln!("a granted ticket should answer from the grant's zone, got {got:?}");
             return 1;
         }
-        if ask(&mut net_link, claimed.clone()).is_some() {
-            eprintln!("a ticket read cookies twice");
+        // A retry, or a redirect back, reads at the granted URL again.
+        if !ask(&mut net_link, claimed.clone()).is_some_and(|got| got.contains("sid=abc")) {
+            eprintln!("a ticket should read again at its own URL");
             return 1;
         }
-        net_vault.revoke(&claimed);
+        if !net_vault.revoke(&claimed, Vec::new()).is_empty() {
+            eprintln!("a ticket used at its own URL only should leave nothing to explain");
+            return 1;
+        }
 
         // An unspent ticket is dead once revoked.
         let revoked = CookieScope {
@@ -6829,57 +6835,133 @@ fn vault() -> i32 {
             eprintln!("the broker could not grant a ticket");
             return 1;
         }
-        net_vault.revoke(&revoked);
-        // `Revoke` has no answer; a round trip behind it on the same link
-        // means the vault has acted on it before the line asks.
-        let _ = net_vault.get(
-            CookieScope {
-                ticket: 0,
-                ..claimed.clone()
-            },
-            &url,
-            false,
-        );
+        net_vault.revoke(&revoked, Vec::new());
         if ask(&mut net_link, revoked).is_some() {
             eprintln!("the network line answered a revoked ticket");
             return 1;
         }
 
-        // A ticket reads at the URL it was granted for, and stores once.
+        // A redirect hop is the network process's word, so the vault answers
+        // it in the context the grant's own document gives it, never laxer.
+        let Ok(other_site) = url::Url::parse("https://other.test/") else {
+            eprintln!("bad URL");
+            return 1;
+        };
+        net_jar.store_response_cookies(
+            &other_site,
+            &set_cookie(&[
+                "strict=1; SameSite=Strict; Secure; Path=/",
+                "lax=1; SameSite=Lax; Secure; Path=/",
+                "none=1; SameSite=None; Secure; Path=/",
+            ]),
+            None,
+        );
+        let in_document = CookieScope {
+            top_level: Some(url.to_string()),
+            ..claimed.clone()
+        };
         let bound = CookieScope {
             ticket: 616161,
-            ..claimed.clone()
+            ..in_document.clone()
         };
         if !net_vault.grant(&bound) {
             eprintln!("the broker could not grant a ticket");
             return 1;
         }
-        if ask_at(&mut net_link, bound.clone(), "https://example.test/elsewhere").is_some() {
-            eprintln!("a ticket read cookies for a URL it was not granted for");
+        if !ask_at(&mut net_link, bound.clone(), "https://example.test/elsewhere")
+            .is_some_and(|got| got.contains("sid=abc"))
+        {
+            eprintln!("a same-site hop should read the site's cookies");
             return 1;
         }
-        if !ask(&mut net_link, bound.clone()).is_some_and(|got| got.contains("sid=abc")) {
-            eprintln!("a ticket should still read at its own URL after a refused one");
+        let hop = ask_at(&mut net_link, bound.clone(), other_site.as_str()).unwrap_or_default();
+        if hop != "none=1" {
+            eprintln!("a cross-site hop of a subresource should read SameSite=None cookies only, got {hop:?}");
+            return 1;
+        }
+        // The chain left the site: back home it is still cross-site, and a
+        // cookie with no SameSite attribute stays home.
+        if ask(&mut net_link, bound.clone()).is_some_and(|got| got.contains("sid=abc")) {
+            eprintln!("a chain that left the site read a Lax cookie on its way back");
+            return 1;
+        }
+        if ask_at(&mut net_link, bound.clone(), "file:///etc/passwd").is_some() {
+            eprintln!("a ticket read cookies for a URL that is not a web URL");
             return 1;
         }
         if !store_on_line(&mut net_link, bound.clone(), "first=1; Path=/") {
             eprintln!("a store on the network line went unacknowledged");
             return 1;
         }
-        // Refused, not acknowledged: the network process keeps what is refused.
-        if store_on_line(&mut net_link, bound.clone(), "second=1; Path=/") {
-            eprintln!("a ticket's second store was answered as stored");
+        if !store_on_line(&mut net_link, bound.clone(), "second=1; Path=/") {
+            eprintln!("a ticket's second store (the next hop's) was refused");
             return 1;
         }
-        net_vault.revoke(&bound);
+        let unexplained = net_vault.revoke(&bound, vec!["https://example.test/elsewhere".to_string()]);
+        if unexplained != vec![other_site.to_string()] {
+            eprintln!("revoking should name the hop no reported redirect explains, got {unexplained:?}");
+            return 1;
+        }
         let held = net_vault
             .get(CookieScope { ticket: 0, ..bound }, &url, false)
             .unwrap_or_default();
-        if !held.contains("first=1") || held.contains("second=1") {
-            eprintln!("a ticket should store once, the jar holds {held:?}");
+        if !held.contains("first=1") || !held.contains("second=1") {
+            eprintln!("a ticket should store once per hop, the jar holds {held:?}");
             return 1;
         }
-        println!("network line honours grants only, one request's worth each");
+
+        // With no document recorded, the granted URL is the document: a hop to
+        // another site is still cross-site, not same-site with nothing.
+        let undocumented = CookieScope {
+            ticket: 919191,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&undocumented) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        let hop = ask_at(&mut net_link, undocumented.clone(), other_site.as_str()).unwrap_or_default();
+        if hop != "none=1" {
+            eprintln!(
+                "a cross-site hop of a ticket with no document should read SameSite=None cookies only, got {hop:?}"
+            );
+            return 1;
+        }
+        net_vault.revoke(&undocumented, vec![other_site.to_string()]);
+
+        // A navigation's cross-site hop is a cross-site navigation: Lax goes too.
+        let navigating = CookieScope {
+            ticket: 717171,
+            navigation: true,
+            ..in_document.clone()
+        };
+        if !net_vault.grant(&navigating) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        let hop = ask_at(&mut net_link, navigating.clone(), other_site.as_str()).unwrap_or_default();
+        if !(hop.contains("lax=1") && hop.contains("none=1")) || hop.contains("strict=1") {
+            eprintln!("a cross-site hop of a navigation should read Lax and None cookies, got {hop:?}");
+            return 1;
+        }
+        net_vault.revoke(&navigating, vec![other_site.to_string()]);
+
+        // A ticket's reads are capped: past that it is no request's chain.
+        let capped = CookieScope {
+            ticket: 818181,
+            ..claimed.clone()
+        };
+        if !net_vault.grant(&capped) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        let answered = (0..64).filter(|_| ask(&mut net_link, capped.clone()).is_some()).count();
+        if answered != 64 || ask(&mut net_link, capped.clone()).is_some() {
+            eprintln!("a ticket should answer 64 reads and refuse the 65th; it answered {answered} of the 64");
+            return 1;
+        }
+        net_vault.revoke(&capped, Vec::new());
+        println!("network line honours grants only, hop by hop, never laxer than the grant");
 
         // A zone with a SQLite store: the vault's snapshots reach the file
         // through the broker, and a fresh store on the same file has them.
@@ -6963,6 +7045,12 @@ fn engine_cookie_vault() -> i32 {
     // `no-vault`: the broker's own jar, its cookies attached by the broker
     // and carried by the network process as sent.
     let no_vault = modes.iter().any(|m| m == "no-vault");
+    // `redirect`: the page is reached through `/login`, a redirect that sets
+    // a cookie of its own, which must ride on the hop to the page. Through
+    // the network process the vault's audit must find every hop the ticket
+    // was used at among the reported redirects, and leave the process be.
+    let redirect = modes.iter().any(|m| m == "redirect");
+    let entry = if redirect { "/login" } else { "/" };
     let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
     let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
         eprintln!("could not start the test server");
@@ -7048,12 +7136,14 @@ fn engine_cookie_vault() -> i32 {
             eprintln!("could not create a tab");
             return 1;
         };
-        if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+        #[cfg(target_os = "linux")]
+        let net_pid = engine.net_process_pid().await;
+        if tab.navigate(format!("http://127.0.0.1:{port}{entry}")).await.is_err() {
             eprintln!("navigate failed");
             return 1;
         }
 
-        // Two requests: the page, then its stylesheet.
+        // Two requests: the page, then its stylesheet (and the redirect first).
         let wait_for = |n: usize| {
             let seen = Arc::clone(&seen);
             async move {
@@ -7068,12 +7158,22 @@ fn engine_cookie_vault() -> i32 {
                 true
             }
         };
-        if !wait_for(2).await {
+        if !wait_for(if redirect { 3 } else { 2 }).await {
             return 1;
         }
         // The favicon follows the page; give it time to be *sent* before
         // shutdown removes the tab's identity, so the request log is stable.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        #[cfg(target_os = "linux")]
+        if redirect && !in_process {
+            let now = engine.net_process_pid().await;
+            if now.is_none() || now != net_pid {
+                eprintln!(
+                    "the network process did not survive the redirect ({net_pid:?} -> {now:?}): the audit condemned it"
+                );
+                return 1;
+            }
+        }
 
         #[cfg(target_os = "linux")]
         if respawn {
@@ -7179,9 +7279,25 @@ fn engine_cookie_vault() -> i32 {
     let after_kill_from = after_kill.load(std::sync::atomic::Ordering::Relaxed);
     let seen = seen_after.lock().clone();
     println!("requests: {seen:?}");
-    let first_clean = seen.first().is_some_and(|(_, cookie)| cookie.is_none());
+    // The redirect, when there is one, comes first and hands out `hop=1`.
+    let page = usize::from(redirect);
+    if redirect {
+        let login_clean = seen
+            .first()
+            .is_some_and(|(path, cookie)| path == "/login" && cookie.is_none());
+        let page_has_hop = seen
+            .get(page)
+            .is_some_and(|(path, cookie)| path == "/" && cookie.as_deref().is_some_and(|c| c.contains("hop=1")));
+        if !login_clean || !page_has_hop {
+            eprintln!("the page request must carry the cookie its redirect set, and the redirect must carry none");
+            return 1;
+        }
+    }
+    let first_clean = seen
+        .get(page)
+        .is_some_and(|(_, cookie)| cookie.as_deref().is_none_or(|c| !c.contains("sid=")));
     let second_has = seen
-        .get(1)
+        .get(page + 1)
         .is_some_and(|(path, cookie)| path == "/style.css" && cookie.as_deref().is_some_and(|c| c.contains("sid=abc")));
     if !first_clean || !second_has {
         eprintln!("the stylesheet request must carry the cookie the page set, and the page request must not");
@@ -7208,6 +7324,8 @@ fn engine_cookie_vault() -> i32 {
         },
         if respawn {
             ", across a vault respawn"
+        } else if redirect {
+            ", a redirect's cookie riding on its next hop"
         } else if net_respawn {
             ", across a network process respawn"
         } else {
@@ -7239,6 +7357,12 @@ fn serve_cookie_pages(seen: SeenRequests) -> std::io::Result<u16> {
                 .find(|l| l.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("cookie:")))
                 .map(|l| l[7..].trim().to_string());
             seen.lock().push((path.clone(), cookie));
+            if path == "/login" {
+                let _ = stream.write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: /\r\nSet-Cookie: hop=1; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+                continue;
+            }
             let (content_type, extra, body): (&str, &str, &str) = if path == "/style.css" {
                 ("text/css", "", "body { color: rgb(1, 2, 3); }")
             } else {

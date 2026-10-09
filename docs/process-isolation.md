@@ -98,7 +98,21 @@ engine then falls back in-process and says so.
   That line is not trusted to name zones: before dispatching a request the
   broker grants the vault a random per-request ticket bound to the tab's zone
   and document, the network process asks under the ticket, and the vault
-  answers from the grant. The broker also accepts a jar snapshot only for a
+  answers from the grant. It asks at every redirect hop, so a cookie a `302`
+  sets rides on the next hop. A hop is the network process's word alone, so
+  the vault answers one anywhere but the granted URL in the context the
+  grant's own document gives it, made stricter by the chain so far: a hop to
+  another site gets `SameSite=None` cookies (and `Lax` ones under a
+  navigation), never `Strict` ones - what the page could have had the broker
+  fetch for it anyway. A ticket buys at most 64 `Get`s and 64 `Store`s. When
+  the broker revokes it, the vault names every URL the ticket was used at
+  that no redirect the network process reported explains; any, on a request
+  the network process answered, and the broker kills it, and the next request
+  respawns it. A request the broker stopped waiting for (cancelled, timed
+  out) proves nothing either way, since its redirect events may still be on
+  their way. Without
+  a vault line the broker attaches the cookies once, for the first URL, and a
+  cookie a redirect hop sets is not stored. The broker also accepts a jar snapshot only for a
   zone with a live request or a mutation of its own outstanding.
   Persistence is brokered: the vault sends a snapshot of a zone's jar after
   every change and the broker writes it through the zone's cookie store, so

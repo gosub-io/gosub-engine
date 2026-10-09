@@ -6,7 +6,6 @@ use crate::cookie_vault::protocol::{FromVault, ToVault};
 use crate::net::process::protocol::{CookieScope, FetchOutcome, FromNet, RequestTag};
 use gosub_ipc::{Endpoint, EndpointRx, EndpointTx};
 use gosub_sonar::net::shared_body::SharedBody;
-use gosub_sonar::net::types::FetchResultMeta;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
@@ -198,19 +197,17 @@ pub(super) fn vault_cookies(vault: &Mutex<Option<VaultLink>>, scope: &CookieScop
     }
 }
 
-/// Hand a response's `Set-Cookie` headers to the vault. Waited for: the reply
-/// to the broker must not overtake the store. Whether the cookies are safe -
-/// stored, or none to store; `false` (no vault line, or the vault did not
-/// confirm) means the reply has to keep them, or nobody stores them at all.
-/// A value [`set_cookie_text`](super::set_cookie_text) cannot read is not
-/// sent, and the reply keeps it whatever this returns.
-pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, meta: &FetchResultMeta) -> bool {
-    let set_cookie: Vec<String> = meta
-        .headers
-        .get_all(http::header::SET_COOKIE)
-        .iter()
-        .filter_map(|v| super::set_cookie_text(v.as_bytes()).map(str::to_string))
-        .collect();
+/// Hand one hop's `Set-Cookie` values, from the response at `url`, to the
+/// vault. Waited for: the next hop, and the reply to the broker, must not
+/// overtake the store. Whether the cookies are safe - stored, or none to
+/// store; `false` (no vault line, or the vault did not confirm) means the
+/// reply has to keep them, or nobody stores them at all.
+pub(super) fn vault_store(
+    vault: &Mutex<Option<VaultLink>>,
+    scope: &CookieScope,
+    url: &str,
+    set_cookie: Vec<String>,
+) -> bool {
     if set_cookie.is_empty() {
         return true;
     }
@@ -222,7 +219,7 @@ pub(super) fn vault_store(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope,
         link.exchange(|tag| ToVault::Store {
             tag,
             scope: scope.clone(),
-            url: meta.final_url.to_string(),
+            url: url.to_string(),
             set_cookie,
         }),
         Some(FromVault::Stored { .. })

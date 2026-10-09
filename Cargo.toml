@@ -248,6 +248,9 @@ gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", re
 [patch.crates-io]
 vello = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }
 vello_encoding = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }
+# Sonar with the request reference in the cookie hooks (gosub-sonar #150), pinned until a
+# release carries it: replace with the release before this merges.
+gosub-sonar = { git = "https://github.com/gosub-io/gosub-sonar", rev = "594e0d37a75370ea8ed7e49aea5c47750e9f6b9d" }
 
 [profile.dev]
 # Keep the linker from copying the (very large) DWARF into every binary on each

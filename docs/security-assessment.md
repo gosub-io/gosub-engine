@@ -117,9 +117,12 @@ a renderer.
 ## Accepted, with what the sandbox still prevents
 
 - **The network process is trusted engine code.** A compromised one sees
-  every request and response in clear, attaches cookies (with the vault, one
-  `Get` at the granted URL and one `Store` at any web URL per ticket, so it
-  can set cookies for other hosts of a zone with a request in flight), forges
+  every request and response in clear, attaches cookies (with the vault, a
+  `Get` and a `Store` per redirect hop at any web URL, 64 each per ticket, so
+  it can set cookies for other hosts of a zone with a request in flight, and
+  read another site's cookies by claiming a redirect there: only those that
+  site's cookie policy sends on a cross-site request, never `Strict` ones,
+  and a hop no reported redirect explains gets the process killed), forges
   responses, and enforces the private-network policy itself, so it can reach
   127.0.0.1 and the LAN with the host network namespace it keeps. Its sandbox
   still denies: files beyond the read-only resolver and CA paths (it refuses

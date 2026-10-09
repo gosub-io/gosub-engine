@@ -5,7 +5,6 @@
 use crate::net::process::protocol::{CookieScope, FetchOutcome, RequestTag};
 use gosub_ipc::{Endpoint, EndpointRx, EndpointTx};
 use gosub_sonar::net::shared_body::SharedBody;
-use gosub_sonar::net::types::FetchResultMeta;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -51,6 +50,11 @@ pub(super) fn vault_cookies(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieSc
 }
 
 /// No vault line here: nothing is stored, so the reply keeps its cookies.
-pub(super) fn vault_store(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieScope, _meta: &FetchResultMeta) -> bool {
+pub(super) fn vault_store(
+    _vault: &Mutex<Option<VaultLink>>,
+    _scope: &CookieScope,
+    _url: &str,
+    _set_cookie: Vec<String>,
+) -> bool {
     false
 }

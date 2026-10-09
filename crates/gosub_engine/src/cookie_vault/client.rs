@@ -28,6 +28,7 @@ enum Reply {
     All(Vec<(String, String)>),
     Granted(bool),
     Audit(gosub_sandbox::audit::AuditReport),
+    Revoked(Vec<String>),
 }
 
 /// Why a zone's snapshot would be expected right now. A snapshot for a zone
@@ -197,6 +198,11 @@ fn start_reader(
                     }
                     // The broker's own stores are fire-and-forget.
                     FromVault::Stored { .. } => {}
+                    FromVault::Revoked { tag, unexplained } => {
+                        if let Some(waiter) = waiters.lock().remove(&tag) {
+                            let _ = waiter.send(Reply::Revoked(unexplained));
+                        }
+                    }
                     FromVault::Audit { tag, report } => {
                         if let Some(waiter) = waiters.lock().remove(&tag) {
                             let _ = waiter.send(Reply::Audit(report));
@@ -438,7 +444,7 @@ impl CookieVault {
             visible_only,
         })? {
             Reply::Cookies(header) => header,
-            Reply::All(_) | Reply::Granted(_) | Reply::Audit(_) => None,
+            Reply::All(_) | Reply::Granted(_) | Reply::Audit(_) | Reply::Revoked(_) => None,
         }
     }
 
@@ -460,6 +466,7 @@ impl CookieVault {
                 zone: zone.to_string(),
                 top_level: top_level.map(|u| u.to_string()),
                 samesite: SameSite::SameSite,
+                navigation: false,
             },
             url: url.to_string(),
             set_cookie,
@@ -494,15 +501,25 @@ impl CookieVault {
         granted
     }
 
-    /// The request is over; its `Store` snapshot, if any, may still be on its way.
-    pub fn revoke(&self, scope: &CookieScope) {
+    /// The request is over; its `Store` snapshot, if any, may still be on its
+    /// way. `redirects` are the hops the network process reported for it.
+    /// Answers with the URLs the ticket was used at that none of them
+    /// explains: empty from an honest network process. Blocking.
+    pub fn revoke(&self, scope: &CookieScope, redirects: Vec<String>) -> Vec<String> {
         {
             let mut activity = self.activity.lock();
             let zone = activity.entry(scope.zone.clone()).or_default();
             zone.grants = zone.grants.saturating_sub(1);
             zone.released = Some(Instant::now());
         }
-        let _ = self.tx.lock().send(&ToVault::Revoke { ticket: scope.ticket });
+        match self.ask(|tag| ToVault::Revoke {
+            tag,
+            ticket: scope.ticket,
+            redirects,
+        }) {
+            Some(Reply::Revoked(unexplained)) => unexplained,
+            _ => Vec::new(),
+        }
     }
 
     /// A mutation sent from this side is answered by one snapshot. Credited
@@ -686,7 +703,8 @@ impl CookieJar for VaultCookieJar {
         let set_cookie: Vec<String> = headers
             .get_all(http::header::SET_COOKIE)
             .iter()
-            .filter_map(|v| v.to_str().ok().map(str::to_string))
+            // UTF-8, as cookies are read; `to_str` would drop a non-ASCII value.
+            .filter_map(|v| std::str::from_utf8(v.as_bytes()).ok().map(str::to_string))
             .collect();
         self.vault.store(&self.zone, url, top_level, set_cookie);
     }
@@ -698,6 +716,7 @@ impl CookieJar for VaultCookieJar {
             zone: self.zone.clone(),
             top_level: top_level.map(|u| u.to_string()),
             samesite: SameSite::from(samesite),
+            navigation: false,
         };
         self.vault.get(scope, url, false)
     }
