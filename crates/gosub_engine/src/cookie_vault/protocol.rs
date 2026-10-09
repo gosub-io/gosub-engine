@@ -46,7 +46,9 @@ pub enum ToVault {
         visible_only: bool,
     },
     /// Record a response's `Set-Cookie` headers. Answered with
-    /// [`FromVault::Stored`] once the jar holds them - the network process
+    /// [`FromVault::Stored`] once the jar holds them, or
+    /// [`FromVault::Refused`] when the claim or the zone does not allow it,
+    /// and the network process keeps them on its reply - the network process
     /// waits for that before it reports the response, so the store is done
     /// before the broker revokes the ticket. The jar's new state follows as a
     /// [`FromVault::Snapshot`] on the broker link.
@@ -101,7 +103,8 @@ pub enum FromVault {
     Granted {
         tag: Tag,
     },
-    /// The grant was not made; the request goes without cookies.
+    /// The grant was not made; the request goes without cookies. On the
+    /// network line: a `Store` that was not recorded.
     Refused {
         tag: Tag,
     },

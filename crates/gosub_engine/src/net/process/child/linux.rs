@@ -146,7 +146,7 @@ impl VaultLink {
         loop {
             let reply = self.link.recv::<FromVault>().ok()?;
             let got = match &reply {
-                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } => *tag,
+                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } | FromVault::Refused { tag } => *tag,
                 _ => return None,
             };
             if got == tag {

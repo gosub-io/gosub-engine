@@ -199,23 +199,21 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                 url,
                 set_cookie,
             } => {
-                match claim(&scope, &url, true) {
-                    Some(scope) => {
-                        handle(
-                            ToVault::Store {
-                                tag,
-                                scope,
-                                url,
-                                set_cookie,
-                            },
-                            &jars,
-                            &snapshots,
-                        );
+                let stored = match claim(&scope, &url, true) {
+                    Some(scope) => store(&jars, &snapshots, &scope, &url, set_cookie),
+                    None => {
+                        eprintln!("[vault] cookies stored outside a grant; refused");
+                        false
                     }
-                    None => eprintln!("[vault] cookies stored outside a grant; dropped"),
-                }
-                // Acknowledged either way: the asker is waiting.
-                if tx.lock().send(&FromVault::Stored { tag }).is_err() {
+                };
+                // Answered either way: the asker is waiting, and keeps the
+                // cookies on its reply unless they are `Stored`.
+                let reply = if stored {
+                    FromVault::Stored { tag }
+                } else {
+                    FromVault::Refused { tag }
+                };
+                if tx.lock().send(&reply).is_err() {
                     return;
                 }
             }
@@ -268,20 +266,8 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             url,
             set_cookie,
         } => {
-            let Ok(url) = Url::parse(&url) else {
-                return None;
-            };
-            let zone = scope.zone;
-            let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
-            let mut headers = http::HeaderMap::new();
-            for value in set_cookie {
-                if let Ok(value) = http::HeaderValue::from_str(&value) {
-                    headers.append(http::header::SET_COOKIE, value);
-                }
-            }
-            mutate(jars, snapshots, &zone, |jar| {
-                jar.store_response_cookies(&url, &headers, top.as_ref())
-            })
+            store(jars, snapshots, &scope, &url, set_cookie);
+            None
         }
         ToVault::GetAll { tag, zone } => {
             let cookies = jars
@@ -312,6 +298,33 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             None
         }
     }
+}
+
+/// Record `set_cookie` from a response at `url` in the scope's zone. `false`
+/// when nothing could be: the URL does not parse or the zone is not open.
+fn store(
+    jars: &Jars,
+    snapshots: &Arc<Mutex<EndpointTx>>,
+    scope: &CookieScope,
+    url: &str,
+    set_cookie: Vec<String>,
+) -> bool {
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
+    let mut headers = http::HeaderMap::new();
+    for value in set_cookie {
+        if let Ok(value) = http::HeaderValue::from_str(&value) {
+            headers.append(http::header::SET_COOKIE, value);
+        }
+    }
+    let mut stored = false;
+    mutate(jars, snapshots, &scope.zone, |jar| {
+        jar.store_response_cookies(&url, &headers, top.as_ref());
+        stored = true;
+    });
+    stored
 }
 
 /// Apply `change` to a zone's jar and publish the result. The snapshot goes
