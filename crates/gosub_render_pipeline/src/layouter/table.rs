@@ -599,9 +599,9 @@ impl TableTree for PipelineTableTree<'_> {
         };
         // Max-content is taffy's answer at unlimited width. Min-content is the widest
         // unbreakable run under the cell, measured from the laid-out boxes: taffy's own
-        // min-content pass cannot break between the items of an inline-block (a non-wrapping
-        // flex row here) and reported Wikipedia's comma-separated infobox lists as one
-        // unbreakable 1100px run. Both are border-box widths, so the walk - which only sees
+        // min-content pass, back when an inline-block was laid out as a non-wrapping flex
+        // row, could not break between its items and reported Wikipedia's comma-separated
+        // infobox lists as one unbreakable 1100px run. Both are border-box widths, so the walk - which only sees
         // content - gets the cell's own padding and border added back.
         let max = f64::from(self.layouter.measure_max_content_width(layout_id).unwrap_or(0.0));
         let extras = self

@@ -368,6 +368,13 @@ pub struct TaffyLayouter {
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
+    /// Line items whose percentage height resolves against the block the line is in, with the
+    /// line box they sit in and the fraction: resolved once the tree is built, since a line inside
+    /// an inline box only finds its block then. See [`TaffyLayouter::resolve_line_percent_heights`].
+    percent_line_items: HashMap<TaffyNodeId, (TaffyNodeId, f32)>,
+    /// The anonymous line boxes and the non-replaced inline boxes: what a line item's percentage
+    /// basis is looked up through, since neither is a containing block.
+    inline_level: std::collections::HashSet<TaffyNodeId>,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -467,6 +474,10 @@ impl Default for TaffyLayouter {
     }
 }
 
+/// Most layout passes one layout takes: the first, the replay of floats and absolutely
+/// positioned corrections, and a few more for absolutely positioned boxes nested in corrected ones.
+const MAX_LAYOUT_PASSES: usize = 4;
+
 impl TaffyLayouter {
     /// Create a layouter with its own font system.
     pub fn new() -> Self {
@@ -495,6 +506,8 @@ impl TaffyLayouter {
             dom_to_layout_mapping: HashMap::new(),
             float_insets: HashMap::new(),
             abspos_insets: HashMap::new(),
+            percent_line_items: HashMap::new(),
+            inline_level: std::collections::HashSet::new(),
         }
     }
 
@@ -550,7 +563,8 @@ impl CanLayout for TaffyLayouter {
 
         // Float bands are resolved in document order from this one baseline layout rather than by
         // laying the page out over and over until the answer stops moving - which it did not: see
-        // `resolve_bands_in_document_order`. Two passes total, always.
+        // `resolve_bands_in_document_order`. Floats take two passes, always; only nested absolutely
+        // positioned boxes take more (see below).
         let insets = resolve_bands_in_document_order(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() {
             apply_translations(&mut layout_tree);
@@ -561,7 +575,20 @@ impl CanLayout for TaffyLayouter {
 
         self.float_insets = insets;
         self.abspos_insets = stretched;
-        let (final_tree, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        let (mut final_tree, _, mut restretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        // An absolutely positioned box is measured against its containing block as the pass
+        // before laid it out. When that block is itself a corrected absolutely positioned box,
+        // the correction moves it, and the box inside needs measuring again: one more pass per
+        // level of such nesting, until the corrections stop changing. Bounded, so a page whose
+        // corrections never settle still gets a layout.
+        let mut passes = 2;
+        while restretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+            self.abspos_insets = restretched;
+            let (tree, _, again) = self.layout_pass(final_tree.render_tree, root_id, viewport);
+            final_tree = tree;
+            restretched = again;
+            passes += 1;
+        }
         layout_tree = final_tree;
         self.float_insets.clear();
         self.abspos_insets.clear();
@@ -647,6 +674,7 @@ impl TaffyLayouter {
         HashMap<DomNodeId, RebasedInsets>,
     ) {
         let mut layout_tree = self.generate_tree(render_tree, root_id);
+        self.resolve_line_percent_heights(viewport);
 
         let (placed, stretched) = self.compute_and_populate(&mut layout_tree, viewport);
         (layout_tree, placed, stretched)
@@ -667,6 +695,9 @@ impl TaffyLayouter {
     /// A change that invalidates those needs a full rebuild, which is what `DamageLevel::Layout`
     /// and above ask for.
     pub fn relayout(&mut self, layout_tree: &mut LayoutTree, viewport: Option<geo::Dimension>) {
+        // Line items' percentage heights can rest on the viewport's height, through a chain of
+        // percentage heights up to the root: resolved again for the new one.
+        self.resolve_line_percent_heights(viewport);
         let _ = self.compute_and_populate(layout_tree, viewport);
         apply_translations(layout_tree);
     }
@@ -756,10 +787,10 @@ impl TaffyLayouter {
     /// untouched (the subsequent `relayout_cell` at the final width rewrites
     /// taffy's internal layout anyway).
     ///
-    /// Min-content is deliberately NOT asked of taffy: an inline-block is a
-    /// non-wrapping flex row here, so taffy's min-content of a cell holding one
-    /// sums every item in it - Wikipedia's comma-separated infobox lists came out
-    /// as one 1100px unbreakable run and the 22em infobox grew past the page.
+    /// Min-content is deliberately NOT asked of taffy: while an inline-block was a
+    /// non-wrapping flex row, taffy's min-content of a cell holding one summed
+    /// every item in it - Wikipedia's comma-separated infobox lists came out as
+    /// one 1100px unbreakable run and the 22em infobox grew past the page.
     /// The widest unbreakable *word* is what min-content means, and
     /// `word_width` measures that through the same shaper.
     /// Ascent of `text`'s first line under `font_info` - the distance from the line-box
@@ -1000,6 +1031,8 @@ impl TaffyLayouter {
         self.layout_taffy_mapping.clear();
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
+        self.percent_line_items.clear();
+        self.inline_level.clear();
 
         let mut layout_tree = LayoutTree {
             render_tree,
@@ -1093,7 +1126,15 @@ impl TaffyLayouter {
                         if let Some(c) = cursor.as_mut() {
                             c.take_lines(1, *lh as f32);
                         }
-                        self.emit_line(&[], Some(*lh), element_node, leaf_id, line_style, placement);
+                        self.emit_line(
+                            layout_tree,
+                            &[],
+                            Some(*lh),
+                            element_node,
+                            leaf_id,
+                            line_style,
+                            placement,
+                        );
                     } else {
                         // The break ends the line the segment leaves open rather than adding one,
                         // so it only makes that line taller - and that has to be charged *with*
@@ -1143,7 +1184,7 @@ impl TaffyLayouter {
         cursor: Option<&mut BandCursor>,
     ) {
         let Some(cursor) = cursor else {
-            self.emit_line(items, None, element_node, leaf_id, line_style, None);
+            self.emit_line(layout_tree, items, None, element_node, leaf_id, line_style, None);
             return;
         };
 
@@ -1160,7 +1201,15 @@ impl TaffyLayouter {
             let Some((taken, lines)) = self.fill_band(layout_tree, rest, band, capacity) else {
                 let placement = cursor.placement();
                 cursor.exhaust();
-                self.emit_line(rest, None, element_node, leaf_id, line_style, Some(placement));
+                self.emit_line(
+                    layout_tree,
+                    rest,
+                    None,
+                    element_node,
+                    leaf_id,
+                    line_style,
+                    Some(placement),
+                );
                 return;
             };
             if taken == 0 {
@@ -1168,7 +1217,15 @@ impl TaffyLayouter {
                 // drop to the next one rather than emitting an empty container. CSS puts a line
                 // that cannot fit beside a float below it, which is exactly this.
                 if !cursor.advance() {
-                    self.emit_line(rest, None, element_node, leaf_id, line_style, Some(cursor.placement()));
+                    self.emit_line(
+                        layout_tree,
+                        rest,
+                        None,
+                        element_node,
+                        leaf_id,
+                        line_style,
+                        Some(cursor.placement()),
+                    );
                     return;
                 }
                 continue;
@@ -1179,6 +1236,7 @@ impl TaffyLayouter {
             let chunk_end = trim_trailing_whitespace(layout_tree, &rest[..taken]);
             let placement = cursor.placement();
             self.emit_line(
+                layout_tree,
                 &rest[..chunk_end],
                 None,
                 element_node,
@@ -1287,11 +1345,80 @@ impl TaffyLayouter {
         }
     }
 
+    /// Turn each recorded line item's percentage height into the length it stands for, against
+    /// the content height of the block its line is in: the nearest ancestor that is neither a line
+    /// box nor an inline box. A block whose height is not definite leaves the percentage as it is,
+    /// which taffy then treats as `auto`, as CSS does.
+    fn resolve_line_percent_heights(&mut self, viewport: Option<geo::Dimension>) {
+        let viewport_height = viewport.map(|v| v.height as f32);
+        let items: Vec<(TaffyNodeId, TaffyNodeId, f32)> = self
+            .percent_line_items
+            .iter()
+            .map(|(item, (line, fraction))| (*item, *line, *fraction))
+            .collect();
+        for (item, line, fraction) in items {
+            let Some(basis) = self
+                .block_around(line)
+                .and_then(|block| self.definite_content_height(block, viewport_height, 0))
+            else {
+                continue;
+            };
+            let Ok(style) = self.tree.style(item) else {
+                continue;
+            };
+            let mut style = style.clone();
+            style.size.height = Dimension::length(fraction * basis);
+            let _ = self.tree.set_style(item, style);
+        }
+    }
+
+    /// The block `node` is in: up through line boxes and inline boxes, neither of which is a
+    /// containing block. `None` above the root.
+    fn block_around(&self, node: TaffyNodeId) -> Option<TaffyNodeId> {
+        let mut node = self.tree.parent(node)?;
+        while self.inline_level.contains(&node) {
+            node = self.tree.parent(node)?;
+        }
+        Some(node)
+    }
+
+    /// A block's content height, when it is definite: a length, or a percentage of a block whose
+    /// height is definite in turn (CSS 2 §10.5) - at the root, of the viewport. A line item read
+    /// here is a block for its own lines, and goes by its recorded percentage rather than the
+    /// length a previous resolution left in its style.
+    fn definite_content_height(&self, block: TaffyNodeId, viewport_height: Option<f32>, depth: usize) -> Option<f32> {
+        if depth >= MAX_LAYOUT_DEPTH {
+            return None;
+        }
+        let style = self.tree.style(block).ok()?;
+        let percent_of_containing_block = |fraction: f32| -> Option<f32> {
+            let basis = match self.block_around(block) {
+                Some(outer) => self.definite_content_height(outer, viewport_height, depth + 1)?,
+                None => viewport_height?,
+            };
+            Some(fraction * basis)
+        };
+        let height = match self.percent_line_items.get(&block) {
+            Some((line, fraction)) => {
+                let outer = self.block_around(*line)?;
+                fraction * self.definite_content_height(outer, viewport_height, depth + 1)?
+            }
+            None => match style.size.height.expand() {
+                taffy::ExpandedDimension::Length(height) => height,
+                taffy::ExpandedDimension::Percent(fraction) => percent_of_containing_block(fraction)?,
+                _ => return None,
+            },
+        };
+        content_box_height(style, height)
+    }
+
     /// Emit one line box as an anonymous flex container holding `items`. When `items` is empty and
     /// `empty_line_height` is `Some`, the container is pinned to that height so a blank line (from a
     /// standalone `<br>`) keeps its vertical extent; an empty line with no height is skipped.
+    #[allow(clippy::too_many_arguments)]
     fn emit_line(
         &mut self,
+        layout_tree: &LayoutTree,
         items: &[(LayoutElementId, TaffyNodeId)],
         empty_line_height: Option<f64>,
         element_node: &mut LayoutElementNode,
@@ -1351,6 +1478,24 @@ impl TaffyLayouter {
         };
         if let Err(e) = self.tree.add_child(leaf_id, taffy_container_id) {
             log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
+        }
+
+        self.inline_level.insert(taffy_container_id);
+        // A percentage height on an inline-level box resolves against its containing block, the
+        // block this line is in (CSS 2 §10.5). The line box is ours, not CSS's, and its auto height
+        // would make taffy resolve the percentage against nothing, so it is turned into the length
+        // it stands for - once the tree is built, when the block is known even for a line inside
+        // an inline box. `<button style="height:100px"><img style="height:100%">` drew no image.
+        for (inline_layout_element_id, inline_taffy_node_id) in items {
+            if !percent_height_resolves_in_line(layout_tree, *inline_layout_element_id) {
+                continue;
+            }
+            if let Ok(item) = self.tree.style(*inline_taffy_node_id) {
+                if let taffy::ExpandedDimension::Percent(fraction) = item.size.height.expand() {
+                    self.percent_line_items
+                        .insert(*inline_taffy_node_id, (taffy_container_id, fraction));
+                }
+            }
         }
 
         for (inline_layout_element_id, inline_taffy_node_id) in items {
@@ -1550,6 +1695,14 @@ impl TaffyLayouter {
         let Ok(leaf_id) = result else {
             return None;
         };
+        if is_inline_container
+            && !matches!(
+                element_context,
+                ElementContext::Image(_) | ElementContext::Svg(_) | ElementContext::FormControl(_)
+            )
+        {
+            self.inline_level.insert(leaf_id);
+        }
 
         let background_media = self.resolve_background_media(layout_tree, dom_node.node_id);
 
@@ -1948,6 +2101,12 @@ impl TaffyLayouter {
                     if let (Some(t), Some(b)) = (rebased.top, rebased.bottom) {
                         taffy_style.inset.top = LengthPercentageAuto::length(t);
                         taffy_style.inset.bottom = LengthPercentageAuto::length(b);
+                    }
+                    if let Some(w) = rebased.width {
+                        taffy_style.size.width = Dimension::length(w);
+                    }
+                    if let Some(h) = rebased.height {
+                        taffy_style.size.height = Dimension::length(h);
                     }
                 }
 
@@ -2842,6 +3001,56 @@ fn clamp_replaced_to_max_height(
         width: (limit * iw / ih).min(measured.width),
         height: limit,
     }
+}
+
+/// Whether a percentage `height` on a line item resolves against the block the line is in:
+/// an in-flow box `height` applies to - an atomic inline (inline-block, a replaced element) or
+/// a float, whose containing block is that block. Not a non-replaced inline box, which `height`
+/// does not apply to (CSS 2 §10.6.1), and not an absolutely positioned box, whose containing
+/// block is its positioned ancestor or the viewport, not this block (CSS 2 §10.1).
+fn percent_height_resolves_in_line(layout_tree: &LayoutTree, id: LayoutElementId) -> bool {
+    let Some(el) = layout_tree.arena.get(&id) else {
+        return false;
+    };
+    let doc = &layout_tree.render_tree.doc;
+    if position_is_out_of_flow(&**doc, el.dom_node_id) {
+        return false;
+    }
+    if matches!(
+        el.context,
+        ElementContext::Image(_) | ElementContext::Svg(_) | ElementContext::FormControl(_)
+    ) || float_side(&**doc, el.dom_node_id).is_some()
+    {
+        return true;
+    }
+    !matches!(
+        doc.computed_style(el.dom_node_id).declared_display(),
+        None | Some(CssDisplay::Inline)
+    )
+}
+
+/// The content-box height of a box whose used `height` is `height`: clamped by any
+/// `min-height`/`max-height` lengths, less padding and border under `border-box`. `None` when an
+/// edge is not a length.
+fn content_box_height(style: &Style, mut height: f32) -> Option<f32> {
+    if let Some(max) = lpa_length(style.max_size.height) {
+        height = height.min(max);
+    }
+    if let Some(min) = lpa_length(style.min_size.height) {
+        height = height.max(min);
+    }
+    if style.box_sizing == BoxSizing::BorderBox {
+        let edge = |value: LengthPercentage| match value.expand() {
+            taffy::ExpandedLengthPercentage::Length(px) => Some(px),
+            _ => None,
+        };
+        let edges = edge(style.padding.top)?
+            + edge(style.padding.bottom)?
+            + edge(style.border.top)?
+            + edge(style.border.bottom)?;
+        height = (height - edges).max(0.0);
+    }
+    Some(height)
 }
 
 /// The length a `min-`/`max-` size holds, or `None` when it is a percentage, `auto` or `calc()`.

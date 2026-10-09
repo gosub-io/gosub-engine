@@ -150,11 +150,11 @@ impl<'a> CssTaffyConverter<'a> {
             Some(CssDisplay::TableColumn | CssDisplay::TableColumnGroup) => {
                 ts.display = Display::None;
             }
-            Some(CssDisplay::InlineBlock) => {
-                ts.display = Display::Flex;
-                ts.flex_direction = FlexDirection::Row;
-                ts.flex_wrap = FlexWrap::NoWrap;
-            }
+            // inline-block is `inline flow-root` (CSS Display 3 §2): inline outside, a block
+            // container inside, so it keeps get_display's Display::Block. Its block children
+            // stack and its text goes into line boxes, as in a div; the line it sits on is the
+            // parent's anonymous flex row, which sizes it to fit. It used to be a non-wrapping
+            // flex row, which put its block children side by side.
             // CSS initial value for display is inline; treat unset the same as explicit inline.
             None | Some(CssDisplay::Inline) => {
                 ts.display = Display::Flex;
@@ -275,7 +275,8 @@ impl<'a> CssTaffyConverter<'a> {
     fn get_display(&self, default: Display) -> Display {
         match self.declared_display() {
             Some(CssDisplay::Block) => Display::Block,
-            // Overridden below, once the CSS display is consulted again.
+            // Inline is overridden below, once the CSS display is consulted again; inline-block
+            // stays a block container.
             Some(CssDisplay::InlineBlock | CssDisplay::Inline) => Display::Block,
             Some(CssDisplay::Flex | CssDisplay::InlineFlex) => Display::Flex,
             Some(CssDisplay::Grid | CssDisplay::InlineGrid) => Display::Grid,
