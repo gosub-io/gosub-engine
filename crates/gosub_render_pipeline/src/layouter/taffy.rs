@@ -368,6 +368,13 @@ pub struct TaffyLayouter {
     /// first pass - a box's containing block is only known once the page has been laid out - and
     /// replayed on the second so taffy sizes those boxes itself. See [`RebasedInsets`].
     abspos_insets: HashMap<DomNodeId, RebasedInsets>,
+    /// Line items whose percentage height resolves against the block the line is in, with the
+    /// line box they sit in and the fraction: resolved once the tree is built, since a line inside
+    /// an inline box only finds its block then. See [`TaffyLayouter::resolve_line_percent_heights`].
+    percent_line_items: Vec<(TaffyNodeId, TaffyNodeId, f32)>,
+    /// The anonymous line boxes and the non-replaced inline boxes: what a line item's percentage
+    /// basis is looked up through, since neither is a containing block.
+    inline_level: std::collections::HashSet<TaffyNodeId>,
 }
 
 /// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
@@ -499,6 +506,8 @@ impl TaffyLayouter {
             dom_to_layout_mapping: HashMap::new(),
             float_insets: HashMap::new(),
             abspos_insets: HashMap::new(),
+            percent_line_items: Vec::new(),
+            inline_level: std::collections::HashSet::new(),
         }
     }
 
@@ -1018,6 +1027,8 @@ impl TaffyLayouter {
         self.layout_taffy_mapping.clear();
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
+        self.percent_line_items.clear();
+        self.inline_level.clear();
 
         let mut layout_tree = LayoutTree {
             render_tree,
@@ -1036,6 +1047,7 @@ impl TaffyLayouter {
 
         layout_tree.root_id = layout_element_root_id;
         self.root_id = taffy_root_id;
+        self.resolve_line_percent_heights();
 
         layout_tree
     }
@@ -1330,6 +1342,42 @@ impl TaffyLayouter {
         }
     }
 
+    /// Turn each recorded line item's percentage height into the length it stands for, against
+    /// the content height of the block its line is in: the nearest ancestor that is neither a line
+    /// box nor an inline box. A block whose height is not definite leaves the percentage as it is,
+    /// which taffy then treats as `auto`, as CSS does.
+    fn resolve_line_percent_heights(&mut self) {
+        for (item, line, fraction) in self.percent_line_items.clone() {
+            let Some(basis) = self
+                .line_block(line)
+                .and_then(|block| self.definite_content_height(block))
+            else {
+                continue;
+            };
+            let Ok(style) = self.tree.style(item) else {
+                continue;
+            };
+            let mut style = style.clone();
+            style.size.height = Dimension::length(fraction * basis);
+            let _ = self.tree.set_style(item, style);
+        }
+    }
+
+    /// The block a line box is in: up through line boxes and inline boxes, neither of which is a
+    /// containing block.
+    fn line_block(&self, line: TaffyNodeId) -> Option<TaffyNodeId> {
+        let mut node = self.tree.parent(line)?;
+        while self.inline_level.contains(&node) {
+            node = self.tree.parent(node)?;
+        }
+        Some(node)
+    }
+
+    /// A block's content height, when it is definite.
+    fn definite_content_height(&self, block: TaffyNodeId) -> Option<f32> {
+        definite_content_height(self.tree.style(block).ok()?)
+    }
+
     /// Emit one line box as an anonymous flex container holding `items`. When `items` is empty and
     /// `empty_line_height` is `Some`, the container is pinned to that height so a blank line (from a
     /// standalone `<br>`) keeps its vertical extent; an empty line with no height is skipped.
@@ -1398,24 +1446,20 @@ impl TaffyLayouter {
             log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
         }
 
-        // A percentage height on an inline-level box resolves against its containing block,
-        // which is the block this line is in (CSS 2 §10.5). The line box is ours, not CSS's,
-        // and its auto height would make taffy resolve the percentage against nothing, so turn
-        // it into the length it stands for whenever the block's height is definite.
-        // `<button style="height:100px"><img style="height:100%">` drew no image without this.
-        let block_height = self.tree.style(leaf_id).ok().and_then(definite_content_height);
-        if let Some(block_height) = block_height {
-            for (inline_layout_element_id, inline_taffy_node_id) in items {
-                if !percent_height_resolves_in_line(layout_tree, *inline_layout_element_id) {
-                    continue;
-                }
-                let Ok(item) = self.tree.style(*inline_taffy_node_id) else {
-                    continue;
-                };
+        self.inline_level.insert(taffy_container_id);
+        // A percentage height on an inline-level box resolves against its containing block, the
+        // block this line is in (CSS 2 §10.5). The line box is ours, not CSS's, and its auto height
+        // would make taffy resolve the percentage against nothing, so it is turned into the length
+        // it stands for - once the tree is built, when the block is known even for a line inside
+        // an inline box. `<button style="height:100px"><img style="height:100%">` drew no image.
+        for (inline_layout_element_id, inline_taffy_node_id) in items {
+            if !percent_height_resolves_in_line(layout_tree, *inline_layout_element_id) {
+                continue;
+            }
+            if let Ok(item) = self.tree.style(*inline_taffy_node_id) {
                 if let taffy::ExpandedDimension::Percent(fraction) = item.size.height.expand() {
-                    let mut item = item.clone();
-                    item.size.height = Dimension::length(fraction * block_height);
-                    let _ = self.tree.set_style(*inline_taffy_node_id, item);
+                    self.percent_line_items
+                        .push((*inline_taffy_node_id, taffy_container_id, fraction));
                 }
             }
         }
@@ -1617,6 +1661,14 @@ impl TaffyLayouter {
         let Ok(leaf_id) = result else {
             return None;
         };
+        if is_inline_container
+            && !matches!(
+                element_context,
+                ElementContext::Image(_) | ElementContext::Svg(_) | ElementContext::FormControl(_)
+            )
+        {
+            self.inline_level.insert(leaf_id);
+        }
 
         let background_media = self.resolve_background_media(layout_tree, dom_node.node_id);
 

@@ -3070,6 +3070,19 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A line inside an inline box is still in the block around it: a percentage height on an
+    /// inline-block inside a plain `<span>` resolves against that block, not the span's auto height.
+    #[test]
+    fn a_percentage_height_inside_an_inline_span_resolves_against_the_block() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="height: 100px"><span><span id="a" style="display: inline-block; width: 50px; height: 100%"></span></span></div>
+        </body></html>"#;
+        let [a] = border_boxes(html, &["a"])[..] else {
+            unreachable!()
+        };
+        assert!((a.height - 100.0).abs() < 0.5, "100% of the 100px block, got {a:?}");
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block
