@@ -1998,6 +1998,12 @@ impl TaffyLayouter {
                         taffy_style.inset.top = LengthPercentageAuto::length(t);
                         taffy_style.inset.bottom = LengthPercentageAuto::length(b);
                     }
+                    if let Some(w) = rebased.width {
+                        taffy_style.size.width = Dimension::length(w);
+                    }
+                    if let Some(h) = rebased.height {
+                        taffy_style.size.height = Dimension::length(h);
+                    }
                 }
 
                 // Images get a taffy context so their intrinsic size participates in layout.
@@ -2893,15 +2899,19 @@ fn clamp_replaced_to_max_height(
     }
 }
 
-/// Whether a percentage `height` on a line item resolves against the block the line is in: a
-/// box `height` applies to - an atomic inline (inline-block, a replaced element) or a float,
-/// whose containing block is that block. Not a non-replaced inline box, which `height` does not
-/// apply to (CSS 2 §10.6.1).
+/// Whether a percentage `height` on a line item resolves against the block the line is in:
+/// an in-flow box `height` applies to - an atomic inline (inline-block, a replaced element) or
+/// a float, whose containing block is that block. Not a non-replaced inline box, which `height`
+/// does not apply to (CSS 2 §10.6.1), and not an absolutely positioned box, whose containing
+/// block is its positioned ancestor or the viewport, not this block (CSS 2 §10.1).
 fn percent_height_resolves_in_line(layout_tree: &LayoutTree, id: LayoutElementId) -> bool {
     let Some(el) = layout_tree.arena.get(&id) else {
         return false;
     };
     let doc = &layout_tree.render_tree.doc;
+    if position_is_out_of_flow(&**doc, el.dom_node_id) {
+        return false;
+    }
     if matches!(
         el.context,
         ElementContext::Image(_) | ElementContext::Svg(_) | ElementContext::FormControl(_)

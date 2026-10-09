@@ -3036,6 +3036,22 @@ mod rendertree_from_engine {
         assert!(s.height < 50.0, "one line, not the block's 100px, got {s:?}");
     }
 
+    /// An absolutely positioned inline-block's percentage height is taken of its containing block,
+    /// the positioned ancestor (CSS 2 §10.1, here 300px), not of the block its line is in.
+    #[test]
+    fn a_percentage_height_on_an_abspos_line_item_is_of_its_containing_block() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="position: relative; height: 300px"><div style="height: 100px"><span id="p" style="position: absolute; display: inline-block; width: 50px; height: 50%"></span></div></div>
+        </body></html>"#;
+        let [p] = border_boxes(html, &["p"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            (p.height - 150.0).abs() < 0.5,
+            "50% of the 300px containing block, got {p:?}"
+        );
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block

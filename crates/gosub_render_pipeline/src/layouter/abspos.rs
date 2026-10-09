@@ -64,12 +64,30 @@ pub struct RebasedInsets {
     pub right: Option<f32>,
     pub top: Option<f32>,
     pub bottom: Option<f32>,
+    /// A percentage `width`, resolved against the containing block: taffy would take it of the
+    /// parent instead.
+    pub width: Option<f32>,
+    /// A percentage `height`, resolved likewise (CSS 2 §10.5).
+    pub height: Option<f32>,
 }
 
 impl RebasedInsets {
     fn is_empty(&self) -> bool {
-        self.left.is_none() && self.right.is_none() && self.top.is_none() && self.bottom.is_none()
+        self.left.is_none()
+            && self.right.is_none()
+            && self.top.is_none()
+            && self.bottom.is_none()
+            && self.width.is_none()
+            && self.height.is_none()
     }
+}
+
+/// Whether a size depends on its basis, so taffy resolving it against the wrong box gets it wrong.
+fn is_relative_size(size: LengthPercentageAuto) -> bool {
+    matches!(
+        size,
+        LengthPercentageAuto::Percent(_) | LengthPercentageAuto::Calc { .. }
+    )
 }
 
 /// Whether an axis is `auto`-sized, so that opposing insets should stretch the box.
@@ -150,6 +168,14 @@ pub fn post_process_abspos(layout_tree: &mut LayoutTree, viewport: Dimension) ->
                     rebased.top = Some((cb.y + t - pb.y) as f32);
                     rebased.bottom = Some(((pb.y + pb.height) - (cb.y + cb.height - b)) as f32);
                 }
+            }
+            // A percentage size is of the containing block as well. Taffy takes it of the parent,
+            // which for a box written inside a line is the line box, whose height is its content.
+            if is_relative_size(style.size.width) && !spans_match(pb.x, pb.width, cb.x, cb.width) {
+                rebased.width = inset(style.size.width, cb.width).map(|w| w as f32);
+            }
+            if is_relative_size(style.size.height) && !spans_match(pb.y, pb.height, cb.y, cb.height) {
+                rebased.height = inset(style.size.height, cb.height).map(|h| h as f32);
             }
             if !rebased.is_empty() {
                 stretched.insert(dom_id, rebased);
