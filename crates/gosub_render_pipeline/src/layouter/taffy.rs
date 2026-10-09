@@ -467,6 +467,10 @@ impl Default for TaffyLayouter {
     }
 }
 
+/// Most layout passes one layout takes: the first, the replay of floats and absolutely
+/// positioned corrections, and a few more for absolutely positioned boxes nested in corrected ones.
+const MAX_LAYOUT_PASSES: usize = 4;
+
 impl TaffyLayouter {
     /// Create a layouter with its own font system.
     pub fn new() -> Self {
@@ -550,7 +554,8 @@ impl CanLayout for TaffyLayouter {
 
         // Float bands are resolved in document order from this one baseline layout rather than by
         // laying the page out over and over until the answer stops moving - which it did not: see
-        // `resolve_bands_in_document_order`. Two passes total, always.
+        // `resolve_bands_in_document_order`. Floats take two passes, always; only nested absolutely
+        // positioned boxes take more (see below).
         let insets = resolve_bands_in_document_order(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() {
             apply_translations(&mut layout_tree);
@@ -561,7 +566,20 @@ impl CanLayout for TaffyLayouter {
 
         self.float_insets = insets;
         self.abspos_insets = stretched;
-        let (final_tree, _, _) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        let (mut final_tree, _, mut restretched) = self.layout_pass(layout_tree.render_tree, root_id, viewport);
+        // An absolutely positioned box is measured against its containing block as the pass
+        // before laid it out. When that block is itself a corrected absolutely positioned box,
+        // the correction moves it, and the box inside needs measuring again: one more pass per
+        // level of such nesting, until the corrections stop changing. Bounded, so a page whose
+        // corrections never settle still gets a layout.
+        let mut passes = 2;
+        while restretched != self.abspos_insets && passes < MAX_LAYOUT_PASSES {
+            self.abspos_insets = restretched;
+            let (tree, _, again) = self.layout_pass(final_tree.render_tree, root_id, viewport);
+            final_tree = tree;
+            restretched = again;
+            passes += 1;
+        }
         layout_tree = final_tree;
         self.float_insets.clear();
         self.abspos_insets.clear();

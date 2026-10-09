@@ -3052,6 +3052,24 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A box measured against an absolutely positioned ancestor that was itself corrected takes
+    /// its percentage of the corrected size: the outer box is 50% of 300px, the inner one 50% of
+    /// that, through a static wrapper that is neither box's containing block.
+    #[test]
+    fn a_nested_abspos_percentage_follows_its_corrected_ancestor() {
+        let html = r#"<html><body style="margin: 0">
+          <div style="position: relative; height: 300px"><div style="height: 100px"><span id="outer" style="position: absolute; display: inline-block; width: 50px; height: 50%"><div style="height: 20px"><div id="inner" style="position: absolute; width: 10px; height: 50%"></div></div></span></div></div>
+        </body></html>"#;
+        let [outer, inner] = border_boxes(html, &["outer", "inner"])[..] else {
+            unreachable!()
+        };
+        assert!((outer.height - 150.0).abs() < 0.5, "50% of 300px, got {outer:?}");
+        assert!(
+            (inner.height - 75.0).abs() < 0.5,
+            "50% of the outer 150px, got {inner:?}"
+        );
+    }
+
     /// A percentage height on an inline-level box resolves against the block it sits in, through
     /// the anonymous line box the layouter puts around it. Taken from WPT
     /// `max-height-applies-to-017` and `intrinsic-percent-replaced-021`, which an inline-block
