@@ -28,11 +28,11 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust_version }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: ${{ matrix.rust_version }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: test-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -43,7 +43,9 @@ jobs:
           sudo apt update -y
           sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
             libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: nextest
       - name: Build and test
         run: cargo nextest run --locked --all --no-fail-fast
       - name: Doctests
@@ -56,11 +58,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: wpt
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -71,7 +75,9 @@ jobs:
           sudo apt update -y
           sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
             libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: nextest
       - name: Checkout web-platform-tests (sparse, pinned)
         run: |
           git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
@@ -112,7 +118,7 @@ jobs:
             echo ""
             echo "Full breakdown in the \\`wpt-report\\` artifact."
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: wpt-report
@@ -128,12 +134,12 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust_version }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: ${{ matrix.rust_version }}
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: clippy-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -150,11 +156,12 @@ jobs:
   check-features:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
+          toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: all-features
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -165,7 +172,9 @@ jobs:
           sudo apt update -y
           sudo apt install -y sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev \
             libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: nextest
       - name: Embedders dispatch child roles
         # Every binary that builds a GosubEngine must call child_process::dispatch()
         # first thing in main(), or process isolation re-execs its own startup.
@@ -204,11 +213,13 @@ jobs:
           - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: enabled }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, isolation: disabled }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: cross-${{ matrix.target }}-${{ matrix.isolation }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -233,24 +244,29 @@ jobs:
       matrix:
         os: [ macos-latest, windows-latest ]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: native-${{ matrix.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: nextest
       - name: Test
         run: cargo nextest run --locked -p gosub_ipc -p gosub_sandbox -p gosub_engine --no-fail-fast
 
   fmt:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
+          toolchain: stable
           components: rustfmt
       - name: Run fmt
         run: cargo fmt --check --all
@@ -258,7 +274,7 @@ jobs:
   deny:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
