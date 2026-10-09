@@ -3,6 +3,7 @@
 
 use crate::fork_server::protocol::{FromRenderer, ResourceReply};
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
+use crate::net::types::ResourceKind;
 use gosub_ipc::Endpoint;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ impl ForkedResourceLoader {
         Arc::new(DeferredForkedLoader(Arc::clone(self)))
     }
 
-    fn load_with(&self, url: &Url, deferred: bool) -> Result<LoadedResource, LoadError> {
+    fn load_with(&self, url: &Url, kind: ResourceKind, deferred: bool) -> Result<LoadedResource, LoadError> {
         let slot = self.link.lock();
         let Some(link) = slot.as_ref() else {
             return Err(LoadError::Failed(
@@ -55,6 +56,7 @@ impl ForkedResourceLoader {
 
         link.send(&FromRenderer::NeedResource {
             url: url.to_string(),
+            kind,
             deferred,
         })
         .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;
@@ -110,13 +112,13 @@ impl std::fmt::Debug for DeferredForkedLoader {
 }
 
 impl ResourceLoader for DeferredForkedLoader {
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
-        self.0.load_with(url, true)
+    fn load(&self, url: &Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        self.0.load_with(url, kind, true)
     }
 }
 
 impl ResourceLoader for ForkedResourceLoader {
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
-        self.load_with(url, false)
+    fn load(&self, url: &Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        self.load_with(url, kind, false)
     }
 }

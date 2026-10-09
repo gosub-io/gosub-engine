@@ -15,6 +15,7 @@
 //!
 //! [`BrokeredLoader`]: crate::net::brokered_loader::BrokeredLoader
 
+use crate::net::types::ResourceKind;
 use gosub_render_pipeline::common::media::{Acquired, MediaSource};
 use gosub_shared::subresource::Scope;
 use std::fmt;
@@ -70,8 +71,10 @@ impl std::error::Error for LoadError {}
 
 /// Fetches a resource on a renderer's behalf.
 pub trait ResourceLoader: Send + Sync + fmt::Debug {
-    /// Fetch `url`, blocking until the resource arrives or the attempt fails.
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError>;
+    /// Fetch `url` to be used as `kind`, blocking until the resource arrives or the attempt
+    /// fails. The kind decides what an insecure request from a secure document gets: upgraded
+    /// for an image, refused for a stylesheet or font (see [`ResourceKind::mixed_content`]).
+    fn load(&self, url: &Url, kind: ResourceKind) -> Result<LoadedResource, LoadError>;
 
     /// This loader bound to the document its loads are made for, so a loader
     /// that fetches on a page's behalf stamps every request with it: its
@@ -86,9 +89,9 @@ pub trait ResourceLoader: Send + Sync + fmt::Debug {
 
     /// [`load`](Self::load), reduced to what the stylesheet and web-font paths
     /// consume: the bytes and their content type, or nothing.
-    fn fetch(&self, url: &str) -> Option<(Option<String>, Vec<u8>)> {
+    fn fetch(&self, url: &str, kind: ResourceKind) -> Option<(Option<String>, Vec<u8>)> {
         let url = Url::parse(url).ok()?;
-        match self.load(&url) {
+        match self.load(&url, kind) {
             Ok(resource) if resource.is_ok() && !resource.body.is_empty() => {
                 Some((resource.content_type, resource.body.to_vec()))
             }
@@ -110,7 +113,7 @@ pub trait ResourceLoader: Send + Sync + fmt::Debug {
 pub struct NoResourceLoader;
 
 impl ResourceLoader for NoResourceLoader {
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+    fn load(&self, url: &Url, _kind: ResourceKind) -> Result<LoadedResource, LoadError> {
         Err(LoadError::UnsupportedUrl(url.to_string()))
     }
 }
@@ -140,7 +143,7 @@ impl MediaSource for LoaderMediaSource {
     fn acquire(&self, url: &str) -> Acquired {
         let loaded = Url::parse(url)
             .map_err(|e| LoadError::UnsupportedUrl(format!("{url}: {e}")))
-            .and_then(|parsed| self.loader.load(&parsed));
+            .and_then(|parsed| self.loader.load(&parsed, ResourceKind::Image));
         // Always answered, one way or the other, so the store's `take` never waits out its
         // timeout on an entry nobody is going to fill.
         match loaded {

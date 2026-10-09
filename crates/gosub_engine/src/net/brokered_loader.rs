@@ -14,7 +14,7 @@ use crate::engine::types::IoChannel;
 use crate::engine::types::RequestId;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
-use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, ResourceKind, SubresourceOf};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use http::Method;
@@ -102,9 +102,9 @@ impl BrokeredLoader {
 }
 
 impl ResourceLoader for BrokeredLoader {
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+    fn load(&self, url: &Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
         let started = std::time::Instant::now();
-        let result = self.load_inner(url);
+        let result = self.load_inner(url, kind);
         crate::telemetry::net_load(url.as_str(), self.tab_id, started, result.as_ref().ok());
         result.and_then(into_loaded)
     }
@@ -118,7 +118,7 @@ impl ResourceLoader for BrokeredLoader {
 }
 
 impl BrokeredLoader {
-    fn load_inner(&self, url: &Url) -> Result<FetchResult, LoadError> {
+    fn load_inner(&self, url: &Url, kind: ResourceKind) -> Result<FetchResult, LoadError> {
         let document = self.document.clone();
         // `data:` carries its own bytes, and the I/O runtime answers it without
         // the network. `file:` only for a document that itself came from
@@ -151,12 +151,12 @@ impl BrokeredLoader {
             .with_req_id(RequestId::new())
             .with_reference(REF_REGISTRY.to_net(self.reference))
             .with_headers(headers)
-            .with_kind(gosub_sonar::net::types::ResourceKind::Asset)
+            .with_kind(kind.to_net())
             .with_initiator(gosub_sonar::net::types::Initiator::Application)
             .with_streaming(false)
             .with_auto_decode(true);
         if let Some(doc) = document {
-            builder = builder.with_referrer(doc);
+            builder = builder.subresource_of(&doc, kind);
         }
         let req = builder.build();
 
@@ -283,11 +283,11 @@ mod tests {
         let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
 
         let loaded = loader
-            .load(&Url::parse("data:text/plain,hello").unwrap())
+            .load(&Url::parse("data:text/plain,hello").unwrap(), ResourceKind::Other)
             .expect("a data: URL loads");
         assert_eq!(&loaded.body[..], b"hello");
 
-        let refused = loader.load(&Url::parse("file:///etc/hostname").unwrap());
+        let refused = loader.load(&Url::parse("file:///etc/hostname").unwrap(), ResourceKind::Other);
         assert!(matches!(refused, Err(LoadError::UnsupportedUrl(_))), "{refused:?}");
 
         // A document loaded from disk may load its neighbours, like in-process.
@@ -300,9 +300,46 @@ mod tests {
             .expect("a brokered loader binds to a document");
         let neighbour = Url::from_file_path(dir.join("page.css")).unwrap();
         let loaded = for_page
-            .load(&neighbour)
+            .load(&neighbour, ResourceKind::Stylesheet)
             .expect("a file: neighbour of a file: document loads");
         assert_eq!(&loaded.body[..], b"body{}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A secure page's stylesheet over plain `http` is mixed content and refused before anything
+    /// connects (198.51.100.0/24 is a documentation range: nothing answers there).
+    #[test]
+    fn a_secure_document_cannot_load_an_insecure_stylesheet() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let _in_rt = rt.enter();
+        let (event_tx, _events) = tokio::sync::broadcast::channel(16);
+        let ctx = Arc::new(crate::engine::EngineContext {
+            event_tx,
+            ..Default::default()
+        });
+        let io = crate::net::io_runtime::spawn_io_thread(ctx);
+        let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
+        let page = Url::parse("https://site.test/").unwrap();
+        let for_page = loader
+            .for_document(Some(&page))
+            .expect("a brokered loader binds to a document");
+
+        let started = std::time::Instant::now();
+        let refused = for_page.load(
+            &Url::parse("http://198.51.100.1/a.css").unwrap(),
+            ResourceKind::Stylesheet,
+        );
+        match refused {
+            Err(LoadError::Failed(why)) => assert!(why.contains("mixed content"), "{why}"),
+            other => panic!("expected a mixed-content refusal, got {other:?}"),
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "it must not try to connect"
+        );
     }
 }

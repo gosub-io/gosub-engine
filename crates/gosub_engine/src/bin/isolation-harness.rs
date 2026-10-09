@@ -1120,6 +1120,7 @@ impl gosub_engine::net::resource_loader::ResourceLoader for HarnessResourceLoade
     fn load(
         &self,
         url: &url::Url,
+        _kind: gosub_engine::net::types::ResourceKind,
     ) -> Result<gosub_engine::net::resource_loader::LoadedResource, gosub_engine::net::resource_loader::LoadError> {
         use gosub_engine::net::resource_loader::{LoadError, LoadedResource};
         self.served.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -13,6 +13,7 @@ use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
     FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, RequestBody, ResourceKind,
+    SubresourceOf,
 };
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
@@ -612,7 +613,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Image.to_net())
             .with_initiator(Initiator::Other.to_net())
-            .with_referrer(base_url.clone())
+            .subresource_of(&base_url, ResourceKind::Image)
             .with_streaming(false)
             .with_auto_decode(true)
             .build();
