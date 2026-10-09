@@ -6858,10 +6858,13 @@ fn vault() -> i32 {
             eprintln!("a ticket should still read at its own URL after a refused one");
             return 1;
         }
-        if !(store_on_line(&mut net_link, bound.clone(), "first=1; Path=/")
-            && store_on_line(&mut net_link, bound.clone(), "second=1; Path=/"))
-        {
+        if !store_on_line(&mut net_link, bound.clone(), "first=1; Path=/") {
             eprintln!("a store on the network line went unacknowledged");
+            return 1;
+        }
+        // Refused, not acknowledged: the network process keeps what is refused.
+        if store_on_line(&mut net_link, bound.clone(), "second=1; Path=/") {
+            eprintln!("a ticket's second store was answered as stored");
             return 1;
         }
         net_vault.revoke(&bound);

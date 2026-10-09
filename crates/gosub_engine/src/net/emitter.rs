@@ -20,8 +20,9 @@ const DEFAULT_BODY_CAPTURE_LIMIT: usize = 1024 * 1024;
 
 static BODY_CAPTURE_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_BODY_CAPTURE_LIMIT);
 
-/// Whether a request's `Cookie`, `Authorization` and `Proxy-Authorization` values reach the
-/// embedder, or only the header names.
+/// Whether a request's `Cookie`, `Authorization` and `Proxy-Authorization` values, a
+/// response's `Set-Cookie` values, and the username and password in a URL reach the
+/// embedder, or only the header names and the URL without them.
 ///
 /// Redacted by default, and deliberately not a free-for-all the way a browser's own developer
 /// tools are. A `ResourceEvent` is an *API*: it goes wherever the embedder sends it, which may
@@ -31,8 +32,10 @@ static BODY_CAPTURE_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_BODY_CAPTURE_L
 /// deliberately, the same way it turns body capture on.
 static SEND_SENSITIVE_HEADERS: AtomicBool = AtomicBool::new(false);
 
-/// Header names whose values are worth more than the debugging convenience of showing them.
-const SENSITIVE_HEADERS: [&str; 3] = ["cookie", "authorization", "proxy-authorization"];
+/// Header names whose values are worth more than the debugging convenience of showing them:
+/// the credentials a request carries, and the cookies a response sets - the same session,
+/// on its way in.
+const SENSITIVE_HEADERS: [&str; 4] = ["cookie", "set-cookie", "authorization", "proxy-authorization"];
 
 /// What stands in for a redacted value. Says what happened rather than showing an empty
 /// string, which reads as "the header was not sent".
@@ -61,6 +64,26 @@ pub fn header_value(name: &str, value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// `url` as reported to the embedder: without the username and password a URL can carry
+/// (`https://user:secret@host/`), which are credentials like an `Authorization` header and
+/// redacted under the same switch. Borrowed when there is nothing to strip.
+pub fn report_url(url: &url::Url) -> std::borrow::Cow<'_, url::Url> {
+    url_as_reported(url, send_sensitive_headers())
+}
+
+/// [`report_url`] with the switch passed in, so it can be tested without touching
+/// process-wide state (see [`capture_decision`]).
+fn url_as_reported(url: &url::Url, send_sensitive: bool) -> std::borrow::Cow<'_, url::Url> {
+    if send_sensitive || (url.username().is_empty() && url.password().is_none()) {
+        return std::borrow::Cow::Borrowed(url);
+    }
+    let mut stripped = url.clone();
+    // Only a URL that cannot hold credentials refuses these, and it held none.
+    let _ = stripped.set_username("");
+    let _ = stripped.set_password(None);
+    std::borrow::Cow::Owned(stripped)
 }
 
 /// Turn body capture on or off. See [`CAPTURE_BODY_PREVIEWS`].
@@ -223,6 +246,23 @@ mod tests {
         assert_eq!(body_capture_limit(), DEFAULT_BODY_CAPTURE_LIMIT);
     }
 
+    /// Credentials in a URL are credentials: dropped unless asked for, the rest of the
+    /// URL intact, and a URL without any passed through as it is.
+    #[test]
+    fn a_reported_url_carries_no_credentials() {
+        let with = url::Url::parse("https://alice:hunter2@example.test:8443/p?q=1#f").unwrap();
+        assert_eq!(
+            url_as_reported(&with, false).as_str(),
+            "https://example.test:8443/p?q=1#f"
+        );
+        let user_only = url::Url::parse("ftp://alice@example.test/").unwrap();
+        assert_eq!(url_as_reported(&user_only, false).as_str(), "ftp://example.test/");
+        assert_eq!(url_as_reported(&with, true).as_str(), with.as_str(), "asked for");
+
+        let plain = url::Url::parse("https://example.test/").unwrap();
+        assert!(matches!(url_as_reported(&plain, false), std::borrow::Cow::Borrowed(_)));
+    }
+
     /// The values worth protecting do not leave the engine unless something asked for them,
     /// and the header name survives either way -- "a Cookie header was sent, and I am not
     /// telling you what was in it" is the useful answer, not silence.
@@ -233,6 +273,8 @@ mod tests {
         assert_eq!(header_value("Cookie", "session=abc123"), REDACTED);
         assert_eq!(header_value("authorization", "Bearer hunter2"), REDACTED);
         assert_eq!(header_value("Proxy-Authorization", "Basic Zm9v"), REDACTED);
+        // The same session on its way in.
+        assert_eq!(header_value("Set-Cookie", "session=abc123; HttpOnly"), REDACTED);
         // Everything else is ordinary request metadata.
         assert_eq!(header_value("Accept", "text/html"), "text/html");
         assert_eq!(

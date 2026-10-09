@@ -480,16 +480,21 @@ async fn perform_inner(
         _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
-    // `Set-Cookie` goes to the vault from here; the broker never sees it.
-    if let (Some(scope), Some(meta)) = (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
-        tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta));
-    }
+    // `Set-Cookie` goes to the vault from here; the broker never sees it: the
+    // reply drops it once the vault has it. One the vault did not take stays on
+    // the reply instead, and the broker stores it through its own jar - the
+    // values pass the broker on that path, rather than being lost.
+    let vaulted = match (&scope, result.as_ref().ok().and_then(|r| r.meta())) {
+        (Some(scope), Some(meta)) => tokio::task::block_in_place(|| platform::vault_store(vault, scope, meta)),
+        _ => false,
+    };
+    let reply_headers = |headers: &http::HeaderMap| reply_headers(headers, vaulted);
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
-            headers: flatten_headers(&meta.headers),
+            headers: reply_headers(&meta.headers),
             body: body.to_vec(),
             peer_addr: meta.peer_addr,
         }),
@@ -504,7 +509,7 @@ async fn perform_inner(
                 status: meta.status,
                 status_text: meta.status_text,
                 final_url: meta.final_url.to_string(),
-                headers: flatten_headers(&meta.headers),
+                headers: reply_headers(&meta.headers),
                 peek: peek_buf.as_ref().to_vec(),
                 peer_addr: meta.peer_addr,
             };
@@ -515,5 +520,58 @@ async fn perform_inner(
         }
         Ok(FetchResult::Error(e)) => done(FetchOutcome::Error(e.to_string())),
         Err(_) => done(FetchOutcome::Error("the fetcher dropped the request".into())),
+    }
+}
+
+/// A response's headers for the reply to the broker. Once the vault has the
+/// cookies, only what it was given leaves: a value it could not be sent stays,
+/// for the broker's jar to judge.
+fn reply_headers(headers: &http::HeaderMap, vaulted: bool) -> crate::net::process::protocol::HeaderList {
+    let mut list = flatten_headers(headers);
+    if vaulted {
+        list.retain(|(name, value)| {
+            !name.eq_ignore_ascii_case(http::header::SET_COOKIE.as_str()) || set_cookie_text(value).is_none()
+        });
+    }
+    list
+}
+
+/// A `Set-Cookie` value as the vault takes it: text, read the way a cookie
+/// jar reads it (UTF-8, so a non-ASCII value counts). Decides both what is
+/// sent to the vault and what leaves the reply, so the two cannot disagree.
+pub(crate) fn set_cookie_text(value: &[u8]) -> Option<&str> {
+    std::str::from_utf8(value).ok()
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::reply_headers;
+
+    /// The vault is given every `Set-Cookie` that reads as text, a non-ASCII
+    /// one included, and only those leave the reply; one that does not read
+    /// stays, rather than being lost with the rest.
+    #[test]
+    fn only_what_the_vault_was_given_leaves_the_reply() {
+        let mut headers = http::HeaderMap::new();
+        headers.append(http::header::SET_COOKIE, "a=1".parse().unwrap());
+        headers.append(
+            http::header::SET_COOKIE,
+            http::HeaderValue::from_bytes("b=caf\u{e9}".as_bytes()).unwrap(),
+        );
+        headers.append(
+            http::header::SET_COOKIE,
+            http::HeaderValue::from_bytes(b"c=\xff\xfe").unwrap(),
+        );
+        headers.append(http::header::CONTENT_TYPE, "text/html".parse().unwrap());
+
+        let kept = reply_headers(&headers, true);
+        assert_eq!(
+            kept,
+            vec![
+                ("set-cookie".to_string(), b"c=\xff\xfe".to_vec()),
+                ("content-type".to_string(), b"text/html".to_vec()),
+            ]
+        );
+        assert_eq!(reply_headers(&headers, false).len(), 4, "not vaulted: all stay");
     }
 }

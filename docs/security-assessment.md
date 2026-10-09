@@ -20,6 +20,14 @@ commit's subject on this branch.
 | C. local attacker | another process as the same user, another user, a remote page reaching 127.0.0.1 | browsing data, the on-disk stores, the children |
 | D. hostile page | ordinary web content, no exploit | what still runs in the broker, other sites' cookies, the private network |
 
+Position A assumes the renderer tier runs, and it runs only where the
+embedder supplies a forked tile rasterizer and uses Parley or cosmic fonts:
+the engine's own `DefaultRenderConfig` has no rasterizer without the
+non-default `cairo-tiles` or `skia-tiles` features. Everywhere else HTML,
+CSS, layout, paint, web fonts and inline SVG run in the embedder's process,
+so a parser bug is position D against the embedder, not position A against
+a renderer.
+
 ## Fixed on this branch
 
 - **The network process's Landlock covered only its idle main thread**
@@ -65,8 +73,12 @@ commit's subject on this branch.
   The jar is also bounded in bytes, every string a cookie carries counted.
 - **A local page could have the broker read a device file without end**
   (high, DoS; also on the in-process path). `<img src="file:///dev/zero">`
-  from any local HTML file. The file loader serves regular files only, up to
-  256 MiB, read with a bound.
+  from any local HTML file. The file loader serves regular files, up to
+  256 MiB read with a bound, and a directory as a generated listing; a device
+  or a FIFO is refused. The type is checked on the path before the `open`
+  and on the opened file after it, and the open does not block, so a FIFO
+  or device swapped in between is opened, refused and closed without a
+  read.
 - **The broker's own lockdown was never applied** (medium). `lock_down_broker`
   existed in the sandbox crate with no caller in the engine or any example;
   every statement about the broker's Landlock scope held for nobody. It is
@@ -83,6 +95,17 @@ commit's subject on this branch.
   UI). Both bounded in the broker.
 - **The link handed over for a renderer was only checked to be a socket**
   (low). It must be a stream socket.
+- **`Set-Cookie` values and URL credentials reached the embedder** (low).
+  A request's `Cookie` was redacted in resource events and a response's
+  `Set-Cookie` was not, and a reported URL kept its `user:password@`. Both
+  are redacted now, under the same switch as `Cookie`
+  (`set_send_sensitive_headers`). Under the network process with the vault,
+  cookie values no longer reach the broker either: the child drops
+  `Set-Cookie` from a reply once the vault has stored it, and redacts both
+  cookie headers in the events it relays. One the vault did not take stays on
+  the reply, and the broker stores it, so it is not lost. URL credentials
+  still cross the link in event URLs and are redacted where the broker
+  reports them.
 
 ## Accepted, with what the sandbox still prevents
 
@@ -107,8 +130,11 @@ commit's subject on this branch.
   No-CORS subresource loads carry the zone's cookies for the URL (`SameSite`
   judged against the tab, so `SameSite=None` ones cross sites), and opaque
   response blocking lets images, media, CSS, scripts, fonts and sniffed
-  unknown types through, as Chromium's does. A compromised renderer reads
-  them. CORS and credentials mode on `NeedResource` are the fix, not here.
+  unknown types through, as the ORB algorithm does. It lets more through
+  than the algorithm: image, video, audio and font types pass on their label
+  where ORB sniffs them, and a response sniffed as none of those is not put
+  through ORB's final step, parsing it as JavaScript. A compromised renderer
+  reads them. CORS and credentials mode on `NeedResource` are the fix, not here.
 - **Every renderer shares the fork server's address-space layout**, being
   forked from it; an address leak in one is the layout of all, and of the fork
   server, which also deserialises a one-shot renderer's frames when relaying
