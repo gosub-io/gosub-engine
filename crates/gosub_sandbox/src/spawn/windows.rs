@@ -7,10 +7,10 @@ use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TI
 use windows_sys::Win32::Security::{SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES};
 use windows_sys::Win32::System::SystemServices::SE_GROUP_ENABLED;
 use windows_sys::Win32::System::Threading::{
-    CreateProcessAsUserW, CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
-    TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT, INFINITE,
-    PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-    STARTUPINFOEXW,
+    CreateProcessAsUserW, CreateProcessW, DeleteProcThreadAttributeList, GetProcessId,
+    InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+    EXTENDED_STARTUPINFO_PRESENT, INFINITE, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, STARTUPINFOEXW,
 };
 
 /// A spawned child process. Owns the process handle and closes it on drop.
@@ -42,6 +42,12 @@ impl Child {
             Ok(()) => "exited".to_string(),
             Err(e) => format!("could not be reaped: {e}"),
         }
+    }
+
+    /// The child's process id, as the unix backend gives it.
+    pub fn id(&self) -> u32 {
+        // SAFETY: `process` is a valid handle owned by this struct.
+        unsafe { GetProcessId(self.process) }
     }
 
     /// The raw process handle, for the parent-side confinement hook.

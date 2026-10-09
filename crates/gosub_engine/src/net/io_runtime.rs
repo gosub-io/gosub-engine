@@ -893,6 +893,7 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                         Some(IoCommand::NetPid { reply_tx }) => {
                             let _ = reply_tx.send(router.net_process().and_then(|net| net.pid()));
                         }
+                        #[cfg(feature = "process-isolation")]
                         Some(IoCommand::AuditNet { reply_tx }) => {
                             let net = router.net_process();
                             spawn_named("io-audit-net", async move {
