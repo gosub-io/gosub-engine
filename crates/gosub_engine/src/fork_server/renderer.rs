@@ -14,6 +14,7 @@ use crate::fork_server::protocol::{
 };
 use crate::html::{EngineDocument, RenderConfiguration};
 use crate::net::resource_loader::ResourceLoader;
+use crate::net::types::ResourceKind;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
 use gosub_interface::css3::CssSystem as _;
@@ -334,7 +335,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             }
         }
         crate::engine::resource_pipeline::html::resolve_pending_stylesheets_blocking::<C>(&mut doc, &|url| {
-            loader.fetch(url)
+            loader.fetch(url, ResourceKind::Stylesheet)
         });
 
         // Hover state, as the broker hit-tested it. Applied before the render
@@ -351,7 +352,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             crate::engine::resource_pipeline::webfonts::load_web_fonts_blocking::<C>(
                 &doc,
                 base,
-                &|url| loader.fetch(url),
+                &|url| loader.fetch(url, ResourceKind::Font),
                 &mut |bytes, family| fonts.lock().register_font(bytes, Some(family)),
             );
         }

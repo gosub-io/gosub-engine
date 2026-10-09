@@ -4,6 +4,7 @@ use crate::fork_server::protocol::{FromForkServer, ResourceReply, TileHeader, To
 use crate::fork_server::renderer;
 use crate::html::RenderConfiguration;
 use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
+use crate::net::types::ResourceKind;
 use gosub_interface::font_system::{Confinement, FontSystem};
 use gosub_ipc::Endpoint;
 use parking_lot::Mutex;
@@ -26,10 +27,11 @@ impl std::fmt::Debug for DirectBrokeredLoader {
 }
 
 impl ResourceLoader for DirectBrokeredLoader {
-    fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+    fn load(&self, url: &Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
         let mut link = self.link.lock();
         link.send(&FromForkServer::NeedResource {
             url: url.to_string(),
+            kind,
             deferred: false,
         })
         .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;

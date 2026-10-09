@@ -345,13 +345,16 @@ origin the child cannot read is rebuilt as an opaque one, which sends `null`,
 never an origin the broker did not give.
 
 **Subresources are brokered.** A confined renderer cannot fetch, so it sends
-`NeedResource { url, deferred }` and blocks; the broker performs the load where
-identity and cookies live - with the page's `Referer` and `Accept-Language`,
-as the page's own fetch would, and `file:` only for a page that itself came
-from disk - and replies with bytes (a large body as a sealed memfd, above). The private-network and opaque-response
+`NeedResource { url, kind, deferred }` and blocks; the broker performs the load
+where identity and cookies live - with the page's origin, `Referer` and
+`Accept-Language`, as the page's own fetch would, and `file:` only for a page
+that itself came from disk - and replies with bytes (a large body as a sealed memfd, above). The private-network and opaque-response
 policies below are decided from the document the request is for, which the
 broker stamps on it, so a page still shown keeps asking as itself while the
-tab loads the next one. The renderer also gets the user's media preferences
+tab loads the next one. Mixed content is decided the same way: an `http` image
+a secure page asks for is upgraded to `https`, an `http` stylesheet or font is
+refused. The renderer's `kind` is not checked, since claiming an image for a
+stylesheet only turns a refusal into an upgrade. The renderer also gets the user's media preferences
 (`prefers-color-scheme`, reduced motion, the DPR media environment) with
 every render request, since it has no settings of its own to read.
 Stylesheets and fonts are

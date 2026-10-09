@@ -491,9 +491,9 @@ fn fork_and_render<C: RenderConfiguration>(
                 let mut link = Endpoint::from_channel(ours)?;
                 loop {
                     match link.recv::<FromRenderer>()? {
-                        FromRenderer::NeedResource { url, deferred } => {
+                        FromRenderer::NeedResource { url, kind, deferred } => {
                             broker
-                                .send(&FromForkServer::NeedResource { url, deferred })
+                                .send(&FromForkServer::NeedResource { url, kind, deferred })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             match broker
                                 .recv::<ToForkServer>()

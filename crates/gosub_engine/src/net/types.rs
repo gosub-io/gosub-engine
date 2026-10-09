@@ -23,7 +23,7 @@ pub struct FetchHandle {
 /// value is kept per request in the
 /// [`REF_REGISTRY`](crate::net::req_ref_tracker::REF_REGISTRY) so fetcher callbacks can
 /// recover it.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ResourceKind {
     Document,
     Stylesheet,
@@ -63,6 +63,17 @@ impl ResourceKind {
         }
     }
 
+    /// What happens to this kind of subresource when a secure document asks for it over plain
+    /// `http` (Mixed Content, "upgrade a mixed content request to a potentially trustworthy
+    /// URL, if appropriate"): images, audio and video are upgraded to `https`, with no fallback;
+    /// everything else is blockable and refused.
+    pub fn mixed_content(self) -> gosub_sonar::MixedContentPolicy {
+        match self {
+            ResourceKind::Image | ResourceKind::Media => gosub_sonar::MixedContentPolicy::Upgrade,
+            _ => gosub_sonar::MixedContentPolicy::Block,
+        }
+    }
+
     /// Best-effort mapping back from the coarse net-side classification. Only used as a
     /// fallback when the rich value was not registered for the request.
     pub fn from_net(kind: gosub_sonar::net::types::ResourceKind) -> Self {
@@ -72,6 +83,22 @@ impl ResourceKind {
                 ResourceKind::Other
             }
         }
+    }
+}
+
+/// A request made on a document's behalf.
+pub trait SubresourceOf {
+    /// This request as a subresource of `document`, used as `kind`: the document's origin, which
+    /// the fetcher judges mixed content and `Sec-Fetch-Site` by at every hop and without which
+    /// neither applies; the document as referrer; and the mixed-content handling `kind` gets.
+    fn subresource_of(self, document: &url::Url, kind: ResourceKind) -> Self;
+}
+
+impl SubresourceOf for FetchRequestBuilder {
+    fn subresource_of(self, document: &url::Url, kind: ResourceKind) -> Self {
+        self.with_origin(document.origin())
+            .with_referrer(document.clone())
+            .with_mixed_content(kind.mixed_content())
     }
 }
 
@@ -409,6 +436,36 @@ mod tests {
             }
             _ => panic!("expected buffered"),
         }
+    }
+
+    /// Images, audio and video are upgraded when a secure page asks for them over `http`; the
+    /// rest is blockable (Mixed Content, "upgrade a mixed content request").
+    #[test]
+    fn only_media_is_upgraded_as_mixed_content() {
+        use gosub_sonar::MixedContentPolicy::{Block, Upgrade};
+        for (kind, policy) in [
+            (ResourceKind::Image, Upgrade),
+            (ResourceKind::Media, Upgrade),
+            (ResourceKind::Stylesheet, Block),
+            (ResourceKind::Font, Block),
+            (ResourceKind::Script { blocking: true }, Block),
+            (ResourceKind::Other, Block),
+        ] {
+            assert_eq!(kind.mixed_content(), policy, "{kind:?}");
+        }
+    }
+
+    /// A subresource carries its document's origin (without which no mixed-content check runs),
+    /// the document as referrer, and its kind's policy.
+    #[test]
+    fn a_subresource_carries_its_document() {
+        let doc = Url::parse("https://site.test/page").unwrap();
+        let req = FetchRequest::builder(http::Method::GET, Url::parse("http://cdn.test/a.png").unwrap())
+            .subresource_of(&doc, ResourceKind::Image)
+            .build();
+        assert_eq!(req.origin, Some(doc.origin()));
+        assert_eq!(req.referrer, Some(doc));
+        assert_eq!(req.mixed_content, Some(gosub_sonar::MixedContentPolicy::Upgrade));
     }
 
     /// Every `Accept` header with a wildcard that matches AVIF refuses it: nothing decodes it, so

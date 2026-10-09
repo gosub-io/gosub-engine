@@ -7,6 +7,7 @@ use crate::fork_server::protocol::{
 };
 use crate::fork_server::protocol::{Effect, InputEvent, WireRect, MAX_EFFECTS};
 use crate::net::resource_loader::{LoadError, LoadedResource};
+use crate::net::types::ResourceKind;
 use gosub_ipc::Endpoint;
 use std::time::Duration;
 
@@ -95,17 +96,17 @@ const MAX_TIMING_NAME: usize = 64;
 /// broker's loader, plus - for a tab - a cache that lets an image request be
 /// answered at once and fetched in the background.
 pub trait RenderResources {
-    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError>;
+    fn load(&self, url: &url::Url, kind: ResourceKind) -> Result<LoadedResource, LoadError>;
     /// A resource the render can do without for now (an image). The default
     /// fetches it anyway - correct, just not asynchronous.
-    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
-        self.load(url)
+    fn load_deferred(&self, url: &url::Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        self.load(url, kind)
     }
 }
 
 impl<T: crate::net::resource_loader::ResourceLoader + ?Sized> RenderResources for T {
-    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
-        crate::net::resource_loader::ResourceLoader::load(self, url)
+    fn load(&self, url: &url::Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        crate::net::resource_loader::ResourceLoader::load(self, url, kind)
     }
 }
 
@@ -116,12 +117,13 @@ pub struct TabResources {
 }
 
 impl RenderResources for TabResources {
-    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
-        self.loader.load(url)
+    fn load(&self, url: &url::Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        self.loader.load(url, kind)
     }
 
-    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
-        self.media.lookup_or_fetch(url, std::sync::Arc::clone(&self.loader))
+    fn load_deferred(&self, url: &url::Url, kind: ResourceKind) -> Result<LoadedResource, LoadError> {
+        self.media
+            .lookup_or_fetch(url, kind, std::sync::Arc::clone(&self.loader))
     }
 }
 
@@ -139,6 +141,8 @@ const MAX_MEDIA_ENTRIES: usize = 4096;
 const MAX_MEDIA_QUEUE: usize = 4096;
 
 type MediaLoader = std::sync::Arc<dyn crate::net::resource_loader::ResourceLoader>;
+/// One queued fetch: the URL, what it is for, and the loader to fetch it with.
+type MediaJob = (url::Url, ResourceKind, MediaLoader);
 
 #[derive(Default)]
 struct MediaEntries {
@@ -188,7 +192,7 @@ impl MediaEntries {
 
 #[derive(Default)]
 struct MediaQueue {
-    waiting: std::collections::VecDeque<(url::Url, MediaLoader)>,
+    waiting: std::collections::VecDeque<MediaJob>,
     fetchers: usize,
 }
 
@@ -208,6 +212,7 @@ impl RemoteMediaCache {
     pub fn lookup_or_fetch(
         self: &std::sync::Arc<Self>,
         url: &url::Url,
+        kind: ResourceKind,
         loader: MediaLoader,
     ) -> Result<LoadedResource, LoadError> {
         let key = url.to_string();
@@ -226,13 +231,13 @@ impl RemoteMediaCache {
                 self.in_flight.lock().remove(&key);
                 return Err(LoadError::Failed("too many images waiting to load".into()));
             }
-            queue.waiting.push_back((url.clone(), loader));
+            queue.waiting.push_back((url.clone(), kind, loader));
             return Err(LoadError::Pending);
         }
         queue.fetchers += 1;
         drop(queue);
         let cache = std::sync::Arc::clone(self);
-        let first = (url.clone(), loader);
+        let first = (url.clone(), kind, loader);
         let spawned = std::thread::Builder::new()
             .name("gosub-remote-media".into())
             .spawn(move || cache.work(first));
@@ -246,10 +251,10 @@ impl RemoteMediaCache {
 
     /// One fetcher thread: the job it was started for, then the queue until
     /// it is empty.
-    fn work(&self, first: (url::Url, MediaLoader)) {
+    fn work(&self, first: MediaJob) {
         let mut next = Some(first);
-        while let Some((url, loader)) = next.take() {
-            let fetched = loader.load(&url).map_err(|e| e.to_string());
+        while let Some((url, kind, loader)) = next.take() {
+            let fetched = loader.load(&url, kind).map_err(|e| e.to_string());
             self.entries.lock().insert(url.to_string(), fetched);
             self.in_flight.lock().remove(url.as_str());
             self.completed.store(true, std::sync::atomic::Ordering::Release);
@@ -281,6 +286,7 @@ impl RemoteMediaCache {
 pub(crate) enum RenderEvent {
     NeedResource {
         url: String,
+        kind: ResourceKind,
         deferred: bool,
     },
     Tile(TileHeader),
@@ -306,7 +312,7 @@ pub(crate) trait RenderStream: serde::de::DeserializeOwned + std::fmt::Debug {
 impl RenderStream for FromForkServer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromForkServer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
+            FromForkServer::NeedResource { url, kind, deferred } => RenderEvent::NeedResource { url, kind, deferred },
             FromForkServer::Tile(header) => RenderEvent::Tile(header),
             FromForkServer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered {
@@ -327,7 +333,7 @@ impl RenderStream for FromForkServer {
 impl RenderStream for FromRenderer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromRenderer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
+            FromRenderer::NeedResource { url, kind, deferred } => RenderEvent::NeedResource { url, kind, deferred },
             FromRenderer::Tile(header) => RenderEvent::Tile(header),
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered {
@@ -415,7 +421,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                     anyhow::bail!("renderer evicted more than {MAX_EXCHANGE_MESSAGES} tiles in one render");
                 }
             }
-            RenderEvent::NeedResource { url, deferred } => {
+            RenderEvent::NeedResource { url, kind, deferred } => {
                 resources += 1;
                 if resources > MAX_EXCHANGE_RESOURCES {
                     anyhow::bail!("renderer asked for more than {MAX_EXCHANGE_RESOURCES} resources in one render");
@@ -424,9 +430,9 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                 let reply = match url::Url::parse(&url) {
                     Ok(parsed) => {
                         let loaded = if deferred {
-                            loader.load_deferred(&parsed)
+                            loader.load_deferred(&parsed, kind)
                         } else {
-                            loader.load(&parsed)
+                            loader.load(&parsed, kind)
                         };
                         if crate::telemetry::enabled() {
                             let (outcome, bytes) = match &loaded {
@@ -1511,7 +1517,7 @@ mod tests {
         let mut renderer = ResidentRenderer::around_link_for_test(Endpoint::from_channel(ours).expect("endpoint"));
         struct Nothing;
         impl RenderResources for Nothing {
-            fn load(&self, _: &url::Url) -> Result<LoadedResource, LoadError> {
+            fn load(&self, _: &url::Url, _: ResourceKind) -> Result<LoadedResource, LoadError> {
                 Err(LoadError::Pending)
             }
         }
@@ -1577,7 +1583,7 @@ mod tests {
 
         struct Bodies;
         impl RenderResources for Bodies {
-            fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+            fn load(&self, url: &url::Url, _: ResourceKind) -> Result<LoadedResource, LoadError> {
                 let len = match url.path() {
                     "/in-band" => MAX_IN_BAND_RESOURCE,
                     "/shared" => MAX_IN_BAND_RESOURCE + 1,
@@ -1605,18 +1611,18 @@ mod tests {
         let url = |path: &str| url::Url::parse(&format!("https://site.test{path}")).unwrap();
         let expected = |len: usize| (0..len).map(|i| (i % 251) as u8).collect::<Vec<u8>>();
 
-        let in_band = ResourceLoader::load(&*loader, &url("/in-band")).expect("in band");
+        let in_band = ResourceLoader::load(&*loader, &url("/in-band"), ResourceKind::Image).expect("in band");
         assert_eq!(in_band.body.len(), MAX_IN_BAND_RESOURCE);
-        let shared = ResourceLoader::load(&*loader, &url("/shared")).expect("through a memfd");
+        let shared = ResourceLoader::load(&*loader, &url("/shared"), ResourceKind::Image).expect("through a memfd");
         assert_eq!(shared.status, 200);
         assert_eq!(shared.content_type.as_deref(), Some("image/png"));
         assert_eq!(&shared.body[..], &expected(MAX_IN_BAND_RESOURCE + 1)[..]);
-        match ResourceLoader::load(&*loader, &url("/too-large")) {
+        match ResourceLoader::load(&*loader, &url("/too-large"), ResourceKind::Image) {
             Err(LoadError::Failed(reason)) => assert!(reason.contains("cannot reach the renderer"), "{reason}"),
             other => panic!("expected a failed load, got {other:?}"),
         }
         // Still talking after all three: the exchange survived.
-        assert!(ResourceLoader::load(&*loader, &url("/in-band")).is_ok());
+        assert!(ResourceLoader::load(&*loader, &url("/in-band"), ResourceKind::Image).is_ok());
 
         drop(loader);
         broker.join().expect("broker thread");
@@ -1933,12 +1939,14 @@ mod tests {
             let url = url::Url::parse("https://img.test/waiting").unwrap();
             let loader: MediaLoader = std::sync::Arc::new(crate::net::resource_loader::NoResourceLoader);
             for _ in 0..MAX_MEDIA_QUEUE {
-                queue.waiting.push_back((url.clone(), std::sync::Arc::clone(&loader)));
+                queue
+                    .waiting
+                    .push_back((url.clone(), ResourceKind::Image, std::sync::Arc::clone(&loader)));
             }
         }
         let url = url::Url::parse("https://img.test/one-more").unwrap();
         let loader: MediaLoader = std::sync::Arc::new(crate::net::resource_loader::NoResourceLoader);
-        let answer = cache.lookup_or_fetch(&url, loader);
+        let answer = cache.lookup_or_fetch(&url, ResourceKind::Image, loader);
         assert!(matches!(answer, Err(LoadError::Failed(_))), "{answer:?}");
         assert_eq!(cache.queue.lock().waiting.len(), MAX_MEDIA_QUEUE);
         assert!(!cache.in_flight.lock().contains(url.as_str()));

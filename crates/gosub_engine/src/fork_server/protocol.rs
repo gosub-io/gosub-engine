@@ -1,5 +1,6 @@
 //! The broker↔fork-server wire vocabulary.
 
+use crate::net::types::ResourceKind;
 use serde::{Deserialize, Serialize};
 
 /// The confinement answer, as it crosses the process boundary.
@@ -334,7 +335,14 @@ pub enum FromForkServer {
     /// wants, the broker performs the fetch where identity and cookies live,
     /// and only bytes come back. Sent mid-[`RenderPage`](ToForkServer::RenderPage);
     /// the broker answers with [`ToForkServer::Resource`] before anything else.
-    NeedResource { url: String, deferred: bool },
+    NeedResource {
+        url: String,
+        /// What the renderer will use it as, which decides the mixed-content handling. Not
+        /// checked: a renderer claiming an image for a stylesheet gets it upgraded rather than
+        /// refused, and neither sends anything over plain `http`.
+        kind: ResourceKind,
+        deferred: bool,
+    },
 }
 
 /// What a forked renderer sends its parent over their private pair before
@@ -597,7 +605,14 @@ pub enum FromRenderer {
     /// otherwise - and fetches in the background, re-rendering the tab when
     /// they land. Images ask this way; stylesheets and fonts, which layout
     /// cannot proceed without, do not.
-    NeedResource { url: String, deferred: bool },
+    NeedResource {
+        url: String,
+        /// What the renderer will use it as, which decides the mixed-content handling. Not
+        /// checked: a renderer claiming an image for a stylesheet gets it upgraded rather than
+        /// refused, and neither sends anything over plain `http`.
+        kind: ResourceKind,
+        deferred: bool,
+    },
     /// One rasterized tile; its sealed memfd follows immediately. The
     /// renderer seals, sends, and drops each before baking the next into a
     /// memfd, so it never holds more than one tile fd itself.

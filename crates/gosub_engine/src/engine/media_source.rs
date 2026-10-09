@@ -9,7 +9,7 @@
 use crate::engine::types::{IoChannel, RequestId};
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::submit_to_io;
-use crate::net::types::{FetchRequest, FetchResult, Initiator, Priority, ResourceKind};
+use crate::net::types::{FetchRequest, FetchResult, Initiator, Priority, ResourceKind, SubresourceOf};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use gosub_render_pipeline::common::media::{Acquired, MediaSource};
@@ -120,7 +120,7 @@ impl EngineMediaSource {
             .with_auto_decode(true);
         {
             builder = builder
-                .with_referrer(doc_url)
+                .subresource_of(&doc_url, ResourceKind::Image)
                 .with_reference(REF_REGISTRY.to_net(reference));
         }
         let req = builder.build();

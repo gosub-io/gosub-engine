@@ -1,7 +1,7 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
 use crate::net::req_ref_tracker::REF_REGISTRY;
-use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator};
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, SubresourceOf};
 use crate::net::{submit_to_io, SharedBody};
 use crate::tab::TabId;
 use crate::util::spawn_named;
@@ -250,9 +250,10 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             if let Ok(val) = hint.kind.accept_header().parse() {
                 headers.insert(http::header::ACCEPT, val);
             }
-            // The referrer serves double duty: gosub-sonar computes the Referer header from
-            // it (never for non-http(s) referrers), and the file loader uses it to accept
-            // subresources of file:// documents.
+            // The document as referrer serves double duty: gosub-sonar computes the Referer
+            // header from it (never for non-http(s) referrers), and the file loader uses it to
+            // accept subresources of file:// documents. Its origin turns on mixed-content
+            // blocking.
             let sub_url = hint.url.clone();
             let sub_req = FetchRequest::builder(Method::GET, hint.url)
                 .with_req_id(sub_req_id)
@@ -261,7 +262,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 .with_initiator(Initiator::Parser.to_net())
                 .with_kind(hint.kind.to_net())
                 .with_headers(headers)
-                .with_referrer(doc_url.clone())
+                .subresource_of(&doc_url, hint.kind)
                 // Buffered rather than streamed: the body is the point now. It is handed to
                 // whichever consumer needs it -- the CSS parser, the media store, the font
                 // loader -- each of which used to fetch the same URL a second time over its
@@ -634,7 +635,7 @@ pub(crate) async fn fetch_subresource(
         .with_initiator(Initiator::Parser.to_net())
         .with_kind(kind.to_net())
         .with_headers(fetch.headers.clone())
-        .with_referrer(fetch.referrer.clone())
+        .subresource_of(fetch.referrer, kind)
         .with_streaming(false)
         .with_auto_decode(true)
         .build();
