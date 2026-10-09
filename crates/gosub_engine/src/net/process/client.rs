@@ -974,6 +974,9 @@ impl NetProcess {
     /// in-flight requests before exiting (see [`ToNet::Shutdown`]), so give it
     /// [`SHUTDOWN_GRACE`] to do that; kill only one that fails to.
     pub fn shutdown(&self) {
+        // Under `respawn`: a respawn under way finishes first, and its child
+        // is the one ended here; one that starts after sees `closed`.
+        let _respawn = self.respawn.lock();
         self.closed.store(true, Ordering::Release);
         let _ = self.tx.lock().send(&ToNet::Shutdown);
 
