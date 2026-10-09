@@ -208,4 +208,16 @@ mod tests {
         bytes.extend_from_slice(&[0, 0, 0, 0]); // wrong CRC; the lenient path must refuse too
         assert!(RasterDecoder.decode(&bytes).is_err());
     }
+
+    /// Only web formats are decoded: a well-formed image in a format no
+    /// browser serves (farbfeld, 1x1) is refused, not handed to its decoder.
+    #[test]
+    fn a_format_outside_the_web_set_is_not_decoded() {
+        let mut bytes = b"farbfeld".to_vec();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&[0xff; 8]);
+        assert!(RasterDecoder.decode(&bytes).is_err());
+        assert!(RasterDecoder.dimensions(&bytes).is_none());
+    }
 }

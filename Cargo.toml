@@ -72,7 +72,9 @@ futures-util = "0.3.31"
 getrandom = "0.4.2"
 gtk4 = "0.11.1"
 http = "1.4.1"
-image = "0.25.10"
+# Web formats only: every other decoder (exr, tiff, dds, ...) would be reachable
+# by sniffing a response. AVIF decoding is `avif-native` (dav1d), not enabled.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "rayon"] }
 indicatif = "0.18.0"
 js-sys = "0.3.91"
 lazy_static = "1.5.0"
