@@ -61,8 +61,12 @@ pub(crate) trait InputHost {
 pub enum KeyOutcome {
     /// The focused control or the focus machinery took the key.
     Consumed,
-    /// Enter on a focused link: the host decides whether to follow `href`.
-    FollowLink(String),
+    /// Enter on a focused link: the host decides whether to follow `href`, under the
+    /// referrer policy the link asks for (`None`: the document's).
+    FollowLink {
+        href: String,
+        referrer_policy: Option<gosub_sonar::ReferrerPolicy>,
+    },
     /// Not the page's key: the host may scroll with it, or drop it.
     Unhandled,
 }
@@ -205,12 +209,14 @@ impl PageInput {
         }
     }
 
-    /// The focused element's link target (`<a href>`), for Enter-to-activate.
-    pub fn focused_link<H: InputHost>(host: &H) -> Option<String> {
+    /// The focused element's link target (`<a href>`) and the referrer policy it asks for
+    /// (see [`crate::html::link_referrer_policy`]), for Enter-to-activate.
+    pub fn focused_link<H: InputHost>(host: &H) -> Option<(String, Option<gosub_sonar::ReferrerPolicy>)> {
         let doc = host.document()?;
         let id = doc.focused_node()?;
         if doc.tag_name(id) == Some("a") {
-            doc.attribute(id, "href").map(str::to_string)
+            let href = doc.attribute(id, "href")?.to_string();
+            Some((href, crate::html::link_referrer_policy(&doc, id)))
         } else {
             None
         }
@@ -715,7 +721,7 @@ impl PageInput {
                 }
             }
             "Enter" => match Self::focused_link(host) {
-                Some(href) => KeyOutcome::FollowLink(href),
+                Some((href, referrer_policy)) => KeyOutcome::FollowLink { href, referrer_policy },
                 None => KeyOutcome::Unhandled,
             },
             _ => KeyOutcome::Unhandled,

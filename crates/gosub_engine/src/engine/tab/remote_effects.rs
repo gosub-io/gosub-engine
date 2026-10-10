@@ -22,6 +22,8 @@ pub(crate) enum Action {
         method: Method,
         /// The form-encoded body of a POST.
         body: Option<String>,
+        /// The referrer policy the link or form asked for; `None` leaves the document's.
+        referrer_policy: Option<gosub_sonar::ReferrerPolicy>,
     },
     Picker {
         kind: PickerKind,
@@ -58,7 +60,12 @@ pub(crate) fn action_for(
                 HitCursor::Resize => CursorShape::Resize,
             }))
         }
-        Effect::Navigate { url, post, body } => {
+        Effect::Navigate {
+            url,
+            post,
+            body,
+            referrer_policy,
+        } => {
             // The same rule a hit region's link gets: http and https, and file
             // only from a file page.
             let current = current.ok_or("a navigation with no page to navigate from")?;
@@ -72,6 +79,9 @@ pub(crate) fn action_for(
                 url,
                 method: if post { Method::POST } else { Method::GET },
                 body: if post { body } else { None },
+                // The page's own choice of how much of its URL a navigation it
+                // chose reveals: what holding the page means, like the target.
+                referrer_policy: referrer_policy.map(Into::into),
             })
         }
         Effect::Picker {
@@ -147,10 +157,16 @@ mod tests {
             url: url.into(),
             post,
             body: Some("a=1".into()),
+            referrer_policy: Some(crate::fork_server::protocol::WireReferrerPolicy::NoReferrer),
         };
         assert!(matches!(
             action_for(nav("/submit?x=1", false), key("Enter", 0), Some(&page()), (800.0, 600.0)),
-            Ok(Action::Navigate { url, method: Method::GET, body: None }) if url.as_str() == "https://page.test/submit?x=1"
+            Ok(Action::Navigate {
+                url,
+                method: Method::GET,
+                body: None,
+                referrer_policy: Some(gosub_sonar::ReferrerPolicy::NoReferrer),
+            }) if url.as_str() == "https://page.test/submit?x=1"
         ));
         assert!(matches!(
             action_for(nav("/submit", true), key("Enter", 0), Some(&page()), (800.0, 600.0)),

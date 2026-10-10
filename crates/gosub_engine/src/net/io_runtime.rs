@@ -1126,17 +1126,38 @@ mod tests {
             };
             let mut req = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
                 .with_kind(ResourceKind::Image.to_net())
-                .subresource_of(&Url::parse("https://evil.test/").unwrap(), ResourceKind::Image)
+                .subresource_of(
+                    &Url::parse("https://evil.test/").unwrap(),
+                    gosub_sonar::ReferrerPolicy::default(),
+                    ResourceKind::Image,
+                )
                 .build();
             attach_request_cookies(&mut req, Some(&identity)).await;
             assert_eq!(cookie_header(&req), None);
 
             let mut own = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
                 .with_kind(ResourceKind::Image.to_net())
-                .subresource_of(&Url::parse("https://bank.test/").unwrap(), ResourceKind::Image)
+                .subresource_of(
+                    &Url::parse("https://bank.test/").unwrap(),
+                    gosub_sonar::ReferrerPolicy::default(),
+                    ResourceKind::Image,
+                )
                 .build();
             attach_request_cookies(&mut own, Some(&identity)).await;
             assert_eq!(cookie_header(&own), Some("lax=1"));
+
+            // A page's referrer policy governs the `Referer` header only: a
+            // `no-referrer` page's late load is still judged as that page's.
+            let mut quiet = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
+                .with_kind(ResourceKind::Image.to_net())
+                .subresource_of(
+                    &Url::parse("https://evil.test/").unwrap(),
+                    gosub_sonar::ReferrerPolicy::NoReferrer,
+                    ResourceKind::Image,
+                )
+                .build();
+            attach_request_cookies(&mut quiet, Some(&identity)).await;
+            assert_eq!(cookie_header(&quiet), None);
         }
 
         /// The broker's first hop of a navigation, as it attaches cookies or

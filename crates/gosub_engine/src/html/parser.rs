@@ -10,6 +10,7 @@ use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
 use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_sonar::ReferrerPolicy;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -37,6 +38,10 @@ pub struct ResourceHint {
     pub integrity: Option<String>,
     /// Suggested fetch priority.
     pub priority: Priority,
+    /// The policy the element's `referrerpolicy` attribute names, else the document's where
+    /// the element was found: a `<meta name="referrer">` changes it for the elements after it,
+    /// not the ones before.
+    pub referrer_policy: ReferrerPolicy,
 }
 
 /// Errors from buffering and parsing a main document stream.
@@ -79,6 +84,12 @@ pub struct HtmlParseConfig {
     /// value). Off by default - retaining a copy of every document would tax
     /// engines that render in-process.
     pub capture_source: bool,
+    /// The document's referrer policy before any `<meta name="referrer">` in it: the one its
+    /// `Referrer-Policy` response header set, else the default.
+    pub referrer_policy: ReferrerPolicy,
+    /// Set to the document's referrer policy once every `<meta name="referrer">` in it has
+    /// been seen, before the parse starts: for what the parse fetches through `stylesheets`.
+    pub settled_referrer_policy: Option<std::sync::Arc<std::sync::OnceLock<ReferrerPolicy>>>,
 }
 
 impl Default for HtmlParseConfig {
@@ -89,6 +100,8 @@ impl Default for HtmlParseConfig {
             stylesheets: None,
             timing_scope: None,
             capture_source: false,
+            referrer_policy: ReferrerPolicy::default(),
+            settled_referrer_policy: None,
         }
     }
 }
@@ -147,7 +160,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     cancel: CancellationToken,
     cfg: HtmlParseConfig,
     mut on_discover: F,
-) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>), DocumentError>
+) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>, ReferrerPolicy), DocumentError>
 where
     C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
@@ -196,7 +209,12 @@ where
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
     // image/CSS/script fetches are submitted before the full parse completes.
-    for hint in discover_resources(&html_lossy, &base_url) {
+    let policies = ReferrerPolicies::scan(cfg.referrer_policy, &html_lossy);
+    let referrer_policy = policies.last();
+    if let Some(settled) = &cfg.settled_referrer_policy {
+        let _ = settled.set(referrer_policy);
+    }
+    for hint in discover_resources(&html_lossy, &base_url, &policies) {
         on_discover(hint);
     }
 
@@ -271,7 +289,105 @@ where
             Err(DocumentError::Cancelled)
         }
     };
-    parsed.map(|doc| (doc, source))
+    parsed.map(|doc| (doc, source, referrer_policy))
+}
+
+/// The referrer policy a response's `Referrer-Policy` header sets (Referrer Policy, "parse a
+/// referrer policy from a `Referrer-Policy` header"): the last token naming a policy across
+/// every value of the header, `None` when none does.
+pub fn header_referrer_policy(headers: &http::HeaderMap) -> Option<ReferrerPolicy> {
+    let values: Vec<&str> = headers
+        .get_all("referrer-policy")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect();
+    ReferrerPolicy::parse_header(&values.join(","))
+}
+
+/// A document's referrer policy once every `<meta name="referrer">` in `html` has been
+/// processed, starting from `initial`, the response header's.
+pub fn document_referrer_policy(initial: ReferrerPolicy, html: &str) -> ReferrerPolicy {
+    ReferrerPolicies::scan(initial, html).last()
+}
+
+/// Where in a document its referrer policy changes: the start, then each
+/// `<meta name="referrer">` whose content names a policy (HTML, "Standard metadata names",
+/// `referrer`). A fetch for an element uses the policy in effect where the element sits.
+struct ReferrerPolicies {
+    initial: ReferrerPolicy,
+    /// Byte offset of each meta that set a policy, in document order.
+    changes: Vec<(usize, ReferrerPolicy)>,
+}
+
+impl ReferrerPolicies {
+    fn scan(initial: ReferrerPolicy, html: &str) -> Self {
+        let changes = RE_META
+            .iter()
+            .flat_map(|re| re.find_iter(html))
+            .filter_map(|tag| meta_referrer_policy(tag.as_str()).map(|policy| (tag.start(), policy)))
+            .collect();
+        Self { initial, changes }
+    }
+
+    fn at(&self, offset: usize) -> ReferrerPolicy {
+        self.changes
+            .iter()
+            .take_while(|(start, _)| *start < offset)
+            .last()
+            .map_or(self.initial, |(_, policy)| *policy)
+    }
+
+    fn last(&self) -> ReferrerPolicy {
+        self.changes.last().map_or(self.initial, |(_, policy)| *policy)
+    }
+}
+
+/// The policy a `<meta>` tag sets, if it is `name="referrer"` with a content naming one.
+///
+/// The content is lowercased and matched whole, the four legacy keywords mapped first; an
+/// empty or unknown value changes nothing.
+fn meta_referrer_policy(tag: &str) -> Option<ReferrerPolicy> {
+    if !tag_attribute(tag, "name")?.eq_ignore_ascii_case("referrer") {
+        return None;
+    }
+    let value = tag_attribute(tag, "content")?.cow_to_ascii_lowercase();
+    let value = match value.as_ref() {
+        "never" => "no-referrer",
+        "default" => "no-referrer-when-downgrade",
+        "always" => "unsafe-url",
+        "origin-when-crossorigin" => "origin-when-cross-origin",
+        other => other,
+    };
+    policy_token(value)
+}
+
+/// The value of attribute `name` in a raw start `tag`, unquoted. The first of a repeated
+/// attribute is the one the tokenizer keeps.
+fn tag_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    RE_ATTR
+        .iter()
+        .flat_map(|re| re.captures_iter(tag))
+        .find(|cap| {
+            cap.name("key")
+                .is_some_and(|key| key.as_str().eq_ignore_ascii_case(name))
+        })
+        .and_then(|cap| cap.name("value"))
+        .map(|value| unquote(value.as_str()))
+}
+
+/// The policy an element's `referrerpolicy` attribute in a raw start `tag` names, if any.
+fn tag_referrer_policy(tag: &str) -> Option<ReferrerPolicy> {
+    tag_attribute(tag, "referrerpolicy").and_then(policy_token)
+}
+
+/// A referrer policy written in markup: the whole value, ASCII case-insensitive, as an
+/// enumerated attribute is matched. `None` for an unknown, empty or padded value, which
+/// leaves the policy as it was (`parse_token` would trim the padding away).
+pub(crate) fn policy_token(value: &str) -> Option<ReferrerPolicy> {
+    if value.trim() != value {
+        return None;
+    }
+    ReferrerPolicy::parse_token(value)
 }
 
 /// The document's text as the parser reads it: UTF-16 when the detection said so,
@@ -329,6 +445,11 @@ static RE_LINK_STYLESHEET: Lazy<Option<Regex>> = Lazy::new(|| {
 static RE_SCRIPT_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
+static RE_META: Lazy<Option<Regex>> = Lazy::new(|| re(r#"(?is)<\s*meta\b[^>]*>"#));
+
+static RE_ATTR: Lazy<Option<Regex>> =
+    Lazy::new(|| re(r#"(?is)\s(?P<key>[a-z-]+)\s*=\s*(?P<value>"[^"]*"|'[^']*'|[^\s>]+)"#));
+
 static RE_ASYNC_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\basync\b"#));
 
 static RE_DEFER_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\bdefer\b"#));
@@ -336,7 +457,7 @@ static RE_DEFER_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\bdefer\b"#));
 static RE_IMG_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
+fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Vec<ResourceHint> {
     let mut out = Vec::new();
 
     // Stylesheets
@@ -347,8 +468,10 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
         let Ok(u) = resolve(base, unquote(m.as_str())) else {
             continue;
         };
+        let tag = cap.get(0).map_or("", |m| m.as_str());
         out.push(ResourceHint {
             url: u,
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             dest: RequestDestination::Document,
             referrer: None,
             cross_origin: false,
@@ -377,6 +500,7 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
         };
         out.push(ResourceHint {
             url: u,
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             kind: ResourceKind::Script { blocking },
             rel: None,
             from_attr: "src",
@@ -396,8 +520,10 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
         let Ok(u) = resolve(base, unquote(m.as_str())) else {
             continue;
         };
+        let tag = cap.get(0).map_or("", |m| m.as_str());
         out.push(ResourceHint {
             url: u,
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             kind: ResourceKind::Image,
             rel: None,
             from_attr: "src",
@@ -535,7 +661,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        let (_doc, _) = parse_main_document_stream::<DefaultRenderConfig, _, _>(
+        let (_doc, _, _) = parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -572,7 +698,7 @@ mod tests {
                 |_| {},
             )
         };
-        let parse = |html: String| async { parse(html).await.map(|(doc, _source)| doc) };
+        let parse = |html: String| async { parse(html).await.map(|(doc, _source, _policy)| doc) };
 
         let quirks = parse(format!("<html><body>{body}</body></html>")).await.unwrap();
         assert_eq!(quirks.quirks_mode(), QuirksMode::Quirks);
@@ -590,6 +716,112 @@ mod tests {
             quirks.stylesheets().iter().any(|s| s.url.contains("useragent-quirks")),
             "the extra sheet is the quirks sheet"
         );
+    }
+
+    /// A `<meta name="referrer">` changes the policy for the elements after it, and the
+    /// document's policy ends up as the last one that named a policy.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_meta_referrer_applies_from_where_it_stands() {
+        let html = r#"<html><head>
+            <img src="before.png">
+            <meta name="Referrer" content="NO-REFERRER">
+            <img src="after.png">
+            <meta name="referrer" content="bogus">
+            <meta content="origin" name="referrer">
+            <img src="last.png">
+        </head></html>"#;
+        let mut hints = Vec::new();
+        let (_doc, _, policy) = parse_main_document_stream::<DefaultRenderConfig, _, _>(
+            Url::parse("https://example.com/").unwrap(),
+            reader_from_str(html),
+            CancellationToken::new(),
+            HtmlParseConfig {
+                referrer_policy: ReferrerPolicy::SameOrigin,
+                ..Default::default()
+            },
+            |h| hints.push(h),
+        )
+        .await
+        .unwrap();
+        let policy_of = |name: &str| {
+            hints
+                .iter()
+                .find(|h| h.url.path() == format!("/{name}"))
+                .map(|h| h.referrer_policy)
+        };
+        assert_eq!(policy_of("before.png"), Some(ReferrerPolicy::SameOrigin));
+        assert_eq!(policy_of("after.png"), Some(ReferrerPolicy::NoReferrer));
+        assert_eq!(policy_of("last.png"), Some(ReferrerPolicy::Origin));
+        assert_eq!(policy, ReferrerPolicy::Origin);
+    }
+
+    /// An element's own `referrerpolicy` beats the document's, wherever a meta left it.
+    #[test]
+    fn an_elements_referrerpolicy_beats_the_documents() {
+        let html = r#"<meta name="referrer" content="no-referrer">
+            <img src="/plain.png">
+            <img referrerpolicy="unsafe-url" src="/own.png">
+            <script src="/s.js" referrerpolicy="origin"></script>
+            <link rel="stylesheet" referrerpolicy="same-origin" href="/s.css">
+            <img src="/bogus.png" referrerpolicy="never">"#;
+        let base = Url::parse("https://example.com/").unwrap();
+        let hints = discover_resources(html, &base, &ReferrerPolicies::scan(ReferrerPolicy::default(), html));
+        let policy_of = |path: &str| hints.iter().find(|h| h.url.path() == path).map(|h| h.referrer_policy);
+        assert_eq!(policy_of("/plain.png"), Some(ReferrerPolicy::NoReferrer));
+        assert_eq!(policy_of("/own.png"), Some(ReferrerPolicy::UnsafeUrl));
+        assert_eq!(policy_of("/s.js"), Some(ReferrerPolicy::Origin));
+        assert_eq!(policy_of("/s.css"), Some(ReferrerPolicy::SameOrigin));
+        assert_eq!(
+            policy_of("/bogus.png"),
+            Some(ReferrerPolicy::NoReferrer),
+            "legacy keywords are meta-only"
+        );
+    }
+
+    /// The legacy keywords map to their policies; an unknown, padded or empty content, or a
+    /// meta of another name, changes nothing.
+    #[test]
+    fn meta_referrer_content() {
+        let policy = |tag: &str| document_referrer_policy(ReferrerPolicy::UnsafeUrl, tag);
+        assert_eq!(
+            policy(r#"<meta name=referrer content=never>"#),
+            ReferrerPolicy::NoReferrer
+        );
+        assert_eq!(
+            policy(r#"<meta name=referrer content=default>"#),
+            ReferrerPolicy::NoReferrerWhenDowngrade
+        );
+        assert_eq!(
+            policy(r#"<meta name=referrer content=always>"#),
+            ReferrerPolicy::UnsafeUrl
+        );
+        assert_eq!(
+            policy(r#"<meta name='referrer' content='origin-when-crossorigin'>"#),
+            ReferrerPolicy::OriginWhenCrossOrigin
+        );
+        let unchanged = [
+            r#"<meta name=referrer content="">"#,
+            r#"<meta name=referrer content=" origin">"#,
+            r#"<meta name=referrer content="origin, no-referrer">"#,
+            r#"<meta name=description content=origin>"#,
+            r#"<meta content=origin>"#,
+        ];
+        for tag in unchanged {
+            assert_eq!(policy(tag), ReferrerPolicy::UnsafeUrl, "{tag}");
+        }
+    }
+
+    /// The header's last token naming a policy wins, across every value it was sent with.
+    #[test]
+    fn referrer_policy_header() {
+        let mut headers = http::HeaderMap::new();
+        assert_eq!(header_referrer_policy(&headers), None);
+        headers.append("referrer-policy", "no-referrer, bogus".parse().unwrap());
+        assert_eq!(header_referrer_policy(&headers), Some(ReferrerPolicy::NoReferrer));
+        headers.append("referrer-policy", "same-origin".parse().unwrap());
+        assert_eq!(header_referrer_policy(&headers), Some(ReferrerPolicy::SameOrigin));
+        headers.append("referrer-policy", "unknown".parse().unwrap());
+        assert_eq!(header_referrer_policy(&headers), Some(ReferrerPolicy::SameOrigin));
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -90,14 +90,17 @@ impl ResourceKind {
 pub trait SubresourceOf {
     /// This request as a subresource of `document`, used as `kind`: the document's origin, which
     /// the fetcher judges mixed content and `Sec-Fetch-Site` by at every hop and without which
-    /// neither applies; the document as referrer; and the mixed-content handling `kind` gets.
-    fn subresource_of(self, document: &url::Url, kind: ResourceKind) -> Self;
+    /// neither applies; the document as referrer, under `policy`, the document's referrer
+    /// policy, which decides how much of it the `Referer` shows; and the mixed-content handling
+    /// `kind` gets.
+    fn subresource_of(self, document: &url::Url, policy: gosub_sonar::ReferrerPolicy, kind: ResourceKind) -> Self;
 }
 
 impl SubresourceOf for FetchRequestBuilder {
-    fn subresource_of(self, document: &url::Url, kind: ResourceKind) -> Self {
+    fn subresource_of(self, document: &url::Url, policy: gosub_sonar::ReferrerPolicy, kind: ResourceKind) -> Self {
         self.with_origin(document.origin())
             .with_referrer(document.clone())
+            .with_referrer_policy(policy)
             .with_mixed_content(kind.mixed_content())
     }
 }
@@ -456,15 +459,16 @@ mod tests {
     }
 
     /// A subresource carries its document's origin (without which no mixed-content check runs),
-    /// the document as referrer, and its kind's policy.
+    /// the document as referrer under its referrer policy, and its kind's mixed-content policy.
     #[test]
     fn a_subresource_carries_its_document() {
         let doc = Url::parse("https://site.test/page").unwrap();
         let req = FetchRequest::builder(http::Method::GET, Url::parse("http://cdn.test/a.png").unwrap())
-            .subresource_of(&doc, ResourceKind::Image)
+            .subresource_of(&doc, gosub_sonar::ReferrerPolicy::NoReferrer, ResourceKind::Image)
             .build();
         assert_eq!(req.origin, Some(doc.origin()));
         assert_eq!(req.referrer, Some(doc));
+        assert_eq!(req.referrer_policy, gosub_sonar::ReferrerPolicy::NoReferrer);
         assert_eq!(req.mixed_content, Some(gosub_sonar::MixedContentPolicy::Upgrade));
     }
 

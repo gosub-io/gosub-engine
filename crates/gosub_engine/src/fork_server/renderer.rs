@@ -506,10 +506,11 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                     // to activate.
                     self.with_input(|input, host| input.focus_at(host, x, y));
                     match self.link_under(x, y) {
-                        Some(url) => effects.push(Effect::Navigate {
+                        Some((url, referrer_policy)) => effects.push(Effect::Navigate {
                             url,
                             post: false,
                             body: None,
+                            referrer_policy,
                         }),
                         None => {
                             self.with_input(|input, host| input.activate_at(host, x, y));
@@ -529,7 +530,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             }
             InputEvent::KeyDown { key, modifiers } => {
                 let modifiers = Modifiers::from_bits_truncate(modifiers);
-                if let KeyOutcome::FollowLink(href) =
+                if let KeyOutcome::FollowLink { href, referrer_policy } =
                     self.with_input(|input, host| input.key_down(host, &key, modifiers))
                 {
                     if let Some(url) = self.resolve(&href) {
@@ -537,6 +538,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                             url,
                             post: false,
                             body: None,
+                            referrer_policy: referrer_policy.map(Into::into),
                         });
                     }
                 }
@@ -560,6 +562,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
                 url: submission.url.to_string(),
                 post: submission.post,
                 body: submission.body,
+                referrer_policy: submission.referrer_policy.map(Into::into),
             });
         }
         if let Some(request) = self.input.take_picker_request() {
@@ -742,10 +745,16 @@ impl<C: RenderConfiguration> RetainedPage<C> {
     }
 
     /// The link under a viewport point, resolved: the nearest `<a href>`
-    /// enclosing the hit node, as a hit region would carry it.
-    fn link_under(&self, vp_x: f64, vp_y: f64) -> Option<String> {
+    /// enclosing the hit node, and the referrer policy it asks for, as a hit
+    /// region would carry them.
+    fn link_under(
+        &self,
+        vp_x: f64,
+        vp_y: f64,
+    ) -> Option<(String, Option<crate::fork_server::protocol::WireReferrerPolicy>)> {
         let (node, _) = crate::engine::input::hit_at(Some(&self.layer_list), (0.0, self.scroll_y), vp_x, vp_y);
-        describe_hit::<C>(&self.doc, node?, self.base_url.as_ref()).0
+        let (link, _, _, _, policy) = describe_hit::<C>(&self.doc, node?, self.base_url.as_ref());
+        link.map(|link| (link, policy))
     }
 
     /// `href` resolved against the page, bounded like a hit region's link.
@@ -775,7 +784,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let Some(leaf) = self.hovered else {
             return (false, CursorShape::Default);
         };
-        let (link, _, cursor, _) = describe_hit::<C>(&self.doc, leaf, self.base_url.as_ref());
+        let (link, _, cursor, _, _) = describe_hit::<C>(&self.doc, leaf, self.base_url.as_ref());
         let cursor = match cursor {
             HitCursor::Pointer => CursorShape::Pointer,
             HitCursor::Text => CursorShape::Text,
@@ -1121,6 +1130,7 @@ fn describe_hit<C: RenderConfiguration>(
     Option<String>,
     crate::fork_server::protocol::HitCursor,
     bool,
+    Option<crate::fork_server::protocol::WireReferrerPolicy>,
 ) {
     use crate::fork_server::protocol::{HitCursor, MAX_HIT_TEXT};
     use gosub_interface::node::NodeType;
@@ -1132,6 +1142,7 @@ fn describe_hit<C: RenderConfiguration>(
             .filter(|u| u.len() <= MAX_HIT_TEXT)
     };
     let mut link = None;
+    let mut link_policy = None;
     let mut image = None;
     let mut editable = false;
     let mut cursor = if doc.node_type(node) == NodeType::TextNode {
@@ -1144,6 +1155,7 @@ fn describe_hit<C: RenderConfiguration>(
         if link.is_none() && doc.tag_name(current) == Some("a") {
             if let Some(href) = doc.attribute(current, "href") {
                 link = resolve(href);
+                link_policy = crate::html::link_referrer_policy::<C>(doc, current).map(Into::into);
                 cursor = HitCursor::Pointer;
             }
         }
@@ -1158,7 +1170,7 @@ fn describe_hit<C: RenderConfiguration>(
         }
         id = doc.parent(current);
     }
-    (link, image, cursor, editable)
+    (link, image, cursor, editable, link_policy)
 }
 
 fn collect_hit_regions<C: RenderConfiguration>(
@@ -1188,7 +1200,8 @@ fn collect_hit_regions<C: RenderConfiguration>(
                 break 'outer;
             }
             let margin = &element.box_model.margin_box;
-            let (mut link, mut image, cursor, editable) = describe_hit::<C>(doc, element.dom_node_id, base_url);
+            let (mut link, mut image, cursor, editable, link_referrer_policy) =
+                describe_hit::<C>(doc, element.dom_node_id, base_url);
             // Past the page's text budget the region still hit-tests and
             // still says pointer; only the strings stay behind.
             text_bytes += link.as_ref().map_or(0, String::len) + image.as_ref().map_or(0, String::len);
@@ -1211,6 +1224,7 @@ fn collect_hit_regions<C: RenderConfiguration>(
                 image,
                 cursor,
                 editable,
+                link_referrer_policy,
             });
         }
     }
