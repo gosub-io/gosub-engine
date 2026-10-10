@@ -81,7 +81,7 @@ required-features = ["process-isolation"]
 
 [dev-dependencies]
 # Builds small Brotli bombs for the web-font size-cap tests.
-brotli = "8"
+brotli = "9"
 
 [features]
 default = ["sqlite_cookie_store", "process-isolation"]
