@@ -518,7 +518,7 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         url: req.url.to_string(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
-        samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
+        samesite: first_hop_context(identity, req).into(),
         navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
 }
@@ -586,7 +586,7 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     let Some(identity) = identity else {
         return;
     };
-    let context = same_site_context(identity.top_level.as_ref(), &req.url);
+    let context = first_hop_context(identity, req);
     let jar = identity.cookie_jar.clone();
     let url = req.url.clone();
     let top_level = identity.top_level.clone();
@@ -600,9 +600,19 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     }
 }
 
-/// Classify a request against the document that caused it; see
-/// [`request_context`](crate::engine::cookies::request_context). The first
-/// hop of a navigation is to the document's own URL, so same-site.
+/// The context a request's first hop is judged in; see
+/// [`TabIdentity::cookie_context`]. A navigation is judged against who
+/// started it, not against its own URL, which the tab already shows as its
+/// top level; only a request built as a navigation (its kind says so) can be
+/// judged as one.
+fn first_hop_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
+    let reference = REF_REGISTRY
+        .from_net(req.reference)
+        .filter(|_| req.kind == gosub_sonar::net::types::ResourceKind::Primary);
+    identity.cookie_context(reference, &req.url, &[], &req.method)
+}
+
+#[cfg(test)]
 fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteContext {
     crate::engine::cookies::request_context(top_level, url, false)
 }
@@ -923,6 +933,13 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                         Some(IoCommand::SetTopLevel { tab_id, url }) => {
                             router.tab_identities().set_top_level(tab_id, url);
                         }
+                        Some(IoCommand::StartNavigation {
+                            tab_id,
+                            nav_id,
+                            initiator,
+                        }) => {
+                            router.tab_identities().start_navigation(tab_id, nav_id, initiator);
+                        }
                         Some(IoCommand::CommitDocument { tab_id, nav_id }) => {
                             router.tab_identities().commit_navigation(tab_id, nav_id);
                         }
@@ -1022,6 +1039,49 @@ mod tests {
                 #[allow(clippy::unwrap_used)] // test-only: values are ASCII literals
                 v.to_str().unwrap()
             })
+        }
+
+        /// The broker's first hop of a navigation, as it attaches cookies or
+        /// grants them to the vault: judged against who started it, so a link
+        /// from another site sends `Lax` cookies and never `Strict` ones.
+        #[tokio::test]
+        async fn a_navigation_from_another_site_gets_no_strict_cookies() {
+            use crate::engine::types::NavigationId;
+            use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+            use crate::net::tab_identity::TabIdentityRegistry;
+            let tab = crate::tab::TabId::new();
+            let nav = NavigationId::new();
+            let reg = TabIdentityRegistry::new();
+            let jar = jar_with("https://bank.test/", "strict=1; SameSite=Strict; Path=/");
+            jar.write().store_response_cookies(
+                &Url::parse("https://bank.test/").unwrap(),
+                &{
+                    let mut h = http::HeaderMap::new();
+                    h.append(http::header::SET_COOKIE, "lax=1; SameSite=Lax; Path=/".parse().unwrap());
+                    h
+                },
+                None,
+            );
+            reg.register(tab, jar);
+            reg.set_top_level(tab, Url::parse("https://bank.test/").unwrap());
+            reg.start_navigation(tab, nav, Some(Url::parse("https://evil.test/page").unwrap()));
+            let identity = reg.get(tab).unwrap();
+            let navigation = |kind| {
+                FetchRequest::builder(Method::GET, Url::parse("https://bank.test/").unwrap())
+                    .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav)))
+                    .with_kind(kind)
+                    .build()
+            };
+
+            let mut req = navigation(gosub_sonar::net::types::ResourceKind::Primary);
+            attach_request_cookies(&mut req, Some(&identity)).await;
+            assert_eq!(cookie_header(&req), Some("lax=1"));
+
+            // Only a request built as a navigation is judged as one.
+            let mut req = navigation(gosub_sonar::net::types::ResourceKind::Asset);
+            attach_request_cookies(&mut req, Some(&identity)).await;
+            let header = cookie_header(&req).unwrap_or_default();
+            assert!(header.contains("strict=1") && header.contains("lax=1"), "{header}");
         }
 
         #[tokio::test]

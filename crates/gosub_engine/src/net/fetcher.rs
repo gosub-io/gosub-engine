@@ -191,18 +191,21 @@ pub(crate) fn observer_for_request(
 }
 
 impl EngineNetContext {
-    /// The identity of the tab a request's reference belongs to, and whether
-    /// the request is that tab's navigation (only a navigation's own request
-    /// is referenced by it; its subresources reference the document).
+    /// The identity of the tab a request's reference belongs to, and the
+    /// engine reference itself. A navigation's reference is shared by its own
+    /// request and the loads of the document it produces, so it alone does not
+    /// say which a request is (see `TabIdentity::cookie_context`).
     fn identity_for(
         &self,
         reference: gosub_sonar::RequestReference,
-    ) -> Option<(crate::net::tab_identity::TabIdentity, bool)> {
+    ) -> Option<(
+        crate::net::tab_identity::TabIdentity,
+        crate::net::req_ref_tracker::RequestReference,
+    )> {
         let reference = REF_REGISTRY.from_net(reference)?;
         let tab_id = self.request_reference_map.read().get(&reference).copied()?;
         let identity = self.tab_identities.get(tab_id)?;
-        let navigation = matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_));
-        Some((identity, navigation))
+        Some((identity, reference))
     }
 }
 
@@ -249,17 +252,18 @@ impl FetcherContext for EngineNetContext {
     }
 
     // Asked at every hop, so a cookie a redirect sets rides on the next one.
-    // Each hop is judged against the tab's document over the whole chain so
-    // far, so a chain that leaves the site stays cross-site when it comes
-    // back, and by its method, so a cross-site `POST` gets no `Lax` cookies.
+    // A navigation's hops are judged against who started it, a document's
+    // loads against the document; either over the whole chain so far, so a
+    // chain that leaves the site stays cross-site when it comes back, and by
+    // the hop's method, so a cross-site `POST` gets no `Lax` cookies.
     fn cookies_for_hop(
         &self,
         reference: gosub_sonar::RequestReference,
         hop: &gosub_sonar::CookieHop<'_>,
     ) -> Option<String> {
-        let (identity, navigation) = self.identity_for(reference)?;
+        let (identity, reference) = self.identity_for(reference)?;
         let top_level = identity.top_level.as_ref();
-        let context = crate::engine::cookies::hop_context(top_level, hop.url, hop.url_list, hop.method, navigation);
+        let context = identity.cookie_context(Some(reference), hop.url, hop.url_list, hop.method);
         blocking_jar_call(|| {
             identity
                 .cookie_jar
@@ -269,14 +273,15 @@ impl FetcherContext for EngineNetContext {
     }
 
     // Two requests get the same answers from the hooks when they ask the same
-    // jar from the same document, the same way (a navigation's hops are judged
-    // as one); only then may they share a fetch.
+    // jar in the same context: a navigation from the same initiator, or a load
+    // of the same document. Only then may they share a fetch.
     fn cookie_jar_key(&self, reference: gosub_sonar::RequestReference) -> String {
         match self.identity_for(reference) {
-            Some((identity, navigation)) => format!(
-                "{:x} {} {navigation}",
+            Some((identity, reference)) => format!(
+                "{:x} {} {}",
                 identity.cookie_jar.jar_id(),
-                identity.top_level.as_ref().map_or("", |u| u.as_str())
+                identity.top_level.as_ref().map_or("", |u| u.as_str()),
+                identity.cookie_context_key(Some(reference))
             ),
             None => String::new(),
         }
