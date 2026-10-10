@@ -354,3 +354,179 @@ mod dns_resolver_tests {
         assert!(!addrs.is_empty(), "resolver returned no addresses for localhost");
     }
 }
+
+/// Cookies across real redirect hops, through a fetcher and the engine's hook: each hop is
+/// judged by its method and the chain before it.
+#[cfg(test)]
+mod redirect_cookie_tests {
+    use super::*;
+    use crate::engine::cookies::{CookieJar, CookieJarHandle, DefaultCookieJar};
+    use crate::engine::types::NavigationId;
+    use crate::net::req_ref_tracker::RequestReference;
+    use crate::tab::TabId;
+    use std::collections::HashMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use url::Url;
+
+    type Seen = Arc<parking_lot::Mutex<HashMap<String, String>>>;
+
+    /// A listener on `ip`, its port, and what it saw: the first request for each path.
+    async fn listen(ip: &str) -> (tokio::net::TcpListener, u16, Seen) {
+        let listener = tokio::net::TcpListener::bind((ip, 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (listener, port, Seen::default())
+    }
+
+    /// Answer every request with `route(path)`: a status line and headers.
+    fn serve(listener: tokio::net::TcpListener, seen: Seen, route: impl Fn(&str) -> String + Send + 'static) {
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request =
+                    cow_utils::CowUtils::cow_to_ascii_lowercase(&*String::from_utf8_lossy(&buf[..n])).into_owned();
+                let path = request.split(' ').nth(1).unwrap_or("").to_string();
+                let head = route(&path);
+                seen.lock().entry(path).or_insert(request);
+                let response = format!("{head}Content-Length: 0\r\nConnection: close\r\n\r\n");
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+    }
+
+    /// A fetcher whose navigation `reference` belongs to a tab showing `top_level`, with a jar
+    /// holding `cookies` for `site`. The navigation is the user's own, started over the
+    /// network, so its hops are judged from its first URL.
+    fn navigating_tab(top_level: &Url, site: &Url, cookies: &[&str]) -> (Arc<Fetcher>, gosub_sonar::RequestReference) {
+        let mut jar = DefaultCookieJar::new();
+        let mut headers = http::HeaderMap::new();
+        for cookie in cookies {
+            headers.append(http::header::SET_COOKIE, cookie.parse().unwrap());
+        }
+        jar.store_response_cookies(site, &headers, None);
+        let tab = TabId::new();
+        let identities = Arc::new(crate::net::tab_identity::TabIdentityRegistry::new());
+        let jar: Box<dyn CookieJar + Send + Sync> = Box::new(jar);
+        identities.register(tab, CookieJarHandle::from(jar));
+        identities.set_top_level(tab, top_level.clone());
+        let navigation = NavigationId::new();
+        identities.start_navigation(tab, navigation, None);
+        let reference = RequestReference::Navigation(navigation);
+        let map = Arc::new(RwLock::new(RequestReferenceMap::new()));
+        map.write().insert(reference, tab);
+        let context = EngineNetContext {
+            resource_tx: tokio::sync::broadcast::channel(16).0,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+            request_reference_map: map,
+            request_ref_tracker: Arc::new(RequestRefTracker::new()),
+            tab_identities: identities,
+            reach: AddressSpace::Loopback,
+        };
+        let config = FetcherConfig {
+            proxy: gosub_sonar::ProxyConfig::Disabled,
+            ..FetcherConfig::default()
+        };
+        let fetcher = Arc::new(Fetcher::new(config, Arc::new(context)).unwrap());
+        tokio::spawn({
+            let fetcher = fetcher.clone();
+            async move { fetcher.run(tokio_util::sync::CancellationToken::new()).await }
+        });
+        (fetcher, REF_REGISTRY.to_net(reference))
+    }
+
+    fn navigation(
+        method: http::Method,
+        url: &Url,
+        reference: gosub_sonar::RequestReference,
+    ) -> crate::net::types::FetchRequest {
+        let mut req = crate::net::types::FetchRequest::builder(method.clone(), url.clone())
+            .with_reference(reference)
+            .with_kind(ResourceKind::Primary);
+        if method == http::Method::POST {
+            req = req.with_body(crate::net::types::RequestBody::form("a=1"));
+        }
+        req.build()
+    }
+
+    fn cookies_at(seen: &Seen, path: &str) -> String {
+        let request = seen
+            .lock()
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| panic!("{path} never requested"));
+        request
+            .lines()
+            .find_map(|line| line.strip_prefix("cookie: ").map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    /// A 307 keeps a cross-site navigation's POST, which is not a safe method: no `Lax`
+    /// cookies on that hop. A 302 turns it into a GET, which gets them.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cross_site_post_hop_carries_no_lax_cookies() {
+        let (b_listener, b, b_seen) = listen("127.0.0.2").await;
+        serve(b_listener, b_seen.clone(), |_| "HTTP/1.1 200 OK\r\n".into());
+        let (a_listener, a, a_seen) = listen("127.0.0.1").await;
+        serve(a_listener, a_seen, move |path| {
+            let status = if path == "/307" {
+                "307 Temporary Redirect"
+            } else {
+                "302 Found"
+            };
+            format!("HTTP/1.1 {status}\r\nLocation: http://127.0.0.2:{b}/from{path}\r\n")
+        });
+
+        let site_b = Url::parse(&format!("http://127.0.0.2:{b}/")).unwrap();
+        let top = Url::parse(&format!("http://127.0.0.1:{a}/307")).unwrap();
+        let (fetcher, reference) = navigating_tab(&top, &site_b, &["lax=1; SameSite=Lax; Path=/"]);
+        for path in ["307", "302"] {
+            let url = Url::parse(&format!("http://127.0.0.1:{a}/{path}")).unwrap();
+            fetcher.fetch(navigation(http::Method::POST, &url, reference)).await;
+        }
+
+        assert_eq!(
+            cookies_at(&b_seen, "/from/307"),
+            "",
+            "a POST kept across sites carries no Lax cookie"
+        );
+        assert_eq!(
+            cookies_at(&b_seen, "/from/302"),
+            "lax=1",
+            "the GET after a 302 carries it"
+        );
+    }
+
+    /// A navigation that leaves the site and comes back is cross-site on its way back:
+    /// `Strict` cookies stay home, `Lax` ones still ride on the (safe) navigation.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_chain_through_another_site_stays_cross_site() {
+        let (a_listener, a, a_seen) = listen("127.0.0.1").await;
+        let (b_listener, b, b_seen) = listen("127.0.0.2").await;
+        serve(b_listener, b_seen, move |_| {
+            format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{a}/back\r\n")
+        });
+        serve(a_listener, a_seen.clone(), move |path| match path {
+            "/away" => format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.2:{b}/bounce\r\n"),
+            _ => "HTTP/1.1 200 OK\r\n".into(),
+        });
+
+        let site_a = Url::parse(&format!("http://127.0.0.1:{a}/")).unwrap();
+        let top = Url::parse(&format!("http://127.0.0.1:{a}/away")).unwrap();
+        let cookies = ["strict=1; SameSite=Strict; Path=/", "lax=1; SameSite=Lax; Path=/"];
+        let (fetcher, reference) = navigating_tab(&top, &site_a, &cookies);
+        let home = Url::parse(&format!("http://127.0.0.1:{a}/home")).unwrap();
+        fetcher.fetch(navigation(http::Method::GET, &home, reference)).await;
+        fetcher.fetch(navigation(http::Method::GET, &top, reference)).await;
+
+        assert_eq!(
+            cookies_at(&a_seen, "/home"),
+            "strict=1; lax=1",
+            "a same-site hop carries both"
+        );
+        assert_eq!(
+            cookies_at(&a_seen, "/back"),
+            "lax=1",
+            "back from another site, Strict stays home"
+        );
+    }
+}
