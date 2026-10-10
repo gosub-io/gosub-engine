@@ -6721,6 +6721,7 @@ fn vault() -> i32 {
             url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
+            site: None,
             samesite: SameSite::SameSite,
             navigation: false,
         };
@@ -6799,6 +6800,7 @@ fn vault() -> i32 {
             url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
+            site: None,
             samesite: SameSite::SameSite,
             navigation: false,
         };
@@ -6962,6 +6964,34 @@ fn vault() -> i32 {
         }
         net_vault.revoke(&navigating, vec![other_site.to_string()]);
 
+        // A navigation another site's page started is judged from that page,
+        // not from its destination: a hop on the destination's own site is a
+        // cross-site navigation, and its Strict cookies stay home.
+        net_jar.store_response_cookies(&url, &set_cookie(&["home=1; SameSite=Strict; Path=/"]), None);
+        let started_elsewhere = CookieScope {
+            ticket: 727272,
+            navigation: true,
+            site: Some(other_site.to_string()),
+            ..in_document.clone()
+        };
+        if !net_vault.grant(&started_elsewhere) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        let hop = ask_at(
+            &mut net_link,
+            started_elsewhere.clone(),
+            "https://example.test/elsewhere",
+        )
+        .unwrap_or_default();
+        if hop.contains("home=1") || !hop.contains("sid=abc") {
+            eprintln!(
+                "a hop of a navigation another site started should read Lax cookies, not Strict ones, got {hop:?}"
+            );
+            return 1;
+        }
+        net_vault.revoke(&started_elsewhere, vec!["https://example.test/elsewhere".to_string()]);
+
         // A ticket's reads are capped: past that it is no request's chain.
         let capped = CookieScope {
             ticket: 818181,
@@ -7071,6 +7101,9 @@ fn engine_cookie_vault() -> i32 {
     // the network process the vault's audit must find every hop the ticket
     // was used at among the reported redirects, and leave the process be.
     let redirect = modes.iter().any(|m| m == "redirect");
+    // `builder`: the zone comes from the bare `zone_builder()`, with no
+    // services given; its jar must still be the vault's.
+    let builder = modes.iter().any(|m| m == "builder");
     let entry = if redirect { "/login" } else { "/" };
     let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
     let Ok(port) = serve_cookie_pages(Arc::clone(&seen)) else {
@@ -7146,13 +7179,43 @@ fn engine_cookie_vault() -> i32 {
             partition_policy: PartitionPolicy::None,
             places: None,
         };
-        let mut zone = match engine.zone_builder().services(services).create() {
+        let created = if builder {
+            engine.zone_builder().create()
+        } else {
+            engine.zone_builder().services(services).create()
+        };
+        let mut zone = match created {
             Ok(zone) => zone,
             Err(e) => {
                 eprintln!("could not create a zone: {e}");
                 return 1;
             }
         };
+        // The cookie flow below passes with the broker's own jar too, so ask
+        // the vault directly whether it holds this zone.
+        #[cfg(target_os = "linux")]
+        if !no_vault && !engine.cookie_vault().is_some_and(|vault| vault.holds_zone(zone.id)) {
+            eprintln!("the zone's cookie jar is not in the vault");
+            return 1;
+        }
+        // A zone dropped without `close_zone` gives its jar back too: the
+        // vault neither keeps it nor reopens it on a respawn.
+        #[cfg(target_os = "linux")]
+        if builder && !no_vault {
+            let dropped = match engine.zone_builder().create() {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a second zone: {e}");
+                    return 1;
+                }
+            };
+            let id = dropped.id;
+            drop(dropped);
+            if engine.cookie_vault().is_some_and(|vault| vault.holds_zone(id)) {
+                eprintln!("a dropped zone's jar stayed in the vault");
+                return 1;
+            }
+        }
         let Ok(tab) = zone.tab_builder().create().await else {
             eprintln!("could not create a tab");
             return 1;

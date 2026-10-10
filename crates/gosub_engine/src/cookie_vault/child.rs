@@ -247,12 +247,14 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
             if !used.hops.iter().any(|h| h == url.as_str()) {
                 used.hops.push(url.to_string());
             }
-            // With no document recorded, the request is the document load,
+            // Judged from the grant's document: a navigation's initiator, else
+            // the tab's. With none recorded the request is the document load,
             // and the granted URL is the document a hop is judged against: a
-            // missing `top_level` must not make every hop same-site.
+            // missing one must not make every hop same-site.
             let top = scope
-                .top_level
+                .site
                 .as_deref()
+                .or(scope.top_level.as_deref())
                 .and_then(|t| Url::parse(t).ok())
                 .or_else(|| Url::parse(&scope.url).ok());
             request_context(top.as_ref(), &url, scope.navigation).stricter(granted)
@@ -492,6 +494,7 @@ mod tests {
             url: "https://site.test/".into(),
             zone: "z".into(),
             top_level: None,
+            site: None,
             samesite: SameSite::SameSite,
             navigation: false,
         };

@@ -437,9 +437,10 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     fn cookie_jar_key(&self, reference: gosub_sonar::RequestReference) -> String {
         match self.scope_of(reference) {
             Some((_, scope)) => format!(
-                "{} {} {:?} {} {}",
+                "{} {} {} {:?} {} {}",
                 scope.zone,
                 scope.top_level.as_deref().unwrap_or(""),
+                scope.site.as_deref().unwrap_or(""),
                 scope.samesite,
                 scope.navigation,
                 scope.url

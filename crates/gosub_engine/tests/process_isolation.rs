@@ -217,6 +217,20 @@ fn samesite_follows_the_initiator_through_the_vault() {
     }
 }
 
+/// A zone from the bare `zone_builder()` keeps its jar in the vault too, not
+/// only one whose services name no jar.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_builder_zone_keeps_its_cookies_in_the_vault() {
+    let out = run_with_backend("engine-cookie-vault", "builder");
+    assert!(
+        out.status.success(),
+        "engine cookie vault (builder) scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A cookie a redirect sets rides on the hop it redirects to: asked of the
 /// vault by the network process hop by hop, or of the tab's jar by the
 /// fetcher in process. Through the network process the vault's audit finds

@@ -521,9 +521,28 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         top_level: identity
             .cookie_document(cookie_reference(req), load_document(req))
             .map(|u| u.to_string()),
-        samesite: first_hop_context(identity, req).into(),
+        // Nothing else to judge from: `top_level` is it, with the grant's
+        // context as the ceiling.
+        site: None,
+        samesite: grant_context(identity, req).into(),
         navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
+}
+
+/// The context a vault grant holds: the request's first hop's, without its
+/// method. The vault narrows each `Get` by its own hop's method, so a `303`
+/// from a `POST` to a `GET` gets `Lax` cookies back on the hops after it; a
+/// grant already narrowed would keep them off the rest of the chain, as every
+/// hop is judged no laxer than the grant.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn grant_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
+    identity.cookie_context(
+        cookie_reference(req),
+        load_document(req),
+        &req.url,
+        &[],
+        &http::Method::GET,
+    )
 }
 
 /// A grant the vault holds for one request: the scope the network process
@@ -1019,6 +1038,30 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
+
+    /// A cross-site `POST` navigation's vault grant holds the cross-site navigation context,
+    /// not the `POST`'s: the vault narrows each hop by its own method, so the `GET` a `303`
+    /// turns it into gets `Lax` cookies again. Its first hop, judged with the method, does not.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    #[test]
+    fn a_post_navigations_grant_leaves_the_method_to_each_hop() {
+        use crate::engine::types::NavigationId;
+        use crate::net::tab_identity::TabIdentity;
+        use url::Url;
+        let destination = Url::parse("https://b.test/submit").unwrap();
+        let page = Url::parse("https://a.test/form").unwrap();
+        let nav = NavigationId::new();
+        let mut identity = TabIdentity::new(crate::cookies::DefaultCookieJar::new().into());
+        identity.top_level = Some(destination.clone());
+        identity.initiators.push_back((nav, Some(page)));
+        let post = FetchRequest::builder(http::Method::POST, destination)
+            .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav)))
+            .with_kind(gosub_sonar::net::types::ResourceKind::Primary)
+            .build();
+
+        assert_eq!(grant_context(&identity, &post), SameSiteContext::CrossSiteNavigation);
+        assert_eq!(first_hop_context(&identity, &post), SameSiteContext::CrossSite);
+    }
 
     /// A tab navigating from a public page to a private one: the public
     /// page's own late subresource requests (made for it, so stamped with it)
