@@ -3097,9 +3097,9 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a34823eb7bfbca5c85a929ecd9ca6ad7d36f136c5cdeacb28205b109e410bb0a"
+checksum = "d6228e9c4f6c09df52b7e962708710655c835125073844863c3d35691550bca1"
 dependencies = [
  "anyhow",
  "bytes",

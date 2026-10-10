@@ -31,6 +31,12 @@ pub struct TabIdentity {
     pub navigations: VecDeque<(NavigationId, AddressSpace)>,
     /// The navigation whose document the tab shows, once one has committed.
     pub committed: Option<NavigationId>,
+    /// What each recent navigation's `SameSite` context is judged from
+    /// (RFC 6265bis §5.2), newest last: the page that started it (a link, a
+    /// form), or for the user's own its destination. Kept per navigation, not
+    /// as `top_level`, which moves on to the next navigation while a
+    /// superseded one may still be following a redirect.
+    pub navigation_sites: VecDeque<(NavigationId, Url)>,
 }
 
 impl TabIdentity {
@@ -40,7 +46,21 @@ impl TabIdentity {
             top_level: None,
             navigations: VecDeque::new(),
             committed: None,
+            navigation_sites: VecDeque::new(),
         }
+    }
+
+    /// The document `navigation`'s `SameSite` context is judged from (see
+    /// [`Self::navigation_sites`]); `None` for one this tab no longer
+    /// remembers, which then gets no cookies. Only the context: the
+    /// third-party policy keeps `top_level`, as a navigation's own cookies are
+    /// first-party.
+    pub fn navigation_site(&self, navigation: NavigationId) -> Option<&Url> {
+        self.navigation_sites
+            .iter()
+            .rev()
+            .find(|(n, _)| *n == navigation)
+            .map(|(_, site)| site)
     }
 
     /// The address space of the document a request with `reference` was made
@@ -105,6 +125,20 @@ impl TabIdentityRegistry {
         }
     }
 
+    /// Record what `navigation` is judged from (see
+    /// [`TabIdentity::navigation_sites`]): the page that started it, or the
+    /// destination of the user's own. Keeps the most recent few.
+    pub fn record_navigation_site(&self, tab_id: TabId, navigation: NavigationId, site: Url) {
+        let Some(mut entry) = self.tabs.get_mut(&tab_id) else {
+            return;
+        };
+        entry.navigation_sites.retain(|(n, _)| *n != navigation);
+        entry.navigation_sites.push_back((navigation, site));
+        while entry.navigation_sites.len() > KEPT_NAVIGATIONS {
+            entry.navigation_sites.pop_front();
+        }
+    }
+
     /// The tab now shows the document `navigation` produced.
     pub fn commit_navigation(&self, tab_id: TabId, navigation: NavigationId) {
         if let Some(mut entry) = self.tabs.get_mut(&tab_id) {
@@ -140,6 +174,40 @@ mod tests {
 
         let id = reg.get(tab).expect("registered tab resolves");
         assert!(id.top_level.is_none(), "no top-level before the first navigation");
+    }
+
+    /// Each navigation keeps what it is judged from - the page that started it, or the
+    /// destination of the user's own - after the tab has moved on: a superseded navigation
+    /// still following a redirect must not borrow the next one's site.
+    #[test]
+    fn a_navigation_keeps_the_site_it_is_judged_from() {
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(tab, jar());
+        let page = Url::parse("https://a.test/links").unwrap();
+        let typed = Url::parse("https://b.test/").unwrap();
+        let (linked, superseding) = (NavigationId::new(), NavigationId::new());
+
+        reg.record_navigation_site(tab, linked, page.clone());
+        reg.set_top_level(tab, typed.clone());
+        reg.record_navigation_site(tab, superseding, typed.clone());
+        let id = reg.get(tab).unwrap();
+        assert_eq!(
+            id.navigation_site(linked),
+            Some(&page),
+            "the superseded one keeps its page"
+        );
+        assert_eq!(id.navigation_site(superseding), Some(&typed));
+        assert_eq!(id.navigation_site(NavigationId::new()), None, "an unknown one has none");
+
+        for _ in 0..KEPT_NAVIGATIONS {
+            reg.record_navigation_site(tab, NavigationId::new(), typed.clone());
+        }
+        assert_eq!(
+            reg.get(tab).unwrap().navigation_site(linked),
+            None,
+            "only the recent few are kept"
+        );
     }
 
     #[test]

@@ -456,6 +456,7 @@ impl CookieVault {
             scope,
             url: url.to_string(),
             visible_only,
+            safe_method: true,
         })? {
             Reply::Cookies(header) => header,
             Reply::All(_) | Reply::Granted(_) | Reply::Audit(_) | Reply::Revoked(_) => None,
@@ -479,6 +480,7 @@ impl CookieVault {
                 url: url.to_string(),
                 zone: zone.to_string(),
                 top_level: top_level.map(|u| u.to_string()),
+                site: None,
                 samesite: SameSite::SameSite,
                 navigation: false,
             },
@@ -729,6 +731,7 @@ impl CookieJar for VaultCookieJar {
             url: url.to_string(),
             zone: self.zone.clone(),
             top_level: top_level.map(|u| u.to_string()),
+            site: None,
             samesite: SameSite::from(samesite),
             navigation: false,
         };

@@ -191,18 +191,20 @@ pub(crate) fn observer_for_request(
 }
 
 impl EngineNetContext {
-    /// The identity of the tab a request's reference belongs to, and whether
-    /// the request is that tab's navigation (only a navigation's own request
-    /// is referenced by it; its subresources reference the document).
+    /// The identity of the tab a request's reference belongs to, and the
+    /// engine's reference (a navigation's own request is referenced by it; its
+    /// subresources reference the document).
     fn identity_for(
         &self,
         reference: gosub_sonar::RequestReference,
-    ) -> Option<(crate::net::tab_identity::TabIdentity, bool)> {
+    ) -> Option<(
+        crate::net::tab_identity::TabIdentity,
+        crate::net::req_ref_tracker::RequestReference,
+    )> {
         let reference = REF_REGISTRY.from_net(reference)?;
         let tab_id = self.request_reference_map.read().get(&reference).copied()?;
         let identity = self.tab_identities.get(tab_id)?;
-        let navigation = matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_));
-        Some((identity, navigation))
+        Some((identity, reference))
     }
 }
 
@@ -248,27 +250,52 @@ impl FetcherContext for EngineNetContext {
         }
     }
 
-    // Asked at every hop, so a cookie a redirect sets rides on the next one,
-    // and each hop is judged against the tab's document on its own. A chain
-    // that leaves the site and comes back is not remembered here, as the
-    // reference names a document rather than one request: the hop back is
-    // judged same-site.
-    fn cookies_for(&self, reference: gosub_sonar::RequestReference, url: &url::Url) -> Option<String> {
-        let (identity, navigation) = self.identity_for(reference)?;
+    // Asked at every hop, so a cookie a redirect sets rides on the next one.
+    // Each hop is judged against the document that caused the request - for a
+    // navigation a page started, that page, not the destination - over the
+    // whole chain so far, so a chain that leaves the site stays cross-site
+    // when it comes back, and by its method, so a cross-site `POST` gets no
+    // `Lax` cookies. The third-party policy keeps the tab's top-level URL.
+    fn cookies_for_hop(
+        &self,
+        reference: gosub_sonar::RequestReference,
+        hop: &gosub_sonar::CookieHop<'_>,
+    ) -> Option<String> {
+        let (identity, reference) = self.identity_for(reference)?;
         let top_level = identity.top_level.as_ref();
-        let context = crate::engine::cookies::request_context(top_level, url, navigation);
-        blocking_jar_call(|| identity.cookie_jar.read().get_request_cookies(url, top_level, context))
+        // A navigation the tab no longer remembers gets nothing: judged from
+        // `top_level`, which has moved on, a superseded one could pass as
+        // same-site.
+        let (site, navigation) = match reference {
+            crate::net::req_ref_tracker::RequestReference::Navigation(nav) => {
+                (Some(identity.navigation_site(nav)?), true)
+            }
+            _ => (top_level, false),
+        };
+        let context = crate::engine::cookies::hop_context(site, hop.url, hop.url_list, hop.method, navigation);
+        blocking_jar_call(|| {
+            identity
+                .cookie_jar
+                .read()
+                .get_request_cookies(hop.url, top_level, context)
+        })
     }
 
     // Two requests get the same answers from the hooks when they ask the same
-    // jar from the same document, the same way (a navigation's hops are judged
-    // as one); only then may they share a fetch.
+    // jar from the same documents, the same way (a navigation's hops are
+    // judged as one); only then may they share a fetch.
     fn cookie_jar_key(&self, reference: gosub_sonar::RequestReference) -> String {
         match self.identity_for(reference) {
-            Some((identity, navigation)) => format!(
-                "{:x} {} {navigation}",
+            Some((identity, reference)) => format!(
+                "{:x} {} {} {}",
                 identity.cookie_jar.jar_id(),
-                identity.top_level.as_ref().map_or("", |u| u.as_str())
+                identity.top_level.as_ref().map_or("", |u| u.as_str()),
+                match reference {
+                    crate::net::req_ref_tracker::RequestReference::Navigation(nav) =>
+                        identity.navigation_site(nav).map_or("", |u| u.as_str()),
+                    _ => "",
+                },
+                matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_)),
             ),
             None => String::new(),
         }
@@ -334,5 +361,97 @@ mod dns_resolver_tests {
 
         let addrs = resolver.resolve("localhost").await.expect("localhost resolves");
         assert!(!addrs.is_empty(), "resolver returned no addresses for localhost");
+    }
+}
+
+#[cfg(test)]
+mod navigation_cookie_tests {
+    use super::*;
+    use crate::engine::cookies::{CookieJar, CookieJarHandle, DefaultCookieJar};
+    use crate::engine::types::NavigationId;
+    use crate::net::req_ref_tracker::RequestReference;
+    use crate::tab::TabId;
+    use cow_utils::CowUtils;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use url::Url;
+
+    /// What a server on `127.0.0.1` saw as `Cookie` on a navigation to it, with the tab's jar
+    /// holding a `Strict` and a `Lax` cookie for it and the navigation started by `initiator`.
+    async fn cookies_sent(initiator: Option<Url>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(parking_lot::Mutex::new(String::new()));
+        let keep = seen.clone();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                *keep.lock() = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await;
+            }
+        });
+
+        let destination = Url::parse(&format!("http://127.0.0.1:{port}/account")).unwrap();
+        let mut jar = DefaultCookieJar::new();
+        let mut headers = http::HeaderMap::new();
+        headers.append(
+            http::header::SET_COOKIE,
+            "strict=1; SameSite=Strict; Path=/".parse().unwrap(),
+        );
+        headers.append(http::header::SET_COOKIE, "lax=1; SameSite=Lax; Path=/".parse().unwrap());
+        jar.store_response_cookies(&destination, &headers, None);
+        let jar: Box<dyn CookieJar + Send + Sync> = Box::new(jar);
+
+        let tab = TabId::new();
+        let nav = NavigationId::new();
+        let identities = Arc::new(crate::net::tab_identity::TabIdentityRegistry::new());
+        identities.register(tab, CookieJarHandle::from(jar));
+        identities.set_top_level(tab, destination.clone());
+        identities.record_navigation_site(tab, nav, initiator.unwrap_or_else(|| destination.clone()));
+        let reference = RequestReference::Navigation(nav);
+        let map = Arc::new(RwLock::new(RequestReferenceMap::new()));
+        map.write().insert(reference, tab);
+        let context = EngineNetContext {
+            resource_tx: tokio::sync::broadcast::channel(16).0,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+            request_reference_map: map,
+            request_ref_tracker: Arc::new(RequestRefTracker::new()),
+            tab_identities: identities,
+            reach: AddressSpace::Loopback,
+        };
+        let config = FetcherConfig {
+            proxy: gosub_sonar::ProxyConfig::Disabled,
+            ..FetcherConfig::default()
+        };
+        let fetcher = Arc::new(Fetcher::new(config, Arc::new(context)).unwrap());
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        tokio::spawn({
+            let fetcher = fetcher.clone();
+            let shutdown = shutdown.clone();
+            async move { fetcher.run(shutdown).await }
+        });
+        let req = crate::net::types::FetchRequest::builder(http::Method::GET, destination)
+            .with_reference(REF_REGISTRY.to_net(reference))
+            .with_kind(ResourceKind::Primary)
+            .build();
+        fetcher.fetch(req).await;
+        shutdown.cancel();
+
+        let request = seen.lock().clone();
+        request
+            .lines()
+            .find_map(|line| line.strip_prefix("cookie: ").map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    /// A link from another site is a cross-site navigation: `Lax` cookies go, `Strict` ones
+    /// stay home. The user's own navigation carries both.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cross_site_link_carries_no_strict_cookies() {
+        let elsewhere = Url::parse("http://127.0.0.2/links").unwrap();
+        assert_eq!(cookies_sent(Some(elsewhere)).await, "lax=1");
+        assert_eq!(cookies_sent(None).await, "strict=1; lax=1");
     }
 }
