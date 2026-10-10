@@ -827,7 +827,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
     /// `None` for `zone_id` generates a fresh id. Fails with
     /// [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones. The returned handle carries the [`ZoneId`]
+    /// [`EngineConfig::max_zones`] zones, and with [`EngineError::ZoneAlreadyExists`]
+    /// for the id of a zone it still holds. The returned handle carries the [`ZoneId`]
     /// and a clone of the engine's command sender, so the caller can send zone
     /// commands without holding a reference to the engine.
     pub(crate) fn create_zone(
@@ -838,6 +839,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     ) -> Result<Zone<C>, EngineError> {
         if self.zones.len() >= self.context.config.max_zones {
             return Err(EngineError::ZoneLimitExceeded);
+        }
+        // One live zone per id: the vault, the cookie stores and the zone map
+        // all key on it, and a second zone would share (and on its way out
+        // close) the first one's.
+        let zone_id = zone_id.unwrap_or_default();
+        if self.zones.contains_key(&zone_id) {
+            return Err(EngineError::ZoneAlreadyExists);
         }
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
         let cookie_store = services.cookie_store.clone();
@@ -851,7 +859,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let services = match self.context.cookie_vault.get() {
             Some(vault) if services.cookie_jar.is_none() => {
                 let vault = Arc::clone(vault);
-                let id = zone_id.unwrap_or_default();
+                let id = zone_id;
                 vault.open_zone(id, cookie_store.clone());
                 let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(&vault), id).handle();
                 let created = self
@@ -883,7 +891,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Without the vault the engine still provisions one jar for the whole
         // zone: its cookie store's, so cookies persist, or else one in memory.
         // Left to the tabs, each would get a fresh jar and share no cookies.
-        let zone_id = zone_id.unwrap_or_default();
         let services = match services.cookie_jar {
             Some(_) => services,
             None => ZoneServices {
@@ -1134,7 +1141,9 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
-    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`.
+    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, and
+    /// with [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine
+    /// still holds.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
         self.engine.create_zone(self.config, self.services, self.id)
     }
@@ -3047,6 +3056,35 @@ mod tests {
 
         let err = engine.zone_builder().services(services()).create().unwrap_err();
         assert!(matches!(err, EngineError::ZoneLimitExceeded));
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A second zone with a live zone's id is refused: it would share that zone's vault entry,
+    /// cookie store and place in the zone map, and close them for both on its way out.
+    #[tokio::test]
+    async fn create_zone_refuses_a_live_zones_id() {
+        let mut engine = engine_with_max_zones(2);
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let id = ZoneId::new();
+        let zone = engine
+            .zone_builder()
+            .id(id)
+            .services(services())
+            .create()
+            .expect("first zone");
+        let err = engine.zone_builder().id(id).services(services()).create().unwrap_err();
+        assert!(matches!(err, EngineError::ZoneAlreadyExists));
+
+        // Closed, the id is free again.
+        engine.close_zone(zone).await;
+        engine
+            .zone_builder()
+            .id(id)
+            .services(services())
+            .create()
+            .expect("the id of a closed zone");
 
         engine.shutdown().await.expect("shutdown");
     }
