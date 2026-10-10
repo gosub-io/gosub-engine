@@ -827,8 +827,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
     /// `None` for `zone_id` generates a fresh id. Fails with
     /// [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones, and with [`EngineError::ZoneAlreadyExists`]
-    /// for the id of a zone it still holds. The returned handle carries the [`ZoneId`]
+    /// [`EngineConfig::max_zones`] zones, with [`EngineError::ZoneAlreadyExists`]
+    /// for the id of a zone it still holds, and with [`EngineError::CookieStore`]
+    /// when the given cookie store cannot provision the zone's jar. The returned handle carries the [`ZoneId`]
     /// and a clone of the engine's command sender, so the caller can send zone
     /// commands without holding a reference to the engine.
     pub(crate) fn create_zone(
@@ -893,15 +894,28 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Left to the tabs, each would get a fresh jar and share no cookies.
         let services = match services.cookie_jar {
             Some(_) => services,
-            None => ZoneServices {
-                cookie_jar: Some(
-                    cookie_store
-                        .as_ref()
-                        .and_then(|store| store.jar_for(zone_id))
-                        .unwrap_or_else(|| crate::cookies::DefaultCookieJar::new().into()),
-                ),
-                ..services
-            },
+            None => {
+                let jar = match &cookie_store {
+                    None => crate::cookies::DefaultCookieJar::new().into(),
+                    Some(store) => match store.jar_for(zone_id) {
+                        Some(jar) => jar,
+                        // The store could not provision the jar. One in memory
+                        // would take cookies it never persists, so no zone.
+                        None => {
+                            let failed = Err(EngineError::CookieStore(anyhow::anyhow!(
+                                "the cookie store could not provision a jar for zone {zone_id}"
+                            )));
+                            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                            self.settle_local_storage(&failed, routed);
+                            return failed;
+                        }
+                    },
+                };
+                ZoneServices {
+                    cookie_jar: Some(jar),
+                    ..services
+                }
+            }
         };
         let created = self.create_zone_with_services(config, services, Some(zone_id), cookie_store);
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -1141,9 +1155,10 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
-    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, and
-    /// with [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine
-    /// still holds.
+    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, with
+    /// [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine still
+    /// holds, and with [`EngineError::CookieStore`] when the
+    /// [`cookie_store`](Self::cookie_store) cannot provision the zone's jar.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
         self.engine.create_zone(self.config, self.services, self.id)
     }
@@ -3056,6 +3071,39 @@ mod tests {
 
         let err = engine.zone_builder().services(services()).create().unwrap_err();
         assert!(matches!(err, EngineError::ZoneLimitExceeded));
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A cookie store that cannot provision the zone's jar fails the zone: an in-memory jar in
+    /// its place would take cookies the store never persists.
+    #[tokio::test]
+    async fn a_store_that_cannot_provision_a_jar_fails_the_zone() {
+        struct Broken;
+        impl crate::cookies::CookieStore for Broken {
+            fn jar_for(&self, _: ZoneId) -> Option<crate::cookies::CookieJarHandle> {
+                None
+            }
+            fn persist_zone_from_snapshot(&self, _: ZoneId, _: &crate::cookies::DefaultCookieJar) {}
+            fn remove_zone(&self, _: ZoneId) {}
+            fn release_zone(&self, _: ZoneId) {}
+            fn persist_all(&self) {}
+        }
+
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        // The vault provisions from the store's snapshot, not its jar: this is the in-process path.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if engine.cookie_vault().is_some() {
+            engine.shutdown().await.expect("shutdown");
+            return;
+        }
+
+        let store: CookieStoreHandle = Arc::new(Broken).into();
+        let err = engine.zone_builder().cookie_store(Some(store)).create().unwrap_err();
+        assert!(matches!(err, EngineError::CookieStore(_)), "{err:?}");
+        // No zone came of it, so the slot is still free.
+        engine.zone_builder().create().expect("a zone without a store");
 
         engine.shutdown().await.expect("shutdown");
     }
