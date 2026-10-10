@@ -615,13 +615,23 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     }
 }
 
+/// The document a request's `SameSite` context is judged from: a navigation's
+/// recorded site (see [`TabIdentity::navigation_sites`]), anything else's the
+/// tab's top-level document.
+fn same_site_document<'a>(identity: &'a TabIdentity, req: &FetchRequest) -> Option<&'a url::Url> {
+    match REF_REGISTRY.from_net(req.reference) {
+        Some(RequestReference::Navigation(nav)) => identity.navigation_site(nav).or(identity.top_level.as_ref()),
+        _ => identity.top_level.as_ref(),
+    }
+}
+
 /// The `SameSite` context of a request's first hop, judged from the document
-/// that caused it (see [`TabIdentity::same_site_document`]): a navigation a
-/// cross-site page started is a cross-site navigation, `Lax` only when its
-/// method is safe.
+/// that caused it (see [`same_site_document`]): a navigation a cross-site
+/// page started is a cross-site navigation, `Lax` only when its method is
+/// safe.
 fn first_hop_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
     crate::engine::cookies::hop_context(
-        identity.same_site_document(REF_REGISTRY.from_net(req.reference)),
+        same_site_document(identity, req),
         &req.url,
         &[],
         &req.method,
@@ -828,13 +838,13 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
 
                             // A navigation a document started has its cookies judged from
                             // that document, which `navigation()` stamps as the request's
-                            // referrer; the user's own carries none. Recorded before
-                            // anything asks for the navigation's cookies.
+                            // referrer; the user's own, which carries none, from its
+                            // destination. Recorded before anything asks for the
+                            // navigation's cookies.
                             if let (Some(tab), gosub_sonar::net::types::ResourceKind::Primary) = (tab_id, req.kind) {
                                 if let Some(RequestReference::Navigation(nav)) = REF_REGISTRY.from_net(req.reference) {
-                                    router
-                                        .tab_identities()
-                                        .set_navigation_initiator(tab, nav, req.referrer.clone());
+                                    let site = req.referrer.clone().unwrap_or_else(|| req.url.clone());
+                                    router.tab_identities().record_navigation_site(tab, nav, site);
                                 }
                             }
                             // Cookies are attached here, never by the requester: see
@@ -1026,6 +1036,7 @@ mod tests {
         let nav = NavigationId::new();
         let mut identity = TabIdentity::new(crate::cookies::DefaultCookieJar::new().into());
         identity.top_level = Some(destination.clone());
+        identity.navigation_sites.push_back((nav, destination.clone()));
         let request = |method: http::Method| {
             FetchRequest::builder(method, destination.clone())
                 .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav)))
@@ -1037,7 +1048,7 @@ mod tests {
             first_hop_context(&identity, &request(http::Method::GET)),
             SameSiteContext::SameSite
         );
-        identity.initiator = Some((nav, page));
+        identity.navigation_sites.push_back((nav, page));
         assert_eq!(
             first_hop_context(&identity, &request(http::Method::GET)),
             SameSiteContext::CrossSiteNavigation

@@ -262,9 +262,16 @@ impl FetcherContext for EngineNetContext {
         hop: &gosub_sonar::CookieHop<'_>,
     ) -> Option<String> {
         let (identity, reference) = self.identity_for(reference)?;
-        let navigation = matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_));
         let top_level = identity.top_level.as_ref();
-        let site = identity.same_site_document(Some(reference));
+        // A navigation the tab no longer remembers gets nothing: judged from
+        // `top_level`, which has moved on, a superseded one could pass as
+        // same-site.
+        let (site, navigation) = match reference {
+            crate::net::req_ref_tracker::RequestReference::Navigation(nav) => {
+                (Some(identity.navigation_site(nav)?), true)
+            }
+            _ => (top_level, false),
+        };
         let context = crate::engine::cookies::hop_context(site, hop.url, hop.url_list, hop.method, navigation);
         blocking_jar_call(|| {
             identity
@@ -283,7 +290,11 @@ impl FetcherContext for EngineNetContext {
                 "{:x} {} {} {}",
                 identity.cookie_jar.jar_id(),
                 identity.top_level.as_ref().map_or("", |u| u.as_str()),
-                identity.same_site_document(Some(reference)).map_or("", |u| u.as_str()),
+                match reference {
+                    crate::net::req_ref_tracker::RequestReference::Navigation(nav) =>
+                        identity.navigation_site(nav).map_or("", |u| u.as_str()),
+                    _ => "",
+                },
                 matches!(reference, crate::net::req_ref_tracker::RequestReference::Navigation(_)),
             ),
             None => String::new(),
@@ -398,7 +409,7 @@ mod navigation_cookie_tests {
         let identities = Arc::new(crate::net::tab_identity::TabIdentityRegistry::new());
         identities.register(tab, CookieJarHandle::from(jar));
         identities.set_top_level(tab, destination.clone());
-        identities.set_navigation_initiator(tab, nav, initiator);
+        identities.record_navigation_site(tab, nav, initiator.unwrap_or_else(|| destination.clone()));
         let reference = RequestReference::Navigation(nav);
         let map = Arc::new(RwLock::new(RequestReferenceMap::new()));
         map.write().insert(reference, tab);
