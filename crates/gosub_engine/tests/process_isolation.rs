@@ -193,6 +193,30 @@ fn a_cookie_flows_from_the_vault_through_the_network_process() {
     );
 }
 
+/// `SameSite` follows who asked, with the jars in the vault: a link from
+/// another site sends `Lax` cookies only, an image another site embeds sends
+/// neither, the user's own navigation sends both. Through the network process,
+/// which asks under the broker's grant, and in process.
+#[cfg(target_os = "linux")]
+#[test]
+fn samesite_follows_the_initiator_through_the_vault() {
+    for mode in [
+        &["engine-cookie-vault", "cross-site"][..],
+        &["engine-cookie-vault", "cross-site", "in-process"][..],
+    ] {
+        let out = Command::new(harness())
+            .args(mode)
+            .output()
+            .expect("spawn isolation-harness");
+        assert!(
+            out.status.success(),
+            "{mode:?} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
 /// A cookie a redirect sets rides on the hop it redirects to: asked of the
 /// vault by the network process hop by hop, or of the tab's jar by the
 /// fetcher in process. Through the network process the vault's audit finds
