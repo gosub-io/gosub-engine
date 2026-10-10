@@ -179,10 +179,13 @@ redirect hop: CORS with preflights and response tainting, referrer policy, mixed
 `ETag`/`Last-Modified` revalidation and `Vary`. Auth challenges, pluggable DNS for SSRF
 policies, proxies, TLS error overrides. It also compiles for wasm on top of the browser's
 `fetch()`. Inside the engine, `http`, `https`, `data` and `file` URLs all resolve, and there is
-a decision hub for asking the embedder about TLS failures and downloads.
+a decision hub for asking the embedder about TLS failures and downloads. A document's referrer
+policy comes from its `Referrer-Policy` header and its `<meta name="referrer">`, and every
+request it makes - subresources, links and forms - sends the `Referer` that policy allows.
 
 **Not yet.** No HTTP/3 or QUIC. No WebSockets - `ResourceKind::WebSocket` exists as a
-classification and nothing implements it.
+classification and nothing implements it. The per-element `referrerpolicy` attribute and
+`rel="noreferrer"` are ignored: an element's requests use its document's policy.
 
 
 ## Process isolation

@@ -1990,6 +1990,82 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A page's `Referrer-Policy` header decides the `Referer` its subresources send, until a
+    /// `<meta name="referrer">` changes it for the elements after it.
+    #[tokio::test]
+    async fn subresources_send_the_referer_the_documents_policy_allows() {
+        use std::collections::HashMap;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+        let captured = seen.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = request.split(' ').nth(1).unwrap_or("").to_string();
+                let response = if path == "/page" {
+                    let body = r#"<html><head><img src="/a.png">
+                        <meta name="referrer" content="no-referrer"><img src="/b.png"></head></html>"#;
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nReferrer-Policy: origin\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                } else {
+                    captured.lock().entry(path).or_insert(request);
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                };
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigation");
+
+        for _ in 0..100 {
+            if seen.lock().len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let seen = seen.lock().clone();
+
+        use cow_utils::CowUtils;
+        let referer = |path: &str| {
+            let request = seen
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} was never requested: {seen:?}"));
+            request
+                .cow_to_ascii_lowercase()
+                .lines()
+                .find_map(|line| line.strip_prefix("referer: ").map(str::to_string))
+        };
+        assert_eq!(
+            referer("/a.png"),
+            Some(format!("http://127.0.0.1:{port}/")),
+            "the header's origin policy sends the origin alone"
+        );
+        assert_eq!(referer("/b.png"), None, "the meta's no-referrer sends nothing");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[tokio::test]
     async fn cookie_store_persists_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -2917,7 +2993,7 @@ mod tests {
         )
         .with_reference(REF_REGISTRY.to_net(reference))
         .with_kind(ResourceKind::Image.to_net())
-        .subresource_of(&old_page, ResourceKind::Image)
+        .subresource_of(&old_page, gosub_sonar::ReferrerPolicy::default(), ResourceKind::Image)
         .build();
         let (_handle, rx) = crate::net::submit_to_io(zone.id, Some(tab.tab_id), req, zone.context.io_tx.clone(), None)
             .await

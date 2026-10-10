@@ -161,6 +161,8 @@ pub enum NavigationResult<C: RenderConfiguration> {
         /// The document's source text, captured when this engine renders
         /// out-of-process (the renderer re-parses it there).
         source: Option<Arc<str>>,
+        /// The document's referrer policy: how much of its URL its requests send as `Referer`.
+        referrer_policy: gosub_sonar::ReferrerPolicy,
     },
     Err {
         nav_id: NavigationId,
@@ -235,6 +237,8 @@ pub struct TabWorker<C: RenderConfiguration> {
     pub pending_url: Option<Url>,
     /// Current URL that is now loaded
     pub current_url: Option<Url>,
+    /// The loaded document's referrer policy, for the navigations it starts.
+    referrer_policy: gosub_sonar::ReferrerPolicy,
     /// Is the current URL being loaded
     pub is_loading: bool,
     /// Is there an error in the current tab?
@@ -382,6 +386,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             title: config_store.get_string("useragent.tab.default_title"),
             pending_url: None,
             current_url: None,
+            referrer_policy: gosub_sonar::ReferrerPolicy::default(),
             is_loading: false,
             is_error: false,
             surface: None,
@@ -613,7 +618,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Image.to_net())
             .with_initiator(Initiator::Other.to_net())
-            .subresource_of(&base_url, ResourceKind::Image)
+            .subresource_of(&base_url, self.context.document_referrer_policy(), ResourceKind::Image)
             .with_streaming(false)
             .with_auto_decode(true)
             .build();
@@ -687,6 +692,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 title,
                 doc,
                 source,
+                referrer_policy,
             } => {
                 // The I/O side judges this document's loads by where this
                 // navigation's response came from - before a renderer is handed
@@ -708,6 +714,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 );
                 self.context.set_media_navigation(
                     Some(final_url.clone()),
+                    referrer_policy,
                     crate::net::req_ref_tracker::RequestReference::Navigation(nav_id),
                 );
                 let nav_cancel = self
@@ -718,6 +725,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 match (doc, source) {
                     (Some(doc), source) => {
                         self.context.set_document(Arc::clone(&doc), source);
+                        self.context.set_document_referrer_policy(referrer_policy);
                         if let Some(cancel) = &nav_cancel {
                             if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
                                 self.fetch_favicon(icon, cancel);
@@ -726,7 +734,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                     // The renderer process parses; title and icon arrive with
                     // its first render (see `apply_remote_document_meta`).
-                    (None, Some(source)) => self.context.set_document_source(final_url.clone(), source),
+                    (None, Some(source)) => {
+                        self.context.set_document_source(final_url.clone(), source);
+                        self.context.set_document_referrer_policy(referrer_policy);
+                    }
                     (None, None) => {
                         log::error!(
                             "Tab[{:?}] navigation produced neither a document nor its source",
@@ -735,6 +746,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 }
                 self.current_url = Some(final_url.clone());
+                self.referrer_policy = referrer_policy;
                 // The document's own title, if it has one yet: `self.title` may
                 // still be the last page's (a remote page's comes later).
                 let visit_title = title.clone().unwrap_or_default();
@@ -1975,7 +1987,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
             .with_auto_decode(true);
-        req = navigation(req, initiator);
+        req = navigation(req, initiator, self.referrer_policy);
         if let Some(body) = body {
             req = req.with_body(body);
         }
@@ -2086,7 +2098,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .await;
 
             match outcome {
-                Ok(RoutedOutcome::MainDocument { doc, source }) => {
+                Ok(RoutedOutcome::MainDocument {
+                    doc,
+                    source,
+                    referrer_policy,
+                }) => {
                     use gosub_interface::document::Document as _;
                     let final_url = doc
                         .as_ref()
@@ -2099,6 +2115,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         title,
                         doc,
                         source,
+                        referrer_policy,
                     });
                 }
                 Ok(RoutedOutcome::DownloadOffer { meta, spooled }) => {
@@ -2386,7 +2403,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
                 Ok(parsed) => {
                     use gosub_interface::document::Document as _;
-                    let (doc, source) = parsed.into_parts();
+                    let (doc, source, referrer_policy) = parsed.into_parts();
                     let doc = doc.map(Arc::new);
                     let final_url = doc.as_ref().and_then(|doc| doc.url()).unwrap_or(url);
                     let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
@@ -2396,6 +2413,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         title,
                         doc,
                         source,
+                        referrer_policy,
                     });
                 }
                 Err(e) => {
@@ -2928,13 +2946,14 @@ impl ControlFlow {
 /// One a document started carries its origin, which the fetcher sends as `Origin` on a POST
 /// and judges `Sec-Fetch-Site` by (Fetch, "append a request `Origin` header"; HTML, form
 /// submission and "navigate", whose request origin is the source document's), and the
-/// document as referrer. Mixed-content blocking is off for it: it governs a document's
+/// document as referrer under `policy`, the document's referrer policy. Mixed-content blocking is off for it: it governs a document's
 /// subresources, and a top-level navigation is never mixed content (Mixed Content, "Should
 /// fetching request be blocked as mixed content?", step 1) - without this an https page's
 /// form to an http site would be refused the moment it carries an origin.
 fn navigation(
     req: crate::net::types::FetchRequestBuilder,
     initiator: Option<&Url>,
+    policy: gosub_sonar::ReferrerPolicy,
 ) -> crate::net::types::FetchRequestBuilder {
     let req = req
         .with_mode(gosub_sonar::RequestMode::Navigate)
@@ -2944,6 +2963,7 @@ fn navigation(
     };
     req.with_origin(document.origin())
         .with_referrer(document.clone())
+        .with_referrer_policy(policy)
         .with_mixed_content(gosub_sonar::MixedContentPolicy::Allow)
 }
 
@@ -2954,16 +2974,22 @@ mod tests {
     mod navigation_initiator {
         use super::super::navigation;
         use crate::net::types::FetchRequest;
-        use gosub_sonar::MixedContentPolicy;
+        use gosub_sonar::{MixedContentPolicy, ReferrerPolicy};
         use url::Url;
 
         #[test]
         fn a_form_post_carries_its_documents_origin_and_referrer() {
             let doc = Url::parse("https://site.test/page").unwrap();
             let target = Url::parse("http://other.test/submit").unwrap();
-            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc)).build();
+            let req = navigation(
+                FetchRequest::builder(http::Method::POST, target),
+                Some(&doc),
+                ReferrerPolicy::Origin,
+            )
+            .build();
             assert_eq!(req.origin, Some(doc.origin()));
             assert_eq!(req.referrer, Some(doc));
+            assert_eq!(req.referrer_policy, ReferrerPolicy::Origin);
             // An https page's form to an http site is a navigation, not mixed content.
             assert_eq!(req.mixed_content, Some(MixedContentPolicy::Allow));
         }
@@ -2971,7 +2997,12 @@ mod tests {
         #[test]
         fn the_users_own_navigation_has_no_initiator() {
             let target = Url::parse("https://site.test/").unwrap();
-            let req = navigation(FetchRequest::builder(http::Method::GET, target), None).build();
+            let req = navigation(
+                FetchRequest::builder(http::Method::GET, target),
+                None,
+                ReferrerPolicy::default(),
+            )
+            .build();
             assert_eq!((req.origin, req.referrer, req.mixed_content), (None, None, None));
             assert_eq!(req.mode, gosub_sonar::RequestMode::Navigate);
         }
@@ -3016,9 +3047,13 @@ mod tests {
 
             let doc = Url::parse("http://site.test/form").unwrap();
             let target = Url::parse(&format!("http://127.0.0.1:{port}/submit")).unwrap();
-            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc))
-                .with_body(crate::net::types::RequestBody::form("a=1"))
-                .build();
+            let req = navigation(
+                FetchRequest::builder(http::Method::POST, target),
+                Some(&doc),
+                ReferrerPolicy::default(),
+            )
+            .with_body(crate::net::types::RequestBody::form("a=1"))
+            .build();
             let result = fetcher.fetch(req).await;
             shutdown.cancel();
 
@@ -3041,7 +3076,12 @@ mod tests {
         fn a_file_document_initiates_with_an_opaque_origin() {
             let doc = Url::parse("file:///home/user/form.html").unwrap();
             let target = Url::parse("https://site.test/submit").unwrap();
-            let req = navigation(FetchRequest::builder(http::Method::POST, target), Some(&doc)).build();
+            let req = navigation(
+                FetchRequest::builder(http::Method::POST, target),
+                Some(&doc),
+                ReferrerPolicy::default(),
+            )
+            .build();
             assert!(matches!(req.origin, Some(url::Origin::Opaque(_))));
         }
     }

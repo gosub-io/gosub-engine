@@ -13,6 +13,7 @@ use crate::net::types::{FetchRequest, FetchResult, Initiator, Priority, Resource
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use gosub_render_pipeline::common::media::{Acquired, MediaSource};
+use gosub_sonar::ReferrerPolicy;
 use http::Method;
 use parking_lot::RwLock;
 use tokio::runtime::Handle;
@@ -25,12 +26,13 @@ pub struct EngineMediaSource {
     tab_id: TabId,
     io_tx: IoChannel,
     runtime: Handle,
-    /// The document the request is for, and the navigation it belongs to. The URL decides
-    /// the `Referer` and whether a `file://` URL may be loaded at all; the reference is what
+    /// The document the request is for, its referrer policy, and the navigation it belongs
+    /// to. The URL and policy decide the `Referer`, the URL whether a `file://` URL may be
+    /// loaded at all; the reference is what
     /// makes the request *visible* -- without one the fetcher attaches a null observer, and
     /// the request happens with nothing to show for it in the network panel. `None` before
     /// the first navigation commits.
-    document: RwLock<Option<(Url, RequestReference)>>,
+    document: RwLock<Option<(Url, ReferrerPolicy, RequestReference)>>,
     /// `Accept-Language` sent with the request, matching the rest of the page's fetches.
     accept_language: Option<String>,
 }
@@ -56,8 +58,8 @@ impl EngineMediaSource {
     /// Tell the source which document its requests belong to, and which navigation to file
     /// them under. Called when a navigation commits, before the document is handed to the
     /// renderer.
-    pub fn set_document(&self, url: Option<Url>, reference: RequestReference) {
-        *self.document.write() = url.map(|url| (url, reference));
+    pub fn set_document(&self, url: Option<Url>, policy: ReferrerPolicy, reference: RequestReference) {
+        *self.document.write() = url.map(|url| (url, policy, reference));
     }
 }
 
@@ -67,7 +69,14 @@ impl EngineMediaSource {
     /// Takes its context rather than reading it: which navigation this belongs to decides
     /// where the bytes are deposited, and that has to be the same navigation the consumer is
     /// waiting under. See [`MediaSource::acquire`].
-    fn fetch(&self, scope: gosub_shared::subresource::Scope, doc_url: Url, reference: RequestReference, url: &str) {
+    fn fetch(
+        &self,
+        scope: gosub_shared::subresource::Scope,
+        doc_url: Url,
+        policy: ReferrerPolicy,
+        reference: RequestReference,
+        url: &str,
+    ) {
         let Ok(parsed) = Url::parse(url) else {
             gosub_shared::subresource::abandon(scope, url);
             return;
@@ -120,7 +129,7 @@ impl EngineMediaSource {
             .with_auto_decode(true);
         {
             builder = builder
-                .subresource_of(&doc_url, ResourceKind::Image)
+                .subresource_of(&doc_url, policy, ResourceKind::Image)
                 .with_reference(REF_REGISTRY.to_net(reference));
         }
         let req = builder.build();
@@ -172,7 +181,7 @@ impl MediaSource for EngineMediaSource {
     /// the middle of this.
     fn acquire(&self, url: &str) -> Acquired {
         let document = self.document.read();
-        let Some((doc_url, reference)) = document.as_ref() else {
+        let Some((doc_url, policy, reference)) = document.as_ref() else {
             return Acquired::Unowned;
         };
         let RequestReference::Navigation(nav_id) = reference else {
@@ -185,7 +194,7 @@ impl MediaSource for EngineMediaSource {
         // one the regex could not match), so ask for it. A resource the scan did see is
         // already in flight and this does nothing.
         if gosub_shared::subresource::claim(scope, url) {
-            self.fetch(scope, doc_url.clone(), *reference, url);
+            self.fetch(scope, doc_url.clone(), *policy, *reference, url);
         }
         Acquired::Under(scope)
     }
@@ -203,6 +212,7 @@ mod tests {
         let source = EngineMediaSource::new(ZoneId::new(), TabId::new(), io_tx, Handle::current(), None);
         source.set_document(
             document.and_then(|d| Url::parse(d).ok()),
+            ReferrerPolicy::default(),
             RequestReference::Navigation(navigation),
         );
         source
@@ -279,6 +289,7 @@ mod tests {
             // The same tab, the same zone, the next page.
             source.set_document(
                 Url::parse("http://example.com/next.html").ok(),
+                ReferrerPolicy::default(),
                 RequestReference::Navigation(second),
             );
             assert!(

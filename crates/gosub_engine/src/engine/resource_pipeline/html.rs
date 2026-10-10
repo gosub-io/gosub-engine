@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
 use gosub_shared::timing_guard;
+use gosub_sonar::ReferrerPolicy;
 use http::Method;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -63,16 +64,29 @@ pub enum ParsedDocument<C: RenderConfiguration> {
     Parsed {
         doc: Box<EngineDocument<C>>,
         source: Option<Arc<str>>,
+        referrer_policy: ReferrerPolicy,
     },
     /// Not parsed here: the renderer process parses. Only the source is kept.
-    SourceOnly { source: Arc<str> },
+    SourceOnly {
+        source: Arc<str>,
+        referrer_policy: ReferrerPolicy,
+    },
 }
 
 impl<C: RenderConfiguration> ParsedDocument<C> {
-    pub fn into_parts(self) -> (Option<EngineDocument<C>>, Option<Arc<str>>) {
+    /// The document, its source, and its referrer policy: the response header's, as the
+    /// document's own `<meta name="referrer">` left it.
+    pub fn into_parts(self) -> (Option<EngineDocument<C>>, Option<Arc<str>>, ReferrerPolicy) {
         match self {
-            Self::Parsed { doc, source } => (Some(*doc), source),
-            Self::SourceOnly { source } => (None, Some(source)),
+            Self::Parsed {
+                doc,
+                source,
+                referrer_policy,
+            } => (Some(*doc), source, referrer_policy),
+            Self::SourceOnly {
+                source,
+                referrer_policy,
+            } => (None, Some(source), referrer_policy),
         }
     }
 }
@@ -168,7 +182,12 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             .await
             .map_err(|e| anyhow!("Failed to read HTML document: {:?}", e))?;
             handle.cancel.cancel();
-            return Ok(ParsedDocument::SourceOnly { source });
+            let header_policy = crate::html::header_referrer_policy(&meta.headers).unwrap_or_default();
+            let referrer_policy = crate::html::document_referrer_policy(header_policy, &source);
+            return Ok(ParsedDocument::SourceOnly {
+                source,
+                referrer_policy,
+            });
         }
 
         // The main document's request is referenced by the navigation that started it, so its
@@ -189,6 +208,11 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         // before the hand-off existed, rather than bytes offered to whoever happens to ask.
         let nav_scope = navigation.map(|nav_id| nav_id.as_scope());
 
+        // The response header's policy; the document's own `<meta name="referrer">` may
+        // change it as the scan goes, and each hint carries the one in effect where it was.
+        let header_policy = crate::html::header_referrer_policy(&meta.headers).unwrap_or_default();
+        let settled_policy = Arc::new(std::sync::OnceLock::new());
+
         // Filled in below, once the pieces the gate needs exist. The parse only reaches for
         // it when a blocking script forces the issue.
         let mut cfg = crate::html::HtmlParseConfig {
@@ -196,6 +220,8 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             stylesheets: None,
             timing_scope,
             capture_source: self.capture_source,
+            referrer_policy: header_policy,
+            settled_referrer_policy: Some(settled_policy.clone()),
         };
 
         let io_tx = self.io_tx.clone();
@@ -262,7 +288,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                 .with_initiator(Initiator::Parser.to_net())
                 .with_kind(hint.kind.to_net())
                 .with_headers(headers)
-                .subresource_of(&doc_url, hint.kind)
+                .subresource_of(&doc_url, hint.referrer_policy, hint.kind)
                 // Buffered rather than streamed: the body is the point now. It is handed to
                 // whichever consumer needs it -- the CSS parser, the media store, the font
                 // loader -- each of which used to fetch the same URL a second time over its
@@ -336,6 +362,8 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             parent_cancel: parent_cancel.clone(),
             headers: sub_headers.clone(),
             referrer: doc_url.clone(),
+            referrer_policy: settled_policy,
+            header_policy,
         }));
 
         let was_cancelled = handle.cancel.is_cancelled();
@@ -355,7 +383,7 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
         // handed on, so what the tab receives is complete, exactly as it was when the parser
         // fetched the sheets itself.
         let res = match res {
-            Ok((mut doc, source)) => {
+            Ok((mut doc, source, referrer_policy)) => {
                 let sheets = SubFetch {
                     zone_id,
                     tab_id,
@@ -364,13 +392,14 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
                     parent_cancel: &parent_cancel,
                     headers: &sub_headers,
                     referrer: &doc_url,
+                    referrer_policy,
                 };
                 resolve_pending_stylesheets::<C>(&mut doc, &sheet_bodies, &sheets).await;
                 // Fonts are declared in CSS, so they can only be known once the sheets are.
                 // Registered before the document is handed on, which is what keeps the first
                 // layout from measuring text in a fallback face and having to do it again.
                 super::webfonts::load_web_fonts::<C>(&doc, &doc_url, &self.font_system, &sheets, timing_scope).await;
-                Ok((doc, source))
+                Ok((doc, source, referrer_policy))
             }
             Err(e) => Err(e),
         };
@@ -398,9 +427,10 @@ impl<C: RenderConfiguration> HtmlPipelineImpl<C> {
             }
         }
 
-        res.map(|(doc, source)| ParsedDocument::Parsed {
+        res.map(|(doc, source, referrer_policy)| ParsedDocument::Parsed {
             doc: Box::new(doc),
             source,
+            referrer_policy,
         })
         .map_err(|e| anyhow!("Failed to parse HTML document: {:?}", e))
     }
@@ -450,6 +480,10 @@ struct ParseSheetGate {
     parent_cancel: tokio_util::sync::CancellationToken,
     headers: http::HeaderMap,
     referrer: url::Url,
+    /// The document's referrer policy, settled before the parse that asks this starts.
+    referrer_policy: Arc<std::sync::OnceLock<gosub_sonar::ReferrerPolicy>>,
+    /// The response header's policy, should the document's never have been settled.
+    header_policy: gosub_sonar::ReferrerPolicy,
 }
 
 impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
@@ -475,6 +509,7 @@ impl gosub_html5::parser::StylesheetSource for ParseSheetGate {
                                 parent_cancel: &self.parent_cancel,
                                 headers: &self.headers,
                                 referrer: &self.referrer,
+                                referrer_policy: self.referrer_policy.get().copied().unwrap_or(self.header_policy),
                             },
                         )
                         .await
@@ -496,6 +531,8 @@ pub(crate) struct SubFetch<'a> {
     pub(crate) parent_cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) headers: &'a http::HeaderMap,
     pub(crate) referrer: &'a url::Url,
+    /// The document's referrer policy.
+    pub(crate) referrer_policy: gosub_sonar::ReferrerPolicy,
 }
 
 /// Fetch and parse the stylesheets the parser recorded, and slot them into the cascade.
@@ -635,7 +672,7 @@ pub(crate) async fn fetch_subresource(
         .with_initiator(Initiator::Parser.to_net())
         .with_kind(kind.to_net())
         .with_headers(fetch.headers.clone())
-        .subresource_of(fetch.referrer, kind)
+        .subresource_of(fetch.referrer, fetch.referrer_policy, kind)
         .with_streaming(false)
         .with_auto_decode(true)
         .build();
@@ -776,10 +813,11 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let (doc, _source) = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
-            .await
-            .expect("parse_bytes should succeed")
-            .into_parts();
+        let (doc, _source, _policy) =
+            HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+                .await
+                .expect("parse_bytes should succeed")
+                .into_parts();
         let doc = doc.expect("parsed in-process");
 
         // Allow spawned tasks to submit to IO and be recorded
@@ -791,6 +829,67 @@ mod tests {
         // Assert: 3 subresources were submitted (stylesheet, script, image)
         let count = seen_children.lock().len();
         assert_eq!(count, 3, "expected 3 subresource fetches, saw {}", count);
+    }
+
+    /// The response's `Referrer-Policy` header is the document's policy until a
+    /// `<meta name="referrer">` changes it, and each subresource is requested under the policy in
+    /// effect where its element sits. Both tiers end up with the same document policy.
+    #[tokio::test(flavor = "current_thread")]
+    async fn subresources_carry_the_documents_referrer_policy() {
+        let html = r#"<html><head>
+            <img src="/before.png">
+            <meta name="referrer" content="origin">
+            <img src="/after.png">
+        </head></html>"#;
+        let url = "https://example.com/index.html";
+        let mut meta = test_meta(url);
+        meta.headers.insert("referrer-policy", "no-referrer".parse().unwrap());
+
+        let (io_tx, mut rx) = mpsc::unbounded_channel::<IoCommand>();
+        let pipeline = |source_only: bool| {
+            HtmlPipelineImpl::<DefaultRenderConfig>::new(
+                ZoneId::new(),
+                TabId::new(),
+                io_tx.clone(),
+                None,
+                10 * 1024 * 1024,
+                Arc::new(Mutex::new(Default::default())),
+                false,
+            )
+            .source_only(source_only)
+        };
+
+        let (req, handle) = test_request(url);
+        let (_, _, policy) = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(
+            &mut pipeline(false),
+            req,
+            handle,
+            meta.clone(),
+            html.as_bytes(),
+        )
+        .await
+        .expect("parse_bytes should succeed")
+        .into_parts();
+        assert_eq!(policy, ReferrerPolicy::Origin);
+
+        let mut seen = HashMap::new();
+        while seen.len() < 2 {
+            let Some(IoCommand::Fetch { req, .. }) = rx.recv().await else {
+                continue;
+            };
+            seen.insert(req.url.path().to_string(), req.referrer_policy);
+        }
+        assert_eq!(seen["/before.png"], ReferrerPolicy::NoReferrer);
+        assert_eq!(seen["/after.png"], ReferrerPolicy::Origin);
+
+        let (req, handle) = test_request(url);
+        let (doc, _, policy) =
+            HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline(true), req, handle, meta, html.as_bytes())
+                .await
+                .expect("parse_bytes should succeed")
+                .into_parts();
+        assert!(doc.is_none(), "a renderer process parses this one");
+        assert_eq!(policy, ReferrerPolicy::Origin);
     }
 
     /// The rule this replaces was "cancel every subresource when the parse ends", which read

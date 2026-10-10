@@ -17,6 +17,7 @@ use crate::net::resource_loader::{LoadError, LoadedResource, ResourceLoader};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, ResourceKind, SubresourceOf};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
+use gosub_sonar::ReferrerPolicy;
 use http::Method;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -43,10 +44,11 @@ pub struct BrokeredLoader {
     /// Loads are issued from plain threads too (the remote media cache's fetch
     /// threads), where `Handle::try_current` finds nothing to spawn on.
     runtime: Option<tokio::runtime::Handle>,
-    /// The document the loads are made for ([`ResourceLoader::for_document`]):
-    /// its `Referer`, which is also what the I/O side judges the request's
-    /// policies by, and whether `file:` neighbours may be loaded.
-    document: Option<Url>,
+    /// The document the loads are made for ([`ResourceLoader::for_document`])
+    /// and its referrer policy: its `Referer`, which is also what the I/O side
+    /// judges the request's policies by, and whether `file:` neighbours may be
+    /// loaded.
+    document: Option<(Url, ReferrerPolicy)>,
     /// The tab's `Accept-Language`, as the in-process fetches send it.
     accept_language: Option<String>,
     /// What this loader's requests say they are for: a document reference of
@@ -109,9 +111,9 @@ impl ResourceLoader for BrokeredLoader {
         result.and_then(into_loaded)
     }
 
-    fn for_document(&self, url: Option<&Url>) -> Option<Arc<dyn ResourceLoader>> {
+    fn for_document(&self, url: Option<&Url>, policy: ReferrerPolicy) -> Option<Arc<dyn ResourceLoader>> {
         Some(Arc::new(Self {
-            document: url.cloned(),
+            document: url.map(|url| (url.clone(), policy)),
             ..self.clone()
         }))
     }
@@ -126,7 +128,7 @@ impl BrokeredLoader {
     /// `Document` here would read as a navigation there, which reaches
     /// loopback and skips the opaque-response filter, and the renderer is
     /// the one naming it. `kind` only picks the mixed-content handling.
-    fn request(&self, url: &Url, kind: ResourceKind, document: Option<Url>) -> FetchRequest {
+    fn request(&self, url: &Url, kind: ResourceKind, document: Option<(Url, ReferrerPolicy)>) -> FetchRequest {
         let mut headers = http::HeaderMap::new();
         if let Some(langs) = &self.accept_language {
             if let Ok(value) = langs.parse() {
@@ -141,8 +143,8 @@ impl BrokeredLoader {
             .with_initiator(gosub_sonar::net::types::Initiator::Application)
             .with_streaming(false)
             .with_auto_decode(true);
-        if let Some(doc) = document {
-            builder = builder.subresource_of(&doc, kind);
+        if let Some((doc, policy)) = document {
+            builder = builder.subresource_of(&doc, policy, kind);
         }
         builder.build()
     }
@@ -155,7 +157,7 @@ impl BrokeredLoader {
         // then under the I/O side's own file policy, which reads the
         // `Referer` set below: a renderer asks through here, and local files
         // are the broker's to open.
-        let from_disk = document.as_ref().is_some_and(|doc| doc.scheme() == "file");
+        let from_disk = document.as_ref().is_some_and(|(doc, _)| doc.scheme() == "file");
         let served = match url.scheme() {
             "http" | "https" | "data" => true,
             "file" => from_disk,
@@ -303,7 +305,7 @@ mod tests {
         std::fs::write(dir.join("page.css"), b"body{}").unwrap();
         let page = Url::from_file_path(dir.join("index.html")).unwrap();
         let for_page = loader
-            .for_document(Some(&page))
+            .for_document(Some(&page), ReferrerPolicy::default())
             .expect("a brokered loader binds to a document");
         let neighbour = Url::from_file_path(dir.join("page.css")).unwrap();
         let loaded = for_page
@@ -332,7 +334,7 @@ mod tests {
         let loader = BrokeredLoader::new(ZoneId::new(), None, io.subscribe());
         let page = Url::parse("https://site.test/").unwrap();
         let for_page = loader
-            .for_document(Some(&page))
+            .for_document(Some(&page), ReferrerPolicy::default())
             .expect("a brokered loader binds to a document");
 
         let started = std::time::Instant::now();
@@ -371,9 +373,18 @@ mod tests {
         let page = Url::parse("https://site.test/").unwrap();
         let url = Url::parse("http://site.test/frame.html").unwrap();
 
-        let req = loader.request(&url, ResourceKind::Document, Some(page.clone()));
+        let req = loader.request(
+            &url,
+            ResourceKind::Document,
+            Some((page.clone(), ReferrerPolicy::NoReferrer)),
+        );
         assert_eq!(req.kind, gosub_sonar::net::types::ResourceKind::Asset);
-        let image = loader.request(&url, ResourceKind::Image, Some(page));
+        assert_eq!(
+            req.referrer_policy,
+            ReferrerPolicy::NoReferrer,
+            "the document's policy rides along"
+        );
+        let image = loader.request(&url, ResourceKind::Image, Some((page, ReferrerPolicy::default())));
         assert_ne!(
             req.mixed_content, image.mixed_content,
             "the kind still picks the mixed-content handling"

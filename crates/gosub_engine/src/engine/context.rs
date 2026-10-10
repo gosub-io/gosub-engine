@@ -255,6 +255,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     document_source: Option<std::sync::Arc<str>>,
     /// The current document's URL, whether or not this process parsed it.
     document_url: Option<Url>,
+    /// The current document's referrer policy: how much of `document_url` its
+    /// requests send as `Referer`.
+    document_referrer_policy: gosub_sonar::ReferrerPolicy,
     /// Title and icon URL the renderer reported for the current document,
     /// not yet handed to the tab.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -418,6 +421,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             loader,
             document_source: None,
             document_url: None,
+            document_referrer_policy: gosub_sonar::ReferrerPolicy::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_document_meta: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -506,13 +510,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// tab worker from `RenderBackend::create_rasterizer` / `raster_strategy`.
     /// Tell the media source which navigation its requests belong to.
     ///
-    /// The URL decides the `Referer` and whether a `file://` image may be loaded at all; the
-    /// reference is what makes the request visible, since the fetcher attaches a null
-    /// observer to a request it cannot place. Called when a navigation commits, before the
-    /// document is installed, so the first layout's requests already carry it.
-    pub fn set_media_navigation(&self, url: Option<Url>, reference: crate::net::req_ref_tracker::RequestReference) {
+    /// The URL and the document's referrer `policy` decide the `Referer`, the URL whether a
+    /// `file://` image may be loaded at all; the reference is what makes the request visible,
+    /// since the fetcher attaches a null observer to a request it cannot place. Called when a
+    /// navigation commits, before the document is installed, so the first layout's requests
+    /// already carry it.
+    pub fn set_media_navigation(
+        &self,
+        url: Option<Url>,
+        policy: gosub_sonar::ReferrerPolicy,
+        reference: crate::net::req_ref_tracker::RequestReference,
+    ) {
         if let Some(source) = &self.media_source {
-            source.set_document(url, reference);
+            source.set_document(url, policy, reference);
         }
     }
 
@@ -571,6 +581,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.document_url.as_ref()
     }
 
+    /// Set the current document's referrer policy. Installing a document resets it to the
+    /// default, so this follows `set_document` or `set_document_source`.
+    pub fn set_document_referrer_policy(&mut self, policy: gosub_sonar::ReferrerPolicy) {
+        self.document_referrer_policy = policy;
+    }
+
+    /// The current document's referrer policy.
+    pub fn document_referrer_policy(&self) -> gosub_sonar::ReferrerPolicy {
+        self.document_referrer_policy
+    }
+
     /// Title and icon URL the renderer reported since the last call.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
@@ -596,6 +617,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.document = doc;
         self.damage.rebuild();
         self.document_url = url;
+        self.document_referrer_policy = gosub_sonar::ReferrerPolicy::default();
         self.document_source = source;
         self.pipeline_cache = None;
         self.scene_cache = None;
@@ -1185,7 +1207,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn loader_for_document(&self) -> Arc<dyn crate::net::resource_loader::ResourceLoader> {
         self.loader
-            .for_document(self.document_url.as_ref())
+            .for_document(self.document_url.as_ref(), self.document_referrer_policy)
             .unwrap_or_else(|| Arc::clone(&self.loader))
     }
 
