@@ -6721,6 +6721,7 @@ fn vault() -> i32 {
             url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
+            site: None,
             samesite: SameSite::SameSite,
             navigation: false,
         };
@@ -6799,6 +6800,7 @@ fn vault() -> i32 {
             url: url.to_string(),
             zone: zone.to_string(),
             top_level: None,
+            site: None,
             samesite: SameSite::SameSite,
             navigation: false,
         };
@@ -6961,6 +6963,34 @@ fn vault() -> i32 {
             return 1;
         }
         net_vault.revoke(&navigating, vec![other_site.to_string()]);
+
+        // A navigation another site's page started is judged from that page,
+        // not from its destination: a hop on the destination's own site is a
+        // cross-site navigation, and its Strict cookies stay home.
+        net_jar.store_response_cookies(&url, &set_cookie(&["home=1; SameSite=Strict; Path=/"]), None);
+        let started_elsewhere = CookieScope {
+            ticket: 727272,
+            navigation: true,
+            site: Some(other_site.to_string()),
+            ..in_document.clone()
+        };
+        if !net_vault.grant(&started_elsewhere) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        let hop = ask_at(
+            &mut net_link,
+            started_elsewhere.clone(),
+            "https://example.test/elsewhere",
+        )
+        .unwrap_or_default();
+        if hop.contains("home=1") || !hop.contains("sid=abc") {
+            eprintln!(
+                "a hop of a navigation another site started should read Lax cookies, not Strict ones, got {hop:?}"
+            );
+            return 1;
+        }
+        net_vault.revoke(&started_elsewhere, vec!["https://example.test/elsewhere".to_string()]);
 
         // A ticket's reads are capped: past that it is no request's chain.
         let capped = CookieScope {

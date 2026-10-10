@@ -31,6 +31,10 @@ pub struct TabIdentity {
     pub navigations: VecDeque<(NavigationId, AddressSpace)>,
     /// The navigation whose document the tab shows, once one has committed.
     pub committed: Option<NavigationId>,
+    /// The latest navigation a document started (a link, a form), and that
+    /// document: what the navigation's `SameSite` context is judged from
+    /// (RFC 6265bis §5.2), where `top_level` is already the destination.
+    pub initiator: Option<(NavigationId, Url)>,
 }
 
 impl TabIdentity {
@@ -40,6 +44,20 @@ impl TabIdentity {
             top_level: None,
             navigations: VecDeque::new(),
             committed: None,
+            initiator: None,
+        }
+    }
+
+    /// The document a request's `SameSite` context is judged from: for a
+    /// navigation a document started, that document; for anything else - a
+    /// subresource, the user's own navigation, one this tab no longer
+    /// remembers - the tab's top-level document. Only the context: the
+    /// third-party policy keeps `top_level`, as a navigation's own cookies are
+    /// first-party.
+    pub fn same_site_document(&self, reference: Option<RequestReference>) -> Option<&Url> {
+        match (reference, &self.initiator) {
+            (Some(RequestReference::Navigation(id)), Some((started, document))) if id == *started => Some(document),
+            _ => self.top_level.as_ref(),
         }
     }
 
@@ -105,6 +123,14 @@ impl TabIdentityRegistry {
         }
     }
 
+    /// Record which document started `navigation`: `None` for the user's own,
+    /// which is judged against its destination.
+    pub fn set_navigation_initiator(&self, tab_id: TabId, navigation: NavigationId, initiator: Option<Url>) {
+        if let Some(mut entry) = self.tabs.get_mut(&tab_id) {
+            entry.initiator = initiator.map(|document| (navigation, document));
+        }
+    }
+
     /// The tab now shows the document `navigation` produced.
     pub fn commit_navigation(&self, tab_id: TabId, navigation: NavigationId) {
         if let Some(mut entry) = self.tabs.get_mut(&tab_id) {
@@ -140,6 +166,42 @@ mod tests {
 
         let id = reg.get(tab).expect("registered tab resolves");
         assert!(id.top_level.is_none(), "no top-level before the first navigation");
+    }
+
+    /// A navigation a page started is judged from that page; the user's own, a superseded
+    /// one, and every subresource from the tab's top-level document.
+    #[test]
+    fn a_navigation_is_judged_from_the_page_that_started_it() {
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(tab, jar());
+        let destination = Url::parse("https://b.test/").unwrap();
+        let page = Url::parse("https://a.test/links").unwrap();
+        reg.set_top_level(tab, destination.clone());
+        let (linked, typed) = (NavigationId::new(), NavigationId::new());
+
+        reg.set_navigation_initiator(tab, linked, Some(page.clone()));
+        let id = reg.get(tab).unwrap();
+        assert_eq!(
+            id.same_site_document(Some(RequestReference::Navigation(linked))),
+            Some(&page)
+        );
+        assert_eq!(
+            id.same_site_document(Some(RequestReference::Navigation(typed))),
+            Some(&destination)
+        );
+        assert_eq!(id.same_site_document(None), Some(&destination));
+
+        reg.set_navigation_initiator(tab, typed, None);
+        let id = reg.get(tab).unwrap();
+        assert_eq!(
+            id.same_site_document(Some(RequestReference::Navigation(linked))),
+            Some(&destination)
+        );
+        assert_eq!(
+            id.same_site_document(Some(RequestReference::Navigation(typed))),
+            Some(&destination)
+        );
     }
 
     #[test]

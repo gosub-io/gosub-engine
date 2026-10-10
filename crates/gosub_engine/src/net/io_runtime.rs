@@ -518,7 +518,10 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         url: req.url.to_string(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
-        samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
+        site: identity
+            .same_site_document(REF_REGISTRY.from_net(req.reference))
+            .map(|u| u.to_string()),
+        samesite: first_hop_context(identity, req).into(),
         navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
 }
@@ -586,7 +589,7 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     let Some(identity) = identity else {
         return;
     };
-    let context = same_site_context(identity.top_level.as_ref(), &req.url);
+    let context = first_hop_context(identity, req);
     let jar = identity.cookie_jar.clone();
     let url = req.url.clone();
     let top_level = identity.top_level.clone();
@@ -600,9 +603,23 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     }
 }
 
+/// The `SameSite` context of a request's first hop, judged from the document
+/// that caused it (see [`TabIdentity::same_site_document`]): a navigation a
+/// cross-site page started is a cross-site navigation, `Lax` only when its
+/// method is safe.
+fn first_hop_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
+    crate::engine::cookies::hop_context(
+        identity.same_site_document(REF_REGISTRY.from_net(req.reference)),
+        &req.url,
+        &[],
+        &req.method,
+        req.kind == gosub_sonar::net::types::ResourceKind::Primary,
+    )
+}
+
 /// Classify a request against the document that caused it; see
-/// [`request_context`](crate::engine::cookies::request_context). The first
-/// hop of a navigation is to the document's own URL, so same-site.
+/// [`request_context`](crate::engine::cookies::request_context).
+#[cfg(test)]
 fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteContext {
     crate::engine::cookies::request_context(top_level, url, false)
 }
@@ -797,6 +814,17 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                                 continue;
                             }
 
+                            // A navigation a document started has its cookies judged from
+                            // that document, which `navigation()` stamps as the request's
+                            // referrer; the user's own carries none. Recorded before
+                            // anything asks for the navigation's cookies.
+                            if let (Some(tab), gosub_sonar::net::types::ResourceKind::Primary) = (tab_id, req.kind) {
+                                if let Some(RequestReference::Navigation(nav)) = REF_REGISTRY.from_net(req.reference) {
+                                    router
+                                        .tab_identities()
+                                        .set_navigation_initiator(tab, nav, req.referrer.clone());
+                                }
+                            }
                             // Cookies are attached here, never by the requester: see
                             // `net::tab_identity`. `identity` is None for a tab that has
                             // closed or never registered, which sends no cookies.
@@ -973,6 +1001,40 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
+
+    /// A navigation a cross-site page started is a cross-site navigation from its first hop:
+    /// `Lax` only for a safe method, never `Strict`. The user's own navigation is same-site.
+    #[test]
+    fn a_navigations_first_hop_is_judged_from_the_page_that_started_it() {
+        use crate::engine::types::NavigationId;
+        use crate::net::tab_identity::TabIdentity;
+        use url::Url;
+        let destination = Url::parse("https://b.test/account").unwrap();
+        let page = Url::parse("https://a.test/links").unwrap();
+        let nav = NavigationId::new();
+        let mut identity = TabIdentity::new(crate::cookies::DefaultCookieJar::new().into());
+        identity.top_level = Some(destination.clone());
+        let request = |method: http::Method| {
+            FetchRequest::builder(method, destination.clone())
+                .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav)))
+                .with_kind(gosub_sonar::net::types::ResourceKind::Primary)
+                .build()
+        };
+
+        assert_eq!(
+            first_hop_context(&identity, &request(http::Method::GET)),
+            SameSiteContext::SameSite
+        );
+        identity.initiator = Some((nav, page));
+        assert_eq!(
+            first_hop_context(&identity, &request(http::Method::GET)),
+            SameSiteContext::CrossSiteNavigation
+        );
+        assert_eq!(
+            first_hop_context(&identity, &request(http::Method::POST)),
+            SameSiteContext::CrossSite
+        );
+    }
 
     /// A tab navigating from a public page to a private one: the public
     /// page's own late subresource requests (made for it, so stamped with it)
