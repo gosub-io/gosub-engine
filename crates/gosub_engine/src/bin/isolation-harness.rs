@@ -7148,6 +7148,24 @@ fn engine_cookie_vault() -> i32 {
             eprintln!("the zone's cookie jar is not in the vault");
             return 1;
         }
+        // A zone dropped without `close_zone` gives its jar back too: the
+        // vault neither keeps it nor reopens it on a respawn.
+        #[cfg(target_os = "linux")]
+        if builder && !no_vault {
+            let dropped = match engine.zone_builder().create() {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a second zone: {e}");
+                    return 1;
+                }
+            };
+            let id = dropped.id;
+            drop(dropped);
+            if engine.cookie_vault().is_some_and(|vault| vault.holds_zone(id)) {
+                eprintln!("a dropped zone's jar stayed in the vault");
+                return 1;
+            }
+        }
         let Ok(tab) = zone.tab_builder().create().await else {
             eprintln!("could not create a tab");
             return 1;

@@ -854,15 +854,21 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 let id = zone_id.unwrap_or_default();
                 vault.open_zone(id, cookie_store.clone());
                 let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(&vault), id).handle();
-                let created = self.create_zone_with_services(
-                    config,
-                    ZoneServices {
-                        cookie_jar: Some(jar),
-                        ..services
-                    },
-                    Some(id),
-                    cookie_store,
-                );
+                let created = self
+                    .create_zone_with_services(
+                        config,
+                        ZoneServices {
+                            cookie_jar: Some(jar),
+                            ..services
+                        },
+                        Some(id),
+                        cookie_store,
+                    )
+                    .map(|mut zone| {
+                        // The zone gives the jar back when it goes, closed or dropped.
+                        zone.vault_lease = Some(vault.lease(id));
+                        zone
+                    });
                 // No zone came of it: the vault must not keep (or respawn
                 // with) a jar nothing will ever close, nor the storage
                 // service a reference nothing will give back.
@@ -1032,13 +1038,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let zone_id = zone.id;
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
+        // The zone goes with it, and its vault lease, if the engine provisioned
+        // its jar there: the vault drops the jar once its last snapshot is with
+        // the store.
         zone.close().await;
-
-        // The vault drops the zone's jar once its last snapshot is with the store.
-        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if let Some(vault) = self.context.cookie_vault.get() {
-            vault.close_zone(zone_id);
-        }
 
         // Shut down the zone's fetcher on the I/O thread (ack'd).
         if let Some(io) = &self.io_handle {

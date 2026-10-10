@@ -173,6 +173,11 @@ pub struct Zone<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     pub description: String,
     /// Tab color (RGBA)
     pub color: [u8; 4],
+    /// The vault registration of a jar the engine provisioned, given back when
+    /// the zone goes: by `GosubEngine::close_zone` once the tabs have stopped,
+    /// or when the zone is dropped. `None` for an embedder-supplied jar.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub(crate) vault_lease: Option<crate::cookie_vault::client::ZoneLease>,
 }
 
 impl<C: RenderConfiguration> Debug for Zone<C> {
@@ -277,6 +282,8 @@ impl<C: RenderConfiguration> Zone<C> {
             description: "".to_string(),
             color: random_color,
             config,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            vault_lease: None,
         };
 
         _ = zone.spawn_storage_events_to_engine();
