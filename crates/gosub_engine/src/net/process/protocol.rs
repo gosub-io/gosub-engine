@@ -316,7 +316,7 @@ pub struct CookieScope {
     /// The tab's top-level document: the third-party policy's.
     pub top_level: Option<String>,
     /// The document the context is judged from: a navigation's initiator,
-    /// else [`Self::top_level`] (see `TabIdentity::same_site_document`).
+    /// else [`Self::top_level`] (see `TabIdentity::cookie_site`).
     pub site: Option<String>,
     pub samesite: SameSite,
     /// Whether the request is a top-level navigation: a hop of one to another
