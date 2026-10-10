@@ -402,6 +402,20 @@ impl CookieVault {
         }
     }
 
+    /// Whether `zone`'s cookies are held here: opened and not yet closed.
+    pub fn holds_zone(&self, zone: ZoneId) -> bool {
+        self.open_zones.lock().contains_key(&zone.to_string())
+    }
+
+    /// Hold `zone`'s registration for the zone whose jar the engine
+    /// provisioned here (see [`ZoneLease`]).
+    pub(crate) fn lease(self: &Arc<Self>, zone: ZoneId) -> ZoneLease {
+        ZoneLease {
+            vault: Arc::clone(self),
+            zone,
+        }
+    }
+
     pub fn close_zone(&self, zone: ZoneId) {
         let key = zone.to_string();
         // Not reopened by a respawn from here on.
@@ -754,5 +768,25 @@ impl CookieJar for VaultCookieJar {
         self.vault.tell(ToVault::PurgeExpired {
             zone: self.zone.clone(),
         });
+    }
+}
+
+/// A zone's registration in the vault, held by the zone whose jar the engine
+/// provisioned there and given back when that zone goes, closed or merely
+/// dropped: the vault then neither keeps the jar nor reopens it on a respawn.
+/// A zone with an embedder-supplied jar has none, so its jar is never closed
+/// here.
+pub(crate) struct ZoneLease {
+    vault: Arc<CookieVault>,
+    zone: ZoneId,
+}
+
+impl Drop for ZoneLease {
+    fn drop(&mut self) {
+        // A vault the engine already shut down has nothing to give back, and
+        // a round trip to it would only wait out the reply timeout.
+        if !self.vault.closed.load(Ordering::Acquire) && self.vault.holds_zone(self.zone) {
+            self.vault.close_zone(self.zone);
+        }
     }
 }

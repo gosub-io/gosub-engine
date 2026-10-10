@@ -88,15 +88,16 @@ let mut events = engine.subscribe_events();
 let mut zone = engine.zone_builder().create()?;
 ```
 
-With nothing set, the zone is an ephemeral profile: in-memory storage and cookie jar, both gone when the zone is dropped. For persistent cookies, give it a `CookieStore` and no in-memory jar:
+With nothing set, the zone is an ephemeral profile: in-memory storage and a cookie jar the engine provisions (in the cookie vault when `security.cookie_vault` runs one), both gone when the zone is dropped. For persistent cookies, give it a `CookieStore`:
 
 ``` rust
 let mut zone = engine
     .zone_builder()
     .cookie_store(Some(store))
-    .cookie_jar(None)
     .create()?;
 ```
+
+A jar passed with `.cookie_jar(Some(jar))` is yours: it stays in this process and is never moved into the vault.
 
 The builder also takes a `ZoneConfig` (built with `ZoneConfig::builder()`) via `.config()`, for per-profile settings such as `do_not_track` or `accept_languages`, and a `.places()` handle for a bookmarks / visited-history store.
 
