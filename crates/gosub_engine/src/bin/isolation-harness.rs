@@ -2578,8 +2578,8 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
 }
 
 /// The next engine event satisfying `pred`, on a clock; a failed navigation
-/// meanwhile is an error. Lagging behind the broadcast is not.
-#[cfg(target_os = "linux")]
+/// meanwhile is an error. Lagging behind the broadcast is not. Not gated to
+/// Linux: the cross-site cookie scenario uses it, and that compiles everywhere.
 async fn next_engine_event(
     events: &mut tokio::sync::broadcast::Receiver<gosub_engine::events::EngineEvent>,
     deadline: tokio::time::Instant,
