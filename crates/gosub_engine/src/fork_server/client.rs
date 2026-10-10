@@ -1652,16 +1652,19 @@ mod tests {
                 url: "https://a.test/ok".into(),
                 post: true,
                 body: Some("a=1".into()),
+                referrer_policy: None,
             },
             Effect::Navigate {
                 url: format!("https://a.test/{}", "x".repeat(MAX_HIT_TEXT)),
                 post: false,
                 body: None,
+                referrer_policy: None,
             },
             Effect::Navigate {
                 url: "https://a.test/big".into(),
                 post: true,
                 body: Some("b".repeat(MAX_FORM_BODY + 1)),
+                referrer_policy: None,
             },
             Effect::Focus {
                 focused: true,
@@ -1717,6 +1720,7 @@ mod tests {
             image: None,
             cursor: HitCursor::Pointer,
             editable: false,
+            link_referrer_policy: None,
         }
     }
 

@@ -186,6 +186,32 @@ pub(crate) fn collect_fragment_targets<C: RenderConfiguration>(
     targets
 }
 
+/// The referrer policy a link or form asks for the navigation it starts, over its document's
+/// (HTML, "follow the hyperlink" and "plan to navigate"): `no-referrer` when its `rel` has
+/// `noreferrer`, which wins, else what an `<a>`'s `referrerpolicy` attribute names. A form has
+/// no `referrerpolicy`. `None` leaves the document's policy.
+pub fn link_referrer_policy<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    id: NodeId,
+) -> Option<gosub_sonar::ReferrerPolicy> {
+    let tag = doc.tag_name(id)?;
+    let is_a = tag.eq_ignore_ascii_case("a");
+    if !is_a && !tag.eq_ignore_ascii_case("form") {
+        return None;
+    }
+    let noreferrer = doc.attribute(id, "rel").is_some_and(|rel| {
+        rel.split_ascii_whitespace()
+            .any(|t| t.eq_ignore_ascii_case("noreferrer"))
+    });
+    if noreferrer {
+        return Some(gosub_sonar::ReferrerPolicy::NoReferrer);
+    }
+    if !is_a {
+        return None;
+    }
+    doc.attribute(id, "referrerpolicy").and_then(parser::policy_token)
+}
+
 /// The document's icon: the first `<link rel="icon">` (or `shortcut icon`,
 /// `apple-touch-icon*`) resolved against `base_url`, else `/favicon.ico` for
 /// http(s) documents.
@@ -253,4 +279,38 @@ fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) 
         // Empty <title>: keep scanning siblings (an empty title is not recursed into).
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_sonar::ReferrerPolicy;
+
+    fn policy_of(html: &str) -> Option<ReferrerPolicy> {
+        let doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+        let id = doc.node_by_named_id("x").expect("an element with id x");
+        link_referrer_policy::<DefaultRenderConfig>(&doc, id)
+    }
+
+    /// `rel="noreferrer"` wins over the attribute; the attribute is matched whole and without
+    /// the meta's legacy keywords; a form takes only `rel`.
+    #[test]
+    fn a_link_or_form_asks_for_its_own_referrer_policy() {
+        let a = |attrs: &str| policy_of(&format!(r#"<a id="x" href="/t" {attrs}>t</a>"#));
+        assert_eq!(a(""), None);
+        assert_eq!(a(r#"referrerpolicy="Origin""#), Some(ReferrerPolicy::Origin));
+        assert_eq!(a(r#"rel="nofollow NoReferrer""#), Some(ReferrerPolicy::NoReferrer));
+        assert_eq!(
+            a(r#"rel="noreferrer" referrerpolicy="unsafe-url""#),
+            Some(ReferrerPolicy::NoReferrer)
+        );
+        for invalid in ["never", " origin", "origin no-referrer", ""] {
+            assert_eq!(a(&format!(r#"referrerpolicy="{invalid}""#)), None, "{invalid:?}");
+        }
+
+        let form = |attrs: &str| policy_of(&format!(r#"<form id="x" action="/s" {attrs}></form>"#));
+        assert_eq!(form(r#"rel="noreferrer""#), Some(ReferrerPolicy::NoReferrer));
+        assert_eq!(form(r#"referrerpolicy="origin""#), None);
+        assert_eq!(policy_of(r#"<img id="x" src="/i.png" referrerpolicy="origin">"#), None);
+    }
 }

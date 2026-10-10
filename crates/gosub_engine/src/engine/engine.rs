@@ -1991,7 +1991,8 @@ mod tests {
     }
 
     /// A page's `Referrer-Policy` header decides the `Referer` its subresources send, until a
-    /// `<meta name="referrer">` changes it for the elements after it.
+    /// `<meta name="referrer">` changes it for the elements after it; an element's own
+    /// `referrerpolicy` beats both.
     #[tokio::test]
     async fn subresources_send_the_referer_the_documents_policy_allows() {
         use std::collections::HashMap;
@@ -2013,7 +2014,8 @@ mod tests {
                 let path = request.split(' ').nth(1).unwrap_or("").to_string();
                 let response = if path == "/page" {
                     let body = r#"<html><head><img src="/a.png">
-                        <meta name="referrer" content="no-referrer"><img src="/b.png"></head></html>"#;
+                        <meta name="referrer" content="no-referrer"><img src="/b.png">
+                        <img referrerpolicy="unsafe-url" src="/c.png"></head></html>"#;
                     format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nReferrer-Policy: origin\r\n\
                          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2038,7 +2040,7 @@ mod tests {
             .expect("navigation");
 
         for _ in 0..100 {
-            if seen.lock().len() >= 2 {
+            if seen.lock().len() >= 3 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2061,6 +2063,11 @@ mod tests {
             "the header's origin policy sends the origin alone"
         );
         assert_eq!(referer("/b.png"), None, "the meta's no-referrer sends nothing");
+        assert_eq!(
+            referer("/c.png"),
+            Some(format!("http://127.0.0.1:{port}/page")),
+            "the element's unsafe-url sends the whole URL"
+        );
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

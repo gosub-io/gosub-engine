@@ -38,8 +38,9 @@ pub struct ResourceHint {
     pub integrity: Option<String>,
     /// Suggested fetch priority.
     pub priority: Priority,
-    /// The document's referrer policy where the element was found: a `<meta name="referrer">`
-    /// changes it for the elements after it, not the ones before.
+    /// The policy the element's `referrerpolicy` attribute names, else the document's where
+    /// the element was found: a `<meta name="referrer">` changes it for the elements after it,
+    /// not the ones before.
     pub referrer_policy: ReferrerPolicy,
 }
 
@@ -346,24 +347,10 @@ impl ReferrerPolicies {
 /// The content is lowercased and matched whole, the four legacy keywords mapped first; an
 /// empty or unknown value changes nothing.
 fn meta_referrer_policy(tag: &str) -> Option<ReferrerPolicy> {
-    let mut name = None;
-    let mut content = None;
-    for cap in RE_ATTR.iter().flat_map(|re| re.captures_iter(tag)) {
-        let (Some(key), Some(value)) = (cap.name("key"), cap.name("value")) else {
-            continue;
-        };
-        let slot = match key.as_str().cow_to_ascii_lowercase().as_ref() {
-            "name" => &mut name,
-            "content" => &mut content,
-            _ => continue,
-        };
-        // The first of a repeated attribute is the one the tokenizer keeps.
-        slot.get_or_insert(unquote(value.as_str()));
-    }
-    if !name?.eq_ignore_ascii_case("referrer") {
+    if !tag_attribute(tag, "name")?.eq_ignore_ascii_case("referrer") {
         return None;
     }
-    let value = content?.cow_to_ascii_lowercase();
+    let value = tag_attribute(tag, "content")?.cow_to_ascii_lowercase();
     let value = match value.as_ref() {
         "never" => "no-referrer",
         "default" => "no-referrer-when-downgrade",
@@ -371,7 +358,32 @@ fn meta_referrer_policy(tag: &str) -> Option<ReferrerPolicy> {
         "origin-when-crossorigin" => "origin-when-cross-origin",
         other => other,
     };
-    // `parse_token` trims; the meta's content is matched exactly.
+    policy_token(value)
+}
+
+/// The value of attribute `name` in a raw start `tag`, unquoted. The first of a repeated
+/// attribute is the one the tokenizer keeps.
+fn tag_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    RE_ATTR
+        .iter()
+        .flat_map(|re| re.captures_iter(tag))
+        .find(|cap| {
+            cap.name("key")
+                .is_some_and(|key| key.as_str().eq_ignore_ascii_case(name))
+        })
+        .and_then(|cap| cap.name("value"))
+        .map(|value| unquote(value.as_str()))
+}
+
+/// The policy an element's `referrerpolicy` attribute in a raw start `tag` names, if any.
+fn tag_referrer_policy(tag: &str) -> Option<ReferrerPolicy> {
+    tag_attribute(tag, "referrerpolicy").and_then(policy_token)
+}
+
+/// A referrer policy written in markup: the whole value, ASCII case-insensitive, as an
+/// enumerated attribute is matched. `None` for an unknown, empty or padded value, which
+/// leaves the policy as it was (`parse_token` would trim the padding away).
+pub(crate) fn policy_token(value: &str) -> Option<ReferrerPolicy> {
     if value.trim() != value {
         return None;
     }
@@ -456,9 +468,10 @@ fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Ve
         let Ok(u) = resolve(base, unquote(m.as_str())) else {
             continue;
         };
+        let tag = cap.get(0).map_or("", |m| m.as_str());
         out.push(ResourceHint {
             url: u,
-            referrer_policy: policies.at(m.start()),
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             dest: RequestDestination::Document,
             referrer: None,
             cross_origin: false,
@@ -487,7 +500,7 @@ fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Ve
         };
         out.push(ResourceHint {
             url: u,
-            referrer_policy: policies.at(m.start()),
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             kind: ResourceKind::Script { blocking },
             rel: None,
             from_attr: "src",
@@ -507,9 +520,10 @@ fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Ve
         let Ok(u) = resolve(base, unquote(m.as_str())) else {
             continue;
         };
+        let tag = cap.get(0).map_or("", |m| m.as_str());
         out.push(ResourceHint {
             url: u,
-            referrer_policy: policies.at(m.start()),
+            referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
             kind: ResourceKind::Image,
             rel: None,
             from_attr: "src",
@@ -739,6 +753,29 @@ mod tests {
         assert_eq!(policy_of("after.png"), Some(ReferrerPolicy::NoReferrer));
         assert_eq!(policy_of("last.png"), Some(ReferrerPolicy::Origin));
         assert_eq!(policy, ReferrerPolicy::Origin);
+    }
+
+    /// An element's own `referrerpolicy` beats the document's, wherever a meta left it.
+    #[test]
+    fn an_elements_referrerpolicy_beats_the_documents() {
+        let html = r#"<meta name="referrer" content="no-referrer">
+            <img src="/plain.png">
+            <img referrerpolicy="unsafe-url" src="/own.png">
+            <script src="/s.js" referrerpolicy="origin"></script>
+            <link rel="stylesheet" referrerpolicy="same-origin" href="/s.css">
+            <img src="/bogus.png" referrerpolicy="never">"#;
+        let base = Url::parse("https://example.com/").unwrap();
+        let hints = discover_resources(html, &base, &ReferrerPolicies::scan(ReferrerPolicy::default(), html));
+        let policy_of = |path: &str| hints.iter().find(|h| h.url.path() == path).map(|h| h.referrer_policy);
+        assert_eq!(policy_of("/plain.png"), Some(ReferrerPolicy::NoReferrer));
+        assert_eq!(policy_of("/own.png"), Some(ReferrerPolicy::UnsafeUrl));
+        assert_eq!(policy_of("/s.js"), Some(ReferrerPolicy::Origin));
+        assert_eq!(policy_of("/s.css"), Some(ReferrerPolicy::SameOrigin));
+        assert_eq!(
+            policy_of("/bogus.png"),
+            Some(ReferrerPolicy::NoReferrer),
+            "legacy keywords are meta-only"
+        );
     }
 
     /// The legacy keywords map to their policies; an unknown, padded or empty content, or a

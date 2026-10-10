@@ -205,6 +205,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
+    /// The referrer policy that link asks for (see [`crate::html::link_referrer_policy`]);
+    /// `None` leaves the document's.
+    pub hover_link_policy: Option<gosub_sonar::ReferrerPolicy>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
     /// The last point hit-tested: the point, the scroll it was tested against, and the scene
@@ -407,6 +410,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             style_fingerprint: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
+            hover_link_policy: None,
             hover_cursor: CursorShape::Default,
             hover_probe: None,
             pointer: None,
@@ -631,6 +635,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.style_fingerprint = None;
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
+        self.hover_link_policy = None;
         self.hover_cursor = CursorShape::Default;
         self.input.end_drag();
         // Node ids belong to the document that is gone; an answer for the old picker must not
@@ -2200,8 +2205,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         PageInput::focused_editable(self)
     }
 
-    /// The focused element's link target (`<a href>`), for Enter-to-activate.
-    pub fn focused_link(&self) -> Option<String> {
+    /// The focused element's link target (`<a href>`) and the referrer policy it asks for,
+    /// for Enter-to-activate.
+    pub fn focused_link(&self) -> Option<(String, Option<gosub_sonar::ReferrerPolicy>)> {
         PageInput::focused_link(self)
     }
 
@@ -2385,6 +2391,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_leaf = new_leaf;
         self.hover_layout_element = None;
         let link = hit.and_then(|r| r.link.clone());
+        self.hover_link_policy = hit.and_then(|r| r.link_referrer_policy).map(Into::into);
         self.hover_cursor = match hit.map(|r| r.cursor) {
             Some(HitCursor::Pointer) => CursorShape::Pointer,
             Some(HitCursor::Text) => CursorShape::Text,
@@ -2452,8 +2459,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         // Walk the ancestor chain once for both link detection and fingerprint matching.
         // Terminate early once both are found.
-        let (link_url, new_sensitive) = {
+        let (link_url, link_policy, new_sensitive) = {
             let mut link: Option<String> = None;
+            let mut link_policy = None;
             let mut sensitive = false;
             let mut cursor = CursorShape::Default;
 
@@ -2472,6 +2480,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     if link.is_none() && doc.tag_name(id) == Some("a") {
                         if let Some(href) = doc.attribute(id, "href") {
                             link = Some(href.to_string());
+                            link_policy = crate::html::link_referrer_policy(doc, id);
                             cursor = CursorShape::Pointer;
                         }
                     }
@@ -2488,11 +2497,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 }
             }
             self.hover_cursor = cursor;
-            (link, sensitive)
+            (link, link_policy, sensitive)
         };
 
         let url_changed = link_url != self.hover_link_url;
         self.hover_link_url = link_url.clone();
+        self.hover_link_policy = link_policy;
 
         // Only trigger a style recalc + repaint when a hover-sensitive node entered or left
         // the hover chain. If neither the old nor new chain touches a :hover rule, skip it.
@@ -3690,6 +3700,7 @@ mod tests {
                 image: None,
                 cursor,
                 editable: false,
+                link_referrer_policy: None,
             };
             ctx.adopt_remote_page(crate::fork_server::client::RenderedPage {
                 summary: Default::default(),
@@ -3891,7 +3902,7 @@ mod tests {
             // Tab cycles a → input → button → wraps to a. The tabindex=-1 link is skipped.
             assert!(ctx.focus_step(false));
             let a = ctx.focused_node().expect("first focusable");
-            assert_eq!(ctx.focused_link().as_deref(), Some("/one"));
+            assert_eq!(ctx.focused_link().map(|(href, _)| href).as_deref(), Some("/one"));
             assert!(ctx.focus_step(false));
             let input = ctx.focused_node().expect("second");
             assert!(ctx.focused_editable());

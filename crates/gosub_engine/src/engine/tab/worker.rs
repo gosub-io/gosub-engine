@@ -940,12 +940,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             // Activate a focused link.
             "Enter" => {
-                if let Some(url) = self
+                if let Some((url, referrer_policy)) = self
                     .context
                     .focused_link()
-                    .and_then(|href| self.page_link_target(&href))
+                    .and_then(|(href, policy)| self.page_link_target(&href).map(|url| (url, policy)))
                 {
-                    self.follow_link(url.to_string());
+                    self.follow_link(url.to_string(), referrer_policy);
                 }
                 ControlFlow::Continue
             }
@@ -1452,7 +1452,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
                         if let Some(url) = self.page_link_target(&href) {
-                            self.follow_link(url.to_string());
+                            self.follow_link(url.to_string(), self.context.hover_link_policy);
                         }
                         return ControlFlow::Continue;
                     }
@@ -1667,7 +1667,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 Ok(Action::Cursor(cursor)) => self.report_cursor(cursor),
-                Ok(Action::Navigate { url, method, body }) => {
+                Ok(Action::Navigate {
+                    url,
+                    method,
+                    body,
+                    referrer_policy,
+                }) => {
                     let initiator = self.current_url.clone();
                     self.navigate_request(
                         url.to_string(),
@@ -1675,6 +1680,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         body.map(RequestBody::form),
                         HistoryIntent::Push,
                         initiator.as_ref(),
+                        referrer_policy,
                     );
                 }
                 Ok(Action::Picker {
@@ -1736,6 +1742,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             body,
             HistoryIntent::Push,
             initiator.as_ref(),
+            sub.referrer_policy,
         );
     }
 
@@ -1836,19 +1843,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// navigation does to session history once it commits.
     fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
         let _ = ignore_cache;
-        self.navigate_request(url, Method::GET, None, history, None);
+        self.navigate_request(url, Method::GET, None, history, None, None);
     }
 
     /// Follow a link the loaded document offered: the document is the navigation's
-    /// initiator, unlike a URL the user typed.
-    fn follow_link(&mut self, url: String) {
+    /// initiator, unlike a URL the user typed. `referrer_policy` is the link's own, if it
+    /// asks for one.
+    fn follow_link(&mut self, url: String, referrer_policy: Option<gosub_sonar::ReferrerPolicy>) {
         let initiator = self.current_url.clone();
-        self.navigate_request(url, Method::GET, None, HistoryIntent::Push, initiator.as_ref());
+        self.navigate_request(
+            url,
+            Method::GET,
+            None,
+            HistoryIntent::Push,
+            initiator.as_ref(),
+            referrer_policy,
+        );
     }
 
     /// Navigate with an explicit method and optional body (form POSTs), cancelling any
     /// in-flight navigation. `initiator` is the document that started it - a link or a
     /// form - and `None` for the user's own navigations (address bar, reload, history).
+    /// `referrer_policy` is the one the link or form asks for (`rel="noreferrer"`,
+    /// `referrerpolicy`), else the document's applies.
     fn navigate_request(
         &mut self,
         url: impl Into<String>,
@@ -1856,6 +1873,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         body: Option<RequestBody>,
         history: HistoryIntent,
         initiator: Option<&Url>,
+        referrer_policy: Option<gosub_sonar::ReferrerPolicy>,
     ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
@@ -1987,7 +2005,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
             .with_auto_decode(true);
-        req = navigation(req, initiator, self.referrer_policy);
+        req = navigation(req, initiator, referrer_policy.unwrap_or(self.referrer_policy));
         if let Some(body) = body {
             req = req.with_body(body);
         }

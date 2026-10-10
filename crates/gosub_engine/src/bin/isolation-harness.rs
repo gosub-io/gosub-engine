@@ -2438,6 +2438,7 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
                 url,
                 post: false,
                 body: None,
+                referrer_policy: None,
             } => Some(url.clone()),
             _ => None,
         });
@@ -3909,6 +3910,7 @@ fn renderer_input_hostile<F: FontSystem + Default>() -> i32 {
                 url: format!("https://x.test/{}", "a".repeat(MAX_HIT_TEXT)),
                 post: false,
                 body: None,
+                referrer_policy: None,
             },
             Effect::Focus {
                 focused: true,

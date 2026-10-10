@@ -181,11 +181,14 @@ policies, proxies, TLS error overrides. It also compiles for wasm on top of the 
 `fetch()`. Inside the engine, `http`, `https`, `data` and `file` URLs all resolve, and there is
 a decision hub for asking the embedder about TLS failures and downloads. A document's referrer
 policy comes from its `Referrer-Policy` header and its `<meta name="referrer">`, and every
-request it makes - subresources, links and forms - sends the `Referer` that policy allows.
+request it makes - subresources, links and forms - sends the `Referer` that policy allows. A
+link's `referrerpolicy` and `rel="noreferrer"`, a form's `rel="noreferrer"`, and the
+`referrerpolicy` of an `<img>`, `<script>` or `<link>` the document scan finds override it.
 
 **Not yet.** No HTTP/3 or QUIC. No WebSockets - `ResourceKind::WebSocket` exists as a
-classification and nothing implements it. The per-element `referrerpolicy` attribute and
-`rel="noreferrer"` are ignored: an element's requests use its document's policy.
+classification and nothing implements it. An element's `referrerpolicy` is not honoured for a
+subresource the document scan misses, for any subresource of a page a renderer process parses,
+or on `<area>`; a fetch a stylesheet makes uses the document, not the sheet, as referrer.
 
 
 ## Process isolation
