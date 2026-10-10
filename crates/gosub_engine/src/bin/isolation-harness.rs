@@ -6768,19 +6768,22 @@ fn vault() -> i32 {
         let mut net_jar = VaultCookieJar::new(Arc::clone(&net_vault), zone);
         net_jar.store_response_cookies(&url, &set_cookie(&["sid=abc; Path=/"]), None);
         use gosub_engine::cookie_vault::protocol::{FromVault, ToVault};
-        let ask_at = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, at: &str| -> Option<String> {
-            link.send(&ToVault::Get {
-                tag: 7,
-                scope,
-                url: at.to_string(),
-                visible_only: false,
-            })
-            .ok()?;
-            match link.recv::<FromVault>().ok()? {
-                FromVault::Cookies { header, .. } => header,
-                _ => None,
-            }
-        };
+        let ask_hop =
+            |link: &mut gosub_ipc::Endpoint, scope: CookieScope, at: &str, safe_method: bool| -> Option<String> {
+                link.send(&ToVault::Get {
+                    tag: 7,
+                    scope,
+                    url: at.to_string(),
+                    visible_only: false,
+                    safe_method,
+                })
+                .ok()?;
+                match link.recv::<FromVault>().ok()? {
+                    FromVault::Cookies { header, .. } => header,
+                    _ => None,
+                }
+            };
+        let ask_at = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, at: &str| ask_hop(link, scope, at, true);
         let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| ask_at(link, scope, url.as_str());
         let store_on_line = |link: &mut gosub_ipc::Endpoint, scope: CookieScope, cookie: &str| -> bool {
             let sent = link.send(&ToVault::Store {
@@ -6943,6 +6946,18 @@ fn vault() -> i32 {
         let hop = ask_at(&mut net_link, navigating.clone(), other_site.as_str()).unwrap_or_default();
         if !(hop.contains("lax=1") && hop.contains("none=1")) || hop.contains("strict=1") {
             eprintln!("a cross-site hop of a navigation should read Lax and None cookies, got {hop:?}");
+            return 1;
+        }
+        // The same hop by an unsafe method (a 307 that kept a POST) is a
+        // cross-site request: no Lax. Per hop: a safe one after reads Lax again.
+        let hop = ask_hop(&mut net_link, navigating.clone(), other_site.as_str(), false).unwrap_or_default();
+        if hop != "none=1" {
+            eprintln!("a cross-site POST hop of a navigation should read SameSite=None cookies only, got {hop:?}");
+            return 1;
+        }
+        let hop = ask_at(&mut net_link, navigating.clone(), other_site.as_str()).unwrap_or_default();
+        if !hop.contains("lax=1") {
+            eprintln!("a safe hop after an unsafe one should read Lax cookies again, got {hop:?}");
             return 1;
         }
         net_vault.revoke(&navigating, vec![other_site.to_string()]);

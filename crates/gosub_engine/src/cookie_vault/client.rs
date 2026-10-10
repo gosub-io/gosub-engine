@@ -442,6 +442,7 @@ impl CookieVault {
             scope,
             url: url.to_string(),
             visible_only,
+            safe_method: true,
         })? {
             Reply::Cookies(header) => header,
             Reply::All(_) | Reply::Granted(_) | Reply::Audit(_) | Reply::Revoked(_) => None,

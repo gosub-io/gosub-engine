@@ -417,11 +417,18 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     fn on_ref_done(&self, _: gosub_sonar::RequestReference) {}
 
     // Asked at every hop. The vault answers each in a context it works out
-    // from the grant itself, so a hop this process made up buys nothing the
-    // page could not have had (see `cookie_vault::child::serve_net`).
-    fn cookies_for(&self, reference: gosub_sonar::RequestReference, url: &Url) -> Option<String> {
+    // from the grant itself and the chain it has seen, so a hop this process
+    // made up buys nothing the page could not have had (see
+    // `cookie_vault::child::serve_net`). The hop's method only narrows it.
+    fn cookies_for_hop(
+        &self,
+        reference: gosub_sonar::RequestReference,
+        hop: &gosub_sonar::CookieHop<'_>,
+    ) -> Option<String> {
         let (_, scope) = self.scope_of(reference)?;
-        tokio::task::block_in_place(|| platform::vault_cookies(&self.vault, &scope, url.as_str()))
+        tokio::task::block_in_place(|| {
+            platform::vault_cookies(&self.vault, &scope, hop.url.as_str(), hop.method.is_safe())
+        })
     }
 
     // Two tickets get the same answers from the vault when their grants say

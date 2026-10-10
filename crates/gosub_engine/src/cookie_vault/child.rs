@@ -282,14 +282,21 @@ fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<En
                 scope,
                 url,
                 visible_only,
+                safe_method,
             } => {
+                // The method narrows this hop only: a `303` back to `GET`
+                // makes the hops after it navigations again.
                 let reply = match claim(&scope, &url, false) {
                     Some(scope) => handle(
                         ToVault::Get {
                             tag,
-                            scope,
+                            scope: CookieScope {
+                                samesite: SameSiteContext::from(scope.samesite).for_method(safe_method).into(),
+                                ..scope
+                            },
                             url,
                             visible_only,
+                            safe_method,
                         },
                         &jars,
                         &snapshots,
@@ -348,11 +355,13 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             jars.lock().remove(&zone);
             None
         }
+        // `safe_method` is already in the scope: `serve_net` narrows by it.
         ToVault::Get {
             tag,
             scope,
             url,
             visible_only,
+            safe_method: _,
         } => {
             let header = Url::parse(&url).ok().and_then(|url| {
                 let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());

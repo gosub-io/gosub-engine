@@ -45,7 +45,12 @@ pub(super) fn adopt_vault_line(_rx: &mut EndpointRx) -> Result<VaultLink, String
     Err("a vault line is a Linux thing".into())
 }
 
-pub(super) fn vault_cookies(_vault: &Mutex<Option<VaultLink>>, _scope: &CookieScope, _url: &str) -> Option<String> {
+pub(super) fn vault_cookies(
+    _vault: &Mutex<Option<VaultLink>>,
+    _scope: &CookieScope,
+    _url: &str,
+    _safe_method: bool,
+) -> Option<String> {
     None
 }
 

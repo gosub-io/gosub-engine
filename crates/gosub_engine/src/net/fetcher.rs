@@ -248,16 +248,24 @@ impl FetcherContext for EngineNetContext {
         }
     }
 
-    // Asked at every hop, so a cookie a redirect sets rides on the next one,
-    // and each hop is judged against the tab's document on its own. A chain
-    // that leaves the site and comes back is not remembered here, as the
-    // reference names a document rather than one request: the hop back is
-    // judged same-site.
-    fn cookies_for(&self, reference: gosub_sonar::RequestReference, url: &url::Url) -> Option<String> {
+    // Asked at every hop, so a cookie a redirect sets rides on the next one.
+    // Each hop is judged against the tab's document over the whole chain so
+    // far, so a chain that leaves the site stays cross-site when it comes
+    // back, and by its method, so a cross-site `POST` gets no `Lax` cookies.
+    fn cookies_for_hop(
+        &self,
+        reference: gosub_sonar::RequestReference,
+        hop: &gosub_sonar::CookieHop<'_>,
+    ) -> Option<String> {
         let (identity, navigation) = self.identity_for(reference)?;
         let top_level = identity.top_level.as_ref();
-        let context = crate::engine::cookies::request_context(top_level, url, navigation);
-        blocking_jar_call(|| identity.cookie_jar.read().get_request_cookies(url, top_level, context))
+        let context = crate::engine::cookies::hop_context(top_level, hop.url, hop.url_list, hop.method, navigation);
+        blocking_jar_call(|| {
+            identity
+                .cookie_jar
+                .read()
+                .get_request_cookies(hop.url, top_level, context)
+        })
     }
 
     // Two requests get the same answers from the hooks when they ask the same

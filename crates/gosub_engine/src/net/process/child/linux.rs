@@ -184,13 +184,20 @@ pub(super) fn adopt_vault_line(rx: &mut EndpointRx) -> Result<VaultLink, String>
     )))
 }
 
-/// The `Cookie` header for a request, from the vault; any failure is "no cookies".
-pub(super) fn vault_cookies(vault: &Mutex<Option<VaultLink>>, scope: &CookieScope, url: &str) -> Option<String> {
+/// The `Cookie` header for one hop of a request, from the vault; any failure
+/// is "no cookies".
+pub(super) fn vault_cookies(
+    vault: &Mutex<Option<VaultLink>>,
+    scope: &CookieScope,
+    url: &str,
+    safe_method: bool,
+) -> Option<String> {
     match vault.lock().as_mut()?.exchange(|tag| ToVault::Get {
         tag,
         scope: scope.clone(),
         url: url.to_string(),
         visible_only: false,
+        safe_method,
     })? {
         FromVault::Cookies { header, .. } => header,
         _ => None,
