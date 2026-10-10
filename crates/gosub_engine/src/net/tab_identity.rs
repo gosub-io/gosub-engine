@@ -2,6 +2,7 @@
 //! without the tab ever handling them.
 
 use crate::cookies::CookieJarHandle;
+use crate::engine::cookies::{hop_context, SameSiteContext};
 use crate::engine::types::NavigationId;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::ssrf::AddressSpace;
@@ -31,12 +32,11 @@ pub struct TabIdentity {
     pub navigations: VecDeque<(NavigationId, AddressSpace)>,
     /// The navigation whose document the tab shows, once one has committed.
     pub committed: Option<NavigationId>,
-    /// What each recent navigation's `SameSite` context is judged from
-    /// (RFC 6265bis §5.2), newest last: the page that started it (a link, a
-    /// form), or for the user's own its destination. Kept per navigation, not
-    /// as `top_level`, which moves on to the next navigation while a
-    /// superseded one may still be following a redirect.
-    pub navigation_sites: VecDeque<(NavigationId, Url)>,
+    /// Who started each recent network navigation, newest last: the document
+    /// whose link or form it was, or `None` for the user's own (address bar,
+    /// reload, history). A navigation's hops are judged against it for
+    /// `SameSite`, not against `top_level`, which is already the target.
+    pub initiators: VecDeque<(NavigationId, Option<Url>)>,
 }
 
 impl TabIdentity {
@@ -46,21 +46,71 @@ impl TabIdentity {
             top_level: None,
             navigations: VecDeque::new(),
             committed: None,
-            navigation_sites: VecDeque::new(),
+            initiators: VecDeque::new(),
         }
     }
 
-    /// The document `navigation`'s `SameSite` context is judged from (see
-    /// [`Self::navigation_sites`]); `None` for one this tab no longer
-    /// remembers, which then gets no cookies. Only the context: the
-    /// third-party policy keeps `top_level`, as a navigation's own cookies are
-    /// first-party.
-    pub fn navigation_site(&self, navigation: NavigationId) -> Option<&Url> {
-        self.navigation_sites
+    /// Whether a request under `navigation` is that navigation's own (one of
+    /// its hops) rather than a load of the document it produced, and if so
+    /// who started it. True from the start of a network navigation until its
+    /// response is recorded, which drops its entry here before the document
+    /// can ask for anything (see [`TabIdentityRegistry::record_navigation`]);
+    /// a document loaded without the network never had an entry.
+    fn navigating(&self, navigation: NavigationId) -> Option<Option<&Url>> {
+        self.initiators
             .iter()
             .rev()
             .find(|(n, _)| *n == navigation)
-            .map(|(_, site)| site)
+            .map(|(_, initiator)| initiator.as_ref())
+    }
+
+    /// The `SameSite` context one hop of a request with `reference` is judged
+    /// in. A navigation's hops are judged against the document that started
+    /// it, so a link from another site is a cross-site navigation and gets no
+    /// `Strict` cookies; the user's own is judged against its first URL, same-
+    /// site until a redirect leaves. Anything else is a load of the tab's
+    /// document, judged against it as a subrequest.
+    pub(crate) fn cookie_context(
+        &self,
+        reference: Option<RequestReference>,
+        url: &Url,
+        url_list: &[Url],
+        method: &http::Method,
+    ) -> SameSiteContext {
+        let (site, navigation) = self.cookie_site(reference, url_list.first().unwrap_or(url));
+        hop_context(site, url, url_list, method, navigation)
+    }
+
+    /// The page a request with `reference` is judged from, and whether as a
+    /// navigation: a navigation's initiator, or for the user's own its
+    /// `first_url`; anything else the tab's document. What the vault grant
+    /// carries as its `site`.
+    pub(crate) fn cookie_site<'a>(
+        &'a self,
+        reference: Option<RequestReference>,
+        first_url: &'a Url,
+    ) -> (Option<&'a Url>, bool) {
+        let navigating = match reference {
+            Some(RequestReference::Navigation(id)) => self.navigating(id),
+            _ => None,
+        };
+        match navigating {
+            Some(initiator) => (Some(initiator.unwrap_or(first_url)), true),
+            None => (self.top_level.as_ref(), false),
+        }
+    }
+
+    /// What decides [`Self::cookie_context`] for `reference` besides the URL
+    /// and method: two requests whose keys match get the same cookies.
+    pub(crate) fn cookie_context_key(&self, reference: Option<RequestReference>) -> String {
+        let navigating = match reference {
+            Some(RequestReference::Navigation(id)) => self.navigating(id),
+            _ => None,
+        };
+        match navigating {
+            Some(initiator) => format!("navigation from {}", initiator.map_or("the user", |u| u.as_str())),
+            None => format!("in {}", self.top_level.as_ref().map_or("", |u| u.as_str())),
+        }
     }
 
     /// The address space of the document a request with `reference` was made
@@ -112,6 +162,8 @@ impl TabIdentityRegistry {
         let Some(mut entry) = self.tabs.get_mut(&tab_id) else {
             return;
         };
+        // Its response is in: from here a request under it is the document's.
+        entry.initiators.retain(|(n, _)| *n != navigation);
         entry.navigations.retain(|(n, _)| *n != navigation);
         entry.navigations.push_back((navigation, space));
         while entry.navigations.len() > KEPT_NAVIGATIONS {
@@ -125,17 +177,16 @@ impl TabIdentityRegistry {
         }
     }
 
-    /// Record what `navigation` is judged from (see
-    /// [`TabIdentity::navigation_sites`]): the page that started it, or the
-    /// destination of the user's own. Keeps the most recent few.
-    pub fn record_navigation_site(&self, tab_id: TabId, navigation: NavigationId, site: Url) {
+    /// Record who started a network navigation, before its request is
+    /// submitted: the document whose link or form it was, or `None` for the
+    /// user's own.
+    pub fn start_navigation(&self, tab_id: TabId, navigation: NavigationId, initiator: Option<Url>) {
         let Some(mut entry) = self.tabs.get_mut(&tab_id) else {
             return;
         };
-        entry.navigation_sites.retain(|(n, _)| *n != navigation);
-        entry.navigation_sites.push_back((navigation, site));
-        while entry.navigation_sites.len() > KEPT_NAVIGATIONS {
-            entry.navigation_sites.pop_front();
+        entry.initiators.push_back((navigation, initiator));
+        while entry.initiators.len() > KEPT_NAVIGATIONS {
+            entry.initiators.pop_front();
         }
     }
 
@@ -174,40 +225,6 @@ mod tests {
 
         let id = reg.get(tab).expect("registered tab resolves");
         assert!(id.top_level.is_none(), "no top-level before the first navigation");
-    }
-
-    /// Each navigation keeps what it is judged from - the page that started it, or the
-    /// destination of the user's own - after the tab has moved on: a superseded navigation
-    /// still following a redirect must not borrow the next one's site.
-    #[test]
-    fn a_navigation_keeps_the_site_it_is_judged_from() {
-        let reg = TabIdentityRegistry::new();
-        let tab = TabId::new();
-        reg.register(tab, jar());
-        let page = Url::parse("https://a.test/links").unwrap();
-        let typed = Url::parse("https://b.test/").unwrap();
-        let (linked, superseding) = (NavigationId::new(), NavigationId::new());
-
-        reg.record_navigation_site(tab, linked, page.clone());
-        reg.set_top_level(tab, typed.clone());
-        reg.record_navigation_site(tab, superseding, typed.clone());
-        let id = reg.get(tab).unwrap();
-        assert_eq!(
-            id.navigation_site(linked),
-            Some(&page),
-            "the superseded one keeps its page"
-        );
-        assert_eq!(id.navigation_site(superseding), Some(&typed));
-        assert_eq!(id.navigation_site(NavigationId::new()), None, "an unknown one has none");
-
-        for _ in 0..KEPT_NAVIGATIONS {
-            reg.record_navigation_site(tab, NavigationId::new(), typed.clone());
-        }
-        assert_eq!(
-            reg.get(tab).unwrap().navigation_site(linked),
-            None,
-            "only the recent few are kept"
-        );
     }
 
     #[test]
@@ -316,5 +333,127 @@ mod tests {
         assert!(CookieJarHandle::ptr_eq(&reg.get(a).unwrap().cookie_jar, &jar_a));
         assert!(CookieJarHandle::ptr_eq(&reg.get(b).unwrap().cookie_jar, &jar_b));
         assert!(!CookieJarHandle::ptr_eq(&reg.get(a).unwrap().cookie_jar, &jar_b));
+    }
+
+    /// A tab navigating to `target`, started by `initiator` (`None`: the user).
+    fn navigating_to(target: &str, initiator: Option<&str>) -> (TabIdentityRegistry, TabId, NavigationId) {
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        let nav = NavigationId::new();
+        reg.register(tab, jar());
+        reg.set_top_level(tab, Url::parse(target).unwrap());
+        reg.start_navigation(tab, nav, initiator.map(|u| Url::parse(u).unwrap()));
+        (reg, tab, nav)
+    }
+
+    fn context(
+        reg: &TabIdentityRegistry,
+        tab: TabId,
+        reference: RequestReference,
+        url: &str,
+        method: http::Method,
+    ) -> SameSiteContext {
+        reg.get(tab)
+            .unwrap()
+            .cookie_context(Some(reference), &Url::parse(url).unwrap(), &[], &method)
+    }
+
+    #[test]
+    fn a_link_from_another_site_is_a_cross_site_navigation() {
+        let (reg, tab, nav) = navigating_to("https://bank.test/", Some("https://evil.test/page"));
+        let nav = RequestReference::Navigation(nav);
+        assert_eq!(
+            context(&reg, tab, nav, "https://bank.test/", http::Method::GET),
+            SameSiteContext::CrossSiteNavigation
+        );
+        assert_eq!(
+            context(&reg, tab, nav, "https://bank.test/", http::Method::POST),
+            SameSiteContext::CrossSite
+        );
+    }
+
+    #[test]
+    fn a_link_within_the_site_and_the_users_own_navigation_are_same_site() {
+        let (reg, tab, nav) = navigating_to("https://bank.test/a", Some("https://www.bank.test/"));
+        let same = context(
+            &reg,
+            tab,
+            RequestReference::Navigation(nav),
+            "https://bank.test/a",
+            http::Method::POST,
+        );
+        assert_eq!(same, SameSiteContext::SameSite);
+        let (reg, tab, nav) = navigating_to("https://bank.test/", None);
+        let own = context(
+            &reg,
+            tab,
+            RequestReference::Navigation(nav),
+            "https://bank.test/",
+            http::Method::GET,
+        );
+        assert_eq!(own, SameSiteContext::SameSite);
+    }
+
+    #[test]
+    fn the_users_own_navigation_is_cross_site_once_a_redirect_leaves() {
+        let (reg, tab, nav) = navigating_to("https://start.test/", None);
+        let hop = reg.get(tab).unwrap().cookie_context(
+            Some(RequestReference::Navigation(nav)),
+            &Url::parse("https://bank.test/").unwrap(),
+            &[Url::parse("https://start.test/").unwrap()],
+            &http::Method::GET,
+        );
+        assert_eq!(hop, SameSiteContext::CrossSiteNavigation);
+    }
+
+    /// A navigation superseded while it still follows a redirect keeps the
+    /// page it is judged from, though the tab's top level has moved on.
+    #[test]
+    fn a_superseded_navigation_keeps_its_initiator() {
+        let (reg, tab, linked) = navigating_to("https://bank.test/", Some("https://evil.test/links"));
+        reg.set_top_level(tab, Url::parse("https://bank.test/typed").unwrap());
+        reg.start_navigation(tab, NavigationId::new(), None);
+        assert_eq!(
+            context(
+                &reg,
+                tab,
+                RequestReference::Navigation(linked),
+                "https://bank.test/",
+                http::Method::GET
+            ),
+            SameSiteContext::CrossSiteNavigation
+        );
+    }
+
+    /// The document's loads share the navigation's reference; once its
+    /// response is in they are judged against the document as subrequests.
+    #[test]
+    fn the_documents_loads_are_subrequests_once_the_response_is_in() {
+        let (reg, tab, nav) = navigating_to("https://bank.test/", Some("https://evil.test/"));
+        reg.record_navigation(tab, nav, AddressSpace::Public);
+        let reference = RequestReference::Navigation(nav);
+        assert_eq!(
+            context(&reg, tab, reference, "https://bank.test/style.css", http::Method::GET),
+            SameSiteContext::SameSite
+        );
+        assert_eq!(
+            context(&reg, tab, reference, "https://other.test/pixel.png", http::Method::GET),
+            SameSiteContext::CrossSite
+        );
+    }
+
+    /// A document loaded without the network (`LoadHtml`, an internal page)
+    /// never started a navigation request: its loads are subrequests.
+    #[test]
+    fn a_local_documents_loads_are_subrequests() {
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(tab, jar());
+        reg.set_top_level(tab, Url::parse("https://local.test/").unwrap());
+        let reference = RequestReference::Navigation(NavigationId::new());
+        assert_eq!(
+            context(&reg, tab, reference, "https://other.test/pixel.png", http::Method::GET),
+            SameSiteContext::CrossSite
+        );
     }
 }
