@@ -144,7 +144,12 @@ Every hop of every request is judged on its own (`TabIdentity::cookie_context`):
     document, as subrequests. In process they share the navigation's request
     reference; a request under it counts as the navigation only until the
     navigation's response is in, which is before the document can ask for
-    anything.
+    anything. The document is the one the engine stamped on the load (its
+    referrer), not the tab's top level: a page being navigated away from keeps
+    loading after the top level has moved to the target, and a redirect may
+    have moved the document. The fetcher's hook sees only a request's
+    reference, so the I/O side records each reference's document as its loads
+    go out (`TabIdentityRegistry::note_document`).
 -   Over the **whole redirect chain**: a chain that passed through another site
     stays cross-site on its way back (RFC 6265bis §5.2).
 

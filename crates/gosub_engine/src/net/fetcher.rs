@@ -262,8 +262,10 @@ impl FetcherContext for EngineNetContext {
         hop: &gosub_sonar::CookieHop<'_>,
     ) -> Option<String> {
         let (identity, reference) = self.identity_for(reference)?;
-        let top_level = identity.top_level.as_ref();
-        let context = identity.cookie_context(Some(reference), hop.url, hop.url_list, hop.method);
+        // The page a load was made for, not the tab's newest top level: a
+        // page that is being navigated away from is still loading.
+        let top_level = identity.cookie_document(Some(reference), None);
+        let context = identity.cookie_context(Some(reference), None, hop.url, hop.url_list, hop.method);
         blocking_jar_call(|| {
             identity
                 .cookie_jar
@@ -280,7 +282,9 @@ impl FetcherContext for EngineNetContext {
             Some((identity, reference)) => format!(
                 "{:x} {} {}",
                 identity.cookie_jar.jar_id(),
-                identity.top_level.as_ref().map_or("", |u| u.as_str()),
+                identity
+                    .cookie_document(Some(reference), None)
+                    .map_or("", |u| u.as_str()),
                 identity.cookie_context_key(Some(reference))
             ),
             None => String::new(),
@@ -288,7 +292,7 @@ impl FetcherContext for EngineNetContext {
     }
 
     fn on_cookies_received(&self, reference: gosub_sonar::RequestReference, url: &url::Url, values: &[&str]) {
-        let Some((identity, _)) = self.identity_for(reference) else {
+        let Some((identity, reference)) = self.identity_for(reference) else {
             return;
         };
         let mut headers = http::HeaderMap::new();
@@ -298,10 +302,11 @@ impl FetcherContext for EngineNetContext {
             }
         }
         blocking_jar_call(|| {
-            identity
-                .cookie_jar
-                .write()
-                .store_response_cookies(url, &headers, identity.top_level.as_ref())
+            identity.cookie_jar.write().store_response_cookies(
+                url,
+                &headers,
+                identity.cookie_document(Some(reference), None),
+            )
         });
     }
 

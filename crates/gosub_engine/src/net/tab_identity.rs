@@ -15,6 +15,10 @@ use url::Url;
 /// plus those still loading, of which there is rarely more than one.
 const KEPT_NAVIGATIONS: usize = 8;
 
+/// How many of a tab's request references keep the document their loads are
+/// for: the shown page's, a loading one's, and a renderer's brokered loaders.
+const KEPT_DOCUMENTS: usize = 32;
+
 /// The per-tab facts the I/O side needs to complete a request on its own.
 #[derive(Clone, Debug)]
 pub struct TabIdentity {
@@ -37,6 +41,11 @@ pub struct TabIdentity {
     /// reload, history). A navigation's hops are judged against it for
     /// `SameSite`, not against `top_level`, which is already the target.
     pub initiators: VecDeque<(NavigationId, Option<Url>)>,
+    /// The document each recent reference's loads are made for, newest last,
+    /// as the engine stamped it on them (their referrer). A page keeps loading
+    /// after a navigation away from it has started, and `top_level` is then
+    /// already the target: its late loads are judged against it here instead.
+    pub documents: VecDeque<(RequestReference, Url)>,
 }
 
 impl TabIdentity {
@@ -47,6 +56,7 @@ impl TabIdentity {
             navigations: VecDeque::new(),
             committed: None,
             initiators: VecDeque::new(),
+            documents: VecDeque::new(),
         }
     }
 
@@ -68,39 +78,70 @@ impl TabIdentity {
     /// in. A navigation's hops are judged against the document that started
     /// it, so a link from another site is a cross-site navigation and gets no
     /// `Strict` cookies; the user's own is judged against its first URL, same-
-    /// site until a redirect leaves. Anything else is a load of the tab's
-    /// document, judged against it as a subrequest.
+    /// site until a redirect leaves. Anything else is a load of a document,
+    /// judged against it as a subrequest (see [`Self::cookie_document`]).
     pub(crate) fn cookie_context(
         &self,
         reference: Option<RequestReference>,
+        document: Option<&Url>,
         url: &Url,
         url_list: &[Url],
         method: &http::Method,
     ) -> SameSiteContext {
-        let navigating = match reference {
-            Some(RequestReference::Navigation(id)) => self.navigating(id),
-            _ => None,
-        };
-        match navigating {
+        match self.navigating_reference(reference) {
             Some(initiator) => {
                 let site = initiator.unwrap_or_else(|| url_list.first().unwrap_or(url));
                 hop_context(Some(site), url, url_list, method, true)
             }
-            None => hop_context(self.top_level.as_ref(), url, url_list, method, false),
+            None => hop_context(self.cookie_document(reference, document), url, url_list, method, false),
         }
+    }
+
+    /// The top-level document a request with `reference` is made in, for the
+    /// jar's third-party checks and as what a load is judged against: a
+    /// navigation's own target (`top_level`); a load's `document`, the one the
+    /// engine stamped on it, when the caller has the request; else the one
+    /// recorded for its reference; else the tab's. Never the target of a
+    /// navigation the page that asked is being left for.
+    pub(crate) fn cookie_document<'a>(
+        &'a self,
+        reference: Option<RequestReference>,
+        document: Option<&'a Url>,
+    ) -> Option<&'a Url> {
+        if self.navigating_reference(reference).is_some() {
+            return self.top_level.as_ref();
+        }
+        document
+            .or_else(|| reference.and_then(|r| self.document_of(r)))
+            .or(self.top_level.as_ref())
     }
 
     /// What decides [`Self::cookie_context`] for `reference` besides the URL
     /// and method: two requests whose keys match get the same cookies.
     pub(crate) fn cookie_context_key(&self, reference: Option<RequestReference>) -> String {
-        let navigating = match reference {
+        match self.navigating_reference(reference) {
+            Some(initiator) => format!("navigation from {}", initiator.map_or("the user", |u| u.as_str())),
+            None => format!(
+                "in {}",
+                self.cookie_document(reference, None).map_or("", |u| u.as_str())
+            ),
+        }
+    }
+
+    fn navigating_reference(&self, reference: Option<RequestReference>) -> Option<Option<&Url>> {
+        match reference {
             Some(RequestReference::Navigation(id)) => self.navigating(id),
             _ => None,
-        };
-        match navigating {
-            Some(initiator) => format!("navigation from {}", initiator.map_or("the user", |u| u.as_str())),
-            None => format!("in {}", self.top_level.as_ref().map_or("", |u| u.as_str())),
         }
+    }
+
+    /// The document recorded for `reference`'s loads, if any.
+    fn document_of(&self, reference: RequestReference) -> Option<&Url> {
+        self.documents
+            .iter()
+            .rev()
+            .find(|(r, _)| *r == reference)
+            .map(|(_, document)| document)
     }
 
     /// The address space of the document a request with `reference` was made
@@ -177,6 +218,23 @@ impl TabIdentityRegistry {
         entry.initiators.push_back((navigation, initiator));
         while entry.initiators.len() > KEPT_NAVIGATIONS {
             entry.initiators.pop_front();
+        }
+    }
+
+    /// Record the document a load under `reference` was made for, as the
+    /// engine stamped it, before the load is sent: the fetcher's cookie hook
+    /// sees only the reference.
+    pub fn note_document(&self, tab_id: TabId, reference: RequestReference, document: Url) {
+        let Some(mut entry) = self.tabs.get_mut(&tab_id) else {
+            return;
+        };
+        if entry.document_of(reference) == Some(&document) {
+            return;
+        }
+        entry.documents.retain(|(r, _)| *r != reference);
+        entry.documents.push_back((reference, document));
+        while entry.documents.len() > KEPT_DOCUMENTS {
+            entry.documents.pop_front();
         }
     }
 
@@ -345,7 +403,7 @@ mod tests {
     ) -> SameSiteContext {
         reg.get(tab)
             .unwrap()
-            .cookie_context(Some(reference), &Url::parse(url).unwrap(), &[], &method)
+            .cookie_context(Some(reference), None, &Url::parse(url).unwrap(), &[], &method)
     }
 
     #[test]
@@ -389,6 +447,7 @@ mod tests {
         let (reg, tab, nav) = navigating_to("https://start.test/", None);
         let hop = reg.get(tab).unwrap().cookie_context(
             Some(RequestReference::Navigation(nav)),
+            None,
             &Url::parse("https://bank.test/").unwrap(),
             &[Url::parse("https://start.test/").unwrap()],
             &http::Method::GET,
@@ -426,5 +485,80 @@ mod tests {
             context(&reg, tab, reference, "https://other.test/pixel.png", http::Method::GET),
             SameSiteContext::CrossSite
         );
+    }
+
+    /// A page being left still loads after the tab's top level moved to the
+    /// target; its loads are judged against the page, recorded per reference.
+    #[test]
+    fn a_left_pages_loads_are_judged_against_the_page() {
+        let (reg, tab, _) = navigating_to("https://bank.test/", None);
+        let old = RequestReference::Document(7);
+        // Unrecorded, a load falls back to the tab's top level.
+        assert_eq!(
+            context(&reg, tab, old, "https://bank.test/img.png", http::Method::GET),
+            SameSiteContext::SameSite
+        );
+        reg.note_document(tab, old, Url::parse("https://evil.test/").unwrap());
+        assert_eq!(
+            context(&reg, tab, old, "https://bank.test/img.png", http::Method::GET),
+            SameSiteContext::CrossSite
+        );
+        let identity = reg.get(tab).unwrap();
+        assert_eq!(
+            identity.cookie_document(Some(old), None).map(Url::as_str),
+            Some("https://evil.test/")
+        );
+        // The navigation's own hops still take the target as their top level.
+        let nav = identity.initiators[0].0;
+        assert_eq!(
+            identity
+                .cookie_document(Some(RequestReference::Navigation(nav)), None)
+                .map(Url::as_str),
+            Some("https://bank.test/")
+        );
+    }
+
+    /// A document a redirect moved is judged by where it ended up, as its
+    /// loads say, not by the URL the navigation set out for.
+    #[test]
+    fn a_redirected_documents_loads_are_judged_against_where_it_ended_up() {
+        let (reg, tab, nav) = navigating_to("https://start.test/", None);
+        reg.record_navigation(tab, nav, AddressSpace::Public);
+        let reference = RequestReference::Navigation(nav);
+        reg.note_document(tab, reference, Url::parse("https://bank.test/home").unwrap());
+        assert_eq!(
+            context(&reg, tab, reference, "https://bank.test/style.css", http::Method::GET),
+            SameSiteContext::SameSite
+        );
+        assert_eq!(
+            context(&reg, tab, reference, "https://start.test/pixel.png", http::Method::GET),
+            SameSiteContext::CrossSite
+        );
+    }
+
+    #[test]
+    fn documents_kept_are_bounded_and_newest_wins() {
+        let reg = TabIdentityRegistry::new();
+        let tab = TabId::new();
+        reg.register(tab, jar());
+        for n in 0..(KEPT_DOCUMENTS as u64 + 10) {
+            reg.note_document(
+                tab,
+                RequestReference::Document(n),
+                Url::parse("https://a.test/").unwrap(),
+            );
+        }
+        reg.note_document(
+            tab,
+            RequestReference::Document(20),
+            Url::parse("https://b.test/").unwrap(),
+        );
+        let identity = reg.get(tab).unwrap();
+        assert_eq!(identity.documents.len(), KEPT_DOCUMENTS);
+        assert_eq!(
+            identity.document_of(RequestReference::Document(20)).map(Url::as_str),
+            Some("https://b.test/")
+        );
+        assert_eq!(identity.document_of(RequestReference::Document(0)), None);
     }
 }

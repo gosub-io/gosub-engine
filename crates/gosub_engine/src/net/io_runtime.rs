@@ -517,7 +517,10 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         ticket: uuid::Uuid::new_v4().as_u128(),
         url: req.url.to_string(),
         zone: vaulted.zone().to_string(),
-        top_level: identity.top_level.as_ref().map(|u| u.to_string()),
+        // The vault judges the hops against it, and checks third parties by it.
+        top_level: identity
+            .cookie_document(cookie_reference(req), load_document(req))
+            .map(|u| u.to_string()),
         samesite: first_hop_context(identity, req).into(),
         navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
@@ -589,7 +592,9 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
     let context = first_hop_context(identity, req);
     let jar = identity.cookie_jar.clone();
     let url = req.url.clone();
-    let top_level = identity.top_level.clone();
+    let top_level = identity
+        .cookie_document(cookie_reference(req), load_document(req))
+        .cloned();
     let cookies =
         tokio::task::spawn_blocking(move || jar.read().get_request_cookies(&url, top_level.as_ref(), context)).await;
     let Ok(Some(cookies)) = cookies else {
@@ -606,10 +611,25 @@ async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIde
 /// top level; only a request built as a navigation (its kind says so) can be
 /// judged as one.
 fn first_hop_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
-    let reference = REF_REGISTRY
+    identity.cookie_context(cookie_reference(req), load_document(req), &req.url, &[], &req.method)
+}
+
+/// The reference a request is judged under for cookies: only one built as a
+/// navigation (its kind says so) can be judged as one; a load is judged by its
+/// document instead.
+fn cookie_reference(req: &FetchRequest) -> Option<RequestReference> {
+    REF_REGISTRY
         .from_net(req.reference)
-        .filter(|_| req.kind == gosub_sonar::net::types::ResourceKind::Primary);
-    identity.cookie_context(reference, &req.url, &[], &req.method)
+        .filter(|_| req.kind == gosub_sonar::net::types::ResourceKind::Primary)
+}
+
+/// The document a load was made for, as the engine stamped it: its referrer
+/// (see `SubresourceOf`). A navigation's referrer is who started it, not a
+/// document it is made in.
+fn load_document(req: &FetchRequest) -> Option<&url::Url> {
+    req.referrer
+        .as_ref()
+        .filter(|_| req.kind != gosub_sonar::net::types::ResourceKind::Primary)
 }
 
 #[cfg(test)]
@@ -810,6 +830,15 @@ pub(crate) fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
                             // Cookies are attached here, never by the requester: see
                             // `net::tab_identity`. `identity` is None for a tab that has
                             // closed or never registered, which sends no cookies.
+                            // A load's document, recorded for the fetcher's cookie
+                            // hook, which sees only the reference: a page still loads
+                            // after the tab's top level has moved to a navigation's
+                            // target, and its loads are judged against the page.
+                            if let (Some(tab), Some(reference), Some(document)) =
+                                (tab_id, REF_REGISTRY.from_net(req.reference), load_document(&req))
+                            {
+                                router.tab_identities().note_document(tab, reference, document.clone());
+                            }
                             let identity = tab_id.and_then(|id| router.tab_identities().get(id));
                             // With a vault the network process talks to directly, the
                             // request carries whose cookies it wants and the network
@@ -1039,6 +1068,32 @@ mod tests {
                 #[allow(clippy::unwrap_used)] // test-only: values are ASCII literals
                 v.to_str().unwrap()
             })
+        }
+
+        /// The broker's view of a page's late load, as it attaches cookies or
+        /// grants them to the vault: judged against the page the load says it
+        /// was made for, not the tab's top level, which may already be the
+        /// target of a navigation away from it.
+        #[tokio::test]
+        async fn a_late_load_is_judged_against_the_page_it_was_made_for() {
+            use crate::net::types::{ResourceKind, SubresourceOf as _};
+            let identity = TabIdentity {
+                top_level: Some(Url::parse("https://bank.test/").unwrap()),
+                ..TabIdentity::new(jar_with("https://bank.test/", "lax=1; SameSite=Lax; Path=/"))
+            };
+            let mut req = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
+                .with_kind(ResourceKind::Image.to_net())
+                .subresource_of(&Url::parse("https://evil.test/").unwrap(), ResourceKind::Image)
+                .build();
+            attach_request_cookies(&mut req, Some(&identity)).await;
+            assert_eq!(cookie_header(&req), None);
+
+            let mut own = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
+                .with_kind(ResourceKind::Image.to_net())
+                .subresource_of(&Url::parse("https://bank.test/").unwrap(), ResourceKind::Image)
+                .build();
+            attach_request_cookies(&mut own, Some(&identity)).await;
+            assert_eq!(cookie_header(&own), Some("lax=1"));
         }
 
         /// The broker's first hop of a navigation, as it attaches cookies or
