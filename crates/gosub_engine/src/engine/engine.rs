@@ -2627,6 +2627,319 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// `SameSite` end to end, judged by who asked: `localhost` and `127.0.0.1`
+    /// are different sites. The user's own navigation to the cookie site sends
+    /// both cookies; a link on the other site sends `Lax` only; an image the
+    /// other site embeds sends neither.
+    #[tokio::test]
+    async fn samesite_cookies_follow_the_initiator() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        type Seen = Arc<Mutex<Vec<(String, String)>>>;
+        async fn serve(listener: tokio::net::TcpListener, seen: Seen, page: String) {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                let page = page.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                    let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let cookie = request
+                        .lines()
+                        .find_map(|l| l.strip_prefix("cookie: "))
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    seen.lock().push((path.clone(), cookie));
+                    let (extra, body) = if path == "/set" {
+                        (
+                            "Set-Cookie: strict=1; SameSite=Strict; Path=/\r\n\
+                             Set-Cookie: lax=1; SameSite=Lax; Path=/\r\n",
+                            "<html><body>set</body></html>".to_string(),
+                        )
+                    } else {
+                        ("", page)
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        }
+
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        let site_seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        tokio::spawn(serve(site, site_seen.clone(), "<html><body>site</body></html>".into()));
+        let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let other_port = other.local_addr().unwrap().port();
+        let other_page = format!(
+            "<html><body><a href=\"http://127.0.0.1:{site_port}/link\">go</a>\
+             <img src=\"http://127.0.0.1:{site_port}/img\"></body></html>"
+        );
+        tokio::spawn(serve(other, Arc::new(Mutex::new(Vec::new())), other_page));
+
+        let cookie_at = |path: &str| -> Option<String> {
+            site_seen
+                .lock()
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, cookie)| cookie.clone())
+        };
+        let seen_at = |path: &'static str| {
+            let site_seen = site_seen.clone();
+            async move {
+                for _ in 0..200 {
+                    if site_seen.lock().iter().any(|(p, _)| p == path) {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                false
+            }
+        };
+        let finished = |ev: &EngineEvent| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        };
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/set"))
+            .await
+            .expect("set");
+        assert!(
+            wait_for(&mut event_rx, finished).await,
+            "the cookie page never finished"
+        );
+        tab.navigate(format!("http://localhost:{other_port}/"))
+            .await
+            .expect("other");
+        assert!(wait_for(&mut event_rx, finished).await, "the other site never finished");
+        assert!(
+            seen_at("/img").await,
+            "the other site's image never reached the cookie site"
+        );
+
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("enter key");
+        assert!(seen_at("/link").await, "the link was never followed");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/direct"))
+            .await
+            .expect("direct");
+        assert!(seen_at("/direct").await, "the user's navigation never arrived");
+
+        let img = cookie_at("/img").unwrap_or_default();
+        assert!(
+            !img.contains("lax=1") && !img.contains("strict=1"),
+            "a cross-site image sent {img:?}"
+        );
+        let link = cookie_at("/link").unwrap_or_default();
+        assert!(
+            link.contains("lax=1") && !link.contains("strict=1"),
+            "a cross-site link sent {link:?}"
+        );
+        let direct = cookie_at("/direct").unwrap_or_default();
+        assert!(
+            direct.contains("lax=1") && direct.contains("strict=1"),
+            "the user's own navigation sent {direct:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A page being navigated away from still loads (scroll, hover and media
+    /// passes, a renderer's brokered loads) while the tab's top level is
+    /// already the target. Those loads are the old page's: from another site
+    /// to the cookie site they send neither `Strict` nor `Lax` cookies, though
+    /// the tab is on its way to the cookie site itself.
+    #[tokio::test]
+    async fn the_old_pages_late_loads_are_judged_against_the_old_page() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+        use crate::net::types::{FetchRequest, ResourceKind, SubresourceOf as _};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use url::Url;
+
+        let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        // Held open until the late load has been answered, so the navigation
+        // to `/slow` is still under way when the old page asks.
+        let release = Arc::new(tokio::sync::Notify::new());
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        tokio::spawn({
+            let seen = seen.clone();
+            let release = release.clone();
+            async move {
+                while let Ok((mut stream, _)) = site.accept().await {
+                    let seen = seen.clone();
+                    let release = release.clone();
+                    tokio::spawn(async move {
+                        let mut buf = vec![0u8; 8192];
+                        let n = stream.read(&mut buf).await.unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                        let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                        let cookie = request
+                            .lines()
+                            .find_map(|l| l.strip_prefix("cookie: "))
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        seen.lock().push((path.clone(), cookie));
+                        if path == "/slow" {
+                            release.notified().await;
+                        }
+                        let extra = if path == "/set" {
+                            "Set-Cookie: strict=1; SameSite=Strict; Path=/\r\nSet-Cookie: lax=1; SameSite=Lax; Path=/\r\n"
+                        } else {
+                            ""
+                        };
+                        let body = "<html><body>site</body></html>";
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(body.as_bytes()).await;
+                    });
+                }
+            }
+        });
+        let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let other_port = other.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = other.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body>other</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+        let finished = |ev: &EngineEvent| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        };
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/set"))
+            .await
+            .expect("set");
+        assert!(
+            wait_for(&mut event_rx, finished).await,
+            "the cookie page never finished"
+        );
+        let old_page = Url::parse(&format!("http://localhost:{other_port}/")).unwrap();
+        tab.navigate(old_page.to_string()).await.expect("other");
+        assert!(wait_for(&mut event_rx, finished).await, "the other site never finished");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/slow"))
+            .await
+            .expect("slow");
+        let mut started = false;
+        for _ in 0..200 {
+            if seen.lock().iter().any(|(p, _)| p == "/slow") {
+                started = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(started, "the navigation away never reached the cookie site");
+
+        // The old page's late load, as its loader stamps it.
+        let reference = RequestReference::Document(u64::MAX - 0x5a5e);
+        zone.context.request_reference_map.write().insert(reference, tab.tab_id);
+        let req = FetchRequest::builder(
+            http::Method::GET,
+            Url::parse(&format!("http://127.0.0.1:{site_port}/late.png")).unwrap(),
+        )
+        .with_reference(REF_REGISTRY.to_net(reference))
+        .with_kind(ResourceKind::Image.to_net())
+        .subresource_of(&old_page, ResourceKind::Image)
+        .build();
+        let (_handle, rx) = crate::net::submit_to_io(zone.id, Some(tab.tab_id), req, zone.context.io_tx.clone(), None)
+            .await
+            .expect("submit");
+        let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
+        release.notify_one();
+
+        let late = seen
+            .lock()
+            .iter()
+            .find(|(p, _)| p == "/late.png")
+            .map(|(_, cookie)| cookie.clone());
+        let late = late.expect("the late load never reached the cookie site");
+        assert!(
+            !late.contains("lax=1") && !late.contains("strict=1"),
+            "the old page's late load sent {late:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Wait (with timeout) for an event matching `pred`; true when it arrived.
     async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
         tokio::time::timeout(Duration::from_secs(10), async {

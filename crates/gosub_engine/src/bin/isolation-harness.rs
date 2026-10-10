@@ -2578,8 +2578,8 @@ fn renderer_input<F: FontSystem + Default>() -> i32 {
 }
 
 /// The next engine event satisfying `pred`, on a clock; a failed navigation
-/// meanwhile is an error. Lagging behind the broadcast is not.
-#[cfg(target_os = "linux")]
+/// meanwhile is an error. Lagging behind the broadcast is not. Not gated to
+/// Linux: the cross-site cookie scenario uses it, and that compiles everywhere.
 async fn next_engine_event(
     events: &mut tokio::sync::broadcast::Receiver<gosub_engine::events::EngineEvent>,
     deadline: tokio::time::Instant,
@@ -7081,6 +7081,11 @@ fn engine_cookie_vault() -> i32 {
 
     let modes: Vec<String> = std::env::args().skip(2).collect();
     let in_process = modes.iter().any(|m| m == "in-process");
+    // `cross-site`: SameSite by who asked, through the vault (see
+    // `engine_cookie_vault_cross_site`).
+    if modes.iter().any(|m| m == "cross-site") {
+        return engine_cookie_vault_cross_site(in_process);
+    }
     // `respawn`: kill the vault after the first flow; the cookie must still
     // reach the next request, from the store the respawned vault reopens.
     let respawn = modes.iter().any(|m| m == "respawn");
@@ -7412,6 +7417,243 @@ fn engine_cookie_vault() -> i32 {
         }
     );
     0
+}
+
+/// `SameSite` by who asked, with the jars in the vault and (unless
+/// `in_process`) the requests in the network process, which asks the vault
+/// under the broker's grant. `localhost` and `127.0.0.1` are different sites.
+/// The user's own navigation to the cookie site sends both cookies; a link on
+/// the other site sends `Lax` only; an image the other site embeds sends
+/// neither.
+fn engine_cookie_vault_cross_site(in_process: bool) -> i32 {
+    use gosub_config::settings::Setting;
+    use gosub_engine::events::{EngineEvent, Modifiers, NavigationEvent, TabCommand};
+    use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_engine::zone::ZoneServices;
+    use gosub_engine::GosubEngine;
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+
+    let site_seen: SeenRequests = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let Ok(site_port) = serve_samesite_pages(Arc::clone(&site_seen), "<html><body>site</body></html>".into()) else {
+        eprintln!("could not start the cookie site");
+        return 1;
+    };
+    let other_page = format!(
+        "<html><body><a href=\"http://127.0.0.1:{site_port}/link\">go</a>\
+         <img src=\"http://127.0.0.1:{site_port}/img\"></body></html>"
+    );
+    let Ok(other_port) = serve_samesite_pages(Arc::new(parking_lot::Mutex::new(Vec::new())), other_page) else {
+        eprintln!("could not start the other site");
+        return 1;
+    };
+
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("could not build a runtime: {e}");
+            return 1;
+        }
+    };
+    let seen = Arc::clone(&site_seen);
+    let code = runtime.block_on(async move {
+        let mut engine: GosubEngine = GosubEngine::new(
+            None,
+            Arc::new(NullBackend::new()),
+            Arc::new(DefaultCompositor::default()),
+        );
+        for (key, on) in [
+            ("security.cookie_vault", true),
+            ("security.network_process", !in_process),
+            ("security.image_decoder_process", false),
+            ("security.renderer_process", false),
+        ] {
+            if let Err(e) = engine.settings().set(key, Setting::Bool(on)) {
+                eprintln!("could not set {key}: {e}");
+                return 1;
+            }
+        }
+        let mut events = engine.subscribe_events();
+        let Ok(run) = engine.start() else {
+            eprintln!("engine failed to start");
+            return 1;
+        };
+        tokio::spawn(run);
+        if !engine.settings().get_bool("security.cookie_vault") {
+            eprintln!("the vault did not start");
+            return 1;
+        }
+        if !in_process && !engine.settings().get_bool("security.network_process") {
+            eprintln!("the network process did not start");
+            return 1;
+        }
+        let services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        };
+        let Ok(mut zone) = engine.zone_builder().services(services).create() else {
+            eprintln!("could not create a zone");
+            return 1;
+        };
+        let Ok(tab) = zone.tab_builder().create().await else {
+            eprintln!("could not create a tab");
+            return 1;
+        };
+        let _ = tab
+            .send(TabCommand::SetViewport {
+                x: 0,
+                y: 0,
+                width: 640,
+                height: 480,
+            })
+            .await;
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let finished = |e: &EngineEvent| {
+            matches!(
+                e,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        };
+        let seen_at = |path: &'static str| {
+            let seen = Arc::clone(&seen);
+            async move {
+                while tokio::time::Instant::now() < deadline {
+                    if seen.lock().iter().any(|(p, _)| p == path) {
+                        return true;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                eprintln!("timed out waiting for {path}; seen {:?}", seen.lock());
+                false
+            }
+        };
+
+        if tab.navigate(format!("http://127.0.0.1:{site_port}/set")).await.is_err() {
+            eprintln!("navigate to the cookie site failed");
+            return 1;
+        }
+        if let Err(e) = next_engine_event(&mut events, deadline, "the cookie page", finished).await {
+            eprintln!("{e}");
+            return 1;
+        }
+        if tab.navigate(format!("http://localhost:{other_port}/")).await.is_err() {
+            eprintln!("navigate to the other site failed");
+            return 1;
+        }
+        if let Err(e) = next_engine_event(&mut events, deadline, "the other site's page", finished).await {
+            eprintln!("{e}");
+            return 1;
+        }
+        if !seen_at("/img").await {
+            return 1;
+        }
+        let key = |key: &str| TabCommand::KeyDown {
+            key: key.to_string(),
+            code: key.to_string(),
+            modifiers: Modifiers::empty(),
+        };
+        let _ = tab.send(key("Tab")).await;
+        let _ = tab.send(key("Enter")).await;
+        if !seen_at("/link").await {
+            return 1;
+        }
+        if tab
+            .navigate(format!("http://127.0.0.1:{site_port}/direct"))
+            .await
+            .is_err()
+        {
+            eprintln!("the user's navigation failed");
+            return 1;
+        }
+        if !seen_at("/direct").await {
+            return 1;
+        }
+        let _ = engine.shutdown().await;
+        0
+    });
+    if code != 0 {
+        return code;
+    }
+
+    let seen = site_seen.lock().clone();
+    println!("requests: {seen:?}");
+    let cookie_at = |path: &str| -> String {
+        seen.iter()
+            .find(|(p, _)| p == path)
+            .and_then(|(_, cookie)| cookie.clone())
+            .unwrap_or_default()
+    };
+    let img = cookie_at("/img");
+    if img.contains("lax=1") || img.contains("strict=1") {
+        eprintln!("a cross-site image sent {img:?}");
+        return 1;
+    }
+    let link = cookie_at("/link");
+    if !link.contains("lax=1") || link.contains("strict=1") {
+        eprintln!("a cross-site link sent {link:?}, wanted Lax only");
+        return 1;
+    }
+    let direct = cookie_at("/direct");
+    if !direct.contains("lax=1") || !direct.contains("strict=1") {
+        eprintln!("the user's own navigation sent {direct:?}, wanted both");
+        return 1;
+    }
+    let via = if in_process {
+        "in process"
+    } else {
+        "the network process"
+    };
+    println!("SameSite followed who asked, through the vault and {via}");
+    0
+}
+
+/// A server for the `SameSite` scenario: `/set` sets a `Strict` and a `Lax`
+/// cookie, any other path is answered with `page`; every request's path and
+/// `Cookie` header are recorded in `seen`.
+fn serve_samesite_pages(seen: SeenRequests, page: String) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let cookie = request
+                .lines()
+                .find(|l| l.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("cookie:")))
+                .map(|l| l[7..].trim().to_string());
+            seen.lock().push((path.clone(), cookie));
+            let (extra, body) = if path == "/set" {
+                (
+                    "Set-Cookie: strict=1; SameSite=Strict; Path=/\r\nSet-Cookie: lax=1; SameSite=Lax; Path=/\r\n",
+                    "<html><body>set</body></html>",
+                )
+            } else {
+                ("", page.as_str())
+            };
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    Ok(port)
 }
 
 /// Every request a test server saw: its path and `Cookie` header.

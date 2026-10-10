@@ -133,6 +133,26 @@ applies the RFC 6265bis truth table:
 `CrossSiteNavigation` is a cross-site top-level navigation with a safe method
 (GET/HEAD); `CrossSite` is a cross-site subrequest or unsafe-method navigation.
 
+Every hop of every request is judged on its own (`TabIdentity::cookie_context`):
+
+-   A **navigation's** hops are judged against who started it: the document
+    whose link or form it was, or, for the user's own navigation (address bar,
+    reload, history), its first URL. A link from another site is therefore a
+    cross-site navigation (no `Strict` cookies), and a form `POST` from another
+    site a cross-site request (no `Lax` ones either).
+-   A **document's loads** (images, stylesheets, fonts) are judged against the
+    document, as subrequests. In process they share the navigation's request
+    reference; a request under it counts as the navigation only until the
+    navigation's response is in, which is before the document can ask for
+    anything. The document is the one the engine stamped on the load (its
+    referrer), not the tab's top level: a page being navigated away from keeps
+    loading after the top level has moved to the target, and a redirect may
+    have moved the document. The fetcher's hook sees only a request's
+    reference, so the I/O side records each reference's document as its loads
+    go out (`TabIdentityRegistry::note_document`).
+-   Over the **whole redirect chain**: a chain that passed through another site
+    stays cross-site on its way back (RFC 6265bis §5.2).
+
 ## Key types
 
 -   `Cookie` (data model)
@@ -237,11 +257,6 @@ Documented so readers don't assume more than the engine does today:
 -   **No `document.cookie`.** JavaScript can neither read nor write cookies
     yet; consequently `HttpOnly` is stored but has nothing to hide cookies
     from.
--   **Only top-level navigations carry cookies.** Subresource fetches (images,
-    stylesheets, scripts) do not consult the jar, and the single call site
-    always passes `SameSiteContext::SameSite` — the `CrossSiteNavigation` /
-    `CrossSite` machinery is implemented and tested in the jar but not yet
-    driven by the fetch pipeline.
 -   **`ThirdPartyCookiePolicy` is not wired up.** Jars are created with the
     default `Allow`; no production code path selects `Block` or
     `SameSiteNoneOnly` yet.

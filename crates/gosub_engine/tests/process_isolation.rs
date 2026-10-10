@@ -193,6 +193,30 @@ fn a_cookie_flows_from_the_vault_through_the_network_process() {
     );
 }
 
+/// `SameSite` follows who asked, with the jars in the vault: a link from
+/// another site sends `Lax` cookies only, an image another site embeds sends
+/// neither, the user's own navigation sends both. Through the network process,
+/// which asks under the broker's grant, and in process.
+#[cfg(target_os = "linux")]
+#[test]
+fn samesite_follows_the_initiator_through_the_vault() {
+    for mode in [
+        &["engine-cookie-vault", "cross-site"][..],
+        &["engine-cookie-vault", "cross-site", "in-process"][..],
+    ] {
+        let out = Command::new(harness())
+            .args(mode)
+            .output()
+            .expect("spawn isolation-harness");
+        assert!(
+            out.status.success(),
+            "{mode:?} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
 /// A zone from the bare `zone_builder()` keeps its jar in the vault too, not
 /// only one whose services name no jar.
 #[cfg(target_os = "linux")]

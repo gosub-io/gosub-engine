@@ -1947,8 +1947,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // This tab is now loading `url`, so requests it makes are attributed to
         // that document. Announced before submitting, so the navigation request
         // itself is already attributed. Cookies are attached I/O-side from here on -
-        // see `net::tab_identity`.
+        // see `net::tab_identity`. Its own hops are judged against who started it.
         self.announce_top_level(&url);
+        self.announce_navigation(nav_id, initiator);
 
         let mut fetch_headers = HeaderMap::new();
         if let Some(langs) = &self.services.accept_language {
@@ -2199,6 +2200,22 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
         if announced.is_err() {
             self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
+        }
+    }
+
+    /// Tell the I/O side who started network navigation `nav_id` (`None`: the
+    /// user), in the same queue as its request, like
+    /// [`announce_top_level`](Self::announce_top_level).
+    fn announce_navigation(&self, nav_id: NavigationId, initiator: Option<&Url>) {
+        let announced = self.zone_context.io_tx.send(IoCommand::StartNavigation {
+            tab_id: self.tab_id,
+            nav_id,
+            initiator: initiator.cloned(),
+        });
+        if announced.is_err() {
+            self.zone_context
+                .tab_identities
+                .start_navigation(self.tab_id, nav_id, initiator.cloned());
         }
     }
 
