@@ -518,12 +518,24 @@ fn cookie_scope_for(router: &IoRouter, identity: Option<&TabIdentity>, req: &Fet
         url: req.url.to_string(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
-        site: identity
-            .same_site_document(REF_REGISTRY.from_net(req.reference))
-            .map(|u| u.to_string()),
-        samesite: first_hop_context(identity, req).into(),
+        site: same_site_document(identity, req).map(|u| u.to_string()),
+        samesite: grant_context(identity, req).into(),
         navigation: req.kind == gosub_sonar::net::types::ResourceKind::Primary,
     })
+}
+
+/// The context a vault grant holds: the site context of the request's first
+/// hop, without its method. The vault narrows each `Get` by its own hop's
+/// method, so a `303` from a `POST` to a `GET` gets `Lax` cookies back on the
+/// hops after it; a grant already narrowed would keep them off the rest of
+/// the chain.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn grant_context(identity: &TabIdentity, req: &FetchRequest) -> SameSiteContext {
+    crate::engine::cookies::request_context(
+        same_site_document(identity, req),
+        &req.url,
+        req.kind == gosub_sonar::net::types::ResourceKind::Primary,
+    )
 }
 
 /// A grant the vault holds for one request: the scope the network process
@@ -1033,6 +1045,12 @@ mod tests {
         assert_eq!(
             first_hop_context(&identity, &request(http::Method::POST)),
             SameSiteContext::CrossSite
+        );
+        // The vault grant holds the site context alone; each hop's method narrows it there.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        assert_eq!(
+            grant_context(&identity, &request(http::Method::POST)),
+            SameSiteContext::CrossSiteNavigation
         );
     }
 
