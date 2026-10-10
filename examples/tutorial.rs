@@ -11,7 +11,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gosub_engine::{
-    cookies::DefaultCookieJar,
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneServices,
@@ -61,7 +60,7 @@ async fn run() -> Result<(), EngineError> {
             Arc::new(InMemorySessionStore::new()),
         )),
         cookie_store: None,
-        cookie_jar: Some(DefaultCookieJar::new().into()),
+        cookie_jar: None,
         partition_policy: PartitionPolicy::None,
         places: None,
     };

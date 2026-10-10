@@ -402,6 +402,11 @@ impl CookieVault {
         }
     }
 
+    /// Whether `zone`'s cookies are held here: opened and not yet closed.
+    pub fn holds_zone(&self, zone: ZoneId) -> bool {
+        self.open_zones.lock().contains_key(&zone.to_string())
+    }
+
     pub fn close_zone(&self, zone: ZoneId) {
         let key = zone.to_string();
         // Not reopened by a respawn from here on.

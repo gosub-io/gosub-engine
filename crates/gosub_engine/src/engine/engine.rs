@@ -874,7 +874,23 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             }
             _ => services,
         };
-        let created = self.create_zone_with_services(config, services, zone_id, cookie_store);
+        // Without the vault the engine still provisions one jar for the whole
+        // zone: its cookie store's, so cookies persist, or else one in memory.
+        // Left to the tabs, each would get a fresh jar and share no cookies.
+        let zone_id = zone_id.unwrap_or_default();
+        let services = match services.cookie_jar {
+            Some(_) => services,
+            None => ZoneServices {
+                cookie_jar: Some(
+                    cookie_store
+                        .as_ref()
+                        .and_then(|store| store.jar_for(zone_id))
+                        .unwrap_or_else(|| crate::cookies::DefaultCookieJar::new().into()),
+                ),
+                ..services
+            },
+        };
+        let created = self.create_zone_with_services(config, services, Some(zone_id), cookie_store);
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.settle_local_storage(&created, routed);
         created
@@ -1088,7 +1104,10 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
-    /// The cookie jar. `None` means the zone sends and stores no cookies.
+    /// The cookie jar. `None` (the default) lets the engine provision the zone's
+    /// jar: in the cookie vault when `security.cookie_vault` runs one, else from
+    /// the zone's cookie store, else in memory. A jar given here stays in this
+    /// process and is never moved into the vault.
     pub fn cookie_jar(mut self, jar: Option<crate::cookies::CookieJarHandle>) -> Self {
         self.services.cookie_jar = jar;
         self
@@ -1975,6 +1994,47 @@ mod tests {
             contents.contains("sid") && contents.contains("abc123"),
             "cookie should be persisted on shutdown, got: {contents}"
         );
+    }
+
+    /// A store given to the bare builder is the jar the zone uses: before, the
+    /// builder's default in-memory jar won and the store was never written.
+    #[tokio::test]
+    async fn builder_zone_uses_its_cookie_store_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        let store: CookieStoreHandle = crate::cookies::JsonCookieStore::new(dir.path().join("cookies.json"))
+            .unwrap()
+            .into();
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let zone = engine
+            .zone_builder()
+            .cookie_store(Some(store.clone()))
+            .create()
+            .expect("zone");
+        let zone_jar = zone.context.services.cookie_jar.clone().expect("a zone jar");
+        let store_jar = store.jar_for(zone.id).expect("persistent jar");
+        assert!(crate::cookies::CookieJarHandle::ptr_eq(&zone_jar, &store_jar));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Without the vault a zone given no jar still gets one, shared by its
+    /// tabs, rather than a fresh jar per tab.
+    #[tokio::test]
+    async fn zone_without_a_jar_gets_one_for_all_its_tabs() {
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let zone = engine.zone_builder().services(services()).create().expect("zone");
+        assert!(zone.context.services.cookie_jar.is_some());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]

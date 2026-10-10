@@ -81,7 +81,8 @@ pub struct ZoneServices {
     pub storage: Arc<StorageService>,
     /// Cookie store for this zone (if any)
     pub cookie_store: Option<CookieStoreHandle>,
-    /// Cookie jar for this zone (if any)
+    /// Cookie jar for this zone. `None` lets the engine provision it (in the
+    /// cookie vault when one runs); a jar given here stays in this process.
     pub cookie_jar: Option<CookieJarHandle>,
     /// Policy for partitioning storage (cookies, localStorage, etc.)
     pub partition_policy: PartitionPolicy,
@@ -90,8 +91,9 @@ pub struct ZoneServices {
 }
 
 impl Default for ZoneServices {
-    /// An ephemeral profile: in-memory storage and cookie jar, nothing persisted, nothing
-    /// partitioned, no history. The starting point for [`ZoneBuilder`](crate::ZoneBuilder).
+    /// An ephemeral profile: in-memory storage, an engine-provisioned cookie jar, nothing
+    /// persisted, nothing partitioned, no history. The starting point for
+    /// [`ZoneBuilder`](crate::ZoneBuilder).
     fn default() -> Self {
         Self {
             storage: Arc::new(StorageService::new(
@@ -99,7 +101,7 @@ impl Default for ZoneServices {
                 Arc::new(crate::storage::InMemorySessionStore::new()),
             )),
             cookie_store: None,
-            cookie_jar: Some(crate::cookies::DefaultCookieJar::new().into()),
+            cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
         }
