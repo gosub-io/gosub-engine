@@ -394,6 +394,16 @@ mod redirect_cookie_tests {
         });
     }
 
+    /// Every name is the loopback address: `b.test` is a second site on the same machine, as
+    /// `127.0.0.2` would be on Linux, where all of 127/8 is loopback, but not on macOS.
+    struct Loopback;
+
+    impl gosub_sonar::DnsResolver for Loopback {
+        fn resolve(&self, _host: &str) -> gosub_sonar::Resolving {
+            Box::pin(async { Ok(vec![std::net::SocketAddr::from(([127, 0, 0, 1], 0))]) })
+        }
+    }
+
     /// A fetcher whose navigation `reference` belongs to a tab showing `top_level`, with a jar
     /// holding `cookies` for `site`. The navigation is the user's own, started over the
     /// network, so its hops are judged from its first URL.
@@ -424,6 +434,7 @@ mod redirect_cookie_tests {
         };
         let config = FetcherConfig {
             proxy: gosub_sonar::ProxyConfig::Disabled,
+            dns_resolver: Some(Arc::new(Loopback)),
             ..FetcherConfig::default()
         };
         let fetcher = Arc::new(Fetcher::new(config, Arc::new(context)).unwrap());
@@ -464,7 +475,7 @@ mod redirect_cookie_tests {
     /// cookies on that hop. A 302 turns it into a GET, which gets them.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_cross_site_post_hop_carries_no_lax_cookies() {
-        let (b_listener, b, b_seen) = listen("127.0.0.2").await;
+        let (b_listener, b, b_seen) = listen("127.0.0.1").await;
         serve(b_listener, b_seen.clone(), |_| "HTTP/1.1 200 OK\r\n".into());
         let (a_listener, a, a_seen) = listen("127.0.0.1").await;
         serve(a_listener, a_seen, move |path| {
@@ -473,10 +484,10 @@ mod redirect_cookie_tests {
             } else {
                 "302 Found"
             };
-            format!("HTTP/1.1 {status}\r\nLocation: http://127.0.0.2:{b}/from{path}\r\n")
+            format!("HTTP/1.1 {status}\r\nLocation: http://b.test:{b}/from{path}\r\n")
         });
 
-        let site_b = Url::parse(&format!("http://127.0.0.2:{b}/")).unwrap();
+        let site_b = Url::parse(&format!("http://b.test:{b}/")).unwrap();
         let top = Url::parse(&format!("http://127.0.0.1:{a}/307")).unwrap();
         let (fetcher, reference) = navigating_tab(&top, &site_b, &["lax=1; SameSite=Lax; Path=/"]);
         for path in ["307", "302"] {
@@ -501,12 +512,12 @@ mod redirect_cookie_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_chain_through_another_site_stays_cross_site() {
         let (a_listener, a, a_seen) = listen("127.0.0.1").await;
-        let (b_listener, b, b_seen) = listen("127.0.0.2").await;
+        let (b_listener, b, b_seen) = listen("127.0.0.1").await;
         serve(b_listener, b_seen, move |_| {
             format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{a}/back\r\n")
         });
         serve(a_listener, a_seen.clone(), move |path| match path {
-            "/away" => format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.2:{b}/bounce\r\n"),
+            "/away" => format!("HTTP/1.1 302 Found\r\nLocation: http://b.test:{b}/bounce\r\n"),
             _ => "HTTP/1.1 200 OK\r\n".into(),
         });
 
