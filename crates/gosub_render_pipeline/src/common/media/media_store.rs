@@ -38,6 +38,22 @@ pub enum MediaInitiator {
     ImageSet,
 }
 
+impl MediaInitiator {
+    /// What a request for `url` is filed under, in the store's cache and in the resource
+    /// handoff. The two initiators fetch the same `http` URL differently on a secure page, so
+    /// one's answer is not the other's: an `imageset` refusal must not show a plain
+    /// `<img src>` as broken, nor a plain request's upgraded bytes answer an `imageset` one.
+    /// A plain request keeps the bare URL, which is what the document scan files its
+    /// preloads under; the scan never preloads an `imageset` image.
+    pub fn handoff_key(self, url: &str) -> std::borrow::Cow<'_, str> {
+        match self {
+            MediaInitiator::Plain => url.into(),
+            // A space never appears in a parsed URL, so this cannot collide with one.
+            MediaInitiator::ImageSet => format!("imageset {url}").into(),
+        }
+    }
+}
+
 /// Whoever can put a URL's bytes into the resource handoff.
 ///
 /// The media store does not fetch. It asks for what it needs and waits for the bytes to
@@ -220,12 +236,10 @@ impl MediaStore {
     /// `completed` flag rises and the engine's [`take_completed`](Self::take_completed) poll
     /// triggers a reflow. Takes `&Arc<Self>` so the fetch thread can share the store.
     ///
-    /// The cache and the in-flight set are keyed by URL alone, so one initiator's result answers
-    /// the other's request. Bytes are fine (a secure page only gets them over `https`), but a
-    /// failure is cached too: an `http` URL refused as an `imageset` request shows as broken for
-    /// a plain `<img src>` of the same URL on that page, which would have been upgraded.
+    /// The cache and the in-flight set are keyed by URL and initiator (see
+    /// [`MediaInitiator::handoff_key`]).
     pub fn request_media(self: &Arc<Self>, src: &str, initiator: MediaInitiator) -> MediaRequest {
-        let h = hash_from_string(src);
+        let h = hash_from_string(&initiator.handoff_key(src));
 
         if let Some(media_id) = self.cache.read().get(&h) {
             return MediaRequest::Ready(*media_id);
@@ -436,7 +450,7 @@ impl MediaStore {
     /// Loads `src` into the store, caching by src so repeat calls never reload. Fetch/decode
     /// failures cache the placeholder id, so a dead URL skips the network on later calls.
     pub fn load_media(&self, src: &str, initiator: MediaInitiator) -> anyhow::Result<MediaId> {
-        let h = hash_from_string(src);
+        let h = hash_from_string(&initiator.handoff_key(src));
         let cache = self.cache.read();
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from path: {}", src);
@@ -702,7 +716,7 @@ impl MediaStore {
             }
         };
 
-        match gosub_shared::subresource::take(scope, src) {
+        match gosub_shared::subresource::take(scope, &initiator.handoff_key(src)) {
             Some((content_type, body)) => Ok((content_type, Bytes::from(body))),
             None => anyhow::bail!("no bytes arrived for {url}"),
         }
@@ -955,6 +969,8 @@ mod tests {
     struct FakeSource {
         asked: parking_lot::Mutex<Vec<String>>,
         answer: Option<Vec<u8>>,
+        /// Refuse `imageset` requests, as Mixed Content does for an `http` URL on a secure page.
+        blocks_imagesets: bool,
     }
 
     /// The scope a test source fetches in. Which one does not matter, only that producer and
@@ -962,14 +978,16 @@ mod tests {
     const PAGE: gosub_shared::subresource::Scope = 7;
 
     impl MediaSource for FakeSource {
-        fn acquire(&self, url: &str, _initiator: MediaInitiator) -> Acquired {
-            if gosub_shared::subresource::claim(PAGE, url) {
+        fn acquire(&self, url: &str, initiator: MediaInitiator) -> Acquired {
+            let key = initiator.handoff_key(url);
+            if gosub_shared::subresource::claim(PAGE, &key) {
                 self.asked.lock().push(url.to_string());
+                let blocked = self.blocks_imagesets && initiator == MediaInitiator::ImageSet;
                 match &self.answer {
-                    Some(bytes) => {
-                        gosub_shared::subresource::complete(PAGE, url, Some("image/png".into()), bytes.clone())
+                    Some(bytes) if !blocked => {
+                        gosub_shared::subresource::complete(PAGE, &key, Some("image/png".into()), bytes.clone())
                     }
-                    None => gosub_shared::subresource::abandon(PAGE, url),
+                    _ => gosub_shared::subresource::abandon(PAGE, &key),
                 }
             }
             Acquired::Under(PAGE)
@@ -986,10 +1004,15 @@ mod tests {
     }
 
     fn wired(answer: Option<Vec<u8>>) -> (Arc<MediaStore>, Arc<FakeSource>) {
+        wired_with(answer, false)
+    }
+
+    fn wired_with(answer: Option<Vec<u8>>, blocks_imagesets: bool) -> (Arc<MediaStore>, Arc<FakeSource>) {
         let store = Arc::new(MediaStore::new());
         let source = Arc::new(FakeSource {
             asked: parking_lot::Mutex::new(Vec::new()),
             answer,
+            blocks_imagesets,
         });
         store.set_source(source.clone());
         (store, source)
@@ -1027,6 +1050,32 @@ mod tests {
 
             assert!(source.asked.lock().is_empty(), "should not have asked for it again");
             assert!(!body.is_empty());
+        });
+    }
+
+    /// An `imageset` refusal is not cached as the answer for a plain `<img src>` of the same
+    /// URL, which is upgraded rather than blocked; nor do the plain request's bytes then
+    /// answer the `imageset` one.
+    #[test]
+    fn an_imageset_refusal_does_not_answer_a_plain_request() {
+        exclusively(|| {
+            let (store, source) = wired_with(Some(encode(ImageFormat::Png)), true);
+            let url = "http://example.test/both.png";
+
+            assert_eq!(
+                store.load_media(url, MediaInitiator::ImageSet).ok(),
+                Some(DEFAULT_IMAGE_ID)
+            );
+            let plain = store.load_media(url, MediaInitiator::Plain).expect("loads");
+            assert_ne!(
+                plain, DEFAULT_IMAGE_ID,
+                "the plain request is asked for in its own right"
+            );
+            assert_eq!(
+                store.load_media(url, MediaInitiator::ImageSet).ok(),
+                Some(DEFAULT_IMAGE_ID)
+            );
+            assert_eq!(source.asked.lock().len(), 2, "once per initiator");
         });
     }
 

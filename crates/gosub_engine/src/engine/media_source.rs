@@ -68,7 +68,8 @@ impl EngineMediaSource {
     ///
     /// Takes its context rather than reading it: which navigation this belongs to decides
     /// where the bytes are deposited, and that has to be the same navigation the consumer is
-    /// waiting under. See [`MediaSource::acquire`].
+    /// waiting under. They are filed under the initiator's [`MediaInitiator::handoff_key`].
+    /// See [`MediaSource::acquire`].
     fn fetch(
         &self,
         scope: gosub_shared::subresource::Scope,
@@ -76,10 +77,12 @@ impl EngineMediaSource {
         policy: ReferrerPolicy,
         reference: RequestReference,
         url: &str,
-        kind: ResourceKind,
+        initiator: MediaInitiator,
     ) {
+        let key = &*initiator.handoff_key(url);
+        let kind = ResourceKind::image(initiator);
         let Ok(parsed) = Url::parse(url) else {
-            gosub_shared::subresource::abandon(scope, url);
+            gosub_shared::subresource::abandon(scope, key);
             return;
         };
 
@@ -89,11 +92,11 @@ impl EngineMediaSource {
         if parsed.scheme() == "data" {
             match crate::net::decode_data_url(&parsed) {
                 Some((content_type, bytes)) => {
-                    gosub_shared::subresource::complete(scope, url, Some(content_type), bytes);
+                    gosub_shared::subresource::complete(scope, key, Some(content_type), bytes);
                 }
                 None => {
                     log::warn!("could not decode data: URL for media");
-                    gosub_shared::subresource::abandon(scope, url);
+                    gosub_shared::subresource::abandon(scope, key);
                 }
             }
             return;
@@ -104,7 +107,7 @@ impl EngineMediaSource {
         // it named the file somewhere the scan could not see.
         if parsed.scheme() == "file" && doc_url.scheme() != "file" {
             log::warn!("refusing file:// media {parsed} for a document that was not loaded from disk");
-            gosub_shared::subresource::abandon(scope, url);
+            gosub_shared::subresource::abandon(scope, key);
             return;
         }
 
@@ -139,6 +142,7 @@ impl EngineMediaSource {
         let tab_id = self.tab_id;
         let io_tx = self.io_tx.clone();
         let url = url.to_string();
+        let key = key.to_string();
         // Spawned onto the runtime by handle, not with `spawn_named`: the caller is a plain
         // thread waiting on the handoff, with no runtime of its own, and `tokio::spawn`
         // panics when there is no runtime in context.
@@ -159,10 +163,10 @@ impl EngineMediaSource {
                 _ => None,
             };
             match delivered {
-                Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &url, content_type, bytes),
+                Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &key, content_type, bytes),
                 // Always answered, one way or the other: a consumer waiting on this URL is
                 // otherwise left waiting for bytes that are never coming.
-                None => gosub_shared::subresource::abandon(scope, &url),
+                None => gosub_shared::subresource::abandon(scope, &key),
             }
         });
     }
@@ -194,15 +198,8 @@ impl MediaSource for EngineMediaSource {
         // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
         // one the regex could not match), so ask for it. A resource the scan did see is
         // already in flight and this does nothing.
-        if gosub_shared::subresource::claim(scope, url) {
-            self.fetch(
-                scope,
-                doc_url.clone(),
-                *policy,
-                *reference,
-                url,
-                ResourceKind::image(initiator),
-            );
+        if gosub_shared::subresource::claim(scope, &initiator.handoff_key(url)) {
+            self.fetch(scope, doc_url.clone(), *policy, *reference, url, initiator);
         }
         Acquired::Under(scope)
     }

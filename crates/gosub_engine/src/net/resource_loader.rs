@@ -148,21 +148,22 @@ impl MediaSource for LoaderMediaSource {
         let loaded = Url::parse(url)
             .map_err(|e| LoadError::UnsupportedUrl(format!("{url}: {e}")))
             .and_then(|parsed| self.loader.load(&parsed, ResourceKind::image(initiator)));
+        let key = initiator.handoff_key(url);
         // Always answered, one way or the other, so the store's `take` never waits out its
         // timeout on an entry nobody is going to fill.
         match loaded {
             Ok(resource) if resource.is_ok() && !resource.body.is_empty() => {
-                gosub_shared::subresource::complete(RENDERER_SCOPE, url, resource.content_type, resource.body.to_vec())
+                gosub_shared::subresource::complete(RENDERER_SCOPE, &key, resource.content_type, resource.body.to_vec())
             }
             // A deferred loader's "not yet": the broker fetches it and renders again.
             Err(LoadError::Pending) => return Acquired::Later,
             Ok(resource) => {
                 log::warn!("{url} returned status {}", resource.status);
-                gosub_shared::subresource::abandon(RENDERER_SCOPE, url);
+                gosub_shared::subresource::abandon(RENDERER_SCOPE, &key);
             }
             Err(e) => {
                 log::warn!("could not load {url}: {e}");
-                gosub_shared::subresource::abandon(RENDERER_SCOPE, url);
+                gosub_shared::subresource::abandon(RENDERER_SCOPE, &key);
             }
         }
         Acquired::Under(RENDERER_SCOPE)
