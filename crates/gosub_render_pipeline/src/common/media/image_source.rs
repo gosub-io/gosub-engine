@@ -368,19 +368,32 @@ mod tests {
     use gosub_css3::media_query::MediaEnvironment;
     use gosub_css3::system::Css3System;
 
-    /// A document of elements, each with a tag, attributes and children.
+    /// An element: its tag, attributes, parent and children.
+    struct Node {
+        tag: String,
+        attrs: Vec<(String, String)>,
+        parent: Option<usize>,
+        children: Vec<usize>,
+    }
+
+    /// A document of elements.
     #[derive(Default)]
     struct Tree {
-        nodes: Vec<(String, Vec<(String, String)>, Option<usize>, Vec<usize>)>,
+        nodes: Vec<Node>,
     }
 
     impl Tree {
         fn add(&mut self, parent: Option<usize>, tag: &str, attrs: &[(&str, &str)]) -> usize {
             let id = self.nodes.len();
             let attrs = attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-            self.nodes.push((tag.to_string(), attrs, parent, Vec::new()));
+            self.nodes.push(Node {
+                tag: tag.to_string(),
+                attrs,
+                parent,
+                children: Vec::new(),
+            });
             if let Some(parent) = parent {
-                self.nodes[parent].3.push(id);
+                self.nodes[parent].children.push(id);
             }
             id
         }
@@ -389,16 +402,20 @@ mod tests {
     impl ImageTree for Tree {
         type Id = usize;
         fn tag_name(&self, id: usize) -> Option<String> {
-            Some(self.nodes[id].0.clone())
+            Some(self.nodes[id].tag.clone())
         }
         fn attribute(&self, id: usize, name: &str) -> Option<String> {
-            self.nodes[id].1.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
+            self.nodes[id]
+                .attrs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
         }
         fn parent(&self, id: usize) -> Option<usize> {
-            self.nodes[id].2
+            self.nodes[id].parent
         }
         fn children(&self, id: usize) -> Vec<usize> {
-            self.nodes[id].3.clone()
+            self.nodes[id].children.clone()
         }
     }
 
