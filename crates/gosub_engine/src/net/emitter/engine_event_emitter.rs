@@ -31,7 +31,8 @@ pub struct EngineEventEmitter {
     /// Whether the progress event that completes the body has been forwarded:
     /// it passes the step once, not every time it is repeated.
     completion_reported: std::sync::atomic::AtomicBool,
-    /// Whether this request has already been reported as failed. See [`Self::report_failure`].
+    /// Whether the current attempt has already been reported as failed. See
+    /// [`Self::report_failure`]. A retry is a new attempt and clears it.
     failure_reported: std::sync::atomic::AtomicBool,
 }
 
@@ -62,7 +63,7 @@ impl EngineEventEmitter {
         }
     }
 
-    /// Report a failure once, keeping the first cause that arrives.
+    /// Report an attempt's failure once, keeping the first cause that arrives.
     ///
     /// The network stack names a specific cause first (`Blocked`, `TlsFailed`) and follows
     /// it with a terminal `Failed` -- except when it does not: a request rejected by policy
@@ -70,6 +71,11 @@ impl EngineEventEmitter {
     /// is all there is. Reporting on both events would emit two failures for one request;
     /// reporting only on the terminal one drops every pre-flight rejection on the floor.
     /// First one wins settles both, and the first is always the more specific.
+    ///
+    /// Once per attempt, not per request: the network stack retries a connect failure (a
+    /// name that does not resolve, a refused connection), and each retry is a new attempt
+    /// that starts and ends again under the same request id. Swallowing the later
+    /// attempts' failures left the request started and never ended in the embedder's log.
     fn report_failure(&self, url: String, error: LoadError) {
         use std::sync::atomic::Ordering;
         if self.failure_reported.swap(true, Ordering::Relaxed) {
@@ -166,6 +172,8 @@ impl NetObserver for EngineEventEmitter {
                 });
             }
             NetEvent::Started { url } => {
+                // A new attempt: its failure is reported in its own right.
+                self.failure_reported.store(false, std::sync::atomic::Ordering::Relaxed);
                 self.emit(ResourceEvent::Started {
                     request_id: self.req_id,
                     reference: self.reference,
@@ -428,6 +436,32 @@ mod tests {
         let seen = failures(&mut rx);
         assert_eq!(seen.len(), 1, "expected exactly one failure, got {seen:?}");
         assert!(matches!(seen[0].0, LoadError::Blocked { .. }));
+    }
+
+    /// A connect failure is retried, and every attempt starts again under the same request
+    /// id. Each attempt has to end too, or the last one leaves the request running for good
+    /// in the embedder's log: a name that did not resolve showed "Resolving" for minutes.
+    #[test]
+    fn every_retried_attempt_ends() {
+        let (emitter, mut rx) = emitter();
+        let url = url::Url::parse("https://does-not-resolve.test/").unwrap();
+        for _ in 0..3 {
+            emitter.on_event(NetEvent::Started { url: url.clone() });
+            emitter.on_event(NetEvent::Failed {
+                url: url.clone(),
+                error: anyhow::anyhow!("dns error: failed to lookup address information"),
+            });
+        }
+
+        let mut events = Vec::new();
+        while let Ok(ResourceUpdate { event, .. }) = rx.try_recv() {
+            events.push(match event {
+                ResourceEvent::Started { .. } => "started",
+                ResourceEvent::Failed { .. } => "failed",
+                _ => "other",
+            });
+        }
+        assert_eq!(events, ["started", "failed", "started", "failed", "started", "failed"]);
     }
 
     /// The case that made this worth doing: a host nothing is listening on and a body that
