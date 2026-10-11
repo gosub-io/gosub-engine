@@ -2497,6 +2497,72 @@ mod rendertree_from_engine {
         );
     }
 
+    /// The page size after laying `html` out in an 800x600 window.
+    fn page_size(html: &str) -> crate::common::geo::Dimension {
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        TaffyLayouter::new()
+            .layout(render_tree, Some(crate::common::geo::Dimension::new(800.0, 600.0)), 1.0)
+            .root_dimension
+    }
+
+    /// A root one window tall (`height: 100%`, for a background that fills the window) with a
+    /// taller body: the page is the body's height, not the window's. It was the window's, so on
+    /// a phone the bottom of gosub://home could not be scrolled to or drawn.
+    #[test]
+    fn content_overflowing_a_window_tall_root_is_still_the_page() {
+        let size = page_size(
+            r#"<html style="height:100%"><body style="margin:0;min-height:100%">
+                <div style="height:1500px"></div>
+            </body></html>"#,
+        );
+        assert!((size.height - 1500.0).abs() < 1.0, "page height {}", size.height);
+    }
+
+    /// Wider than the window is as much the page as taller.
+    #[test]
+    fn content_overflowing_sideways_widens_the_page() {
+        let size =
+            page_size(r#"<html><body style="margin:0"><div style="width:2000px;height:10px"></div></body></html>"#);
+        assert!((size.width - 2000.0).abs() < 1.0, "page width {}", size.width);
+    }
+
+    /// `overflow: hidden` on the root goes to the window, which then does not scroll: the page
+    /// stays the root's box.
+    #[test]
+    fn a_root_that_clips_keeps_the_page_to_its_box() {
+        for html in [
+            r#"<html style="height:100%;overflow:hidden"><body style="margin:0"><div style="height:1500px"></div></body></html>"#,
+            r#"<html style="height:100%"><body style="margin:0;overflow:hidden"><div style="height:1500px"></div></body></html>"#,
+        ] {
+            let size = page_size(html);
+            assert!(
+                (size.height - 600.0).abs() < 1.0,
+                "page height {} for {html}",
+                size.height
+            );
+        }
+    }
+
+    /// A box that clips adds its own box to the page and nothing it hides; a fixed box sits in
+    /// the window and adds nothing.
+    #[test]
+    fn clipped_and_fixed_content_does_not_grow_the_page() {
+        let size = page_size(
+            r#"<html style="height:100%"><body style="margin:0">
+                <div style="height:900px;overflow:hidden"><div style="height:3000px"></div></div>
+                <div style="position:fixed;top:0;left:0;width:10px;height:5000px"></div>
+            </body></html>"#,
+        );
+        assert!((size.height - 900.0).abs() < 1.0, "page height {}", size.height);
+    }
+
     /// A promoted layer whose element has a collapsed margin box must still get tiles.
     ///
     /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid

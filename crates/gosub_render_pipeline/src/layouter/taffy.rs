@@ -792,6 +792,10 @@ impl TaffyLayouter {
         let icb = viewport.unwrap_or(layout_tree.root_dimension);
         let stretched = post_process_abspos(layout_tree, icb);
 
+        // Now that every box has settled, the page is what the window scrolls over: the root's
+        // box and everything that overflows it. See `scroll_extent`.
+        layout_tree.root_dimension = super::scroll_extent::scrollable_extent(layout_tree);
+
         (placed, stretched)
     }
 

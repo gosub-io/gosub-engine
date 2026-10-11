@@ -15,6 +15,7 @@ pub mod control_icons;
 mod css_taffy_converter;
 pub mod float;
 mod inline_run;
+pub mod scroll_extent;
 pub mod table;
 pub mod taffy;
 pub mod text;
@@ -439,6 +440,9 @@ pub struct LayoutTree {
     pub arena: HashMap<LayoutElementId, LayoutElementNode>,
     pub root_id: LayoutElementId,
     next_node_id: Arc<RwLock<LayoutElementId>>,
+    /// The size of the page: what the window scrolls over and the tiles cover. After layout
+    /// that is the root's box grown by whatever overflows it (see [`scroll_extent`]); during
+    /// layout, until the absolutely positioned boxes are placed, it is the root's box alone.
     pub root_dimension: Dimension,
     /// The open `<select>` dropdown, if any: not attached to the tree, gets its own top layer.
     pub popup: Option<LayoutElementId>,
