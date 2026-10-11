@@ -15,6 +15,9 @@ pub struct Submission {
     pub post: bool,
     /// urlencoded body for POST; GET carries the data in `url`'s query.
     pub body: Option<String>,
+    /// The referrer policy the form asks for: `no-referrer` for `rel="noreferrer"`, else
+    /// `None`, the document's.
+    pub referrer_policy: Option<gosub_sonar::ReferrerPolicy>,
 }
 
 /// The `<form>` a control belongs to: its `form` attribute's target, else the nearest ancestor.
@@ -159,12 +162,14 @@ pub fn submission<C: RenderConfiguration>(
         encoded.append_pair(&k, &v);
     }
     let encoded = encoded.finish();
+    let referrer_policy = crate::html::link_referrer_policy(doc, form);
 
     if post {
         return Some(Submission {
             url,
             post: true,
             body: Some(encoded),
+            referrer_policy,
         });
     }
     url.set_query(if encoded.is_empty() { None } else { Some(&encoded) });
@@ -173,6 +178,7 @@ pub fn submission<C: RenderConfiguration>(
         url,
         post: false,
         body: None,
+        referrer_policy,
     })
 }
 
@@ -204,4 +210,24 @@ pub fn default_submitter<C: RenderConfiguration>(doc: &EngineDocument<C>, form: 
         }
     }
     (text_fields == 1).then_some(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A form's `rel="noreferrer"` rides on its submission.
+    #[test]
+    fn a_noreferrer_form_submits_without_a_referrer() {
+        let doc = gosub_html5::html_compile::<crate::html::DefaultRenderConfig>(
+            r#"<form id="x" action="/s" rel="noreferrer"><input name="q" value="1"></form>"#,
+        );
+        let form = doc.node_by_named_id("x").unwrap();
+        let base = url::Url::parse("https://site.test/page").unwrap();
+        let submission = submission(&doc, form, None, &base).expect("a submission");
+        assert_eq!(
+            submission.referrer_policy,
+            Some(gosub_sonar::ReferrerPolicy::NoReferrer)
+        );
+    }
 }

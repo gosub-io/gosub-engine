@@ -38,7 +38,6 @@
 //! use gosub_render_pipeline::render::DefaultCompositor;
 //! use gosub_engine::events::{EngineEvent, TabCommand};
 //! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-//! use gosub_engine::cookies::DefaultCookieJar;
 //! use gosub_engine::zone::{ZoneConfig, ZoneServices};
 //!
 //! #[tokio::main]
@@ -52,14 +51,15 @@
 //!         Arc::new(compositor),
 //!     );
 //!
-//!     // 2) Zone services (ephemeral cookies here; use a CookieStore for persistence)
+//!     // 2) Zone services (no jar given: the engine provisions one, in the cookie
+//!     //    vault when it runs; add a CookieStore for persistence)
 //!     let services = ZoneServices {
 //!         storage: Arc::new(StorageService::new(
 //!             Arc::new(InMemoryLocalStore::new()),
 //!             Arc::new(InMemorySessionStore::new()),
 //!         )),
 //!         cookie_store: None,
-//!         cookie_jar: Some(DefaultCookieJar::new().into()),
+//!         cookie_jar: None,
 //!         partition_policy: PartitionPolicy::None,
 //!         places: None,
 //!     };

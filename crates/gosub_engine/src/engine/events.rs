@@ -159,6 +159,15 @@ pub(crate) enum IoCommand {
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
+    /// A network navigation is starting, by `initiator`'s link or form, or the
+    /// user's own when `None`. Sent before its request, through the same queue,
+    /// so its hops are judged against who started it (see
+    /// `TabIdentity::cookie_context`).
+    StartNavigation {
+        tab_id: TabId,
+        nav_id: crate::engine::types::NavigationId,
+        initiator: Option<url::Url>,
+    },
     /// The tab now shows `url`: requests it makes from here on belong to that
     /// document. Sent through the same queue as the tab's fetches, so a request
     /// queued before a navigation keeps the old document's cookie context and one

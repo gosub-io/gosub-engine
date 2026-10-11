@@ -76,11 +76,11 @@ pub use cookies::Cookie;
 pub use cookies::CookieJarHandle;
 pub use cookies::CookieStoreHandle;
 
-pub(crate) use cookie_jar::request_context;
 pub use cookie_jar::CookieJar;
 pub use cookie_jar::DefaultCookieJar;
 pub use cookie_jar::SameSiteContext;
 pub use cookie_jar::ThirdPartyCookiePolicy;
+pub(crate) use cookie_jar::{hop_context, request_context};
 pub use persistent_cookie_jar::PersistentCookieJar;
 
 pub use store::CookieStore;

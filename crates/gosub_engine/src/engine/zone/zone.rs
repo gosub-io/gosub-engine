@@ -81,7 +81,8 @@ pub struct ZoneServices {
     pub storage: Arc<StorageService>,
     /// Cookie store for this zone (if any)
     pub cookie_store: Option<CookieStoreHandle>,
-    /// Cookie jar for this zone (if any)
+    /// Cookie jar for this zone. `None` lets the engine provision it (in the
+    /// cookie vault when one runs); a jar given here stays in this process.
     pub cookie_jar: Option<CookieJarHandle>,
     /// Policy for partitioning storage (cookies, localStorage, etc.)
     pub partition_policy: PartitionPolicy,
@@ -90,8 +91,9 @@ pub struct ZoneServices {
 }
 
 impl Default for ZoneServices {
-    /// An ephemeral profile: in-memory storage and cookie jar, nothing persisted, nothing
-    /// partitioned, no history. The starting point for [`ZoneBuilder`](crate::ZoneBuilder).
+    /// An ephemeral profile: in-memory storage, an engine-provisioned cookie jar, nothing
+    /// persisted, nothing partitioned, no history. The starting point for
+    /// [`ZoneBuilder`](crate::ZoneBuilder).
     fn default() -> Self {
         Self {
             storage: Arc::new(StorageService::new(
@@ -99,7 +101,7 @@ impl Default for ZoneServices {
                 Arc::new(crate::storage::InMemorySessionStore::new()),
             )),
             cookie_store: None,
-            cookie_jar: Some(crate::cookies::DefaultCookieJar::new().into()),
+            cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
         }
@@ -171,6 +173,11 @@ pub struct Zone<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     pub description: String,
     /// Tab color (RGBA)
     pub color: [u8; 4],
+    /// The vault registration of a jar the engine provisioned, given back when
+    /// the zone goes: by `GosubEngine::close_zone` once the tabs have stopped,
+    /// or when the zone is dropped. `None` for an embedder-supplied jar.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub(crate) vault_lease: Option<crate::cookie_vault::client::ZoneLease>,
 }
 
 impl<C: RenderConfiguration> Debug for Zone<C> {
@@ -275,6 +282,8 @@ impl<C: RenderConfiguration> Zone<C> {
             description: "".to_string(),
             color: random_color,
             config,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            vault_lease: None,
         };
 
         _ = zone.spawn_storage_events_to_engine();

@@ -27,6 +27,8 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
         /// `None` when the renderer process parses instead of this one.
         doc: Option<Arc<EngineDocument<C>>>,
         source: Option<Arc<str>>,
+        /// The document's referrer policy (see [`ParsedDocument::into_parts`]).
+        referrer_policy: gosub_sonar::ReferrerPolicy,
     },
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
@@ -269,10 +271,11 @@ pub async fn route_response_for<C: RenderConfiguration>(
                         hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                     }
                 };
-                let (doc, source) = parsed.into_parts();
+                let (doc, source, referrer_policy) = parsed.into_parts();
                 Ok(RoutedOutcome::MainDocument {
                     doc: doc.map(Arc::new),
                     source,
+                    referrer_policy,
                 })
             }
             RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
@@ -302,7 +305,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 meta.content_type = Some("text/html; charset=utf-8".into());
                 // The synthesized viewer page is a document like any other: its
                 // source travels along so a renderer process can re-parse it too.
-                let (doc, source) = hooks
+                let (doc, source, referrer_policy) = hooks
                     .html
                     .parse_bytes(request, handle, meta, html.as_bytes())
                     .await?
@@ -310,6 +313,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 return Ok(RoutedOutcome::MainDocument {
                     doc: doc.map(Arc::new),
                     source,
+                    referrer_policy,
                 });
             }
             // Binary content or an explicit attachment: offer it to the embedder as a

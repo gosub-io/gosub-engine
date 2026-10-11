@@ -45,6 +45,12 @@ pub enum ToVault {
         url: String,
         /// Only cookies a script may see (no HttpOnly): the `document.cookie` view.
         visible_only: bool,
+        /// Whether the hop's method is safe (`GET`, `HEAD`, ...). From the
+        /// network process, `false` turns a cross-site navigation into a
+        /// cross-site request, no `Lax` cookies; it only ever narrows, so a
+        /// network process saying `true` gains nothing. The broker's own
+        /// scopes are already judged, and say `true`.
+        safe_method: bool,
     },
     /// Record a response's `Set-Cookie` headers. Answered with
     /// [`FromVault::Stored`] once the jar holds them, or

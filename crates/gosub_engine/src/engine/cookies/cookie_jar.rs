@@ -161,9 +161,8 @@ pub enum SameSiteContext {
 impl SameSiteContext {
     /// The stricter of two contexts: the one fewer cookies are eligible in.
     /// A redirect chain is only as same-site as its least same-site hop
-    /// (RFC 6265bis §5.2), so this is how a chain's context accumulates. The
-    /// vault keeps one per ticket; nothing else follows a whole chain.
-    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    /// (RFC 6265bis §5.2), so this is how a chain's context accumulates: the
+    /// vault keeps one per ticket, [`hop_context`] folds the hop's URL list.
     pub(crate) fn stricter(self, other: Self) -> Self {
         let rank = |c: Self| match c {
             Self::SameSite => 2,
@@ -176,6 +175,36 @@ impl SameSiteContext {
             self
         }
     }
+
+    /// This context for a hop sent with a method that is `safe` or not. A
+    /// cross-site navigation by an unsafe method (a `POST`, or a `307`/`308`
+    /// that kept one) is a cross-site request: `Lax` cookies stay home, which
+    /// is the whole of `Lax`'s CSRF protection. Narrows only.
+    pub(crate) fn for_method(self, safe: bool) -> Self {
+        match self {
+            Self::CrossSiteNavigation if !safe => Self::CrossSite,
+            context => context,
+        }
+    }
+}
+
+/// The context one hop of a request is judged in: the stricter of every URL
+/// the request has been to, this hop's last, against the document, so a chain
+/// that passed through another site stays cross-site when it comes back
+/// (RFC 6265bis §5.2); then narrowed by the hop's `method`.
+pub(crate) fn hop_context(
+    top_level: Option<&Url>,
+    url: &Url,
+    url_list: &[Url],
+    method: &http::Method,
+    navigation: bool,
+) -> SameSiteContext {
+    url_list
+        .iter()
+        .chain(std::iter::once(url))
+        .map(|u| request_context(top_level, u, navigation))
+        .fold(SameSiteContext::SameSite, SameSiteContext::stricter)
+        .for_method(method.is_safe())
 }
 
 /// Classify a request to `url` against the document that caused it, so
@@ -1087,6 +1116,62 @@ mod tests {
                 "SameSite=None; Secure must be sent in all contexts"
             );
         }
+    }
+
+    // ── hop_context ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn cross_site_navigation_hop_by_post_is_a_cross_site_request() {
+        let top = url("https://a.example/");
+        let to = url("https://b.example/");
+        let ctx = |method: http::Method| hop_context(Some(&top), &to, &[], &method, true);
+        assert_eq!(ctx(http::Method::GET), SameSiteContext::CrossSiteNavigation);
+        assert_eq!(ctx(http::Method::HEAD), SameSiteContext::CrossSiteNavigation);
+        assert_eq!(ctx(http::Method::POST), SameSiteContext::CrossSite);
+    }
+
+    #[test]
+    fn same_site_hop_by_post_stays_same_site() {
+        let top = url("https://a.example/");
+        let to = url("https://www.a.example/form");
+        assert_eq!(
+            hop_context(Some(&top), &to, &[], &http::Method::POST, true),
+            SameSiteContext::SameSite
+        );
+    }
+
+    #[test]
+    fn chain_through_another_site_stays_cross_site_on_the_way_back() {
+        let top = url("https://a.example/");
+        let back = url("https://a.example/landing");
+        let chain = [url("https://a.example/start"), url("https://b.example/bounce")];
+        assert_eq!(
+            hop_context(Some(&top), &back, &chain, &http::Method::GET, true),
+            SameSiteContext::CrossSiteNavigation
+        );
+        assert_eq!(
+            hop_context(Some(&top), &back, &chain, &http::Method::GET, false),
+            SameSiteContext::CrossSite
+        );
+        assert_eq!(
+            hop_context(Some(&top), &back, &chain[..1], &http::Method::GET, false),
+            SameSiteContext::SameSite
+        );
+    }
+
+    #[test]
+    fn lax_cookie_withheld_from_cross_site_post_navigation() {
+        let mut jar = DefaultCookieJar::new();
+        let site = url("https://b.example/");
+        jar.store_response_cookies(&site, &headers(&["lax=1; Path=/; SameSite=Lax; Secure"]), None);
+        let top = url("https://a.example/");
+        let get = hop_context(Some(&top), &site, &[], &http::Method::GET, true);
+        let post = hop_context(Some(&top), &site, &[], &http::Method::POST, true);
+        assert_eq!(
+            jar.get_request_cookies(&site, Some(&top), get).as_deref(),
+            Some("lax=1")
+        );
+        assert_eq!(jar.get_request_cookies(&site, Some(&top), post), None);
     }
 
     // ── Domain validation ─────────────────────────────────────────────────────

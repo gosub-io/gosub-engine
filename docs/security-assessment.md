@@ -176,7 +176,8 @@ a renderer.
   clamped to the viewport, strings and counts bounded like hit regions with
   an over-cap frame treated as a crash. A compromised renderer can still
   misdirect the page it holds - type into the wrong field, submit a form it
-  composed to an origin the page may reach, show a cursor - which is what
+  composed to an origin the page may reach, pick how much of the page's URL a
+  navigation sends as `Referer`, show a cursor - which is what
   holding the page means; it cannot reach the clipboard without the user's
   chord, navigate to a scheme a page may not, or make the broker act on a
   frame it did not bound. The effect rules are unit-tested and a harness

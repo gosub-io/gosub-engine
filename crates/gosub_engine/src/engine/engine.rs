@@ -827,7 +827,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
     /// `None` for `zone_id` generates a fresh id. Fails with
     /// [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones. The returned handle carries the [`ZoneId`]
+    /// [`EngineConfig::max_zones`] zones, with [`EngineError::ZoneAlreadyExists`]
+    /// for the id of a zone it still holds, and with [`EngineError::CookieStore`]
+    /// when the given cookie store cannot provision the zone's jar. The returned handle carries the [`ZoneId`]
     /// and a clone of the engine's command sender, so the caller can send zone
     /// commands without holding a reference to the engine.
     pub(crate) fn create_zone(
@@ -838,6 +840,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     ) -> Result<Zone<C>, EngineError> {
         if self.zones.len() >= self.context.config.max_zones {
             return Err(EngineError::ZoneLimitExceeded);
+        }
+        // One live zone per id: the vault, the cookie stores and the zone map
+        // all key on it, and a second zone would share (and on its way out
+        // close) the first one's.
+        let zone_id = zone_id.unwrap_or_default();
+        if self.zones.contains_key(&zone_id) {
+            return Err(EngineError::ZoneAlreadyExists);
         }
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
         let cookie_store = services.cookie_store.clone();
@@ -851,18 +860,24 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let services = match self.context.cookie_vault.get() {
             Some(vault) if services.cookie_jar.is_none() => {
                 let vault = Arc::clone(vault);
-                let id = zone_id.unwrap_or_default();
+                let id = zone_id;
                 vault.open_zone(id, cookie_store.clone());
                 let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(&vault), id).handle();
-                let created = self.create_zone_with_services(
-                    config,
-                    ZoneServices {
-                        cookie_jar: Some(jar),
-                        ..services
-                    },
-                    Some(id),
-                    cookie_store,
-                );
+                let created = self
+                    .create_zone_with_services(
+                        config,
+                        ZoneServices {
+                            cookie_jar: Some(jar),
+                            ..services
+                        },
+                        Some(id),
+                        cookie_store,
+                    )
+                    .map(|mut zone| {
+                        // The zone gives the jar back when it goes, closed or dropped.
+                        zone.vault_lease = Some(vault.lease(id));
+                        zone
+                    });
                 // No zone came of it: the vault must not keep (or respawn
                 // with) a jar nothing will ever close, nor the storage
                 // service a reference nothing will give back.
@@ -874,7 +889,35 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             }
             _ => services,
         };
-        let created = self.create_zone_with_services(config, services, zone_id, cookie_store);
+        // Without the vault the engine still provisions one jar for the whole
+        // zone: its cookie store's, so cookies persist, or else one in memory.
+        // Left to the tabs, each would get a fresh jar and share no cookies.
+        let services = match services.cookie_jar {
+            Some(_) => services,
+            None => {
+                let jar = match &cookie_store {
+                    None => crate::cookies::DefaultCookieJar::new().into(),
+                    Some(store) => match store.jar_for(zone_id) {
+                        Some(jar) => jar,
+                        // The store could not provision the jar. One in memory
+                        // would take cookies it never persists, so no zone.
+                        None => {
+                            let failed = Err(EngineError::CookieStore(anyhow::anyhow!(
+                                "the cookie store could not provision a jar for zone {zone_id}"
+                            )));
+                            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                            self.settle_local_storage(&failed, routed);
+                            return failed;
+                        }
+                    },
+                };
+                ZoneServices {
+                    cookie_jar: Some(jar),
+                    ..services
+                }
+            }
+        };
+        let created = self.create_zone_with_services(config, services, Some(zone_id), cookie_store);
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.settle_local_storage(&created, routed);
         created
@@ -1016,13 +1059,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let zone_id = zone.id;
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
+        // The zone goes with it, and its vault lease, if the engine provisioned
+        // its jar there: the vault drops the jar once its last snapshot is with
+        // the store.
         zone.close().await;
-
-        // The vault drops the zone's jar once its last snapshot is with the store.
-        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if let Some(vault) = self.context.cookie_vault.get() {
-            vault.close_zone(zone_id);
-        }
 
         // Shut down the zone's fetcher on the I/O thread (ack'd).
         if let Some(io) = &self.io_handle {
@@ -1088,7 +1128,10 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
-    /// The cookie jar. `None` means the zone sends and stores no cookies.
+    /// The cookie jar. `None` (the default) lets the engine provision the zone's
+    /// jar: in the cookie vault when `security.cookie_vault` runs one, else from
+    /// the zone's cookie store, else in memory. A jar given here stays in this
+    /// process and is never moved into the vault.
     pub fn cookie_jar(mut self, jar: Option<crate::cookies::CookieJarHandle>) -> Self {
         self.services.cookie_jar = jar;
         self
@@ -1112,7 +1155,10 @@ impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
         self
     }
 
-    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`.
+    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`, with
+    /// [`EngineError::ZoneAlreadyExists`] for the [`id`](Self::id) of a zone the engine still
+    /// holds, and with [`EngineError::CookieStore`] when the
+    /// [`cookie_store`](Self::cookie_store) cannot provision the zone's jar.
     pub fn create(self) -> Result<Zone<C>, EngineError> {
         self.engine.create_zone(self.config, self.services, self.id)
     }
@@ -1944,6 +1990,89 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A page's `Referrer-Policy` header decides the `Referer` its subresources send, until a
+    /// `<meta name="referrer">` changes it for the elements after it; an element's own
+    /// `referrerpolicy` beats both.
+    #[tokio::test]
+    async fn subresources_send_the_referer_the_documents_policy_allows() {
+        use std::collections::HashMap;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+        let captured = seen.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = request.split(' ').nth(1).unwrap_or("").to_string();
+                let response = if path == "/page" {
+                    let body = r#"<html><head><img src="/a.png">
+                        <meta name="referrer" content="no-referrer"><img src="/b.png">
+                        <img referrerpolicy="unsafe-url" src="/c.png"></head></html>"#;
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nReferrer-Policy: origin\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                } else {
+                    captured.lock().entry(path).or_insert(request);
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                };
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigation");
+
+        for _ in 0..100 {
+            if seen.lock().len() >= 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let seen = seen.lock().clone();
+
+        use cow_utils::CowUtils;
+        let referer = |path: &str| {
+            let request = seen
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} was never requested: {seen:?}"));
+            request
+                .cow_to_ascii_lowercase()
+                .lines()
+                .find_map(|line| line.strip_prefix("referer: ").map(str::to_string))
+        };
+        assert_eq!(
+            referer("/a.png"),
+            Some(format!("http://127.0.0.1:{port}/")),
+            "the header's origin policy sends the origin alone"
+        );
+        assert_eq!(referer("/b.png"), None, "the meta's no-referrer sends nothing");
+        assert_eq!(
+            referer("/c.png"),
+            Some(format!("http://127.0.0.1:{port}/page")),
+            "the element's unsafe-url sends the whole URL"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[tokio::test]
     async fn cookie_store_persists_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -1975,6 +2104,47 @@ mod tests {
             contents.contains("sid") && contents.contains("abc123"),
             "cookie should be persisted on shutdown, got: {contents}"
         );
+    }
+
+    /// A store given to the bare builder is the jar the zone uses: before, the
+    /// builder's default in-memory jar won and the store was never written.
+    #[tokio::test]
+    async fn builder_zone_uses_its_cookie_store_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        let store: CookieStoreHandle = crate::cookies::JsonCookieStore::new(dir.path().join("cookies.json"))
+            .unwrap()
+            .into();
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let zone = engine
+            .zone_builder()
+            .cookie_store(Some(store.clone()))
+            .create()
+            .expect("zone");
+        let zone_jar = zone.context.services.cookie_jar.clone().expect("a zone jar");
+        let store_jar = store.jar_for(zone.id).expect("persistent jar");
+        assert!(crate::cookies::CookieJarHandle::ptr_eq(&zone_jar, &store_jar));
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Without the vault a zone given no jar still gets one, shared by its
+    /// tabs, rather than a fresh jar per tab.
+    #[tokio::test]
+    async fn zone_without_a_jar_gets_one_for_all_its_tabs() {
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let zone = engine.zone_builder().services(services()).create().expect("zone");
+        assert!(zone.context.services.cookie_jar.is_some());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]
@@ -2540,6 +2710,323 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// `SameSite` end to end, judged by who asked: `localhost` and `127.0.0.1`
+    /// are different sites. The user's own navigation to the cookie site sends
+    /// both cookies; a link on the other site sends `Lax` only; an image the
+    /// other site embeds sends neither.
+    #[tokio::test]
+    async fn samesite_cookies_follow_the_initiator() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        type Seen = Arc<Mutex<Vec<(String, String)>>>;
+        async fn serve(listener: tokio::net::TcpListener, seen: Seen, page: String) {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen = seen.clone();
+                let page = page.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                    let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let cookie = request
+                        .lines()
+                        .find_map(|l| l.strip_prefix("cookie: "))
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    seen.lock().push((path.clone(), cookie));
+                    let (extra, body) = if path == "/set" {
+                        (
+                            "Set-Cookie: strict=1; SameSite=Strict; Path=/\r\n\
+                             Set-Cookie: lax=1; SameSite=Lax; Path=/\r\n",
+                            "<html><body>set</body></html>".to_string(),
+                        )
+                    } else {
+                        ("", page)
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        }
+
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        let site_seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        tokio::spawn(serve(site, site_seen.clone(), "<html><body>site</body></html>".into()));
+        let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let other_port = other.local_addr().unwrap().port();
+        let other_page = format!(
+            "<html><body><a href=\"http://127.0.0.1:{site_port}/link\">go</a>\
+             <img src=\"http://127.0.0.1:{site_port}/img\"></body></html>"
+        );
+        tokio::spawn(serve(other, Arc::new(Mutex::new(Vec::new())), other_page));
+
+        let cookie_at = |path: &str| -> Option<String> {
+            site_seen
+                .lock()
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, cookie)| cookie.clone())
+        };
+        let seen_at = |path: &'static str| {
+            let site_seen = site_seen.clone();
+            async move {
+                for _ in 0..200 {
+                    if site_seen.lock().iter().any(|(p, _)| p == path) {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                false
+            }
+        };
+        let finished = |ev: &EngineEvent| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        };
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/set"))
+            .await
+            .expect("set");
+        assert!(
+            wait_for(&mut event_rx, finished).await,
+            "the cookie page never finished"
+        );
+        tab.navigate(format!("http://localhost:{other_port}/"))
+            .await
+            .expect("other");
+        assert!(wait_for(&mut event_rx, finished).await, "the other site never finished");
+        assert!(
+            seen_at("/img").await,
+            "the other site's image never reached the cookie site"
+        );
+
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("enter key");
+        assert!(seen_at("/link").await, "the link was never followed");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/direct"))
+            .await
+            .expect("direct");
+        assert!(seen_at("/direct").await, "the user's navigation never arrived");
+
+        let img = cookie_at("/img").unwrap_or_default();
+        assert!(
+            !img.contains("lax=1") && !img.contains("strict=1"),
+            "a cross-site image sent {img:?}"
+        );
+        let link = cookie_at("/link").unwrap_or_default();
+        assert!(
+            link.contains("lax=1") && !link.contains("strict=1"),
+            "a cross-site link sent {link:?}"
+        );
+        let direct = cookie_at("/direct").unwrap_or_default();
+        assert!(
+            direct.contains("lax=1") && direct.contains("strict=1"),
+            "the user's own navigation sent {direct:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A page being navigated away from still loads (scroll, hover and media
+    /// passes, a renderer's brokered loads) while the tab's top level is
+    /// already the target. Those loads are the old page's: from another site
+    /// to the cookie site they send neither `Strict` nor `Lax` cookies, though
+    /// the tab is on its way to the cookie site itself.
+    #[tokio::test]
+    async fn the_old_pages_late_loads_are_judged_against_the_old_page() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+        use crate::net::types::{FetchRequest, ResourceKind, SubresourceOf as _};
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use url::Url;
+
+        let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        // Held open until the late load has been answered, so the navigation
+        // to `/slow` is still under way when the old page asks.
+        let release = Arc::new(tokio::sync::Notify::new());
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let site_port = site.local_addr().unwrap().port();
+        tokio::spawn({
+            let seen = seen.clone();
+            let release = release.clone();
+            async move {
+                while let Ok((mut stream, _)) = site.accept().await {
+                    let seen = seen.clone();
+                    let release = release.clone();
+                    tokio::spawn(async move {
+                        let mut buf = vec![0u8; 8192];
+                        let n = stream.read(&mut buf).await.unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buf[..n]).cow_to_ascii_lowercase().into_owned();
+                        let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                        let cookie = request
+                            .lines()
+                            .find_map(|l| l.strip_prefix("cookie: "))
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        seen.lock().push((path.clone(), cookie));
+                        if path == "/slow" {
+                            release.notified().await;
+                        }
+                        let extra = if path == "/set" {
+                            "Set-Cookie: strict=1; SameSite=Strict; Path=/\r\nSet-Cookie: lax=1; SameSite=Lax; Path=/\r\n"
+                        } else {
+                            ""
+                        };
+                        let body = "<html><body>site</body></html>";
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes()).await;
+                        let _ = stream.write_all(body.as_bytes()).await;
+                    });
+                }
+            }
+        });
+        let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let other_port = other.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = other.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><body>other</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+        let finished = |ev: &EngineEvent| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        };
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/set"))
+            .await
+            .expect("set");
+        assert!(
+            wait_for(&mut event_rx, finished).await,
+            "the cookie page never finished"
+        );
+        let old_page = Url::parse(&format!("http://localhost:{other_port}/")).unwrap();
+        tab.navigate(old_page.to_string()).await.expect("other");
+        assert!(wait_for(&mut event_rx, finished).await, "the other site never finished");
+
+        tab.navigate(format!("http://127.0.0.1:{site_port}/slow"))
+            .await
+            .expect("slow");
+        let mut started = false;
+        for _ in 0..200 {
+            if seen.lock().iter().any(|(p, _)| p == "/slow") {
+                started = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(started, "the navigation away never reached the cookie site");
+
+        // The old page's late load, as its loader stamps it.
+        let reference = RequestReference::Document(u64::MAX - 0x5a5e);
+        zone.context.request_reference_map.write().insert(reference, tab.tab_id);
+        let req = FetchRequest::builder(
+            http::Method::GET,
+            Url::parse(&format!("http://127.0.0.1:{site_port}/late.png")).unwrap(),
+        )
+        .with_reference(REF_REGISTRY.to_net(reference))
+        .with_kind(ResourceKind::Image { imageset: false }.to_net())
+        .subresource_of(
+            &old_page,
+            gosub_sonar::ReferrerPolicy::default(),
+            ResourceKind::Image { imageset: false },
+        )
+        .build();
+        let (_handle, rx) = crate::net::submit_to_io(zone.id, Some(tab.tab_id), req, zone.context.io_tx.clone(), None)
+            .await
+            .expect("submit");
+        let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
+        release.notify_one();
+
+        let late = seen
+            .lock()
+            .iter()
+            .find(|(p, _)| p == "/late.png")
+            .map(|(_, cookie)| cookie.clone());
+        let late = late.expect("the late load never reached the cookie site");
+        assert!(
+            !late.contains("lax=1") && !late.contains("strict=1"),
+            "the old page's late load sent {late:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Wait (with timeout) for an event matching `pred`; true when it arrived.
     async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -2984,6 +3471,68 @@ mod tests {
 
         let err = engine.zone_builder().services(services()).create().unwrap_err();
         assert!(matches!(err, EngineError::ZoneLimitExceeded));
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A cookie store that cannot provision the zone's jar fails the zone: an in-memory jar in
+    /// its place would take cookies the store never persists.
+    #[tokio::test]
+    async fn a_store_that_cannot_provision_a_jar_fails_the_zone() {
+        struct Broken;
+        impl crate::cookies::CookieStore for Broken {
+            fn jar_for(&self, _: ZoneId) -> Option<crate::cookies::CookieJarHandle> {
+                None
+            }
+            fn persist_zone_from_snapshot(&self, _: ZoneId, _: &crate::cookies::DefaultCookieJar) {}
+            fn remove_zone(&self, _: ZoneId) {}
+            fn release_zone(&self, _: ZoneId) {}
+            fn persist_all(&self) {}
+        }
+
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        // The vault provisions from the store's snapshot, not its jar: this is the in-process path.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if engine.cookie_vault().is_some() {
+            engine.shutdown().await.expect("shutdown");
+            return;
+        }
+
+        let store: CookieStoreHandle = Arc::new(Broken).into();
+        let err = engine.zone_builder().cookie_store(Some(store)).create().unwrap_err();
+        assert!(matches!(err, EngineError::CookieStore(_)), "{err:?}");
+        // No zone came of it, so the slot is still free.
+        engine.zone_builder().create().expect("a zone without a store");
+
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A second zone with a live zone's id is refused: it would share that zone's vault entry,
+    /// cookie store and place in the zone map, and close them for both on its way out.
+    #[tokio::test]
+    async fn create_zone_refuses_a_live_zones_id() {
+        let mut engine = engine_with_max_zones(2);
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let id = ZoneId::new();
+        let zone = engine
+            .zone_builder()
+            .id(id)
+            .services(services())
+            .create()
+            .expect("first zone");
+        let err = engine.zone_builder().id(id).services(services()).create().unwrap_err();
+        assert!(matches!(err, EngineError::ZoneAlreadyExists));
+
+        // Closed, the id is free again.
+        engine.close_zone(zone).await;
+        engine
+            .zone_builder()
+            .id(id)
+            .services(services())
+            .create()
+            .expect("the id of a closed zone");
 
         engine.shutdown().await.expect("shutdown");
     }

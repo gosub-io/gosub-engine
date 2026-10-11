@@ -262,6 +262,9 @@ pub enum Effect {
         url: String,
         post: bool,
         body: Option<String>,
+        /// The referrer policy the link or form asks for; `None` leaves the
+        /// document's.
+        referrer_policy: Option<WireReferrerPolicy>,
     },
     /// A control that needs the embedder's picker: the fields of
     /// `EngineEvent::PickerRequested`.
@@ -433,6 +436,54 @@ pub struct HitRegion {
     pub image: Option<String>,
     pub cursor: HitCursor,
     pub editable: bool,
+    /// The referrer policy `link` asks for (`rel="noreferrer"`, `referrerpolicy`);
+    /// `None` leaves the document's.
+    pub link_referrer_policy: Option<WireReferrerPolicy>,
+}
+
+/// A referrer policy as it crosses the link: gosub-sonar's has no serde.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WireReferrerPolicy {
+    NoReferrer,
+    NoReferrerWhenDowngrade,
+    SameOrigin,
+    Origin,
+    StrictOrigin,
+    OriginWhenCrossOrigin,
+    StrictOriginWhenCrossOrigin,
+    UnsafeUrl,
+}
+
+impl From<gosub_sonar::ReferrerPolicy> for WireReferrerPolicy {
+    fn from(policy: gosub_sonar::ReferrerPolicy) -> Self {
+        use gosub_sonar::ReferrerPolicy as P;
+        match policy {
+            P::NoReferrer => Self::NoReferrer,
+            P::NoReferrerWhenDowngrade => Self::NoReferrerWhenDowngrade,
+            P::SameOrigin => Self::SameOrigin,
+            P::Origin => Self::Origin,
+            P::StrictOrigin => Self::StrictOrigin,
+            P::OriginWhenCrossOrigin => Self::OriginWhenCrossOrigin,
+            P::StrictOriginWhenCrossOrigin => Self::StrictOriginWhenCrossOrigin,
+            P::UnsafeUrl => Self::UnsafeUrl,
+        }
+    }
+}
+
+impl From<WireReferrerPolicy> for gosub_sonar::ReferrerPolicy {
+    fn from(policy: WireReferrerPolicy) -> Self {
+        use WireReferrerPolicy as W;
+        match policy {
+            W::NoReferrer => Self::NoReferrer,
+            W::NoReferrerWhenDowngrade => Self::NoReferrerWhenDowngrade,
+            W::SameOrigin => Self::SameOrigin,
+            W::Origin => Self::Origin,
+            W::StrictOrigin => Self::StrictOrigin,
+            W::OriginWhenCrossOrigin => Self::OriginWhenCrossOrigin,
+            W::StrictOriginWhenCrossOrigin => Self::StrictOriginWhenCrossOrigin,
+            W::UnsafeUrl => Self::UnsafeUrl,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
