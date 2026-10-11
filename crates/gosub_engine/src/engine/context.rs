@@ -617,6 +617,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.remote_input_queue.clear();
             self.remote_effects.clear();
         }
+        // Nothing the last document loaded answers for this one: whether a URL loads at all is
+        // the document's call.
+        self.media_store.begin_document();
         self.note_invalidate("document");
         self.document = doc;
         self.damage.rebuild();

@@ -141,8 +141,18 @@ const MAX_MEDIA_ENTRIES: usize = 4096;
 const MAX_MEDIA_QUEUE: usize = 4096;
 
 type MediaLoader = std::sync::Arc<dyn crate::net::resource_loader::ResourceLoader>;
-/// One queued fetch: the URL, what it is for, and the loader to fetch it with.
-type MediaJob = (url::Url, ResourceKind, MediaLoader);
+/// One queued fetch: the URL, what it is for, the loader to fetch it with, and the document
+/// (see [`RemoteMediaCache::document`]) it was asked for.
+type MediaJob = (url::Url, ResourceKind, MediaLoader, u64);
+
+/// What a fetch is filed under. An `imageset` request is blocked where a plain one for the
+/// same URL is upgraded, so neither answers the other.
+fn media_key(url: &url::Url, kind: ResourceKind) -> String {
+    match kind {
+        ResourceKind::Image { imageset: true } => format!("imageset {url}"),
+        _ => url.to_string(),
+    }
+}
 
 #[derive(Default)]
 struct MediaEntries {
@@ -206,6 +216,9 @@ pub struct RemoteMediaCache {
     in_flight: parking_lot::Mutex<std::collections::HashSet<String>>,
     queue: parking_lot::Mutex<MediaQueue>,
     completed: std::sync::atomic::AtomicBool,
+    /// Bumped by [`RemoteMediaCache::clear`]: a fetch the last document started lands
+    /// after it, and its answer was that document's.
+    document: std::sync::atomic::AtomicU64,
 }
 
 impl RemoteMediaCache {
@@ -215,7 +228,8 @@ impl RemoteMediaCache {
         kind: ResourceKind,
         loader: MediaLoader,
     ) -> Result<LoadedResource, LoadError> {
-        let key = url.to_string();
+        let key = media_key(url, kind);
+        let document = self.document.load(std::sync::atomic::Ordering::Acquire);
         if let Some(entry) = self.entries.lock().by_url.get(&key) {
             return entry.clone().map_err(LoadError::Failed);
         }
@@ -231,13 +245,13 @@ impl RemoteMediaCache {
                 self.in_flight.lock().remove(&key);
                 return Err(LoadError::Failed("too many images waiting to load".into()));
             }
-            queue.waiting.push_back((url.clone(), kind, loader));
+            queue.waiting.push_back((url.clone(), kind, loader, document));
             return Err(LoadError::Pending);
         }
         queue.fetchers += 1;
         drop(queue);
         let cache = std::sync::Arc::clone(self);
-        let first = (url.clone(), kind, loader);
+        let first = (url.clone(), kind, loader, document);
         let spawned = std::thread::Builder::new()
             .name("gosub-remote-media".into())
             .spawn(move || cache.work(first));
@@ -253,10 +267,18 @@ impl RemoteMediaCache {
     /// it is empty.
     fn work(&self, first: MediaJob) {
         let mut next = Some(first);
-        while let Some((url, kind, loader)) = next.take() {
+        while let Some((url, kind, loader, document)) = next.take() {
             let fetched = loader.load(&url, kind).map_err(|e| e.to_string());
-            self.entries.lock().insert(url.to_string(), fetched);
-            self.in_flight.lock().remove(url.as_str());
+            let key = media_key(&url, kind);
+            // Checked under the entries lock, which `clear` takes too: no answer for a
+            // document that has gone lands in the next one's cache.
+            {
+                let mut entries = self.entries.lock();
+                if self.document.load(std::sync::atomic::Ordering::Acquire) == document {
+                    entries.insert(key.clone(), fetched);
+                }
+            }
+            self.in_flight.lock().remove(&key);
             self.completed.store(true, std::sync::atomic::Ordering::Release);
             let mut queue = self.queue.lock();
             next = queue.waiting.pop_front();
@@ -272,10 +294,13 @@ impl RemoteMediaCache {
         self.completed.swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
-    /// Forget everything (a new document). Fetches already running finish
-    /// into the new page's cache, which is harmless.
+    /// Forget everything (a new document). Fetches already running finish,
+    /// but not into the new page's cache.
     pub fn clear(&self) {
-        *self.entries.lock() = MediaEntries::default();
+        let mut entries = self.entries.lock();
+        self.document.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        *entries = MediaEntries::default();
+        drop(entries);
         self.in_flight.lock().clear();
         self.queue.lock().waiting.clear();
         self.completed.store(false, std::sync::atomic::Ordering::Release);
@@ -1949,6 +1974,7 @@ mod tests {
                     url.clone(),
                     ResourceKind::Image { imageset: false },
                     std::sync::Arc::clone(&loader),
+                    0,
                 ));
             }
         }
@@ -1958,6 +1984,30 @@ mod tests {
         assert!(matches!(answer, Err(LoadError::Failed(_))), "{answer:?}");
         assert_eq!(cache.queue.lock().waiting.len(), MAX_MEDIA_QUEUE);
         assert!(!cache.in_flight.lock().contains(url.as_str()));
+    }
+
+    /// A fetch the last document started lands after the next one cleared the cache, and is
+    /// not that document's answer; an `imageset` answer is not a plain request's either.
+    #[test]
+    fn a_fetch_from_the_last_document_does_not_land_in_the_next() {
+        let cache = RemoteMediaCache::default();
+        let url = url::Url::parse("http://img.test/a.png").unwrap();
+        let loader: MediaLoader = std::sync::Arc::new(crate::net::resource_loader::NoResourceLoader);
+        let plain = ResourceKind::Image { imageset: false };
+        let imageset = ResourceKind::Image { imageset: true };
+
+        cache.queue.lock().fetchers = 1;
+        cache.work((url.clone(), imageset, std::sync::Arc::clone(&loader), 0));
+        assert!(cache.entries.lock().by_url.contains_key(&media_key(&url, imageset)));
+        assert!(!cache.entries.lock().by_url.contains_key(&media_key(&url, plain)));
+
+        cache.clear();
+        cache.queue.lock().fetchers = 1;
+        cache.work((url.clone(), plain, loader, 0));
+        assert!(
+            cache.entries.lock().by_url.is_empty(),
+            "the old document's answer is dropped"
+        );
     }
 
     /// A reused tile keeps the opacity and anchor it was shipped with; the

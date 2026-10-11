@@ -79,6 +79,9 @@ pub fn serve<C: RenderConfiguration>(
     let comm = comm();
 
     let mut pages: HashMap<String, RetainedPage<C>> = HashMap::new();
+    // The media store's partition for each tab's document: the store is shared by every tab
+    // of the site, and one document's answer for a URL is not another's.
+    let mut documents: HashMap<String, u64> = HashMap::new();
     // Tab names, most recently used last; parallel to `pages`.
     let mut recent: Vec<String> = Vec::new();
     let touch = |recent: &mut Vec<String>, tab: &str| {
@@ -101,6 +104,7 @@ pub fn serve<C: RenderConfiguration>(
             ToRenderer::OpenTab { .. } => {}
             ToRenderer::CloseTab { tab } => {
                 pages.remove(&tab);
+                documents.remove(&tab);
                 recent.retain(|t| t != &tab);
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
@@ -129,6 +133,9 @@ pub fn serve<C: RenderConfiguration>(
                 // A new page: what earlier pages decoded is dead weight past
                 // the budget, and this process lives as long as the site's tabs.
                 media_store.trim(MEDIA_CACHE_BUDGET);
+                let partition = document_partition(&tab, &url);
+                documents.insert(tab.clone(), partition);
+                media_store.set_partition(partition);
                 let known_tiles: HashSet<u64> = known_tiles.into_iter().collect();
                 let mut page = RetainedPage::<C>::build(
                     renderer::PageRequest {
@@ -173,6 +180,7 @@ pub fn serve<C: RenderConfiguration>(
                 known_tiles,
                 event,
             } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
                 if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
                     gosub_sandbox::exit_now(1);
                 }
@@ -211,6 +219,7 @@ pub fn serve<C: RenderConfiguration>(
                 scroll_y,
                 known_tiles,
             } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
                 // Bounded like input: a layout is what it costs.
                 if gosub_sandbox::arm_deadline(INPUT_DEADLINE).is_err() {
                     gosub_sandbox::exit_now(1);
@@ -236,10 +245,12 @@ pub fn serve<C: RenderConfiguration>(
                 }
             }
             ToRenderer::Scroll { tab, scroll_y } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
                 let run: PagePass<C> = Box::new(move |page| page.render(Some(scroll_y), &HashSet::new()));
                 incremental_pass(&link, &mut pages, &mut recent, tab, run);
             }
             ToRenderer::Hover { tab, node } => {
+                media_store.set_partition(documents.get(&tab).copied().unwrap_or_default());
                 incremental_pass(
                     &link,
                     &mut pages,
@@ -258,6 +269,15 @@ pub fn serve<C: RenderConfiguration>(
         // labels per navigation (measured by `renderer-soak`).
         gosub_shared::timing::reset_stats();
     }
+}
+
+/// The media store partition for `tab` showing `url`. A media pass renders the same document
+/// again under the same name, so it keeps what the document already loaded.
+fn document_partition(tab: &str, url: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (tab, url).hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Run a scroll or hover pass over `tab`'s retained page and stream it out. A tab with no

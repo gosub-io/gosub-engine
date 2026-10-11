@@ -94,8 +94,13 @@ pub enum Acquired {
 /// Keeps all loaded media in memory so it can be referenced by MediaId.
 pub struct MediaStore {
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
-    /// Keyed by hash(src)
+    /// Keyed by [`MediaStore::key`]: the document, the src and who asked for it.
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
+    /// The document the cache answers for. Whether a URL may be loaded at all is the
+    /// document's decision (Mixed Content, the private-network policy), and a cache hit never
+    /// reaches the source that makes it, so one document's answer must not be another's.
+    /// HTML keeps its list of available images per document for the same reason.
+    partition: AtomicU64,
     /// Hashes of resources currently being fetched in the background (dedupes in-flight requests)
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
@@ -209,6 +214,7 @@ impl MediaStore {
             source: RwLock::new(None),
             synchronous_fetch: AtomicBool::new(false),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
+            partition: AtomicU64::new(0),
             default_svg,
             default_image,
             decoders,
@@ -231,6 +237,29 @@ impl MediaStore {
         self.synchronous_fetch.store(on, Ordering::Relaxed);
     }
 
+    /// What `src` asked for by `initiator` is filed under, in the cache and the in-flight
+    /// set: per document (see [`MediaStore::partition`]) and per initiator (see
+    /// [`MediaInitiator::handoff_key`]).
+    fn key(&self, src: &str, initiator: MediaInitiator) -> Sha256Hash {
+        let partition = self.partition.load(Ordering::Relaxed);
+        hash_from_string(&format!("{partition} {}", initiator.handoff_key(src)))
+    }
+
+    /// Answer for the document `partition` names from here on. A store shared by several
+    /// documents (a resident renderer's, across its site's tabs) switches before each one
+    /// lays out; what earlier documents loaded stays until [`MediaStore::trim`] lets it go.
+    pub fn set_partition(&self, partition: u64) {
+        self.partition.store(partition, Ordering::Relaxed);
+    }
+
+    /// A new document in a store that serves one document at a time (a tab's): nothing the
+    /// last one loaded answers for it, so all of it goes. A fetch the last document started
+    /// still lands, under that document's partition, where nothing asks for it.
+    pub fn begin_document(&self) {
+        self.partition.fetch_add(1, Ordering::Relaxed);
+        self.drop_loaded();
+    }
+
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
     /// per src) starts and `Pending` is returned without blocking layout. On completion the
     /// `completed` flag rises and the engine's [`take_completed`](Self::take_completed) poll
@@ -239,7 +268,7 @@ impl MediaStore {
     /// The cache and the in-flight set are keyed by URL and initiator (see
     /// [`MediaInitiator::handoff_key`]).
     pub fn request_media(self: &Arc<Self>, src: &str, initiator: MediaInitiator) -> MediaRequest {
-        let h = hash_from_string(&initiator.handoff_key(src));
+        let h = self.key(src, initiator);
 
         if let Some(media_id) = self.cache.read().get(&h) {
             return MediaRequest::Ready(*media_id);
@@ -395,13 +424,18 @@ impl MediaStore {
         if held <= budget_bytes {
             return 0;
         }
+        self.drop_loaded();
+        held
+    }
+
+    /// Forget every loaded media, keeping the compiled-in placeholders.
+    fn drop_loaded(&self) {
         let mut entries = self.entries.write();
         let mut cache = self.cache.write();
         entries.retain(|id, _| *id == DEFAULT_SVG_ID || *id == DEFAULT_IMAGE_ID);
         cache.clear();
         self.encoded.write().clear();
         *self.recent.lock() = Recency::default();
-        held
     }
 
     /// Returns and clears the "background fetch completed" flag; `true` means the engine should
@@ -450,7 +484,7 @@ impl MediaStore {
     /// Loads `src` into the store, caching by src so repeat calls never reload. Fetch/decode
     /// failures cache the placeholder id, so a dead URL skips the network on later calls.
     pub fn load_media(&self, src: &str, initiator: MediaInitiator) -> anyhow::Result<MediaId> {
-        let h = hash_from_string(&initiator.handoff_key(src));
+        let h = self.key(src, initiator);
         let cache = self.cache.read();
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from path: {}", src);
@@ -1076,6 +1110,40 @@ mod tests {
                 Some(DEFAULT_IMAGE_ID)
             );
             assert_eq!(source.asked.lock().len(), 2, "once per initiator");
+        });
+    }
+
+    /// One document's answer is not another's: a cache hit never reaches the source, which is
+    /// what applies the document's policy.
+    #[test]
+    fn a_document_does_not_reuse_another_documents_answer() {
+        exclusively(|| {
+            let url = "http://example.test/shared.png";
+
+            // A store shared between documents: each lays out under its own partition.
+            let (shared, source) = wired_with(Some(encode(ImageFormat::Png)), true);
+            shared.set_partition(1);
+            assert_eq!(
+                shared.load_media(url, MediaInitiator::ImageSet).ok(),
+                Some(DEFAULT_IMAGE_ID)
+            );
+            shared.set_partition(2);
+            shared.load_media(url, MediaInitiator::ImageSet).expect("asks again");
+            assert_eq!(source.asked.lock().len(), 2, "asked once per document");
+            shared.set_partition(1);
+            shared.load_media(url, MediaInitiator::ImageSet).expect("cached");
+            assert_eq!(source.asked.lock().len(), 2, "the first document keeps its own answer");
+
+            // A tab's store: a new document drops the last one's.
+            let (tab, source) = wired_with(Some(encode(ImageFormat::Png)), false);
+            let first = tab.load_media(url, MediaInitiator::Plain).expect("loads");
+            tab.begin_document();
+            assert!(
+                !tab.entries.read().contains_key(&first),
+                "the last document's media is gone"
+            );
+            tab.load_media(url, MediaInitiator::Plain).expect("loads");
+            assert_eq!(source.asked.lock().len(), 2, "asked again for the new document");
         });
     }
 
