@@ -8,7 +8,7 @@
 //! only `RENDER_ATTACHMENT` (not `COPY_DST`) - and a render pass gives premultiplied-alpha blending
 //! for free.
 
-use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, tile_device_px, TileAnchor};
 use vello::wgpu;
 
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
@@ -272,7 +272,7 @@ impl GpuTileCompositor {
                     tile.anchor,
                 );
                 let dpr = dpr as f64;
-                let (ex, ey) = ((ex * dpr).round() as f32, (ey * dpr).round() as f32);
+                let (ex, ey) = (tile_device_px(ex, dpr) as f32, tile_device_px(ey, dpr) as f32);
                 let uniform = BlitUniform {
                     dst: [ex, ey, tile.width as f32, tile.height as f32],
                     viewport: [target_w as f32, target_h as f32],

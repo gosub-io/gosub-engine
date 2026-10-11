@@ -253,6 +253,15 @@ pub fn anchored_tile_pos(page_x: f64, page_y: f64, scroll_x: f64, scroll_y: f64,
     }
 }
 
+/// A viewport coordinate in CSS pixels as a whole device pixel, for placing a tile. Every tile
+/// rounds the same way, halves upward: `f64::round` takes a half away from zero, so at a scroll
+/// of half a device pixel a tile above the viewport edge and one below it went opposite ways,
+/// leaving a one-pixel seam between them.
+#[inline]
+pub fn tile_device_px(v: f64, dpr: f64) -> f64 {
+    (v * dpr + 0.5).floor()
+}
+
 /// A single pre-rasterized tile for direct compositing in the host draw callback.
 /// Pixel data is reference-counted (`Bytes`) so handing out a handle is zero-copy.
 #[derive(Clone, Debug)]
@@ -530,6 +539,19 @@ mod tests {
 
     const WHITE: u32 = 0xFFFF_FFFF; // opaque white, premultiplied
     const BLACK: u32 = 0xFF00_0000; // opaque black, premultiplied
+
+    #[test]
+    fn tiles_above_and_below_the_viewport_edge_stay_adjacent() {
+        // Two 256px tiles, one above the other, scrolled by half a device pixel at 1x.
+        let (_, top) = anchored_tile_pos(0.0, 0.0, 0.0, 0.5, TileAnchor::Scroll);
+        let (_, below) = anchored_tile_pos(0.0, 256.0, 0.0, 0.5, TileAnchor::Scroll);
+        assert_eq!(tile_device_px(below, 1.0) - tile_device_px(top, 1.0), 256.0);
+
+        // At 2x a quarter CSS pixel is the same half device pixel.
+        let (_, top) = anchored_tile_pos(0.0, 0.0, 0.0, 0.25, TileAnchor::Scroll);
+        let (_, below) = anchored_tile_pos(0.0, 256.0, 0.0, 0.25, TileAnchor::Scroll);
+        assert_eq!(tile_device_px(below, 2.0) - tile_device_px(top, 2.0), 512.0);
+    }
 
     #[test]
     fn sticky_top_three_regimes() {
