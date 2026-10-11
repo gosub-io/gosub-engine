@@ -2563,6 +2563,62 @@ mod rendertree_from_engine {
         assert!((size.height - 900.0).abs() < 1.0, "page height {}", size.height);
     }
 
+    /// A box with no width adds no area of its own, however far down it sits.
+    #[test]
+    fn a_box_without_area_does_not_grow_the_page() {
+        let size = page_size(
+            r#"<html style="height:100%"><body style="margin:0">
+                <div style="position:absolute;top:5000px;width:0;height:10px"></div>
+            </body></html>"#,
+        );
+        assert!((size.height - 600.0).abs() < 1.0, "page height {}", size.height);
+    }
+
+    /// A translated box is on the page where the transform puts it, not where it was laid out.
+    #[test]
+    fn a_translated_box_grows_the_page_where_it_lands() {
+        let size = page_size(
+            r#"<html><body style="margin:0">
+                <div style="height:100px;transform:translateY(3000px)"></div>
+            </body></html>"#,
+        );
+        assert!((size.height - 3100.0).abs() < 1.0, "page height {}", size.height);
+    }
+
+    /// A box that clips on one axis clips only that one: under `overflow-x: clip` a tall child
+    /// still makes the page taller, though not wider.
+    #[test]
+    fn a_box_clipping_sideways_lets_its_content_grow_the_page_down() {
+        let size = page_size(
+            r#"<html><body style="margin:0">
+                <div style="overflow-x:clip;height:100px">
+                    <div style="width:2000px;height:3000px"></div>
+                </div>
+            </body></html>"#,
+        );
+        assert!((size.height - 3000.0).abs() < 1.0, "page height {}", size.height);
+        assert!((size.width - 800.0).abs() < 1.0, "page width {}", size.width);
+    }
+
+    /// A root that scrolls (`auto`, `scroll`) passes that to the window, which scrolls over
+    /// all of the page. So does a body that hides only sideways - `overflow-x: hidden` is
+    /// everywhere - and the body itself then clips nothing: the page is still as tall as it is.
+    #[test]
+    fn a_root_that_scrolls_keeps_the_whole_page() {
+        for html in [
+            r#"<html style="height:100%;overflow:auto"><body style="margin:0"><div style="height:1500px"></div></body></html>"#,
+            r#"<html style="height:100%;overflow:scroll"><body style="margin:0"><div style="height:1500px"></div></body></html>"#,
+            r#"<html style="height:100%"><body style="margin:0;height:100%;overflow-x:hidden"><div style="height:1500px"></div></body></html>"#,
+        ] {
+            let size = page_size(html);
+            assert!(
+                (size.height - 1500.0).abs() < 1.0,
+                "page height {} for {html}",
+                size.height
+            );
+        }
+    }
+
     /// A promoted layer whose element has a collapsed margin box must still get tiles.
     ///
     /// Element-to-tile assignment unions the margin and border boxes, but the layer's tile grid
