@@ -18,10 +18,19 @@ use vello::Scene;
 /// scale (a phone) a whole CSS pixel is three device pixels, and rounding there moved each glyph
 /// up to one and a half device pixels from where the shaper put it. Neighbouring glyphs moved
 /// by different amounts, so "Show" read as "Sh ow". At 1x the two grids are the same.
-fn snap(affine: Affine, x: f64, y: f64) -> (f32, f32) {
-    let device = affine * Point::new(x, y);
-    let back = affine.inverse() * Point::new(device.x.round(), device.y.round());
+///
+/// `grid` is the whole page-to-device transform, see [`device_grid`].
+fn snap(grid: Affine, x: f64, y: f64) -> (f32, f32) {
+    let device = grid * Point::new(x, y);
+    let back = grid.inverse() * Point::new(device.x.round(), device.y.round());
     (back.x as f32, back.y as f32)
+}
+
+/// Where page space lands on the device: the glyphs' own `affine` (a tile's or the scroll's
+/// translation, in CSS pixels), then the device scale. The scene is built in CSS pixels and the
+/// renderer scales it to the device afterwards, so `affine` alone does not have it.
+fn device_grid(affine: Affine, device_scale: f64) -> Affine {
+    Affine::scale(device_scale) * affine
 }
 
 fn peniko_font(run: &ShapedRun) -> FontData {
@@ -33,6 +42,7 @@ pub fn do_paint_text(
     cmd: &Text,
     _tile_size: Dimension,
     affine: Affine,
+    device_scale: f64,
     media_store: &MediaStore,
 ) -> Result<(), anyhow::Error> {
     // Shaping already happened at paint-command build time, with the same font system the layouter
@@ -45,6 +55,7 @@ pub fn do_paint_text(
     // Glyph runs take only the brush; an image brush transform has no meaningful mapping onto
     // individual glyphs, so it is intentionally dropped here.
     let (vello_brush, _) = set_brush(&cmd.brush, cmd.rect, media_store);
+    let grid = device_grid(affine, device_scale);
 
     for run in &shaped.runs {
         let font = peniko_font(run);
@@ -57,7 +68,7 @@ pub fn do_paint_text(
             .draw(
                 Fill::NonZero,
                 run.glyphs.iter().map(|g| {
-                    let (x, y) = snap(affine, cmd.rect.x + f64::from(g.x), cmd.rect.y + f64::from(g.y));
+                    let (x, y) = snap(grid, cmd.rect.x + f64::from(g.x), cmd.rect.y + f64::from(g.y));
                     vello::Glyph { id: g.id, x, y }
                 }),
             );
@@ -102,14 +113,16 @@ mod tests {
         // At 1x the device grid is the CSS grid, as before.
         assert_eq!(snap(Affine::IDENTITY, 10.4, 20.6), (10.0, 21.0));
 
-        // A tile's translation is part of the grid.
-        let tile = Affine::scale(3.0).then_translate((-768.0, -256.0).into());
-        let (x, _) = snap(tile, 300.4, 100.0);
-        let device_x = 300.4_f64 * 3.0 - 768.0;
+        // The tile path: the glyphs get only the tile's translation, in CSS pixels, and the
+        // finished tile is scaled to the device afterwards. The grid has both.
+        let tile = Affine::translate((-256.0, -256.0));
+        let (x, _) = snap(device_grid(tile, 3.0), 300.4, 300.0);
+        let device_x = (300.4_f64 - 256.0) * 3.0;
         assert!(
-            ((f64::from(x) * 3.0 - 768.0) - device_x.round()).abs() < 1e-3,
+            (((f64::from(x) - 256.0) * 3.0) - device_x.round()).abs() < 1e-3,
             "x = {x}"
         );
+        assert!((x - 300.4).abs() < 0.2, "x = {x}: snapped to the CSS grid");
     }
 
     /// Exercises the `FontBlob` → `peniko::FontData` conversion and glyph encoding without a GPU.
@@ -148,6 +161,7 @@ mod tests {
             &cmd,
             Dimension::new(200.0, 60.0),
             Affine::IDENTITY,
+            1.0,
             &MediaStore::new(),
         );
         assert!(res.is_ok(), "painting failed: {res:?}");

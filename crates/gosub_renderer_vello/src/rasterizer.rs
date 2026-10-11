@@ -60,12 +60,14 @@ fn text_ink_box(command: &gosub_render_pipeline::painter::commands::text::Text) 
 
 /// Shared by the per-tile rasterizer (once per tile, translated to the tile) and the GPU-scene path
 /// (once for the whole viewport, translated by `−scroll`). `size` bounds text layout; commands carry
-/// pre-shaped glyph runs, so no font system is needed.
+/// pre-shaped glyph runs, so no font system is needed. `device_scale` is the DPR the caller
+/// scales the finished scene by: the scene stays in CSS pixels, but glyphs snap to device pixels.
 pub(crate) fn paint_commands_to_scene(
     scene: &mut Scene,
     commands: &[PaintCommand],
     size: Dimension,
     affine: Affine,
+    device_scale: f64,
     scroll: (f64, f64),
     media_store: &MediaStore,
 ) {
@@ -116,7 +118,7 @@ pub(crate) fn paint_commands_to_scene(
                 rectangle::do_paint_rectangle(scene, command, cur, media_store);
             }
             PaintCommand::Text(command) => {
-                if let Err(e) = text::do_paint_text(scene, command, size, cur, media_store) {
+                if let Err(e) = text::do_paint_text(scene, command, size, cur, device_scale, media_store) {
                     log::warn!("Failed to paint text: {:?}", e);
                 }
             }
@@ -173,6 +175,7 @@ impl Rasterable for VelloRasterizer {
                 &element.paint_commands,
                 tile_size,
                 affine,
+                dpr as f64,
                 (0.0, 0.0),
                 media_store,
             );
