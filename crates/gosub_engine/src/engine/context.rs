@@ -617,6 +617,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.remote_input_queue.clear();
             self.remote_effects.clear();
         }
+        // Nothing the last document loaded answers for this one: whether a URL loads at all is
+        // the document's call.
+        self.media_store.begin_document();
         self.note_invalidate("document");
         self.document = doc;
         self.damage.rebuild();
@@ -2162,8 +2165,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     }
                 }
                 Some("img") if out.image_url.is_none() => {
-                    if let Some(src) = doc.attribute(id, "src") {
-                        out.image_url = Some(resolve(src));
+                    // The candidate layout fetched, not necessarily `src`.
+                    if let Some(selected) =
+                        gosub_render_pipeline::common::media::image_source::select_in_document::<C>(doc, id)
+                    {
+                        out.image_url = Some(resolve(&selected.url));
                     }
                 }
                 _ => {}

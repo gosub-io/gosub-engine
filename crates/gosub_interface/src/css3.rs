@@ -127,6 +127,22 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
     /// can affect styling without re-running selector matching.
     fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints;
+
+    /// Whether a media query list written in an HTML attribute (`<source media>`) matches the
+    /// media environment in force on this thread. `None` when the text is not a media query list.
+    fn media_list_matches(text: &str) -> Option<bool>;
+
+    /// Whether a `<media-condition>` from an HTML attribute (in front of a `sizes` entry)
+    /// matches the media environment in force. `None` when the text is not one condition.
+    fn media_condition_matches(text: &str) -> Option<bool>;
+
+    /// A length from an HTML attribute (a `sizes` entry's source size) in px, resolved without
+    /// an element: `em` is the initial font size, the viewport units the environment's viewport.
+    /// `None` when the text is not one non-negative length.
+    fn length_px(text: &str) -> Option<f32>;
+
+    /// The media environment's layout viewport width in CSS px, and its device pixel ratio.
+    fn media_viewport() -> (f32, f32);
 }
 
 pub trait CssStylesheet: PartialEq + Debug {

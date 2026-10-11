@@ -13,6 +13,15 @@ pub use svg::SvgDecoder;
 
 use std::fmt;
 
+/// Whether the built-in decoders read the image type `mime` names, parameters and case aside:
+/// what a `<source type>` is checked against.
+#[must_use]
+pub fn decodes_image_type(mime: &str) -> bool {
+    use cow_utils::CowUtils;
+    let essence = mime.split(';').next().unwrap_or(mime).trim().cow_to_ascii_lowercase();
+    essence == "image/svg+xml" || raster::decodes_type(&essence)
+}
+
 /// Pixel storage for a decoded raster image. Only 8-bit RGBA is supported today; the enum
 /// leaves room for wider/greyscale buffers without churning the public surface.
 #[derive(Clone, PartialEq, Eq)]

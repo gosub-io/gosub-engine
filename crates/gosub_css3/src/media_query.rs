@@ -148,6 +148,44 @@ impl MediaQueryList {
     pub fn matches(&self, env: &MediaEnvironment) -> bool {
         self.queries.is_empty() || self.queries.iter().any(|query| query.matches(env))
     }
+
+    /// A media query list written outside a stylesheet: a `<source media>` attribute. `None`
+    /// when the text does not parse as one, which Media Queries reads as `not all`.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        use gosub_interface::css3::CssOrigin;
+        use gosub_shared::byte_stream::{ByteStream, Encoding};
+        use gosub_shared::config::ParserConfig;
+
+        let mut stream = ByteStream::from_str(text, Encoding::UTF8);
+        let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "media");
+        parser.consume_whitespace_comments();
+        let node = parser.parse_media_query_list().ok()?;
+        parser.consume_whitespace_comments();
+        if !matches!(parser.consume_any().ok()?.token_type, crate::tokenizer::TokenType::Eof) {
+            return None;
+        }
+        let NodeType::MediaQueryList { media_queries } = &node.node_type else {
+            return None;
+        };
+        let queries = media_queries
+            .iter()
+            .map(MediaQuery::from_ast)
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self { queries })
+    }
+
+    /// A `<media-condition>` written outside a stylesheet: the condition in front of a `sizes`
+    /// entry. Narrower than a query list: one condition, no media type. `None` when the text is
+    /// not one, which makes HTML skip the entry.
+    #[must_use]
+    pub fn parse_condition(text: &str) -> Option<Self> {
+        let list = Self::parse(text)?;
+        match list.queries.as_slice() {
+            [query] if query.media_type.is_none() && !query.unknown_type && query.condition.is_some() => Some(list),
+            _ => None,
+        }
+    }
 }
 
 /// A single media query: an optional type (`screen`), an optional condition
@@ -728,6 +766,26 @@ mod tests {
 
     fn matches(query: &str, env: &MediaEnvironment) -> bool {
         query_list(query).matches(env)
+    }
+
+    #[test]
+    fn a_query_list_parses_from_attribute_text() {
+        let narrow = env(500.0, 800.0);
+        let wide = env(1280.0, 800.0);
+        let list = MediaQueryList::parse("(max-width: 600px), print").expect("parses");
+        assert!(list.matches(&narrow));
+        assert!(!list.matches(&wide));
+        assert!(MediaQueryList::parse("(max-width: 600px) junk {").is_none());
+    }
+
+    #[test]
+    fn a_sizes_condition_is_one_condition_without_a_type() {
+        let narrow = env(500.0, 800.0);
+        let condition = MediaQueryList::parse_condition("(max-width: 600px)").expect("a condition");
+        assert!(condition.matches(&narrow));
+        assert!(MediaQueryList::parse_condition("screen").is_none());
+        assert!(MediaQueryList::parse_condition("(min-width: 1px), (max-width: 2px)").is_none());
+        assert!(MediaQueryList::parse_condition("").is_none());
     }
 
     /// A condition the engine cannot read must not simply vanish: dropping it left the query

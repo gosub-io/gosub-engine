@@ -353,7 +353,8 @@ policies below are decided from the document the request is for, which the
 broker stamps on it, so a page still shown keeps asking as itself while the
 tab loads the next one. Mixed content is decided the same way: an `http` image
 a secure page asks for is upgraded to `https`, an `http` stylesheet or font is
-refused. The renderer's `kind` is not checked, since claiming an image for a
+refused, and so is an image from a `srcset` or `<picture>` (`ResourceKind::Image
+{ imageset: true }`). The renderer's `kind` is not checked, since claiming an image for a
 stylesheet only turns a refusal into an upgrade. The renderer also gets the user's media preferences
 (`prefers-color-scheme`, reduced motion, the DPR media environment) with
 every render request, since it has no settings of its own to read.

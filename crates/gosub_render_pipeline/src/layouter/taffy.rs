@@ -6,7 +6,7 @@ use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
-use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
+use crate::common::media::{Media, MediaId, MediaInitiator, MediaRequest, MediaType};
 use crate::layouter::abspos::{post_process_abspos, RebasedInsets};
 use crate::layouter::box_model::Edges;
 use crate::layouter::control_icons;
@@ -2227,7 +2227,7 @@ impl TaffyLayouter {
         let abs = to_absolute_url(url, &doc.base_url());
         // Non-blocking: while the background image is still fetching, render without it; the reflow
         // after the fetch completes paints it in.
-        let media_id = match self.media_store.request_media(&abs) {
+        let media_id = match self.media_store.request_media(&abs, MediaInitiator::Plain) {
             MediaRequest::Ready(media_id) => media_id,
             MediaRequest::Pending => return None,
         };
@@ -2404,12 +2404,17 @@ impl TaffyLayouter {
 
                 // Images get a taffy context so their intrinsic size participates in layout.
                 if data.tag_name.eq_ignore_ascii_case("img") {
-                    let base_url = layout_tree.render_tree.doc.base_url();
-                    let Some(src) = data.get_attribute("src") else {
-                        log::warn!("img element missing src attribute");
+                    let doc = &*layout_tree.render_tree.doc;
+                    let Some(selected) = doc.image_source(dom_node.node_id) else {
+                        log::debug!("img element has no source to show");
                         return None;
                     };
-                    let src = to_absolute_url(src, &base_url);
+                    let src = to_absolute_url(&selected.url, &doc.base_url());
+                    let initiator = if selected.imageset {
+                        MediaInitiator::ImageSet
+                    } else {
+                        MediaInitiator::Plain
+                    };
 
                     log::debug!("Loading (image) resource: {}", src);
 
@@ -2417,7 +2422,7 @@ impl TaffyLayouter {
                     // Pending without stalling layout. The element is kept with a placeholder size
                     // (HTML width/height attrs if present, else 0x0); a reflow lands once the fetch
                     // completes and installs the real intrinsic size.
-                    match self.media_store.request_media(src.as_str()) {
+                    match self.media_store.request_media(src.as_str(), initiator) {
                         MediaRequest::Ready(media_id) => {
                             // When the media is a placeholder (load failed), use a small fixed
                             // size so the broken-image icon doesn't blow up the layout. The
@@ -2471,6 +2476,15 @@ impl TaffyLayouter {
                                 // No media and no placeholder either: nothing to size the box
                                 // from and nothing to paint.
                                 (None, None) => (geo::Dimension::ZERO, false, true),
+                            };
+                            // A `2x` candidate has twice the pixels for the same CSS size: the
+                            // natural size is the decoded one over the density (HTML "update the
+                            // image data").
+                            let dimension = if !is_placeholder && selected.density > 0.0 && selected.density != 1.0 {
+                                let density = f64::from(selected.density);
+                                geo::Dimension::new(dimension.width / density, dimension.height / density)
+                            } else {
+                                dimension
                             };
 
                             // Pin the intrinsic aspect ratio so a block-level replaced element keeps

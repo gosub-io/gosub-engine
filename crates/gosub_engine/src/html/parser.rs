@@ -457,6 +457,10 @@ static RE_DEFER_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"\bdefer\b"#));
 static RE_IMG_SRC: Lazy<Option<Regex>> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
+static RE_SRCSET_ATTR: Lazy<Option<Regex>> = Lazy::new(|| re(r#"(?i)\bsrcset\s*="#));
+
+static RE_PICTURE: Lazy<Option<Regex>> = Lazy::new(|| re(r#"(?is)<\s*picture\b.*?<\s*/\s*picture\s*>"#));
+
 fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Vec<ResourceHint> {
     let mut out = Vec::new();
 
@@ -512,11 +516,25 @@ fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Ve
         });
     }
 
-    // Images
+    // Images. Not one that uses `srcset` or sits in a `<picture>`: which candidate it shows
+    // depends on the viewport, so layout chooses and fetches it, and as an `imageset` request,
+    // which mixed content treats differently from this preload.
+    let pictures: Vec<std::ops::Range<usize>> = RE_PICTURE
+        .iter()
+        .flat_map(|re| re.find_iter(html))
+        .map(|m| m.range())
+        .collect();
     for cap in RE_IMG_SRC.iter().flat_map(|re| re.captures_iter(html)) {
         let Some(m) = cap.name("src") else {
             continue;
         };
+        let Some(tag) = cap.get(0) else {
+            continue;
+        };
+        let has_srcset = RE_SRCSET_ATTR.as_ref().is_some_and(|re| re.is_match(tag.as_str()));
+        if has_srcset || pictures.iter().any(|picture| picture.contains(&tag.start())) {
+            continue;
+        }
         let Ok(u) = resolve(base, unquote(m.as_str())) else {
             continue;
         };
@@ -524,7 +542,7 @@ fn discover_resources(html: &str, base: &Url, policies: &ReferrerPolicies) -> Ve
         out.push(ResourceHint {
             url: u,
             referrer_policy: tag_referrer_policy(tag).unwrap_or_else(|| policies.at(m.start())),
-            kind: ResourceKind::Image,
+            kind: ResourceKind::Image { imageset: false },
             rel: None,
             from_attr: "src",
             dest: RequestDestination::Image,
@@ -678,9 +696,31 @@ mod tests {
             .any(|h| h.kind == ResourceKind::Stylesheet && h.url.as_str() == "https://example.com/style.css"));
         assert!(hints.iter().any(|h| h.kind == ResourceKind::Script { blocking: true }
             && h.url.as_str() == "https://example.com/path/app.js"));
-        assert!(hints
-            .iter()
-            .any(|h| h.kind == ResourceKind::Image && h.url.as_str() == "https://example.com/path/images/logo.png"));
+        assert!(hints.iter().any(|h| h.kind == ResourceKind::Image { imageset: false }
+            && h.url.as_str() == "https://example.com/path/images/logo.png"));
+    }
+
+    /// An image whose source depends on the viewport is left to layout, which fetches the
+    /// candidate it chooses as an `imageset` request; a plain `<img src>` is still preloaded.
+    #[test]
+    fn srcset_and_picture_images_are_not_preloaded() {
+        let base = Url::parse("https://example.com/").unwrap();
+        let html = r#"
+            <img src="plain.png">
+            <img src="fallback.png" srcset="big.png 2x">
+            <picture><source srcset="a.webp" type="image/webp"><img src="pic.jpg"></picture>
+            <img src='after.png'>
+        "#;
+        let images: Vec<String> =
+            discover_resources(html, &base, &ReferrerPolicies::scan(ReferrerPolicy::default(), html))
+                .into_iter()
+                .filter(|h| matches!(h.kind, ResourceKind::Image { .. }))
+                .map(|h| h.url.to_string())
+                .collect();
+        assert_eq!(
+            images,
+            ["https://example.com/plain.png", "https://example.com/after.png"]
+        );
     }
 
     /// HN-style markup: no doctype, `<center><table>`. The spec's quirks-mode table rules

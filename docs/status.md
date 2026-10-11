@@ -159,9 +159,12 @@ glyphs. Web fonts load through the resource pipeline, so `@font-face` works
 **Works.** Raster images decode through the `image` crate's default format set, with a lenient
 PNG retry for files whose checksums other browsers also ignore. SVG parses to a `usvg::Tree`,
 either from a standalone document or from an `<svg>` subtree of an HTML document, and the
-backends rasterize it.
+backends rasterize it. An `<img>` with `srcset` (density and width descriptors, `sizes`) or in a
+`<picture>` (`<source>` with `media` and `type`) shows the candidate HTML's source selection
+picks for the viewport and device pixel ratio, at that candidate's density.
 
-**Not yet.** Still frames only: an animated GIF renders its first frame. There is no audio or
+**Not yet.** Still frames only: an animated GIF renders its first frame. Lazy images
+(`loading="lazy"`, `sizes="auto"`) load like any other. There is no audio or
 video - `TabCommand::PlayMedia` and `PauseMedia` are declared in the API and not handled by the
 tab worker.
 

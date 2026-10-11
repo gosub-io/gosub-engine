@@ -244,7 +244,9 @@ impl Css3<'_> {
                     self.consume_ident("and")?;
                     condition = Some(self.parse_condition(FeatureKind::Media)?);
                 }
-                TokenType::LCurly | TokenType::Semicolon | TokenType::Comma => {
+                // End of input too: a list read from an attribute (`<source media="print">`)
+                // has no block or semicolon after it.
+                TokenType::LCurly | TokenType::Semicolon | TokenType::Comma | TokenType::Eof => {
                     // skip;
                 }
                 _ => {

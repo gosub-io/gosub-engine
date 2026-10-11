@@ -1667,6 +1667,97 @@ mod rendertree_from_engine {
         }
     }
 
+    /// An `<img>` lays out at the candidate its `srcset` or `<picture>` selects, and at that
+    /// candidate's density: a 2x image of 80x40 pixels is a 40x20 box. A plain `src` is 1x.
+    #[test]
+    fn an_image_lays_out_at_its_selected_candidate_and_density() {
+        use crate::common::geo::Dimension;
+        use crate::common::MediaStore;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use parking_lot::Mutex;
+
+        let png = |width: u32, height: u32| {
+            use image::ImageEncoder;
+            let mut bytes = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut bytes)
+                .write_image(
+                    &vec![255; (width * height * 4) as usize],
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgba8,
+                )
+                .expect("encode");
+            format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            )
+        };
+        let (big, small) = (png(80, 40), png(30, 30));
+        let html = format!(
+            r#"<html><head><style>body {{ margin: 0 }}</style></head><body>
+                <img id="plain" src="{big}">
+                <img id="dense" src="{small}" srcset="{big} 2x">
+                <img id="srcset-only" srcset="{big} 2x">
+                <picture>
+                    <source srcset="{small}" media="(min-width: 10000px)">
+                    <source srcset="{small}" type="image/avif">
+                    <source srcset="{big} 2x">
+                    <img id="pictured" src="{small}">
+                </picture>
+            </body></html>"#
+        );
+
+        gosub_css3::media_query::set_media_environment(gosub_css3::media_query::MediaEnvironment {
+            width: 800.0,
+            height: 600.0,
+            device_pixel_ratio: 2.0,
+            ..Default::default()
+        });
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["plain", "dense", "srcset-only", "pictured"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        // Data URLs decode in place, and synchronously: one layout pass has the sizes.
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let mut layouter = layouter;
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 600.0)), 2.0);
+
+        let size = |dom| {
+            let b = layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("the img is laid out")
+                .box_model
+                .content_box;
+            (b.width.round(), b.height.round())
+        };
+        let [plain, dense, srcset_only, pictured] = ids;
+        assert_eq!(size(plain), (80.0, 40.0), "src is 1x");
+        assert_eq!(size(dense), (40.0, 20.0), "the 2x candidate, at half its pixels");
+        assert_eq!(
+            size(srcset_only),
+            (40.0, 20.0),
+            "an img with only srcset is still shown"
+        );
+        assert_eq!(
+            size(pictured),
+            (40.0, 20.0),
+            "the first source that matches and decodes"
+        );
+    }
+
     /// Percentage padding on the table resolves against the containing block's width: 5% of
     /// 400px is 20px a side. The caption spans the table's border box, padding included, and the
     /// cell sits inside that padding. The numbers are Chromium's. The vertical padding is in

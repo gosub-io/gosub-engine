@@ -92,7 +92,7 @@ impl TimingEmitter {
             ResourceKind::Document => Timing::NetFetchHtml,
             ResourceKind::Stylesheet => Timing::NetFetchCss,
             ResourceKind::Script { .. } => Timing::NetFetchJs,
-            ResourceKind::Image => Timing::NetFetchImage,
+            ResourceKind::Image { .. } => Timing::NetFetchImage,
             ResourceKind::Font => Timing::NetFetchFont,
             _ => Timing::NetFetchOther,
         }
@@ -219,7 +219,7 @@ mod test {
         assert_eq!(ns(ResourceKind::Document), Timing::NetFetchHtml);
         assert_eq!(ns(ResourceKind::Stylesheet), Timing::NetFetchCss);
         assert_eq!(ns(ResourceKind::Script { blocking: true }), Timing::NetFetchJs);
-        assert_eq!(ns(ResourceKind::Image), Timing::NetFetchImage);
+        assert_eq!(ns(ResourceKind::Image { imageset: false }), Timing::NetFetchImage);
         assert_eq!(ns(ResourceKind::Font), Timing::NetFetchFont);
         assert_eq!(ns(ResourceKind::Xhr), Timing::NetFetchOther);
     }

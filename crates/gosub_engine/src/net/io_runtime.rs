@@ -1125,22 +1125,22 @@ mod tests {
                 ..TabIdentity::new(jar_with("https://bank.test/", "lax=1; SameSite=Lax; Path=/"))
             };
             let mut req = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
-                .with_kind(ResourceKind::Image.to_net())
+                .with_kind(ResourceKind::Image { imageset: false }.to_net())
                 .subresource_of(
                     &Url::parse("https://evil.test/").unwrap(),
                     gosub_sonar::ReferrerPolicy::default(),
-                    ResourceKind::Image,
+                    ResourceKind::Image { imageset: false },
                 )
                 .build();
             attach_request_cookies(&mut req, Some(&identity)).await;
             assert_eq!(cookie_header(&req), None);
 
             let mut own = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
-                .with_kind(ResourceKind::Image.to_net())
+                .with_kind(ResourceKind::Image { imageset: false }.to_net())
                 .subresource_of(
                     &Url::parse("https://bank.test/").unwrap(),
                     gosub_sonar::ReferrerPolicy::default(),
-                    ResourceKind::Image,
+                    ResourceKind::Image { imageset: false },
                 )
                 .build();
             attach_request_cookies(&mut own, Some(&identity)).await;
@@ -1149,11 +1149,11 @@ mod tests {
             // A page's referrer policy governs the `Referer` header only: a
             // `no-referrer` page's late load is still judged as that page's.
             let mut quiet = FetchRequest::builder(Method::GET, Url::parse("https://bank.test/img.png").unwrap())
-                .with_kind(ResourceKind::Image.to_net())
+                .with_kind(ResourceKind::Image { imageset: false }.to_net())
                 .subresource_of(
                     &Url::parse("https://evil.test/").unwrap(),
                     gosub_sonar::ReferrerPolicy::NoReferrer,
-                    ResourceKind::Image,
+                    ResourceKind::Image { imageset: false },
                 )
                 .build();
             attach_request_cookies(&mut quiet, Some(&identity)).await;

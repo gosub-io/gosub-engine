@@ -1160,7 +1160,8 @@ fn describe_hit<C: RenderConfiguration>(
             }
         }
         if image.is_none() && doc.tag_name(current) == Some("img") {
-            image = doc.attribute(current, "src").and_then(resolve);
+            image = gosub_render_pipeline::common::media::image_source::select_in_document::<C>(doc, current)
+                .and_then(|selected| resolve(&selected.url));
         }
         if crate::html::is_text_input::<C>(doc, current) {
             editable = true;

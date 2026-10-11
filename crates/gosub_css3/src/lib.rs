@@ -152,6 +152,45 @@ impl<'stream> Css3<'stream> {
     }
 }
 
+/// A length written outside a stylesheet, in px: a `sizes` attribute's source size. There is no
+/// element to resolve against, so `em` and `rem` are the initial 16px (HTML says a source size
+/// resolves like a media query's length) and the viewport units are the current layout viewport.
+/// `calc()` and the other math functions are evaluated.
+///
+/// `None` for anything that is not one non-negative length, a percentage included: HTML forbids
+/// them in a source size.
+#[must_use]
+pub fn parse_length_px(text: &str) -> Option<f32> {
+    use crate::functions::calc::{evaluate_call, to_canonical, Units};
+    use crate::stylesheet::CssValue;
+
+    let mut stream = ByteStream::from_str(text, Encoding::UTF8);
+    let mut parser = Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "length");
+    let mut nodes = parser.parse_value_sequence().ok()?;
+    if nodes.len() != 1 {
+        return None;
+    }
+    let units = Units {
+        em_px: Some(16.0),
+        rem_px: Some(16.0),
+        viewport: true,
+        ..Units::default()
+    };
+    let value = match CssValue::parse_ast_node(nodes.remove(0)).ok()? {
+        CssValue::Function(name, args) => evaluate_call(&name, &args, &units, true)?,
+        value => value,
+    };
+    let px = match value {
+        CssValue::Zero => 0.0,
+        CssValue::Unit(value, unit) => match to_canonical(value, &unit, &units)? {
+            (canonical, px) if canonical == "px" => px,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    (px.is_finite() && px >= 0.0).then_some(px as f32)
+}
+
 /// Parse the body of a `calc()` from text into the values it is made of.
 ///
 /// This is the one way to get from CSS text to a math expression, and it goes through the real
@@ -213,6 +252,23 @@ pub fn load_quirks_useragent_stylesheet() -> CssStylesheet {
 mod tests {
     use super::*;
     use simple_logger::SimpleLogger;
+
+    #[test]
+    fn a_source_size_resolves_to_px() {
+        crate::media_query::set_media_environment(crate::media_query::MediaEnvironment {
+            width: 1000.0,
+            ..Default::default()
+        });
+        assert_eq!(parse_length_px("300px"), Some(300.0));
+        assert_eq!(parse_length_px("2em"), Some(32.0));
+        assert_eq!(parse_length_px("50vw"), Some(500.0));
+        assert_eq!(parse_length_px("calc(100vw - 200px)"), Some(800.0));
+        assert_eq!(parse_length_px("0"), Some(0.0));
+        assert_eq!(parse_length_px("50%"), None);
+        assert_eq!(parse_length_px("-1px"), None);
+        assert_eq!(parse_length_px("1px 2px"), None);
+        assert_eq!(parse_length_px("auto"), None);
+    }
 
     #[test]
     #[ignore]

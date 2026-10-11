@@ -27,8 +27,14 @@ pub struct FetchHandle {
 pub enum ResourceKind {
     Document,
     Stylesheet,
-    Script { blocking: bool },
-    Image,
+    Script {
+        blocking: bool,
+    },
+    /// `imageset` when the `<img>` uses `srcset` or `<picture>`: Fetch's initiator, which Mixed
+    /// Content treats differently.
+    Image {
+        imageset: bool,
+    },
     Font,
     Media,
     Xhr,
@@ -49,7 +55,7 @@ impl ResourceKind {
                 "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/avif;q=0,*/*;q=0.8"
             }
             ResourceKind::Stylesheet => "text/css,*/*;q=0.1",
-            ResourceKind::Image => "image/webp,image/apng,image/svg+xml,image/*,image/avif;q=0,*/*;q=0.8",
+            ResourceKind::Image { .. } => "image/webp,image/apng,image/svg+xml,image/*,image/avif;q=0,*/*;q=0.8",
             _ => "*/*",
         }
     }
@@ -66,11 +72,19 @@ impl ResourceKind {
     /// What happens to this kind of subresource when a secure document asks for it over plain
     /// `http` (Mixed Content, "upgrade a mixed content request to a potentially trustworthy
     /// URL, if appropriate"): images, audio and video are upgraded to `https`, with no fallback;
-    /// everything else is blockable and refused.
+    /// everything else is blockable and refused, an image chosen through `srcset` or `<picture>`
+    /// included (its initiator is `imageset`).
     pub fn mixed_content(self) -> gosub_sonar::MixedContentPolicy {
         match self {
-            ResourceKind::Image | ResourceKind::Media => gosub_sonar::MixedContentPolicy::Upgrade,
+            ResourceKind::Image { imageset: false } | ResourceKind::Media => gosub_sonar::MixedContentPolicy::Upgrade,
             _ => gosub_sonar::MixedContentPolicy::Block,
+        }
+    }
+
+    /// The kind of an image the media store asks for.
+    pub fn image(initiator: gosub_render_pipeline::common::media::MediaInitiator) -> Self {
+        ResourceKind::Image {
+            imageset: initiator == gosub_render_pipeline::common::media::MediaInitiator::ImageSet,
         }
     }
 
@@ -442,12 +456,14 @@ mod tests {
     }
 
     /// Images, audio and video are upgraded when a secure page asks for them over `http`; the
-    /// rest is blockable (Mixed Content, "upgrade a mixed content request").
+    /// rest is blockable (Mixed Content, "upgrade a mixed content request"), and so is an image
+    /// from a `srcset` or `<picture>`.
     #[test]
     fn only_media_is_upgraded_as_mixed_content() {
         use gosub_sonar::MixedContentPolicy::{Block, Upgrade};
         for (kind, policy) in [
-            (ResourceKind::Image, Upgrade),
+            (ResourceKind::Image { imageset: false }, Upgrade),
+            (ResourceKind::Image { imageset: true }, Block),
             (ResourceKind::Media, Upgrade),
             (ResourceKind::Stylesheet, Block),
             (ResourceKind::Font, Block),
@@ -458,13 +474,31 @@ mod tests {
         }
     }
 
+    /// What the media store asks for keeps its initiator, which is what decides the policy.
+    #[test]
+    fn an_imageset_request_from_the_media_store_is_blockable() {
+        use gosub_render_pipeline::common::media::MediaInitiator;
+        assert_eq!(
+            ResourceKind::image(MediaInitiator::ImageSet).mixed_content(),
+            gosub_sonar::MixedContentPolicy::Block
+        );
+        assert_eq!(
+            ResourceKind::image(MediaInitiator::Plain).mixed_content(),
+            gosub_sonar::MixedContentPolicy::Upgrade
+        );
+    }
+
     /// A subresource carries its document's origin (without which no mixed-content check runs),
     /// the document as referrer under its referrer policy, and its kind's mixed-content policy.
     #[test]
     fn a_subresource_carries_its_document() {
         let doc = Url::parse("https://site.test/page").unwrap();
         let req = FetchRequest::builder(http::Method::GET, Url::parse("http://cdn.test/a.png").unwrap())
-            .subresource_of(&doc, gosub_sonar::ReferrerPolicy::NoReferrer, ResourceKind::Image)
+            .subresource_of(
+                &doc,
+                gosub_sonar::ReferrerPolicy::NoReferrer,
+                ResourceKind::Image { imageset: false },
+            )
             .build();
         assert_eq!(req.origin, Some(doc.origin()));
         assert_eq!(req.referrer, Some(doc));
@@ -476,7 +510,7 @@ mod tests {
     /// a server that negotiates would send an image the engine then fails to show.
     #[test]
     fn accept_refuses_a_format_the_engine_cannot_decode() {
-        for kind in [ResourceKind::Document, ResourceKind::Image] {
+        for kind in [ResourceKind::Document, ResourceKind::Image { imageset: false }] {
             let header = kind.accept_header();
             let avif: Vec<&str> = header.split(',').filter(|r| r.starts_with("image/avif")).collect();
             assert_eq!(avif, ["image/avif;q=0"], "{kind:?}");

@@ -547,6 +547,12 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
+    /// What the `<img>` `id` shows: its `src`, or the candidate its `srcset` or `<picture>`
+    /// selects for the current viewport. `None` when it has nothing to show.
+    fn image_source(&self, _id: NodeId) -> Option<crate::common::media::image_source::SelectedImage> {
+        None
+    }
+
     fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
         None
     }
@@ -1779,6 +1785,10 @@ where
 
     fn attribute(&self, id: NodeId, name: &str) -> Option<String> {
         self.doc.attribute(id, name).map(str::to_string)
+    }
+
+    fn image_source(&self, id: NodeId) -> Option<crate::common::media::image_source::SelectedImage> {
+        crate::common::media::image_source::select_in_document::<C>(&self.doc, id)
     }
 
     fn selected_option(&self, select: NodeId) -> Option<NodeId> {

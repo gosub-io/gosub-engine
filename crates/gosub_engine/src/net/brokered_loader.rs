@@ -316,9 +316,10 @@ mod tests {
     }
 
     /// A secure page's stylesheet over plain `http` is mixed content and refused before anything
-    /// connects (198.51.100.0/24 is a documentation range: nothing answers there).
+    /// connects (198.51.100.0/24 is a documentation range: nothing answers there). So is an image
+    /// from a `srcset` or `<picture>`, where a plain `<img src>` would be upgraded.
     #[test]
-    fn a_secure_document_cannot_load_an_insecure_stylesheet() {
+    fn a_secure_document_cannot_load_blockable_content_insecurely() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -337,19 +338,20 @@ mod tests {
             .for_document(Some(&page), ReferrerPolicy::default())
             .expect("a brokered loader binds to a document");
 
-        let started = std::time::Instant::now();
-        let refused = for_page.load(
-            &Url::parse("http://198.51.100.1/a.css").unwrap(),
-            ResourceKind::Stylesheet,
-        );
-        match refused {
-            Err(LoadError::Failed(why)) => assert!(why.contains("mixed content"), "{why}"),
-            other => panic!("expected a mixed-content refusal, got {other:?}"),
+        for (url, kind) in [
+            ("http://198.51.100.1/a.css", ResourceKind::Stylesheet),
+            ("http://198.51.100.1/a.png", ResourceKind::Image { imageset: true }),
+        ] {
+            let started = std::time::Instant::now();
+            match for_page.load(&Url::parse(url).unwrap(), kind) {
+                Err(LoadError::Failed(why)) => assert!(why.contains("mixed content"), "{kind:?}: {why}"),
+                other => panic!("expected a mixed-content refusal for {kind:?}, got {other:?}"),
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "{kind:?} must not try to connect"
+            );
         }
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(5),
-            "it must not try to connect"
-        );
     }
 
     /// The renderer names the kind, so it never decides how the I/O side
@@ -384,7 +386,11 @@ mod tests {
             ReferrerPolicy::NoReferrer,
             "the document's policy rides along"
         );
-        let image = loader.request(&url, ResourceKind::Image, Some((page, ReferrerPolicy::default())));
+        let image = loader.request(
+            &url,
+            ResourceKind::Image { imageset: false },
+            Some((page, ReferrerPolicy::default())),
+        );
         assert_ne!(
             req.mixed_content, image.mixed_content,
             "the kind still picks the mixed-content handling"

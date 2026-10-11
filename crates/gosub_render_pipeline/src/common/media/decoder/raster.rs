@@ -21,6 +21,16 @@ const WEB_FORMATS: &[image::ImageFormat] = &[
     image::ImageFormat::Ico,
 ];
 
+/// Whether `mime` names a format in [`WEB_FORMATS`]. Narrower than
+/// [`MediaDecoder::supports_mime`], which takes any `image/*` as a hint because the bytes decide:
+/// this answers a page asking in advance (`<source type>`), where AVIF must come back `false`.
+/// `mime` is an essence, lowercase and without parameters.
+pub(crate) fn decodes_type(mime: &str) -> bool {
+    // APNG decodes as its first frame, through the PNG decoder.
+    let mime = if mime == "image/apng" { "image/png" } else { mime };
+    image::ImageFormat::from_mime_type(mime).is_some_and(|format| WEB_FORMATS.contains(&format))
+}
+
 /// Decodes the raster formats in [`WEB_FORMATS`], sniffed from the bytes, so a wrong MIME hint
 /// between them is harmless and a format outside them is refused before any decoder sees it.
 /// Decoding is bounded ([`MAX_IMAGE_EDGE`], [`MAX_DECODE_BYTES`]) and huge images are kept

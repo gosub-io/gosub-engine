@@ -2999,8 +2999,12 @@ mod tests {
             Url::parse(&format!("http://127.0.0.1:{site_port}/late.png")).unwrap(),
         )
         .with_reference(REF_REGISTRY.to_net(reference))
-        .with_kind(ResourceKind::Image.to_net())
-        .subresource_of(&old_page, gosub_sonar::ReferrerPolicy::default(), ResourceKind::Image)
+        .with_kind(ResourceKind::Image { imageset: false }.to_net())
+        .subresource_of(
+            &old_page,
+            gosub_sonar::ReferrerPolicy::default(),
+            ResourceKind::Image { imageset: false },
+        )
         .build();
         let (_handle, rx) = crate::net::submit_to_io(zone.id, Some(tab.tab_id), req, zone.context.io_tx.clone(), None)
             .await

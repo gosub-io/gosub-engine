@@ -12,7 +12,7 @@ use crate::net::submit_to_io;
 use crate::net::types::{FetchRequest, FetchResult, Initiator, Priority, ResourceKind, SubresourceOf};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
-use gosub_render_pipeline::common::media::{Acquired, MediaSource};
+use gosub_render_pipeline::common::media::{Acquired, MediaInitiator, MediaSource};
 use gosub_sonar::ReferrerPolicy;
 use http::Method;
 use parking_lot::RwLock;
@@ -68,7 +68,8 @@ impl EngineMediaSource {
     ///
     /// Takes its context rather than reading it: which navigation this belongs to decides
     /// where the bytes are deposited, and that has to be the same navigation the consumer is
-    /// waiting under. See [`MediaSource::acquire`].
+    /// waiting under. They are filed under the initiator's [`MediaInitiator::handoff_key`].
+    /// See [`MediaSource::acquire`].
     fn fetch(
         &self,
         scope: gosub_shared::subresource::Scope,
@@ -76,9 +77,12 @@ impl EngineMediaSource {
         policy: ReferrerPolicy,
         reference: RequestReference,
         url: &str,
+        initiator: MediaInitiator,
     ) {
+        let key = &*initiator.handoff_key(url);
+        let kind = ResourceKind::image(initiator);
         let Ok(parsed) = Url::parse(url) else {
-            gosub_shared::subresource::abandon(scope, url);
+            gosub_shared::subresource::abandon(scope, key);
             return;
         };
 
@@ -88,11 +92,11 @@ impl EngineMediaSource {
         if parsed.scheme() == "data" {
             match crate::net::decode_data_url(&parsed) {
                 Some((content_type, bytes)) => {
-                    gosub_shared::subresource::complete(scope, url, Some(content_type), bytes);
+                    gosub_shared::subresource::complete(scope, key, Some(content_type), bytes);
                 }
                 None => {
                     log::warn!("could not decode data: URL for media");
-                    gosub_shared::subresource::abandon(scope, url);
+                    gosub_shared::subresource::abandon(scope, key);
                 }
             }
             return;
@@ -103,7 +107,7 @@ impl EngineMediaSource {
         // it named the file somewhere the scan could not see.
         if parsed.scheme() == "file" && doc_url.scheme() != "file" {
             log::warn!("refusing file:// media {parsed} for a document that was not loaded from disk");
-            gosub_shared::subresource::abandon(scope, url);
+            gosub_shared::subresource::abandon(scope, key);
             return;
         }
 
@@ -113,23 +117,23 @@ impl EngineMediaSource {
                 headers.insert(http::header::ACCEPT_LANGUAGE, value);
             }
         }
-        if let Ok(value) = ResourceKind::Image.accept_header().parse() {
+        if let Ok(value) = kind.accept_header().parse() {
             headers.insert(http::header::ACCEPT, value);
         }
 
         let req_id = RequestId::new();
-        REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::CSS);
+        REF_REGISTRY.register_request(req_id, kind, Initiator::CSS);
         let mut builder = FetchRequest::builder(Method::GET, parsed)
             .with_req_id(req_id)
             .with_priority(Priority::Low)
             .with_initiator(Initiator::CSS.to_net())
-            .with_kind(ResourceKind::Image.to_net())
+            .with_kind(kind.to_net())
             .with_headers(headers)
             .with_streaming(false)
             .with_auto_decode(true);
         {
             builder = builder
-                .subresource_of(&doc_url, policy, ResourceKind::Image)
+                .subresource_of(&doc_url, policy, kind)
                 .with_reference(REF_REGISTRY.to_net(reference));
         }
         let req = builder.build();
@@ -138,6 +142,7 @@ impl EngineMediaSource {
         let tab_id = self.tab_id;
         let io_tx = self.io_tx.clone();
         let url = url.to_string();
+        let key = key.to_string();
         // Spawned onto the runtime by handle, not with `spawn_named`: the caller is a plain
         // thread waiting on the handoff, with no runtime of its own, and `tokio::spawn`
         // panics when there is no runtime in context.
@@ -158,10 +163,10 @@ impl EngineMediaSource {
                 _ => None,
             };
             match delivered {
-                Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &url, content_type, bytes),
+                Some((content_type, bytes)) => gosub_shared::subresource::complete(scope, &key, content_type, bytes),
                 // Always answered, one way or the other: a consumer waiting on this URL is
                 // otherwise left waiting for bytes that are never coming.
-                None => gosub_shared::subresource::abandon(scope, &url),
+                None => gosub_shared::subresource::abandon(scope, &key),
             }
         });
     }
@@ -179,7 +184,7 @@ impl MediaSource for EngineMediaSource {
     /// bytes arrive under the new one's: a five-second wait and then a failed image, with the
     /// bytes sitting unclaimed. `set_document` takes the write lock, so it cannot land in
     /// the middle of this.
-    fn acquire(&self, url: &str) -> Acquired {
+    fn acquire(&self, url: &str, initiator: MediaInitiator) -> Acquired {
         let document = self.document.read();
         let Some((doc_url, policy, reference)) = document.as_ref() else {
             return Acquired::Unowned;
@@ -193,8 +198,8 @@ impl MediaSource for EngineMediaSource {
         // Nothing has this URL yet: the document scan never saw it (an image named in CSS, or
         // one the regex could not match), so ask for it. A resource the scan did see is
         // already in flight and this does nothing.
-        if gosub_shared::subresource::claim(scope, url) {
-            self.fetch(scope, doc_url.clone(), *policy, *reference, url);
+        if gosub_shared::subresource::claim(scope, &initiator.handoff_key(url)) {
+            self.fetch(scope, doc_url.clone(), *policy, *reference, url, initiator);
         }
         Acquired::Under(scope)
     }
@@ -233,7 +238,7 @@ mod tests {
     /// clock is the assertion.
     fn refusal_is_immediate(source: &EngineMediaSource, url: &str) {
         let started = Instant::now();
-        let Acquired::Under(scope) = source.acquire(url) else {
+        let Acquired::Under(scope) = source.acquire(url, MediaInitiator::Plain) else {
             panic!("a committed navigation has a scope");
         };
         assert!(gosub_shared::subresource::take(scope, url).is_none(), "must not load");
@@ -262,7 +267,7 @@ mod tests {
         exclusively(|| {
             let source = source(None, NavigationId::new());
             let url = "file:///etc/hostname";
-            assert_eq!(source.acquire(url), Acquired::Unowned);
+            assert_eq!(source.acquire(url, MediaInitiator::Plain), Acquired::Unowned);
 
             // Nothing announced and nothing deposited: asking under any scope finds an empty
             // store and returns at once, rather than an entry left in flight for a fetch that
@@ -315,7 +320,10 @@ mod tests {
             let url = "http://example.com/already-claimed.png";
 
             gosub_shared::subresource::begin(navigation.as_scope(), url);
-            assert_eq!(source.acquire(url), Acquired::Under(navigation.as_scope()));
+            assert_eq!(
+                source.acquire(url, MediaInitiator::Plain),
+                Acquired::Under(navigation.as_scope())
+            );
         });
     }
 }

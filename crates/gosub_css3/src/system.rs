@@ -198,6 +198,25 @@ impl CssSystem for Css3System {
         Some(style_environment_fingerprint_impl(sheets))
     }
 
+    fn media_list_matches(text: &str) -> Option<bool> {
+        let env = crate::media_query::media_environment();
+        crate::media_query::MediaQueryList::parse(text).map(|list| list.matches(&env))
+    }
+
+    fn media_condition_matches(text: &str) -> Option<bool> {
+        let env = crate::media_query::media_environment();
+        crate::media_query::MediaQueryList::parse_condition(text).map(|list| list.matches(&env))
+    }
+
+    fn length_px(text: &str) -> Option<f32> {
+        crate::parse_length_px(text)
+    }
+
+    fn media_viewport() -> (f32, f32) {
+        let env = crate::media_query::media_environment();
+        (env.width, env.device_pixel_ratio)
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
     }

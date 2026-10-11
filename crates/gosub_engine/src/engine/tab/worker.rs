@@ -604,10 +604,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             log::debug!("favicon {icon_url}: scheme not allowed, ignored");
             return;
         }
+        let kind = ResourceKind::Image { imageset: false };
         let req_id = RequestId::new();
-        REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::Other);
+        REF_REGISTRY.register_request(req_id, kind, Initiator::Other);
         let mut headers = HeaderMap::new();
-        if let Ok(val) = ResourceKind::Image.accept_header().parse() {
+        if let Ok(val) = kind.accept_header().parse() {
             headers.insert(http::header::ACCEPT, val);
         }
         // The referrer marks the requesting document; it lets file:// pages load their
@@ -616,9 +617,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .with_req_id(req_id)
             .with_headers(headers)
             .with_priority(Priority::Low)
-            .with_kind(ResourceKind::Image.to_net())
+            .with_kind(kind.to_net())
             .with_initiator(Initiator::Other.to_net())
-            .subresource_of(&base_url, self.context.document_referrer_policy(), ResourceKind::Image)
+            .subresource_of(&base_url, self.context.document_referrer_policy(), kind)
             .with_streaming(false)
             .with_auto_decode(true)
             .build();
