@@ -602,7 +602,7 @@ impl CanLayout for TaffyLayouter {
         // positioned boxes take more (see below).
         let insets = resolve_bands_in_document_order(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() {
-            apply_translations(&mut layout_tree);
+            translate_and_measure(&mut layout_tree);
             self.attach_select_popup(&mut layout_tree);
             dump_layout_to_json(&layout_tree);
             return layout_tree;
@@ -627,7 +627,7 @@ impl CanLayout for TaffyLayouter {
         layout_tree = final_tree;
         self.float_insets.clear();
         self.abspos_insets.clear();
-        apply_translations(&mut layout_tree);
+        translate_and_measure(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
         dump_layout_to_json(&layout_tree);
         layout_tree
@@ -734,7 +734,7 @@ impl TaffyLayouter {
         // percentage heights up to the root: resolved again for the new one.
         self.resolve_line_percent_heights(viewport);
         let _ = self.compute_and_populate(layout_tree, viewport);
-        apply_translations(layout_tree);
+        translate_and_measure(layout_tree);
     }
 
     /// Run taffy over the current tree and write the results back as box models, then run the
@@ -3656,6 +3656,14 @@ pub fn taffy_layout_to_boxmodel(layout: &Layout, offset: Coordinate) -> box_mode
             left: layout.margin.left as f64,
         },
     )
+}
+
+/// The last of layout: move translated boxes, then measure the page, which is what the window
+/// scrolls over - the root's box and everything that overflows it, where the transforms put it
+/// (see `scroll_extent`).
+fn translate_and_measure(layout_tree: &mut LayoutTree) {
+    apply_translations(layout_tree);
+    layout_tree.root_dimension = super::scroll_extent::scrollable_extent(layout_tree);
 }
 
 /// CSS `transform: translate*()`: shift the element and its whole subtree after layout. A
