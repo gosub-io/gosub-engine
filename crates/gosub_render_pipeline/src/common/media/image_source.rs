@@ -143,8 +143,9 @@ fn choose<S: CssSystem>(set: Vec<Candidate>, sizes: Option<&str>) -> Option<(Str
             Descriptor::Density(density) => density,
             Descriptor::Width(width) => width as f32 / source_size::<S>(sizes),
         };
-        // HTML drops a candidate whose density repeats an earlier one.
-        if density.is_finite() && !densities.iter().any(|(_, seen)| *seen == density) {
+        // HTML drops a candidate whose density repeats an earlier one. A `0x` parses, but its
+        // natural size would be infinite, so it is never the one chosen.
+        if density.is_finite() && density > 0.0 && !densities.iter().any(|(_, seen)| *seen == density) {
             densities.push((candidate.url, density));
         }
     }
@@ -463,6 +464,16 @@ mod tests {
         let densest = img(&attrs, &env(1000.0, 4.0)).expect("chosen");
         assert_eq!((densest.url.as_str(), densest.density), ("3x.png", 3.0));
         assert!(densest.imageset);
+    }
+
+    /// `0x` parses, but is never chosen: its natural size would be infinite.
+    #[test]
+    fn a_zero_density_is_never_chosen() {
+        let fallback = [("src", "1x.png"), ("srcset", "zero.png 0x")];
+        assert_eq!(url(img(&fallback, &env(1000.0, 4.0))).as_deref(), Some("1x.png"));
+        let low = [("srcset", "zero.png 0x, half.png 0.5x")];
+        assert_eq!(url(img(&low, &env(1000.0, 4.0))).as_deref(), Some("half.png"));
+        assert_eq!(img(&[("srcset", "zero.png 0x")], &env(1000.0, 1.0)), None);
     }
 
     #[test]
