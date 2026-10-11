@@ -144,6 +144,7 @@ Events for the main document. Every event in one navigation carries the same `Na
 | `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. `error` is `LoadError::InvalidUrl`. |
 | `Cancelled { url, reason }` | `CancelReason` distinguishes new navigation, tab close, timeout, and explicit cancel. |
 | `HistoryChanged { history }` | The whole `HistorySnapshot`, emitted after the corresponding `Finished`, so shells can drive back/forward menus without querying. |
+| `Diagnostics { diagnostics }` | What the engine could not use from the page, sent once with the navigation's first frame: the HTML parser's errors (message, line, column) and the CSS the page's own stylesheets said that was dropped (stylesheet, kind, subject, line). Lists are capped at 500 entries each; the counts say how many there were. A value is checked when an element first uses its rule, so one in a rule nothing matched is not reported; everything the CSS parse rejects is. A value rejected that way carries its rule's first line, not its own. In `gosub_engine::diagnostics`. |
 | `Committed` · gated · | There is no separate commit point yet; a load goes `Started` → `Finished`. |
 | `Progress { received_bytes, expected_length, elapsed, .. }` | Load progress of the main document, throttled. |
 

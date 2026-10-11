@@ -2,7 +2,7 @@ use crate::matcher::property_ids::PropertyId;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
-use gosub_interface::css3::CssOrigin;
+use gosub_interface::css3::{CssDropped, CssDroppedKind, CssOrigin};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
@@ -205,6 +205,10 @@ pub struct CssStylesheet {
     pub url: std::sync::Arc<str>,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// What the parser and the converter dropped from this sheet, and why, up to
+    /// [`MAX_DROPPED`]. Values checked only when an element uses their rule are not here; see
+    /// [`gosub_interface::css3::CssStylesheet::dropped`].
+    pub dropped: Vec<CssDropped>,
     /// Cascade layers this sheet declares, by full dotted name, in the order they were first
     /// declared - which is the order that decides which of them wins (css-cascade-5 §6.4).
     ///
@@ -245,6 +249,7 @@ impl CssStylesheet {
         self.imports.shrink_to_fit();
         self.layers.shrink_to_fit();
         self.parse_log.shrink_to_fit();
+        self.dropped.shrink_to_fit();
     }
 
     /// A stylesheet with no rules, for the cases where a sheet could not be produced and the
@@ -260,6 +265,7 @@ impl CssStylesheet {
             scope: None,
             url: url.into(),
             parse_log: Vec::new(),
+            dropped: Vec::new(),
             layers: Vec::new(),
             index: parking_lot::RwLock::new(None),
         }
@@ -276,6 +282,7 @@ impl CssStylesheet {
             scope: None,
             url: url.into(),
             parse_log: vec![],
+            dropped: vec![],
             layers: vec![],
             index: parking_lot::RwLock::new(None),
         }
@@ -363,6 +370,42 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
             .map(|f| (f.family.clone(), f.sources.clone(), f.unicode_range.clone()))
             .collect()
     }
+
+    /// What parsing dropped, then every declaration whose value its grammar rejected, for
+    /// the rules an element has used so far. An unknown property is reported by the parse and
+    /// skipped here.
+    fn dropped(&self) -> Vec<CssDropped> {
+        let mut out = self.dropped.clone();
+        for rule in &self.rules {
+            let Some(expanded) = rule.expanded_if_built() else {
+                continue;
+            };
+            for (declaration, expanded) in rule.declarations().iter().zip(expanded) {
+                if *expanded == ExpandedDeclaration::Invalid && declaration.property.id().is_some() {
+                    note_dropped(
+                        &mut out,
+                        CssDropped {
+                            kind: CssDroppedKind::InvalidValue,
+                            subject: declaration.property.as_str().to_string(),
+                            line: rule.line,
+                        },
+                    );
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The most a stylesheet reports dropping. A minified sheet full of vendor prefixes can drop
+/// thousands of declarations, and the report is for a person to read.
+pub const MAX_DROPPED: usize = 512;
+
+/// Record `dropped` unless `list` already holds [`MAX_DROPPED`].
+pub(crate) fn note_dropped(list: &mut Vec<CssDropped>, dropped: CssDropped) {
+    if list.len() < MAX_DROPPED {
+        list.push(dropped);
+    }
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
@@ -390,6 +433,8 @@ pub struct CssRule {
     /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
     /// declaration is the strongest place to be.
     pub layer: Option<u32>,
+    /// The line the rule starts on, from 1; 0 when it was not parsed from a sheet.
+    pub line: u32,
     /// The declarations validated and expanded, built the first time an element needs them;
     /// see [`CssRule::expanded`].
     expanded: OnceLock<Vec<ExpandedDeclaration>>,
@@ -420,6 +465,7 @@ impl CssRule {
             declarations,
             media,
             layer,
+            line: 0,
             expanded: OnceLock::new(),
         }
     }

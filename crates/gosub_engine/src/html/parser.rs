@@ -262,7 +262,10 @@ where
             stylesheets,
             ..Default::default()
         };
-        let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options));
+        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(options)) {
+            Ok(errors) => doc.set_parse_errors(errors),
+            Err(e) => log::warn!("HTML parse stopped early: {e}"),
+        }
         let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
         doc.add_stylesheet(ua);
         if doc.quirks_mode() == QuirksMode::Quirks {

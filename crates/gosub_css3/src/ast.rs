@@ -3,13 +3,14 @@ use log::warn;
 
 use crate::media_query::MediaQueryList;
 use crate::node::{Node as CssNode, NodeType};
+use crate::stylesheet::note_dropped;
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
     FontFace, ImportRule, MatcherType,
 };
 use crate::supports::SupportsCondition;
 use crate::value_pool::ValuePool;
-use gosub_interface::css3::CssOrigin;
+use gosub_interface::css3::{CssDropped, CssDroppedKind, CssOrigin};
 use gosub_shared::errors::{CssError, CssResult};
 use std::sync::Arc;
 
@@ -316,8 +317,27 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
 /// standing (css-syntax-3 §9, selectors-4 §3.9). It used to abandon the whole stylesheet, so a
 /// single selector this converter has no arm for - a bare number, dimension or percentage in a
 /// compound, or the nesting selector `&` - cost a page every rule its sheet had.
+/// A location's line as the `u32` a [`CssDropped`] carries.
+fn line_of(location: &gosub_shared::byte_stream::Location) -> u32 {
+    u32::try_from(location.line).unwrap_or(u32::MAX)
+}
+
+/// Record that something on `line` was dropped.
+fn drop_here(dropped: &mut Vec<CssDropped>, kind: CssDroppedKind, subject: impl Into<String>, line: u32) {
+    note_dropped(
+        dropped,
+        CssDropped {
+            kind,
+            subject: subject.into(),
+            line,
+        },
+    );
+}
+
 fn collect_rule(
     pool: &mut ValuePool,
+    dropped: &mut Vec<CssDropped>,
+    line: u32,
     prelude: Option<Box<CssNode>>,
     block: Option<Box<CssNode>>,
     media: &[Arc<MediaQueryList>],
@@ -331,6 +351,7 @@ fn collect_rule(
         (!media.is_empty()).then(|| media.to_vec()),
         layer,
     );
+    rule.line = line;
 
     if let Some(node) = prelude {
         let NodeType::SelectorList { selectors } = node.node_type else {
@@ -347,6 +368,7 @@ fn collect_rule(
                 // One member of a selector list being invalid invalidates the whole list, and so
                 // this rule - but only this rule.
                 log::debug!("Rule dropped: {err}");
+                drop_here(dropped, CssDroppedKind::InvalidSelector, err.to_string(), line);
                 return None;
             }
         }
@@ -372,6 +394,7 @@ fn collect_rule(
         // alternative is doubling up to 85,136 slots for 37,706 declarations across a sheet.
         rule.declarations_mut().reserve_exact(children.len());
         for declaration in children {
+            let at = line_of(&declaration.location);
             let NodeType::Declaration {
                 property,
                 value,
@@ -387,11 +410,13 @@ fn collect_rule(
             // `margin: 1px`, which is not what the author wrote and not what the cascade
             // should see.
             if value.iter().any(|node| !math_spacing_is_valid(node, false)) {
+                drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
                 continue;
             }
             // Likewise a bracketed line-name list that is not one: brackets that do not pair
             // up (`random-item(auto, ])`), or a name css-grid excludes (`[auto]`, `[span]`).
             if !line_names_are_valid(&value) {
+                drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
                 continue;
             }
 
@@ -415,6 +440,7 @@ fn collect_rule(
             // Only a custom property can arrive with no value at all (`--x:;`, which the parser
             // lets through), and for one that is a value: it substitutes to nothing.
             if !converted || (css_values.is_empty() && !property.starts_with("--")) {
+                drop_here(dropped, CssDroppedKind::InvalidValue, property, at);
                 continue;
             }
 
@@ -432,10 +458,16 @@ fn collect_rule(
             // stylesheet - the cascade and the CSSOM alike - sees the value they mean.
             let value = resolve_display_alias(&property, value);
 
+            let property: crate::stylesheet::PropertyName = property.into();
+            // A property with no definition is dropped by the expansion; said here, where the
+            // line is known and every rule is seen, not only those an element uses.
+            if !property.is_custom() && property.id().is_none() {
+                drop_here(dropped, CssDroppedKind::UnknownProperty, property.as_str(), at);
+            }
             rule.declarations_mut().push(CssDeclaration {
                 // Resolved to an id here, once, rather than by name on every rule expansion
                 // and every element a pending declaration reaches.
-                property: property.into(),
+                property,
                 // One allocation per *distinct* value in the sheet, shared from here on by
                 // every rule that writes it and every element those rules match.
                 value: pool.intern(value),
@@ -577,6 +609,7 @@ fn register_layer(layers: &mut Vec<String>, name: &str) -> u32 {
 /// being walked rather than to the sheet.
 struct SheetParts<'a> {
     pool: &'a mut ValuePool,
+    dropped: &'a mut Vec<CssDropped>,
     rules: &'a mut Vec<CssRule>,
     font_faces: &'a mut Vec<FontFace>,
     imports: &'a mut Vec<ImportRule>,
@@ -592,9 +625,10 @@ fn collect_rules(
     layer: Option<u32>,
 ) {
     for node in nodes {
+        let line = line_of(&node.location);
         match node.node_type {
             NodeType::Rule { prelude, block } => {
-                if let Some(rule) = collect_rule(sheet.pool, prelude, block, media, layer) {
+                if let Some(rule) = collect_rule(sheet.pool, sheet.dropped, line, prelude, block, media, layer) {
                     sheet.rules.push(rule);
                 }
             }
@@ -626,6 +660,7 @@ fn collect_rules(
                     }
                 } else {
                     warn!("Ignoring @import that follows a style rule");
+                    drop_here(sheet.dropped, CssDroppedKind::UnsupportedAtRule, "@import", line);
                 }
             }
             NodeType::AtRule {
@@ -696,6 +731,18 @@ fn collect_rules(
                         sheet.font_faces.push(face);
                     }
                 }
+            }
+            // `@charset` only ever named the encoding, which is settled before CSS is parsed.
+            NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
+            // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
+            // or a known one in a shape it cannot use (`@media` with no block).
+            NodeType::AtRule { name, .. } => {
+                drop_here(
+                    sheet.dropped,
+                    CssDroppedKind::UnsupportedAtRule,
+                    format!("@{name}"),
+                    line,
+                );
             }
             _ => {}
         }
@@ -896,6 +943,7 @@ pub(crate) fn convert_node_into(
 ) {
     let mut parts = SheetParts {
         pool,
+        dropped: &mut sheet.dropped,
         rules: &mut sheet.rules,
         font_faces: &mut sheet.font_faces,
         imports: &mut sheet.imports,
@@ -925,6 +973,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
     let mut pool = ValuePool::default();
     let mut parts = SheetParts {
         pool: &mut pool,
+        dropped: &mut sheet.dropped,
         rules: &mut sheet.rules,
         font_faces: &mut sheet.font_faces,
         imports: &mut sheet.imports,
@@ -969,6 +1018,73 @@ mod tests {
     use crate::stylesheet::Specificity;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
+
+    /// Everything the sheet says that the engine does not apply is reported once, with its
+    /// kind, what it was and its line: the parse finds the unknown property, the selector, the
+    /// at-rules and the badly spaced math; the grammar finds the rejected value when an element
+    /// first uses its rule.
+    #[test]
+    fn a_sheet_reports_what_it_dropped() {
+        use gosub_interface::css3::{CssDropped, CssDroppedKind as K, CssStylesheet as _};
+        let sheet = Css3::parse_str(
+            "a { dsiplay: block }\nb { color: 10px }\n.p-0.5 { color: green }\n@nonsense { }\n@keyframes spin { }\ni { margin: 1px min(1px+ 2px, 9px) }\n@charset \"utf-8\";",
+            ParserConfig { ignore_errors: true, ..Default::default() },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+        let found = |sheet: &CssStylesheet| -> Vec<(K, String, u32)> {
+            sheet
+                .dropped()
+                .into_iter()
+                .map(|CssDropped { kind, subject, line }| (kind, subject, line))
+                .collect()
+        };
+
+        let parsed = found(&sheet);
+        assert!(
+            parsed.contains(&(K::UnknownProperty, "dsiplay".into(), 1)),
+            "{parsed:?}"
+        );
+        assert!(
+            parsed.iter().any(|(k, _, line)| *k == K::InvalidSelector && *line == 3),
+            "{parsed:?}"
+        );
+        assert!(
+            parsed.contains(&(K::UnsupportedAtRule, "@nonsense".into(), 4)),
+            "{parsed:?}"
+        );
+        assert!(
+            parsed.contains(&(K::UnsupportedAtRule, "@keyframes".into(), 5)),
+            "{parsed:?}"
+        );
+        assert!(parsed.contains(&(K::InvalidValue, "margin".into(), 6)), "{parsed:?}");
+        assert!(
+            !parsed.iter().any(|(_, subject, _)| subject.contains("charset")),
+            "@charset is not a drop"
+        );
+        assert!(
+            !parsed.iter().any(|(_, subject, _)| subject == "color"),
+            "not checked until used"
+        );
+
+        // The value is checked once per rule, however many elements use it.
+        let _ = sheet.rules[1].expanded();
+        let _ = sheet.rules[1].expanded();
+        let used = found(&sheet);
+        assert_eq!(
+            used.iter()
+                .filter(|entry| **entry == (K::InvalidValue, "color".to_string(), 2))
+                .count(),
+            1,
+            "{used:?}"
+        );
+        assert_eq!(
+            used.iter().filter(|(_, subject, _)| subject == "dsiplay").count(),
+            1,
+            "an unknown property is the parse's to report"
+        );
+    }
 
     /// A selector this converter has no arm for invalidates its own rule and nothing else
     /// (css-syntax-3 §9). It used to fail the conversion of the whole stylesheet, so one

@@ -389,6 +389,11 @@ pub struct PageSummary {
     /// nothing. Said outright: an empty answer from a retained page - a blank
     /// page lays out 0px tall - looks the same otherwise.
     pub no_page: bool,
+    /// The page's HTML parse errors and dropped CSS, from the renderer's parse
+    /// and cascade: the broker parses nothing of a remotely rendered page. Sent
+    /// with a page's first pass only, and bounded by the report's own caps.
+    #[serde(default)]
+    pub diagnostics: Option<crate::engine::diagnostics::PageDiagnostics>,
 }
 
 /// An element a `#fragment` can scroll to, in layout order.

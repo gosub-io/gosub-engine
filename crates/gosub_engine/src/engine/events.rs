@@ -493,6 +493,13 @@ pub enum NavigationEvent {
         url: Url,
         reason: CancelReason,
     },
+    /// What the engine could not use from the page: its HTML parse errors and the CSS its own
+    /// stylesheets said that was dropped. Sent once per navigation, with the first frame, when
+    /// styles have been computed. See [`PageDiagnostics`](crate::engine::diagnostics::PageDiagnostics).
+    Diagnostics {
+        nav_id: NavigationId,
+        diagnostics: crate::engine::diagnostics::PageDiagnostics,
+    },
     /// The tab's session history changed (entry added, back/forward moved, title learned).
     /// Carries the full snapshot so shells can update back/forward buttons and menus without
     /// querying. Emitted after the corresponding `Finished`.

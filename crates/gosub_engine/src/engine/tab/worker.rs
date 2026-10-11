@@ -273,6 +273,10 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// Whether `page.first_paint` has been marked for `timing_scope` yet. First paint is
     /// once per navigation, and `tick_draw` runs on every frame.
     first_paint_marked: bool,
+    /// The committed navigation whose [`NavigationEvent::Diagnostics`] is still to be sent: with
+    /// its first frame, once styles are computed (or, out of process, once the renderer has
+    /// reported them).
+    diagnostics_due: Option<NavigationId>,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
     reported_cursor: CursorShape,
@@ -402,6 +406,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             active_nav: None,
             timing_scope: None,
             first_paint_marked: false,
+            diagnostics_due: None,
             history: History::default(),
             reported_cursor: CursorShape::Default,
             remote_capture: false,
@@ -806,6 +811,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Finished { nav_id, url: final_url },
                 });
+                self.diagnostics_due = Some(nav_id);
                 self.emit_history_changed();
                 // set_document cleared hover state; the next mouse move re-derives it.
                 self.report_cursor(CursorShape::Default);
@@ -1946,6 +1952,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         gosub_shared::timing::begin_scope(scope);
         self.timing_scope = Some(scope);
         self.first_paint_marked = false;
+        self.diagnostics_due = None;
 
         let parent_cancel = CancellationToken::new();
         self.active_nav = Some(ActiveNav {
@@ -2294,6 +2301,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         gosub_shared::timing::begin_scope(scope);
         self.timing_scope = Some(scope);
         self.first_paint_marked = false;
+        self.diagnostics_due = None;
 
         let parent_cancel = CancellationToken::new();
         // Its subresources are this document's, not whatever the tab showed before:
@@ -2498,6 +2506,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
+    /// Send the committed navigation's [`NavigationEvent::Diagnostics`] once there is a full
+    /// frame behind it: styles are computed then, and so is the cascade's check of the values
+    /// of every rule the page uses. Out of process, the renderer's report may land a frame
+    /// after its tiles, so this keeps trying until it has.
+    fn send_due_diagnostics(&mut self) {
+        let Some(nav_id) = self.diagnostics_due else {
+            return;
+        };
+        if let Some(diagnostics) = self.context.page_diagnostics() {
+            self.diagnostics_due = None;
+            self.send_event(EngineEvent::Navigation {
+                tab_id: self.tab_id,
+                event: NavigationEvent::Diagnostics { nav_id, diagnostics },
+            });
+        }
+    }
+
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.apply_remote_document_meta();
@@ -2636,6 +2661,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             self.sink.inc_frame();
             self.report_frame("rebuild", frame_started);
+            self.send_due_diagnostics();
             return Ok(());
         }
 
@@ -2797,6 +2823,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.first_paint_marked = true;
             }
         }
+        self.send_due_diagnostics();
 
         let now = std::time::Instant::now();
         let elapsed = now - self.runtime.last_tick_draw;

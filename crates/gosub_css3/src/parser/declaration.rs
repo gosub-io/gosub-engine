@@ -36,6 +36,11 @@ impl Css3<'_> {
         log::trace!("parse_declaration");
 
         let result = self.parse_declaration_internal();
+        if let Err(err) = &result {
+            if self.config.ignore_errors {
+                self.note_skipped(gosub_interface::css3::CssDroppedKind::InvalidDeclaration, err);
+            }
+        }
         if result.is_err() && self.config.ignore_errors {
             log::warn!("Ignoring error in parse_declaration: {result:?}");
             self.parse_until_declaration_end();

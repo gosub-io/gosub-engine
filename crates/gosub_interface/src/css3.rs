@@ -159,6 +159,40 @@ pub trait CssStylesheet: PartialEq + Debug {
     fn font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
         Vec::new()
     }
+
+    /// What in this stylesheet the engine did not apply, and why, in source order of discovery.
+    /// A declaration whose value is checked only when an element first uses its rule appears
+    /// once some element has: the rest are found when the sheet is parsed.
+    fn dropped(&self) -> Vec<CssDropped> {
+        Vec::new()
+    }
+}
+
+/// Something a stylesheet said that the engine did not apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CssDropped {
+    pub kind: CssDroppedKind,
+    /// What was dropped, as the author wrote it: a property name, an at-rule's name, or the
+    /// parser's account of what it could not read.
+    pub subject: String,
+    /// The line in the stylesheet, from 1. For a `<style>` element, counted from its first line.
+    /// For a value rejected when an element first used its rule, the line the rule starts on.
+    pub line: u32,
+}
+
+/// Why a [`CssDropped`] was dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CssDroppedKind {
+    /// A property the engine has no definition for: a misspelling, or one it does not support.
+    UnknownProperty,
+    /// A value its property's grammar rejects, or that the engine cannot read.
+    InvalidValue,
+    /// A declaration the parser could not read at all.
+    InvalidDeclaration,
+    /// A rule whose selector list is invalid or uses a selector the engine does not support.
+    InvalidSelector,
+    /// An at-rule the engine does not implement, or one in a place it is not allowed.
+    UnsupportedAtRule,
 }
 
 pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {

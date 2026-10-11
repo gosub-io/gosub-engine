@@ -58,6 +58,9 @@ pub struct Css3<'stream> {
     /// Set when a block was too deep to parse and was skipped up to its closing `}`. The rule
     /// that owns the block then consumes that `}` and is dropped, instead of resynchronising.
     skipped_deep_block: bool,
+    /// Declarations and at-rules the parser could not read and skipped, for the sheet's
+    /// [`CssStylesheet::dropped`].
+    dropped: Vec<gosub_interface::css3::CssDropped>,
 }
 
 impl<'stream> Css3<'stream> {
@@ -71,6 +74,7 @@ impl<'stream> Css3<'stream> {
             source: source.to_string(),
             recursion_depth: 0,
             skipped_deep_block: false,
+            dropped: Vec::new(),
         }
     }
 
@@ -146,9 +150,29 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("No node tree found"));
         }
         sheet.layers = layers;
+        // What the parser skipped never reached the converter; merged in source order.
+        for dropped in std::mem::take(&mut self.dropped) {
+            stylesheet::note_dropped(&mut sheet.dropped, dropped);
+        }
+        sheet.dropped.sort_by_key(|dropped| dropped.line);
         note_viewport_units(&mut sheet);
         sheet.shrink_to_fit();
         Ok(sheet)
+    }
+
+    /// Record that the parser skipped something because of `err`: where the error says it
+    /// was, or else where the parser is now.
+    pub(crate) fn note_skipped(&mut self, kind: gosub_interface::css3::CssDroppedKind, err: &CssError) {
+        let location = err.location.unwrap_or_else(|| self.tokenizer.current_location());
+        let line = u32::try_from(location.line).unwrap_or(u32::MAX);
+        stylesheet::note_dropped(
+            &mut self.dropped,
+            gosub_interface::css3::CssDropped {
+                kind,
+                subject: err.message.clone(),
+                line,
+            },
+        );
     }
 }
 

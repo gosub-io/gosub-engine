@@ -196,6 +196,8 @@ pub struct RetainedPage<C: RenderConfiguration> {
     dirty: Dirty,
     /// Stage costs of `build`, reported with the first pass only.
     build_timings: Vec<(String, u64)>,
+    /// What the parse and the first cascade could not use, for the first pass to carry.
+    diagnostics: Option<crate::engine::diagnostics::PageDiagnostics>,
 }
 
 /// How much of the page around the viewport a pass rasterizes.
@@ -327,7 +329,10 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let base_url = Url::parse(page_url).ok();
         let mut stream = ByteStream::from_str(html, Encoding::UTF8);
         let mut doc = DocumentBuilderImpl::new_document::<C>(base_url.clone());
-        let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(Html5ParserOptions::default()));
+        match Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(Html5ParserOptions::default())) {
+            Ok(errors) => doc.set_parse_errors(errors),
+            Err(e) => log::warn!("HTML parse of {page_url} stopped early: {e}"),
+        }
         doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());
         if doc.quirks_mode() == QuirksMode::Quirks {
             if let Some(quirks) = C::CssSystem::load_quirks_useragent_stylesheet() {
@@ -373,6 +378,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
         let mut fragment_targets = crate::html::collect_fragment_targets(&layer_list, &doc);
         // The broker bounds what it keeps too; this bounds what crosses.
         fragment_targets.truncate(crate::fork_server::protocol::MAX_FRAGMENT_TARGETS);
+        let diagnostics = Some(crate::engine::diagnostics::gather::<C>(&doc));
         let build_timings = vec![
             ("build.parse".to_string(), parse_us),
             ("build.render_tree".to_string(), render_tree_us),
@@ -406,6 +412,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             input: PageInput::default(),
             dirty: Dirty::None,
             build_timings,
+            diagnostics,
         }
     }
 
@@ -815,6 +822,7 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             timings_us,
             fragment_targets: self.fragment_targets.clone(),
             no_page: false,
+            diagnostics: None,
         }
     }
 
@@ -1022,8 +1030,10 @@ impl<C: RenderConfiguration> RetainedPage<C> {
             });
         }
 
+        let mut summary = self.summary(painted_tiles, paint_commands, timings);
+        summary.diagnostics = self.diagnostics.take();
         RenderPass {
-            summary: self.summary(painted_tiles, paint_commands, timings),
+            summary,
             tiles,
             evicted,
         }
@@ -1257,5 +1267,44 @@ mod tests {
         assert_eq!(env.reduced_motion, ReducedMotion::Reduce);
         assert_eq!((env.width, env.height), (800.0, 600.0));
         apply_media_prefs(1, MediaPrefs::default());
+    }
+    /// A renderer reports the page's parse errors and dropped CSS with its first pass, the
+    /// broker having parsed nothing of the page; later passes of the same page do not repeat it.
+    #[test]
+    fn the_first_pass_carries_the_pages_diagnostics() {
+        use crate::html::{DefaultRenderConfig, RenderConfiguration};
+        type Fonts = <DefaultRenderConfig as RenderConfiguration>::FontSystem;
+        let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(Fonts::default()));
+        let known = HashSet::new();
+        let mut page = RetainedPage::<DefaultRenderConfig>::build(
+            PageRequest {
+                html: "<html><head><style>a { dsiplay: block }</style></head><body><a>x</a></body></html>",
+                page_url: "https://example.test/",
+                viewport_width: 800.0,
+                viewport_height: 600.0,
+                known_tiles: &known,
+                hovered_node: None,
+                dpr: 1,
+                media: MediaPrefs::default(),
+            },
+            fonts,
+            Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            Arc::new(crate::net::resource_loader::NoResourceLoader),
+        );
+
+        let first = page
+            .render(Some(0.0), &known)
+            .summary
+            .diagnostics
+            .expect("with the first pass");
+        assert_eq!(first.html_error_count, 1, "no doctype: {first:?}");
+        assert!(
+            first.css_dropped.iter().any(|dropped| dropped.subject == "dsiplay"),
+            "{first:?}"
+        );
+        assert!(
+            page.render(Some(0.0), &known).summary.diagnostics.is_none(),
+            "only once"
+        );
     }
 }
