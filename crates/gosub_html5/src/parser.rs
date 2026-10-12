@@ -4393,20 +4393,24 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         C::CssSystem::resolve_imports(sheet, &mut fetch);
     }
 
+    /// What a `<link>` asks of the document: today only a stylesheet does anything. What it
+    /// does not do is logged, not reported as a parse error: none of it is one (the tree
+    /// builder's rules for `<link>` have no error case), and a page's report should hold
+    /// only what the HTML spec calls an error.
     fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
         if attributes.contains_key("rel") && attributes.contains_key("itemprop") {
             // cannot have them both
-            self.parse_error("link element cannot have both 'rel' and 'itemprop' attributes");
+            log::debug!("link element cannot have both 'rel' and 'itemprop' attributes");
             return;
         }
 
         if attributes.contains_key("itemprop") {
-            self.parse_error("link element with 'itemprop' attribute not supported yet");
+            log::debug!("link element with 'itemprop' attribute not supported yet");
             return;
         }
 
         let Some(rel) = attributes.get("rel").cloned() else {
-            self.parse_error("link element without 'rel' attribute not supported yet");
+            log::debug!("link element without 'rel' attribute not supported yet");
             return;
         };
 
@@ -4423,7 +4427,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             "stylesheet",
         ];
         if parser_in_body && !body_ok_types.contains(&rel.as_str()) {
-            self.parse_error(format!("link element with rel attribute '{rel}' is not supported in the body").as_str());
+            log::debug!("link element with rel attribute '{rel}' is not supported in the body");
             return;
         }
 
@@ -4439,13 +4443,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Err(_err) => {
                         // Relative URL
                         let Some(base_url) = self.document.url() else {
-                            self.parse_error("link element without base url not supported yet");
+                            log::debug!("link element without base url not supported yet");
                             return;
                         };
                         match base_url.join(href) {
                             Ok(url) => url,
                             Err(_) => {
-                                self.parse_error("link element with invalid href url");
+                                log::debug!("link element with invalid href url");
                                 return;
                             }
                         }
@@ -4457,7 +4461,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.document.add_pending_stylesheet(css_url.as_str());
             }
             _ => {
-                self.parse_error(format!("link element with rel attribute '{rel}' is not supported").as_str());
+                log::debug!("link element with rel attribute '{rel}' is not supported");
             }
         }
     }

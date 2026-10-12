@@ -20,6 +20,7 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::node::{is_valid_shadow_host_name, NodeType, QuirksMode, ShadowRootInit};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
+use gosub_shared::types::ParseError;
 
 /// Defines a document
 #[derive(Debug)]
@@ -47,6 +48,9 @@ pub struct DocumentImpl<C: HasDocument> {
     open_select: parking_lot::RwLock<Option<OpenSelect>>,
     /// Controls the user resized, with their border-box size.
     sizes: parking_lot::RwLock<HashMap<NodeId, (f64, f64)>>,
+    /// The errors the HTML parser reported building this document, for whoever wants to show
+    /// them; see [`DocumentImpl::set_parse_errors`].
+    parse_errors: Vec<ParseError>,
 }
 
 #[derive(Debug, Default)]
@@ -89,6 +93,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             selected: parking_lot::RwLock::new(HashMap::new()),
             open_select: parking_lot::RwLock::new(None),
             sizes: parking_lot::RwLock::new(HashMap::new()),
+            parse_errors: Vec::new(),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -551,6 +556,19 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 // ── Internal helpers (not part of Document trait) ───────────────────────────
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
+    /// Keep the errors [`Html5Parser::parse_document`](crate::parser::Html5Parser::parse_document)
+    /// returned for this document. The parser hands them back rather than storing them, so a
+    /// caller that discards them has none to show.
+    pub fn set_parse_errors(&mut self, errors: Vec<ParseError>) {
+        self.parse_errors = errors;
+    }
+
+    /// The errors kept by [`Self::set_parse_errors`], in the order the parser met them.
+    #[must_use]
+    pub fn parse_errors(&self) -> &[ParseError] {
+        &self.parse_errors
+    }
+
     /// The `<table>` a cell sits in, if it sits in one at all.
     ///
     /// A `<td>` written outside a table is an ordinary element as far as the tree is concerned,

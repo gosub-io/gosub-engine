@@ -187,6 +187,43 @@ mod tests {
         assert_eq!(selectors(&sheet), vec!["inner", "outer", "own"]);
     }
 
+    /// What an imported sheet dropped is reported against that sheet, at its own lines - what
+    /// its parse dropped, and a value rejected once an element uses the rule, nested imports
+    /// included.
+    #[test]
+    fn an_imported_sheets_drops_keep_their_sheet() {
+        use gosub_interface::css3::{CssDroppedKind as K, CssStylesheet as _};
+        let mut sheet = parse(
+            r#"
+            @import "outer.css";
+            own { colr: red; }
+            "#,
+        );
+        let mut fetch = fetcher(HashMap::from([
+            ("outer.css", "@import \"inner.css\";\nouter { dsiplay: block }"),
+            ("inner.css", "\ninner { margin: 1px min(1px+ 2px, 9px) }"),
+        ]));
+        resolve_imports(&mut sheet, &mut fetch);
+        for rule in &sheet.rules {
+            let _ = rule.expanded();
+        }
+
+        let mut found: Vec<_> = sheet
+            .dropped()
+            .into_iter()
+            .map(|d| (d.kind, d.subject, d.line, d.stylesheet))
+            .collect();
+        found.sort_by(|a, b| a.1.cmp(&b.1));
+        assert_eq!(
+            found,
+            vec![
+                (K::UnknownProperty, "colr".into(), 3, None),
+                (K::UnknownProperty, "dsiplay".into(), 2, Some("outer.css".into())),
+                (K::InvalidValue, "margin".into(), 2, Some("inner.css".into())),
+            ]
+        );
+    }
+
     /// The import's media query travels with every rule it brings in.
     #[test]
     fn import_media_gates_the_imported_rules() {

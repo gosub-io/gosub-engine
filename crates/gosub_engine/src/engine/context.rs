@@ -265,6 +265,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// not yet handed to the tab.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_document_meta: Option<(Option<String>, Option<String>)>,
+    /// The diagnostics the renderer reported for the current document's latest full pass.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_diagnostics: Option<crate::engine::diagnostics::PageDiagnostics>,
     /// Tiles from the last remote render, keyed by content hash; offered to the
     /// next render so unchanged tiles are neither rasterized nor shipped again.
     /// Remote counterpart of `tile_pixel_cache`.
@@ -428,6 +431,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             document_referrer_policy: gosub_sonar::ReferrerPolicy::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_document_meta: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_diagnostics: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -602,6 +607,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.remote_document_meta.take()
     }
 
+    /// The current document's HTML parse errors and dropped CSS: gathered from the document
+    /// when it is laid out here, or as the renderer reported them. `None` until a renderer
+    /// has reported, or when there is no document.
+    pub fn page_diagnostics(&self) -> Option<crate::engine::diagnostics::PageDiagnostics> {
+        if let Some(doc) = &self.document {
+            return Some(crate::engine::diagnostics::gather::<C>(doc));
+        }
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(diagnostics) = &self.remote_diagnostics {
+            return Some(diagnostics.clone());
+        }
+        None
+    }
+
     fn replace_document(
         &mut self,
         doc: Option<Arc<EngineDocument<C>>>,
@@ -613,6 +632,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.supersede_remote_passes();
             self.remote_media.clear();
             self.remote_document_meta = None;
+            self.remote_diagnostics = None;
             // Input queued for the page that is going would land on the next.
             self.remote_input_queue.clear();
             self.remote_effects.clear();
@@ -1346,6 +1366,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .replace_with(page.tiles.into_iter().map(kept_tile));
         self.remote_layer_order = page.summary.layer_order.clone();
         self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
+        if let Some(diagnostics) = &page.summary.diagnostics {
+            self.remote_diagnostics = Some(diagnostics.clone());
+        }
         let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
         let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
         self.pipeline_cache = Some(PipelineCache {

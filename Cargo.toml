@@ -144,6 +144,10 @@ name = "hello-world"
 path = "examples/hello-world.rs"
 
 [[example]]
+name = "page-diagnostics"
+path = "examples/page-diagnostics.rs"
+
+[[example]]
 name = "multi-tab"
 path = "examples/multi-tab.rs"
 

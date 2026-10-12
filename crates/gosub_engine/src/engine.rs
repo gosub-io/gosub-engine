@@ -4,6 +4,7 @@
 
 mod context;
 pub mod damage;
+pub mod diagnostics;
 pub(crate) mod edit;
 #[allow(clippy::module_inception)]
 mod engine;

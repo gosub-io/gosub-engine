@@ -249,6 +249,7 @@ pub use html::DefaultRenderConfig;
 pub use engine::default_settings;
 
 /// `gosub://` internal pages: the registry embedders extend/override (see [`GosubEngine::internal_pages`]).
+pub use engine::diagnostics;
 pub use engine::internal_pages;
 
 /// Bookmarks + visited history ("places"), per zone: the store type shells share.

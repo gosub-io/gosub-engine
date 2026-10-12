@@ -2,7 +2,7 @@ use crate::matcher::property_ids::PropertyId;
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
-use gosub_interface::css3::CssOrigin;
+use gosub_interface::css3::{CssDropped, CssDroppedKind, CssOrigin};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
@@ -205,6 +205,13 @@ pub struct CssStylesheet {
     pub url: std::sync::Arc<str>,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// What the parser and the converter dropped from this sheet, and why, up to
+    /// [`MAX_DROPPED`]. Values checked only when an element uses their rule are not here; see
+    /// [`gosub_interface::css3::CssStylesheet::dropped`].
+    pub dropped: Vec<CssDropped>,
+    /// The URLs of the `@import`ed sheets spliced into this one, nested ones included; a
+    /// rule's [`CssRule::source`] points in here.
+    pub imported_from: Vec<std::sync::Arc<str>>,
     /// Cascade layers this sheet declares, by full dotted name, in the order they were first
     /// declared - which is the order that decides which of them wins (css-cascade-5 §6.4).
     ///
@@ -245,6 +252,8 @@ impl CssStylesheet {
         self.imports.shrink_to_fit();
         self.layers.shrink_to_fit();
         self.parse_log.shrink_to_fit();
+        self.dropped.shrink_to_fit();
+        self.imported_from.shrink_to_fit();
     }
 
     /// A stylesheet with no rules, for the cases where a sheet could not be produced and the
@@ -260,6 +269,8 @@ impl CssStylesheet {
             scope: None,
             url: url.into(),
             parse_log: Vec::new(),
+            dropped: Vec::new(),
+            imported_from: Vec::new(),
             layers: Vec::new(),
             index: parking_lot::RwLock::new(None),
         }
@@ -276,6 +287,8 @@ impl CssStylesheet {
             scope: None,
             url: url.into(),
             parse_log: vec![],
+            dropped: vec![],
+            imported_from: vec![],
             layers: vec![],
             index: parking_lot::RwLock::new(None),
         }
@@ -291,6 +304,10 @@ impl CssStylesheet {
     /// `media` is the import's own media query list; it is pushed onto every incoming rule so
     /// the condition travels with the rules rather than being lost at the seam. Font faces
     /// come along unconditionally - they are not media-scoped.
+    ///
+    /// What the imported sheet dropped comes along too, marked with the sheet it was in, and
+    /// each incoming rule remembers that sheet (see [`CssRule::source`]), so a value rejected
+    /// later is reported against the file it is in.
     pub fn splice_import(
         &mut self,
         imported: CssStylesheet,
@@ -301,14 +318,28 @@ impl CssStylesheet {
             rules,
             font_faces,
             uses_viewport_units,
+            url,
+            dropped,
+            imported_from,
             ..
         } = imported;
+
+        // The imported sheet's own URL, then the sheets it imported in turn: its rules'
+        // sources, counted from 1 in its own list, shift up past what this sheet already has.
+        let base = u32::try_from(self.imported_from.len()).unwrap_or(u32::MAX);
+        self.imported_from.push(Arc::clone(&url));
+        self.imported_from.extend(imported_from);
+        for mut entry in dropped {
+            entry.stylesheet.get_or_insert_with(|| url.to_string());
+            note_dropped(&mut self.dropped, entry);
+        }
 
         // An imported sheet's viewport-unit usage becomes the importing sheet's too: its
         // rules now live here, and the resize fingerprint is computed per sheet.
         self.uses_viewport_units |= uses_viewport_units;
         let count = rules.len();
         let rules = rules.into_iter().map(|mut rule| {
+            rule.source = base.saturating_add(1).saturating_add(rule.source);
             if let Some(media) = media {
                 // Outermost first: the import's condition gates everything inside it.
                 rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
@@ -363,6 +394,47 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
             .map(|f| (f.family.clone(), f.sources.clone(), f.unicode_range.clone()))
             .collect()
     }
+
+    /// What parsing dropped, then every declaration whose value its grammar rejected, for
+    /// the rules an element has used so far. An unknown property is reported by the parse and
+    /// skipped here.
+    fn dropped(&self) -> Vec<CssDropped> {
+        let mut out = self.dropped.clone();
+        for rule in &self.rules {
+            let Some(expanded) = rule.expanded_if_built() else {
+                continue;
+            };
+            for (declaration, expanded) in rule.declarations().iter().zip(expanded) {
+                if *expanded == ExpandedDeclaration::Invalid && declaration.property.id().is_some() {
+                    note_dropped(
+                        &mut out,
+                        CssDropped {
+                            kind: CssDroppedKind::InvalidValue,
+                            subject: declaration.property.as_str().to_string(),
+                            line: rule.line,
+                            stylesheet: rule
+                                .source
+                                .checked_sub(1)
+                                .and_then(|i| self.imported_from.get(i as usize))
+                                .map(|url| url.to_string()),
+                        },
+                    );
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The most a stylesheet reports dropping. A minified sheet full of vendor prefixes can drop
+/// thousands of declarations, and the report is for a person to read.
+pub const MAX_DROPPED: usize = 512;
+
+/// Record `dropped` unless `list` already holds [`MAX_DROPPED`].
+pub(crate) fn note_dropped(list: &mut Vec<CssDropped>, dropped: CssDropped) {
+    if list.len() < MAX_DROPPED {
+        list.push(dropped);
+    }
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
@@ -390,6 +462,11 @@ pub struct CssRule {
     /// [`CssStylesheet::layers`]. `None` for a rule outside every layer, which for a normal
     /// declaration is the strongest place to be.
     pub layer: Option<u32>,
+    /// The line the rule starts on, from 1; 0 when it was not parsed from a sheet.
+    pub line: u32,
+    /// The sheet the rule was written in: 0 for the sheet that holds it, or an `@import`ed
+    /// one, counted from 1 in [`CssStylesheet::imported_from`].
+    pub source: u32,
     /// The declarations validated and expanded, built the first time an element needs them;
     /// see [`CssRule::expanded`].
     expanded: OnceLock<Vec<ExpandedDeclaration>>,
@@ -420,6 +497,8 @@ impl CssRule {
             declarations,
             media,
             layer,
+            line: 0,
+            source: 0,
             expanded: OnceLock::new(),
         }
     }
