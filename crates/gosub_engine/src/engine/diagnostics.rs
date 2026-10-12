@@ -116,7 +116,7 @@ pub fn gather<C: RenderConfiguration>(doc: &EngineDocument<C>) -> PageDiagnostic
         css_dropped_count += dropped.len();
         let room = MAX_CSS_DROPPED.saturating_sub(css_dropped.len());
         css_dropped.extend(dropped.into_iter().take(room).map(|dropped| DroppedCss {
-            stylesheet: sheet.url().to_string(),
+            stylesheet: dropped.stylesheet.unwrap_or_else(|| sheet.url().to_string()),
             kind: dropped.kind.into(),
             subject: dropped.subject,
             line: dropped.line,

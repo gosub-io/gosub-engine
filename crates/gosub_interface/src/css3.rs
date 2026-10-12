@@ -178,6 +178,10 @@ pub struct CssDropped {
     /// The line in the stylesheet, from 1. For a `<style>` element, counted from its first line.
     /// For a value rejected when an element first used its rule, the line the rule starts on.
     pub line: u32,
+    /// The `@import`ed stylesheet it was in, by URL; `None` when it was in the reporting sheet
+    /// itself. An imported sheet's rules are merged into the sheet that imports it, and
+    /// `line` is a line of the imported one.
+    pub stylesheet: Option<String>,
 }
 
 /// Why a [`CssDropped`] was dropped.

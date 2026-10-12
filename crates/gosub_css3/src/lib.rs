@@ -172,6 +172,7 @@ impl<'stream> Css3<'stream> {
                 kind,
                 subject: err.message.clone(),
                 line,
+                stylesheet: None,
             },
         );
     }

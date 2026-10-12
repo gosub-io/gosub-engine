@@ -330,6 +330,7 @@ fn drop_here(dropped: &mut Vec<CssDropped>, kind: CssDroppedKind, subject: impl 
             kind,
             subject: subject.into(),
             line,
+            stylesheet: None,
         },
     );
 }
@@ -1067,7 +1068,11 @@ mod tests {
             sheet
                 .dropped()
                 .into_iter()
-                .map(|CssDropped { kind, subject, line }| (kind, subject, line))
+                .map(
+                    |CssDropped {
+                         kind, subject, line, ..
+                     }| (kind, subject, line),
+                )
                 .collect()
         };
 
