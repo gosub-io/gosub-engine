@@ -2504,8 +2504,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
-    /// Do a draw tick. This will be called based on the FPS that is requested
-    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     /// Send the committed navigation's [`NavigationEvent::Diagnostics`] once there is a full
     /// frame behind it: styles are computed then, and so is the cascade's check of the values
     /// of every rule the page uses. Out of process, the renderer's report may land a frame
@@ -2523,6 +2521,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
+    /// Do a draw tick. This will be called based on the FPS that is requested
+    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.apply_remote_document_meta();
@@ -2634,6 +2634,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
                 self.submit_frame(handle);
                 self.report_frame("scroll", frame_started);
+                // A renderer process's report can land after its first frame, on a tick that
+                // only scrolls.
+                self.send_due_diagnostics();
                 return Ok(());
             }
 
@@ -2700,6 +2703,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileRebuild);
                     self.context.rebuild_pipeline_cache_if_needed();
                 }
+                // Styles are computed now, whether or not this tick presents anything.
+                self.send_due_diagnostics();
                 let scene_epoch = self.context.scene_epoch();
                 if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
                     return Ok(());
@@ -2727,6 +2732,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
 
             self.context.rebuild_scene_cache_if_needed();
+            // Styles are computed now, whether or not this tick presents anything.
+            self.send_due_diagnostics();
 
             let scene_epoch = self.context.scene_epoch();
             if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
