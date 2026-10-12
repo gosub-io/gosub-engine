@@ -2703,10 +2703,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     let _t = gosub_shared::timing_guard!(gosub_shared::timing::Timing::GpuTileRebuild);
                     self.context.rebuild_pipeline_cache_if_needed();
                 }
-                // Styles are computed now, whether or not this tick presents anything.
-                self.send_due_diagnostics();
                 let scene_epoch = self.context.scene_epoch();
                 if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                    // This page is on screen already; a renderer process's report can land on
+                    // a later tick that presents nothing.
+                    self.send_due_diagnostics();
                     return Ok(());
                 }
                 if let Some(ref mut surf) = self.surface {
@@ -2721,6 +2722,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
                                 self.submit_frame(handle);
+                                // After the frame, so the report follows the page it is about.
+                                self.send_due_diagnostics();
                             }
                             Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
                         },
@@ -2732,11 +2735,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
 
             self.context.rebuild_scene_cache_if_needed();
-            // Styles are computed now, whether or not this tick presents anything.
-            self.send_due_diagnostics();
 
             let scene_epoch = self.context.scene_epoch();
             if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                // This page is on screen already; a renderer process's report can land on a
+                // later tick that presents nothing.
+                self.send_due_diagnostics();
                 return Ok(());
             }
 
@@ -2746,6 +2750,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     Ok(handle) => {
                         self.runtime.committed_scene_epoch = scene_epoch;
                         self.submit_frame(handle);
+                        // After the frame, so the report follows the page it is about.
+                        self.send_due_diagnostics();
                     }
                     Err(e) => log::warn!("[tick_draw] gpu external_handle error: {e}"),
                 }
