@@ -19,10 +19,14 @@ use vello::Scene;
 /// up to one and a half device pixels from where the shaper put it. Neighbouring glyphs moved
 /// by different amounts, so "Show" read as "Sh ow". At 1x the two grids are the same.
 ///
+/// Halves round upward, as tiles are placed (`tile_device_px`). Each tile snaps in its own
+/// coordinates, so a glyph on a tile edge is at 255.5 in one tile and -0.5 in the next;
+/// `f64::round` takes both away from zero and the two copies landed a pixel apart.
+///
 /// `grid` is the whole page-to-device transform, see [`device_grid`].
 fn snap(grid: Affine, x: f64, y: f64) -> (f32, f32) {
     let device = grid * Point::new(x, y);
-    let back = grid.inverse() * Point::new(device.x.round(), device.y.round());
+    let back = grid.inverse() * Point::new((device.x + 0.5).floor(), (device.y + 0.5).floor());
     (back.x as f32, back.y as f32)
 }
 
@@ -123,6 +127,19 @@ mod tests {
             "x = {x}"
         );
         assert!((x - 300.4).abs() < 0.2, "x = {x}: snapped to the CSS grid");
+    }
+
+    /// A glyph half a device pixel left of a tile edge is drawn in both tiles, at 255.5 in the
+    /// first and -0.5 in the second. Both copies land on the same device pixel.
+    #[test]
+    fn a_glyph_on_a_tile_edge_snaps_the_same_in_both_tiles() {
+        let next = Affine::translate((-256.0, 0.0));
+        assert_eq!(snap(Affine::IDENTITY, 255.5, 0.0).0, 256.0);
+        assert_eq!(snap(next, 255.5, 0.0).0, 256.0);
+
+        // At 2x a quarter CSS pixel is the same half device pixel.
+        assert_eq!(snap(device_grid(Affine::IDENTITY, 2.0), 255.75, 0.0).0, 256.0);
+        assert_eq!(snap(device_grid(next, 2.0), 255.75, 0.0).0, 256.0);
     }
 
     /// Exercises the `FontBlob` → `peniko::FontData` conversion and glyph encoding without a GPU.
