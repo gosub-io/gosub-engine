@@ -179,7 +179,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
 
     /// Build a single Vello scene from the engine's viewport-level paint commands (GPU scene path).
     /// Returns `None` when the context provides no paint scene (i.e. the CPU/display-list path).
-    fn build_scene_from_paint_commands(&self, ctx: &dyn RenderContext) -> Option<Scene> {
+    fn build_scene_from_paint_commands(&self, ctx: &dyn RenderContext, dpr: u32) -> Option<Scene> {
         let ps = ctx.paint_scene()?.downcast_ref::<PaintScene>()?;
         let (sx, sy) = ctx.scroll_offset();
         let (vw, vh) = {
@@ -192,7 +192,15 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
 
         let mut scene = Scene::new();
         // Text commands carry their pre-shaped glyph runs, so scene building needs no font system.
-        crate::rasterizer::paint_commands_to_scene(&mut scene, &ps.commands, size, affine, (sx, sy), &ps.media_store);
+        crate::rasterizer::paint_commands_to_scene(
+            &mut scene,
+            &ps.commands,
+            size,
+            affine,
+            f64::from(dpr),
+            (sx, sy),
+            &ps.media_store,
+        );
         Some(scene)
     }
 
@@ -329,8 +337,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
+        let dpr = self.device_pixel_ratio();
         // GPU scene path: one viewport-level paint-command list → one scene, no tiles, no readback.
-        let scene = if let Some(scene) = self.build_scene_from_paint_commands(&*ctx) {
+        let scene = if let Some(scene) = self.build_scene_from_paint_commands(&*ctx, dpr) {
             scene
         } else {
             // Fallback (null/display-list path): build from the tile-blit display list.
@@ -346,7 +355,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         // is what turns one into the other, and it happens here rather than inside the scene
         // builders so both of them -- paint commands and the display-list fallback -- are
         // covered by the same transform.
-        let dpr = self.device_pixel_ratio();
         let scene = if dpr > 1 {
             let mut scaled = Scene::new();
             scaled.append(&scene, Some(Affine::scale(dpr as f64)));

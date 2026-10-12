@@ -12,7 +12,9 @@
 //! (softbuffer ignores the high byte) or convert it to RGBA8 for a GPU texture via
 //! [`argb_u32_to_rgba8`].
 
-use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile};
+use crate::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, tile_device_px, CachedTile,
+};
 
 /// A rectangular region of a premultiplied-ARGB (`0xAARRGGBB`) `u32` buffer that tiles composite
 /// into.
@@ -52,8 +54,8 @@ pub fn composite_tiles(tiles: &[CachedTile], dpr: u32, scroll: (f32, f32), targe
             scroll_y as f64,
             tile.anchor,
         );
-        let px = (vx * dpr_f).round() as i64;
-        let py = (vy * dpr_f).round() as i64;
+        let px = tile_device_px(vx, dpr_f) as i64;
+        let py = tile_device_px(vy, dpr_f) as i64;
         let tw = tile.width as i64;
         let th = tile.height as i64;
 
