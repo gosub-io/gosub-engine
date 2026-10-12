@@ -3442,6 +3442,136 @@ mod rendertree_from_engine {
             "the small text drops to the big text's baseline, got {small:?} beside {big:?}"
         );
     }
+
+    /// Text after a link that wraps continues on the link's last line. A link was laid out as one
+    /// box, so a title wrapping onto two lines made it a two-line rectangle and pushed what came
+    /// after it to a third: the " (site)" after a long Hacker News title sat on a line of its own.
+    #[test]
+    fn text_after_a_wrapped_link_continues_its_last_line() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div style="width: 300px"><span class="titleline"><a id="title" href="/x">Show HN: a title that is long enough to wrap onto a second line</a><span id="site"> (<a href="/from"><span>example.com</span></a>)</span></span></div>
+        </body></html>"#;
+        let [title, site] = border_boxes(html, &["title", "site"])[..] else {
+            unreachable!()
+        };
+        assert!(title.height > 20.0, "the title wraps, got {title:?}");
+        assert!(
+            site.y < title.y + title.height,
+            "the site starts on the title's last line, not below it, got {site:?} after {title:?}"
+        );
+        assert!(site.x > 0.0, "the site follows the title's last word, got {site:?}");
+    }
+
+    /// A line breaks only at a space. `(` and the link straight after it touch, so they stay on
+    /// one line together; each was its own flex item, and the line broke between them.
+    #[test]
+    fn touching_text_does_not_break_apart() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div style="width: 300px">words to fill this line up <span id="open">(</span><a id="site" href="/x">site.example</a>) more</div>
+          <div id="second" style="width: 300px">aaaa <a id="b" href="/b">bbbb</a> cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk</div>
+        </body></html>"#;
+        let [open, site, second, b] = border_boxes(html, &["open", "site", "second", "b"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            (open.y - site.y).abs() < 0.5,
+            "the ( and the link share a line, got {open:?} and {site:?}"
+        );
+        assert!(
+            (open.x + open.width - site.x).abs() < 0.5,
+            "the link follows the ( directly, got {open:?} and {site:?}"
+        );
+        assert!(
+            (b.y - second.y).abs() < 0.5 && b.x > 0.0 && second.height > 30.0,
+            "the second block wraps at its spaces and keeps the link on its first line, got {b:?} in {second:?}"
+        );
+    }
+
+    /// The space at the end of a line is removed, so it does not make the line taller. Hacker
+    /// News sets its small site name in a span that starts with that space; when the site
+    /// wraps after a long title, the space ends the title's line, and moved down to share the
+    /// title's baseline it pushed the site's line 4px further down.
+    #[test]
+    fn a_space_ending_a_line_does_not_make_it_taller() {
+        let html = r#"<html><body style="margin: 0; font-family: Verdana, sans-serif">
+          <table><tr><td style="width: 360px; font-size: 11pt; line-height: 14pt"><span><a id="title" href="/x">The tilde in your PATH may not be your HOME</a><span style="font-size: 8pt"> (<a href="/f"><span id="site">disconnect3d.pl</span></a>)</span></span></td></tr></table>
+        </body></html>"#;
+        let [title, site] = border_boxes(html, &["title", "site"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            site.y > title.y + 1.0,
+            "the site wraps onto a line of its own, got {site:?} after {title:?}"
+        );
+        assert!(
+            (site.y - (title.y + title.height)).abs() < 0.5,
+            "the site's line starts where the title's ends, got {site:?} after {title:?}"
+        );
+    }
+
+    /// An inline element only gives up its box when the box shows nothing. One with a background
+    /// keeps it, and with it a place among its parent's children.
+    #[test]
+    fn an_inline_element_that_draws_keeps_its_box() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div>one <a id="plain" href="/a">two</a> <a id="drawn" href="/b" style="background: red">three</a> <a id="spaced" href="/c" style="padding: 0 4px">four</a> five</div>
+        </body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let tree = TaffyLayouter::new().layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
+        let has_own_box = |id: &str| {
+            let el = tree
+                .arena
+                .values()
+                .find(|el| {
+                    doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                        crate::common::document::node::NodeType::Element(ref d) => {
+                            d.attributes.get("id").is_some_and(|v| v == id)
+                        }
+                        _ => false,
+                    })
+                })
+                .unwrap_or_else(|| panic!("#{id} in the layout tree"));
+            let parent = el.parent.and_then(|p| tree.arena.get(&p)).expect("a parent");
+            parent.children.contains(&el.id)
+                || parent
+                    .children
+                    .iter()
+                    .filter_map(|c| tree.arena.get(c))
+                    .any(|c| c.children.contains(&el.id))
+        };
+        assert!(!has_own_box("plain"), "a plain link's words join the line");
+        assert!(has_own_box("drawn"), "a link with a background keeps its box");
+        assert!(has_own_box("spaced"), "a link with padding keeps its box");
+    }
+
+    /// A flattened link still has a box where its words are: focus, hover and `#fragment` look
+    /// an element up by its DOM node, and an anchor in the second line has to scroll there.
+    #[test]
+    fn a_flattened_link_has_the_box_around_its_words() {
+        let html = r#"<html><body style="margin: 0; font-family: monospace; font-size: 16px">
+          <div style="width: 300px">first line of text that wraps here <a id="link" href="/x">and the link</a> after</div>
+        </body></html>"#;
+        let [link] = border_boxes(html, &["link"])[..] else {
+            unreachable!()
+        };
+        assert!(
+            link.width > 0.0 && link.height > 0.0,
+            "the link has a box, got {link:?}"
+        );
+        assert!(link.y > 10.0, "the box is on the line its words are on, got {link:?}");
+    }
 }
 
 #[cfg(test)]
