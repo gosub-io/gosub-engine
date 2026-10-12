@@ -25,7 +25,8 @@ use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font_system::FontSystem;
 use gosub_interface::style::{
-    ComputedStyle, Display as CssDisplay, LineHeight, Overflow as CssOverflow, TextAlign,
+    BorderStyle, ComputedStyle, Display as CssDisplay, Float as CssFloat, LengthPercentage as CssLp,
+    LengthPercentageAuto as CssLpa, LineHeight, Overflow as CssOverflow, Position as CssPosition, TextAlign,
     TextTransform as CssTextTransform, VerticalAlign as CssVerticalAlign, WhiteSpace,
 };
 use gosub_interface::used;
@@ -386,6 +387,14 @@ pub struct TaffyLayouter {
     /// The anonymous line boxes and the non-replaced inline boxes: what a line item's percentage
     /// basis is looked up through, since neither is a containing block.
     inline_level: std::collections::HashSet<TaffyNodeId>,
+    /// Inline elements whose content was laid out in their parent's line instead of in a box of
+    /// their own (see [`TaffyLayouter::push_flattened_inline`]). Each keeps an arena entry, whose
+    /// box is settled from its content once layout is done.
+    flattened_inlines: Vec<LayoutElementId>,
+    /// Text items that touch with no space between them, and the non-wrapping box holding them
+    /// inside their line box (see [`TaffyLayouter::emit_line`]). Their taffy position is relative
+    /// to that box.
+    glue_map: HashMap<LayoutElementId, TaffyNodeId>,
 }
 
 /// family, size, weight and line-height, the inputs that set a font's line metrics.
@@ -543,6 +552,8 @@ impl TaffyLayouter {
             baseline_index: None,
             percent_line_items: HashMap::new(),
             inline_level: std::collections::HashSet::new(),
+            flattened_inlines: Vec::new(),
+            glue_map: HashMap::new(),
         }
     }
 
@@ -603,6 +614,7 @@ impl CanLayout for TaffyLayouter {
         let insets = resolve_bands_in_document_order(&layout_tree, &placed);
         if insets.is_empty() && stretched.is_empty() {
             translate_and_measure(&mut layout_tree);
+            self.settle_flattened_inlines(&mut layout_tree);
             self.attach_select_popup(&mut layout_tree);
             dump_layout_to_json(&layout_tree);
             return layout_tree;
@@ -628,6 +640,7 @@ impl CanLayout for TaffyLayouter {
         self.float_insets.clear();
         self.abspos_insets.clear();
         translate_and_measure(&mut layout_tree);
+        self.settle_flattened_inlines(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
         dump_layout_to_json(&layout_tree);
         layout_tree
@@ -735,6 +748,7 @@ impl TaffyLayouter {
         self.resolve_line_percent_heights(viewport);
         let _ = self.compute_and_populate(layout_tree, viewport);
         translate_and_measure(layout_tree);
+        self.settle_flattened_inlines(layout_tree);
     }
 
     /// Run taffy over the current tree and write the results back as box models, then run the
@@ -829,7 +843,12 @@ impl TaffyLayouter {
     /// `baseline`.
     fn align_baselines(&mut self, layout_tree: &LayoutTree, root: TaffyNodeId, size: Size<AvailableSpace>) {
         let index = self.baseline_index.take().unwrap_or_else(|| BaselineIndex {
-            line_boxes: self.anon_container_map.values().copied().collect(),
+            line_boxes: self
+                .anon_container_map
+                .values()
+                .chain(self.glue_map.values())
+                .copied()
+                .collect(),
             dom_of: self
                 .layout_taffy_mapping
                 .iter()
@@ -911,7 +930,18 @@ impl TaffyLayouter {
         }
 
         let mut shifts = Vec::new();
-        for (_, items) in rows {
+        for (_, mut items) in rows {
+            // Spaces at either end of a row are removed in CSS (css-text-3 §4.1.2), so they take
+            // no part: a space in a smaller font, moved down to the baseline, made the line taller.
+            // That is the space before " (site)" when the site wraps after a long title.
+            let space = |item: &TaffyNodeId| matches!(self.tree.get_node_context(*item), Some(TaffyContext::Text(t)) if !t.text.is_empty() && t.text.chars().all(char::is_whitespace));
+            let first = items.iter().take_while(|(item, _)| space(item)).count();
+            let last = items.len() - items.iter().rev().take_while(|(item, _)| space(item)).count();
+            for (i, (_, baseline)) in items.iter_mut().enumerate() {
+                if i < first || i >= last {
+                    *baseline = None;
+                }
+            }
             let line_baseline = items.iter().filter_map(|(_, b)| *b).fold(f32::MIN, f32::max);
             shifts.extend(
                 items
@@ -947,6 +977,10 @@ impl TaffyLayouter {
     /// Where `item`'s baseline is, down from its border-box top, as an item on a line - or `None`
     /// when it takes no part in baseline alignment.
     fn item_baseline(&mut self, ctx: &BaselineCtx<'_>, item: TaffyNodeId) -> Option<f32> {
+        // A glue box is one row of a line's items, aligned among themselves: its baseline is theirs.
+        if ctx.line_boxes.contains(&item) {
+            return self.node_baseline(ctx, item, false);
+        }
         let layout = *self.tree.layout(item).ok()?;
         // The bottom margin edge: the baseline of a replaced box, or of a box with no line in it.
         let bottom = layout.size.height + layout.margin.bottom;
@@ -1292,6 +1326,14 @@ impl TaffyLayouter {
             } else {
                 Coordinate::ZERO
             };
+            let glue_offset = self
+                .glue_map
+                .get(&child_id)
+                .and_then(|glue| self.tree.layout(*glue).ok())
+                .map_or(Coordinate::ZERO, |l| {
+                    Coordinate::new(l.location.x as f64, l.location.y as f64)
+                });
+            let anon_offset = Coordinate::new(anon_offset.x + glue_offset.x, anon_offset.y + glue_offset.y);
 
             self.populate_boxmodel(
                 layout_tree,
@@ -1317,6 +1359,8 @@ impl TaffyLayouter {
         self.layout_taffy_mapping.clear();
         self.anon_container_map.clear();
         self.dom_to_layout_mapping.clear();
+        self.flattened_inlines.clear();
+        self.glue_map.clear();
         self.baseline_shifts.clear();
         self.baseline_index = None;
         self.percent_line_items.clear();
@@ -1790,16 +1834,61 @@ impl TaffyLayouter {
             }
         }
 
-        for (inline_layout_element_id, inline_taffy_node_id) in items {
-            if let Err(e) = self.tree.add_child(taffy_container_id, *inline_taffy_node_id) {
-                log::warn!("Failed to add inline child to taffy tree: {:?}", e);
+        // Every item is a flex item, and the line wraps between any two of them; CSS breaks a
+        // line only at a space. Text items that touch - `(` and the link after it in
+        // `(<a>example.com</a>)` - go into one box that does not wrap, so the line cannot break
+        // between them.
+        let touches = |id: &LayoutElementId| {
+            layout_tree.arena.get(id).is_some_and(|el| {
+                matches!(&el.context, ElementContext::Text(t) if !t.text.is_empty() && !t.text.chars().any(char::is_whitespace))
+            })
+        };
+        let mut rest = items;
+        while !rest.is_empty() {
+            let run = rest.iter().take_while(|(id, _)| touches(id)).count().max(1);
+            let parent = if run > 1 {
+                self.glue_box(taffy_container_id)
+            } else {
+                None
+            };
+            for (inline_layout_element_id, inline_taffy_node_id) in &rest[..run] {
+                if let Err(e) = self
+                    .tree
+                    .add_child(parent.unwrap_or(taffy_container_id), *inline_taffy_node_id)
+                {
+                    log::warn!("Failed to add inline child to taffy tree: {:?}", e);
+                }
+                element_node.children.push(*inline_layout_element_id);
+                // Record that this layout element sits inside an anonymous container so that
+                // populate_boxmodel can add the container's taffy-computed offset.
+                self.anon_container_map
+                    .insert(*inline_layout_element_id, taffy_container_id);
+                if let Some(glue) = parent {
+                    self.glue_map.insert(*inline_layout_element_id, glue);
+                }
             }
-            element_node.children.push(*inline_layout_element_id);
-            // Record that this layout element sits inside an anonymous container so that
-            // populate_boxmodel can add the container's taffy-computed offset.
-            self.anon_container_map
-                .insert(*inline_layout_element_id, taffy_container_id);
+            rest = &rest[run..];
         }
+    }
+
+    /// A box in `line` for text items that must stay together: a row that does not wrap, its
+    /// items at its top for baseline alignment to move down, as in the line box itself.
+    fn glue_box(&mut self, line: TaffyNodeId) -> Option<TaffyNodeId> {
+        let style = Style {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::NoWrap,
+            flex_shrink: 0.0,
+            align_items: Some(AlignItems::FLEX_START),
+            ..Default::default()
+        };
+        let glue = self.tree.new_leaf(style).ok()?;
+        if let Err(e) = self.tree.add_child(line, glue) {
+            log::warn!("Failed to add glue box to taffy tree: {:?}", e);
+            return None;
+        }
+        self.inline_level.insert(glue);
+        Some(glue)
     }
 
     /// Split a text node in a *mixed* inline run (alongside inline-level elements) into one inline
@@ -1890,6 +1979,246 @@ impl TaffyLayouter {
         layout_tree.arena.insert(layout_element_id, element_node);
         self.layout_taffy_mapping.insert(layout_element_id, taffy_id);
         Some((layout_element_id, taffy_id))
+    }
+
+    /// Whether `node` is an inline element that draws nothing of its own, so its content can sit
+    /// in its parent's line as if the element were not there.
+    ///
+    /// Each inline element is laid out as one box, a flex item of the line it sits in. A link
+    /// whose text wraps then becomes a two-line rectangle, and whatever follows it has to start
+    /// below that rectangle instead of after its last word: the " (site)" after a Hacker News
+    /// title that wraps lands on a line of its own. A box that paints nothing and takes no space
+    /// is not needed for any of that, so its words join the parent's line instead.
+    ///
+    /// Anything the box would show or change keeps it: a background, border, padding, margin or
+    /// outline, a position, a vertical-align, an opacity or blend mode, a transform. So does a
+    /// block-level child, and an element with no content, whose position would be lost. Only
+    /// elements known not to be replaced qualify.
+    fn is_plain_inline(&self, layout_tree: &LayoutTree, node: &Node) -> bool {
+        let NodeType::Element(data) = &node.node_type else {
+            return false;
+        };
+        if !matches!(
+            data.tag_name.cow_to_ascii_lowercase().as_ref(),
+            "a" | "abbr"
+                | "b"
+                | "big"
+                | "cite"
+                | "code"
+                | "data"
+                | "del"
+                | "dfn"
+                | "em"
+                | "font"
+                | "i"
+                | "ins"
+                | "kbd"
+                | "nobr"
+                | "q"
+                | "s"
+                | "samp"
+                | "small"
+                | "span"
+                | "strike"
+                | "strong"
+                | "time"
+                | "tt"
+                | "u"
+                | "var"
+        ) {
+            return false;
+        }
+        let doc = &layout_tree.render_tree.doc;
+        let style = doc.computed_style(node.node_id);
+        let zero = |v: CssLp| matches!(v, CssLp::Px(0.0) | CssLp::Percent(0.0));
+        // `auto` is zero on an inline box (CSS 2.1 §10.3.1).
+        let zero_or_auto = |v: CssLpa| matches!(v, CssLpa::Auto | CssLpa::Px(0.0) | CssLpa::Percent(0.0));
+        let b = &style.box_group;
+        let plain = b.display == CssDisplay::Inline
+            && b.position == CssPosition::Static
+            && b.float == CssFloat::None
+            && b.vertical_align == CssVerticalAlign::Baseline
+            && b.overflow_x == CssOverflow::Visible
+            && b.overflow_y == CssOverflow::Visible
+            && b.opacity >= 1.0
+            && (b.mix_blend_mode.is_empty() || b.mix_blend_mode.as_ref() == "normal")
+            && style.background.color.a == 0
+            && style.background.image.is_none()
+            && style.border.top_width == 0.0
+            && style.border.right_width == 0.0
+            && style.border.bottom_width == 0.0
+            && style.border.left_width == 0.0
+            && (style.outline.width == 0.0 || style.outline.style == BorderStyle::None)
+            && zero(style.padding.top)
+            && zero(style.padding.right)
+            && zero(style.padding.bottom)
+            && zero(style.padding.left)
+            && zero_or_auto(style.margin.top)
+            && zero_or_auto(style.margin.right)
+            && zero_or_auto(style.margin.bottom)
+            && zero_or_auto(style.margin.left)
+            && doc.transform_translate(node.node_id).is_none();
+        if !plain {
+            return false;
+        }
+
+        let mut has_content = false;
+        for child in &node.children {
+            let Some(child) = doc.get_node_by_id(*child) else {
+                continue;
+            };
+            match &child.node_type {
+                NodeType::Text(text) => has_content |= !is_collapsible_whitespace(text),
+                NodeType::Element(_) => {
+                    if !(child.is_inline_element() || child.is_inline_block_element()) {
+                        return false;
+                    }
+                    has_content = true;
+                }
+                NodeType::Comment(_) => {}
+            }
+        }
+        has_content
+    }
+
+    /// Lay out the content of a plain inline element (see [`Self::is_plain_inline`]) in the
+    /// parent's line: text as words, nested plain elements the same way, anything else as the
+    /// inline box it would have been. The element keeps an arena entry - focus, `#fragment`
+    /// targets and hover repaints all look an element up by its DOM node - with no taffy node
+    /// and no place in the parent's children; its box is settled from its content after layout.
+    #[allow(clippy::too_many_arguments)]
+    fn push_flattened_inline(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        render_node_id: RenderNodeId,
+        parent: LayoutElementId,
+        group: &mut Vec<InlineEntry>,
+        trailing_ws_count: &mut usize,
+        starts_a_line: bool,
+        depth: usize,
+    ) {
+        let Some(render_node) = layout_tree.render_tree.get_node_by_id(render_node_id) else {
+            return;
+        };
+        let children = render_node.children.clone();
+        let Some(dom_node) = layout_tree.render_tree.get_document_node_by_render_id(render_node_id) else {
+            return;
+        };
+        // Taken before the content's, so layout ids stay in tree order.
+        let id = layout_tree.next_node_id();
+        let first = group.len();
+
+        for child_id in children {
+            let Some(child) = layout_tree.render_tree.get_document_node_by_render_id(child_id) else {
+                continue;
+            };
+            let preserved = matches!(
+                layout_tree.render_tree.doc.computed_style(child.node_id).inherited.white_space,
+                white_space if white_space.preserves_spaces()
+            );
+            match &child.node_type {
+                NodeType::Text(text) if !is_collapsible_whitespace(text) && !preserved => {
+                    self.push_text_words(layout_tree, &child, child_id, group);
+                    *trailing_ws_count = 0;
+                    continue;
+                }
+                NodeType::Element(data) if data.tag_name.eq_ignore_ascii_case("br") => {
+                    let style = layout_tree.render_tree.doc.computed_style(child.node_id);
+                    let line_height = line_height_px(&style, f64::from(style.inherited.font_size));
+                    group.push(InlineEntry::Break(line_height));
+                    *trailing_ws_count = 0;
+                    continue;
+                }
+                NodeType::Element(_) if depth < MAX_LAYOUT_DEPTH && self.is_plain_inline(layout_tree, &child) => {
+                    self.push_flattened_inline(
+                        layout_tree,
+                        child_id,
+                        id,
+                        group,
+                        trailing_ws_count,
+                        starts_a_line,
+                        depth + 1,
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+
+            let is_ws =
+                matches!(&child.node_type, NodeType::Text(text) if is_collapsible_whitespace(text)) && !preserved;
+            // Leading whitespace of a line box is dropped, as in the parent's own loop.
+            if is_ws && group.is_empty() && starts_a_line {
+                continue;
+            }
+            let Some((child_layout_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, child_id, depth + 1)
+            else {
+                continue;
+            };
+            group.push(InlineEntry::Item(child_layout_id, child_taffy_id));
+            *trailing_ws_count = if is_ws { *trailing_ws_count + 1 } else { 0 };
+        }
+
+        let content = group[first..]
+            .iter()
+            .filter_map(|entry| match entry {
+                InlineEntry::Item(id, _) => Some(*id),
+                InlineEntry::Break(_) => None,
+            })
+            .collect();
+        layout_tree.arena.insert(
+            id,
+            LayoutElementNode {
+                id,
+                dom_node_id: dom_node.node_id,
+                render_node_id,
+                parent: Some(parent),
+                box_model: box_model::BoxModel::ZERO,
+                children: content,
+                context: ElementContext::None,
+                background_media: None,
+                collapsed_borders: None,
+            },
+        );
+        self.dom_to_layout_mapping.insert(dom_node.node_id, id);
+        self.flattened_inlines.push(id);
+    }
+
+    /// Give each flattened inline element (see [`Self::push_flattened_inline`]) the box around
+    /// its content, now that the content is placed. Content that never got a box - trailing
+    /// whitespace stripped from a line - has none and is skipped.
+    fn settle_flattened_inlines(&self, layout_tree: &mut LayoutTree) {
+        for id in &self.flattened_inlines {
+            let Some(el) = layout_tree.arena.get(id) else {
+                continue;
+            };
+            let mut bounds: Option<geo::Rect> = None;
+            for child in &el.children {
+                let Some(b) = layout_tree.arena.get(child).map(|c| c.box_model.border_box) else {
+                    continue;
+                };
+                if b.width <= 0.0 && b.height <= 0.0 {
+                    continue;
+                }
+                bounds = Some(match bounds {
+                    None => b,
+                    Some(u) => {
+                        let (x, y) = (u.x.min(b.x), u.y.min(b.y));
+                        let right = (u.x + u.width).max(b.x + b.width);
+                        let bottom = (u.y + u.height).max(b.y + b.height);
+                        geo::Rect::new(x, y, right - x, bottom - y)
+                    }
+                });
+            }
+            let Some(bounds) = bounds else {
+                continue;
+            };
+            if let Some(el) = layout_tree.arena.get_mut(id) {
+                el.box_model.content_box = bounds;
+                el.box_model.padding_box = bounds;
+                el.box_model.border_box = bounds;
+                el.box_model.margin_box = bounds;
+            }
+        }
     }
 
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
@@ -2048,10 +2377,41 @@ impl TaffyLayouter {
                     })
             });
 
+        // A plain inline element's content joins this element's lines only where it shares them
+        // with something else; on its own it is the whole line, and its box changes nothing.
+        let shares_lines = !parent_is_flex_or_grid
+            && render_node_children
+                .iter()
+                .filter(|cid| {
+                    layout_tree
+                        .render_tree
+                        .get_document_node_by_render_id(**cid)
+                        .is_some_and(|n| match &n.node_type {
+                            NodeType::Text(text) => !is_collapsible_whitespace(text),
+                            NodeType::Element(_) => true,
+                            NodeType::Comment(_) => false,
+                        })
+                })
+                .count()
+                > 1;
+
         for child_id in render_node_children.iter() {
             let Some(child_node) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
                 continue;
             };
+
+            if shares_lines && self.is_plain_inline(layout_tree, &child_node) {
+                self.push_flattened_inline(
+                    layout_tree,
+                    *child_id,
+                    element_node.id,
+                    &mut current_inline_group,
+                    &mut trailing_ws_count,
+                    starts_a_line,
+                    depth + 1,
+                );
+                continue;
+            }
 
             // In a mixed inline run, split text into per-word inline boxes (see push_text_words).
             // Whitespace-only nodes fall through to the normal NBSP-separator path below.
