@@ -150,11 +150,12 @@ impl<'stream> Css3<'stream> {
             return Err(CssError::new("No node tree found"));
         }
         sheet.layers = layers;
-        // What the parser skipped never reached the converter; merged in source order.
-        for dropped in std::mem::take(&mut self.dropped) {
-            stylesheet::note_dropped(&mut sheet.dropped, dropped);
-        }
+        // What the parser skipped never reached the converter; merged in source order, and
+        // only then cut to the cap, so the earliest drops are the ones kept whichever pass
+        // found them.
+        sheet.dropped.append(&mut self.dropped);
         sheet.dropped.sort_by_key(|dropped| dropped.line);
+        sheet.dropped.truncate(stylesheet::MAX_DROPPED);
         note_viewport_units(&mut sheet);
         sheet.shrink_to_fit();
         Ok(sheet)

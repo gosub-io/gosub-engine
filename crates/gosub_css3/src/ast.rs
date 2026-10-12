@@ -1019,6 +1019,36 @@ mod tests {
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
 
+    /// The report keeps the first drops in the sheet, whichever pass found them: a sheet whose
+    /// conversion fills the report still lists what the parser skipped before that.
+    #[test]
+    fn a_full_report_keeps_the_earliest_drops() {
+        use gosub_interface::css3::{CssDroppedKind as K, CssStylesheet as _};
+        let mut css = String::from("y { : red }\n");
+        for _ in 0..crate::stylesheet::MAX_DROPPED + 10 {
+            css.push_str("x { dsiplay: block }\n");
+        }
+        let sheet = Css3::parse_str(
+            &css,
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+        let dropped = sheet.dropped();
+        assert_eq!(dropped.len(), crate::stylesheet::MAX_DROPPED);
+        assert_eq!(
+            (dropped[0].kind, dropped[0].line),
+            (K::InvalidDeclaration, 1),
+            "{:?}",
+            dropped[0]
+        );
+        assert!(dropped.windows(2).all(|w| w[0].line <= w[1].line), "in source order");
+    }
+
     /// Everything the sheet says that the engine does not apply is reported once, with its
     /// kind, what it was and its line: the parse finds the unknown property, the selector, the
     /// at-rules and the badly spaced math; the grammar finds the rejected value when an element
