@@ -494,8 +494,9 @@ pub enum NavigationEvent {
         reason: CancelReason,
     },
     /// What the engine could not use from the page: its HTML parse errors and the CSS its own
-    /// stylesheets said that was dropped. Sent once per navigation, with the first frame, when
-    /// styles have been computed. See [`PageDiagnostics`](crate::engine::diagnostics::PageDiagnostics).
+    /// stylesheets said that was dropped. Sent once per navigation, after a rendered frame, when
+    /// styles have been computed and the report is ready: usually right after the first frame,
+    /// but a renderer process's report can arrive a frame or more later. See [`PageDiagnostics`](crate::engine::diagnostics::PageDiagnostics).
     Diagnostics {
         nav_id: NavigationId,
         diagnostics: crate::engine::diagnostics::PageDiagnostics,
