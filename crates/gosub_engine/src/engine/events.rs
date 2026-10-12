@@ -9,6 +9,7 @@
 use crate::cookies::Cookie;
 use crate::engine::errors::LoadError;
 use crate::engine::types::{NavigationId, RequestId};
+use crate::net::detail::{AuthChallenge, AuthTarget, CacheOutcome, RequestChange, UpgradeReason};
 use crate::net::req_ref_tracker::RequestReference;
 #[cfg(feature = "unstable-api")]
 use crate::net::types::Priority;
@@ -655,6 +656,97 @@ pub enum ResourceEvent {
         content_length: Option<u64>,
         content_type: Option<String>,
         headers: Vec<(String, String)>,
+    },
+    /// What the HTTP cache did with a hop. A [`CacheOutcome::Hit`] means no request went out:
+    /// no `RequestSent` or `Headers` follow it for that hop.
+    Cache {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The hop's URL
+        url: String,
+        /// What the cache did
+        outcome: CacheOutcome,
+    },
+    /// A hop was answered with `401` or `407`. Once per challenged response, whether or not
+    /// credentials were found to answer it.
+    AuthRequired {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The challenged hop
+        url: String,
+        /// The origin server or a proxy
+        target: AuthTarget,
+        /// The challenges offered; empty when the header was missing or could not be read
+        challenges: Vec<AuthChallenge>,
+        /// Whether the hop is re-sent with credentials. `false` means the `401`/`407` is the
+        /// response.
+        retried: bool,
+    },
+    /// A hop was rewritten from `http` to `https` before it was sent.
+    SecurityUpgraded {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The URL as asked for
+        from: String,
+        /// The URL that is sent
+        to: String,
+        /// Why
+        reason: UpgradeReason,
+    },
+    /// A policy changed a hop instead of refusing it. One event per change, before the hop's
+    /// `RequestSent`.
+    RequestModified {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The hop's URL
+        url: String,
+        /// What changed
+        change: RequestChange,
+    },
+    /// The attempt that just failed will be made again after `delay`. A new `Started` follows.
+    Retrying {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The URL being retried
+        url: String,
+        /// Which retry this is, from 1
+        attempt: u32,
+        /// How long until it is sent
+        delay: Duration,
+        /// Why the previous attempt failed
+        reason: String,
+    },
+    /// A CORS preflight `OPTIONS` is being sent for this hop. Not sent when a cached grant
+    /// covers the hop.
+    CorsPreflight {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The hop's URL
+        url: String,
+    },
+    /// The preflight's response arrived, whether or not it then allowed the request; a refusal
+    /// follows as `Failed` with a CORS reason. Nothing is sent when the preflight itself failed.
+    CorsPreflightDone {
+        /// Request this belongs to
+        request_id: RequestId,
+        /// What initiated it
+        reference: RequestReference,
+        /// The hop's URL
+        url: String,
+        /// How long the preflight took
+        elapsed: Duration,
     },
 }
 

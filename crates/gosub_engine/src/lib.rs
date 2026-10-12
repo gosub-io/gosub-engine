@@ -300,8 +300,12 @@ pub mod events {
         PendingDownload, PickerKind, TabCommand,
     };
     pub use crate::engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
+    pub use crate::engine::types::RequestId;
     pub use crate::engine::LoadError;
-    pub use crate::net::{BlockReason, CorsFailure};
+    pub use crate::net::req_ref_tracker::RequestReference;
+    pub use crate::net::{
+        AuthChallenge, AuthTarget, BlockReason, CacheOutcome, CorsFailure, RequestChange, TlsFailureKind, UpgradeReason,
+    };
 }
 
 /// Configuration options for the Gosub engine.

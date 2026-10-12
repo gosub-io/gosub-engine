@@ -61,6 +61,7 @@
 //! [`HandlingDecision`] / [`RenderTarget`].
 mod data_url;
 mod decision;
+pub mod detail;
 pub(crate) mod emitter;
 pub use data_url::decode as decode_data_url;
 pub mod brokered_loader;
@@ -87,6 +88,8 @@ pub use decision::decide_handling;
 pub use decision::types::{
     BlockReason, CorsFailure, DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination,
 };
+/// What the network stack did to a request on the way: cache, auth, upgrades, changes, TLS.
+pub use detail::{AuthChallenge, AuthTarget, CacheOutcome, RequestChange, TlsFailureKind, UpgradeReason};
 /// Shared, back-pressure-aware streamed body used by fetcher and consumers.
 pub use shared_body::SharedBody;
 
