@@ -55,7 +55,14 @@ pub fn send_sensitive_headers() -> bool {
 /// The value to report for `name`: the value itself, or [`REDACTED`] when it is one of the
 /// headers worth protecting and nobody has asked for them.
 pub fn header_value(name: &str, value: &str) -> String {
-    if send_sensitive_headers() {
+    value_as_reported(name, value, send_sensitive_headers())
+}
+
+/// [`header_value`] with the switch passed in, so it can be tested without touching
+/// process-wide state: a test that turned the switch on would let sensitive values through
+/// in every other test running at that moment.
+fn value_as_reported(name: &str, value: &str, send_sensitive: bool) -> String {
+    if send_sensitive {
         return value.to_string();
     }
     let name = name.cow_to_ascii_lowercase();
@@ -282,11 +289,10 @@ mod tests {
             "https://example.test/"
         );
 
-        // A panel that needs them says so, and puts it back afterwards.
-        set_send_sensitive_headers(true);
-        assert_eq!(header_value("Cookie", "session=abc123"), "session=abc123");
-        set_send_sensitive_headers(false);
-        assert_eq!(header_value("Cookie", "session=abc123"), REDACTED);
+        // A panel that needs them says so. Checked with the switch passed in rather than
+        // flipped, because other tests rely on it being off while they run.
+        assert_eq!(value_as_reported("Cookie", "session=abc123", true), "session=abc123");
+        assert_eq!(value_as_reported("Cookie", "session=abc123", false), REDACTED);
     }
 }
 
