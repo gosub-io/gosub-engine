@@ -2,6 +2,7 @@ use crate::engine::events::{CancelReason, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId, ResourceChannel};
 use crate::engine::LoadError;
 use crate::events::{EngineEvent, ResourceUpdate};
+use crate::net::detail::{AuthChallenge, AuthTarget, CacheOutcome, RequestChange, UpgradeReason};
 use crate::net::emitter::{report_url, NetObserver};
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
@@ -277,21 +278,88 @@ impl NetObserver for EngineEventEmitter {
                     reason: BlockReason::from_net(reason),
                 },
             ),
-            NetEvent::TlsFailed { url, error } => self.report_failure(
-                report_url(&url).to_string(),
-                LoadError::Tls {
-                    message: format!(
-                        "TLS handshake with {} failed: {:?} ({})",
-                        error.host, error.kind, error.message
-                    ),
-                },
-            ),
+            NetEvent::TlsFailed { url, error } => {
+                self.report_failure(report_url(&url).to_string(), LoadError::from_tls(&error))
+            }
             NetEvent::Failed { url, error } => {
                 self.report_failure(report_url(&url).to_string(), classify(&error));
             }
-            // A preflight is an internal hop of a CORS request, not a resource.
+            // A preflight is an internal hop of a CORS request, not a resource of its own, so
+            // it is reported on the request that needed it: its round-trip is time the
+            // embedder would otherwise see as an unexplained gap before the response.
             NetEvent::CorsPreflight { url } => {
-                log::trace!("CORS preflight for {url}");
+                self.emit(ResourceEvent::CorsPreflight {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                });
+            }
+            NetEvent::CorsPreflightDone { url, elapsed } => {
+                self.emit(ResourceEvent::CorsPreflightDone {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                    elapsed,
+                });
+            }
+            NetEvent::Cache { url, outcome } => {
+                self.emit(ResourceEvent::Cache {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                    outcome: CacheOutcome::from_net(outcome),
+                });
+            }
+            NetEvent::AuthRequired {
+                url,
+                target,
+                challenges,
+                retried,
+            } => {
+                self.emit(ResourceEvent::AuthRequired {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                    target: AuthTarget::from_net(target),
+                    challenges: challenges.iter().map(AuthChallenge::from_net).collect(),
+                    retried,
+                });
+            }
+            NetEvent::SecurityUpgraded { from, to, reason } => {
+                self.emit(ResourceEvent::SecurityUpgraded {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    from: report_url(&from).to_string(),
+                    to: report_url(&to).to_string(),
+                    reason: UpgradeReason::from_net(reason),
+                });
+            }
+            NetEvent::RequestModified { url, change } => {
+                self.emit(ResourceEvent::RequestModified {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                    // A referrer is a URL like any other here, and can carry credentials too.
+                    change: RequestChange::from_net(&change, |u| report_url(u).to_string()),
+                });
+            }
+            // Only announces the next attempt. The attempt before it has already ended with its
+            // own `Failed`, and the `Started` that follows resets the failure bookkeeping, so
+            // there is nothing to settle here and the request is not finished either.
+            NetEvent::Retrying {
+                url,
+                attempt,
+                delay,
+                reason,
+            } => {
+                self.emit(ResourceEvent::Retrying {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: report_url(&url).to_string(),
+                    attempt,
+                    delay,
+                    reason,
+                });
             }
             NetEvent::Cancelled { url, reason } => {
                 REF_REGISTRY.forget_request(self.req_id);
@@ -309,8 +377,8 @@ impl NetObserver for EngineEventEmitter {
             NetEvent::Warning { .. } => {
                 // Do nothing
             }
-            // Timing-only events (DnsResolved, Connected) and anything sonar adds
-            // later carry nothing the shell needs; the timing emitter reads them.
+            // `NetEvent` is non-exhaustive: a case sonar adds later is dropped here until the
+            // engine has a mirror for it.
             _ => {}
         }
     }
@@ -462,6 +530,306 @@ mod tests {
             });
         }
         assert_eq!(events, ["started", "failed", "started", "failed", "started", "failed"]);
+    }
+
+    /// Every event the receiver saw, in order.
+    fn drain(rx: &mut tokio::sync::broadcast::Receiver<ResourceUpdate>) -> Vec<ResourceEvent> {
+        let mut out = Vec::new();
+        while let Ok(ResourceUpdate { event, .. }) = rx.try_recv() {
+            out.push(event);
+        }
+        out
+    }
+
+    /// Feed one event to a fresh emitter and return the one event it forwarded, with the
+    /// request id it should carry.
+    fn forward(ev: NetEvent) -> (ResourceEvent, RequestId) {
+        let (emitter, mut rx) = emitter();
+        emitter.on_event(ev);
+        let mut seen = drain(&mut rx);
+        assert_eq!(seen.len(), 1, "expected exactly one event, got {seen:?}");
+        (seen.remove(0), emitter.req_id)
+    }
+
+    fn url(s: &str) -> url::Url {
+        url::Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn a_cache_hit_is_reported() {
+        let (ev, id) = forward(NetEvent::Cache {
+            url: url("https://example.test/a.css"),
+            outcome: gosub_sonar::net::cache::CacheOutcome::Hit,
+        });
+        let ResourceEvent::Cache {
+            request_id,
+            reference,
+            url,
+            outcome,
+        } = ev
+        else {
+            panic!("expected Cache, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(reference, RequestReference::Document(1));
+        assert_eq!(url, "https://example.test/a.css");
+        assert_eq!(outcome, CacheOutcome::Hit);
+    }
+
+    /// The realm is what a login prompt shows, and `retried` is what tells an embedder whether
+    /// the stack answered the challenge or the `401` is the final response.
+    #[test]
+    fn an_auth_challenge_is_reported_with_its_scheme_and_realm() {
+        use gosub_sonar::net::auth as sonar_auth;
+        let challenged = url("https://example.test/private/");
+        let (ev, id) = forward(NetEvent::AuthRequired {
+            url: challenged.clone(),
+            target: sonar_auth::AuthTarget::Proxy,
+            challenges: vec![sonar_auth::AuthChallenge {
+                url: challenged,
+                target: sonar_auth::AuthTarget::Proxy,
+                scheme: sonar_auth::AuthScheme::Digest,
+                realm: Some("staff".into()),
+                params: vec![("nonce".into(), "abc".into())],
+                token68: None,
+                attempt: 0,
+                proxy: None,
+            }],
+            retried: false,
+        });
+        let ResourceEvent::AuthRequired {
+            request_id,
+            url,
+            target,
+            challenges,
+            retried,
+            ..
+        } = ev
+        else {
+            panic!("expected AuthRequired, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(url, "https://example.test/private/");
+        assert_eq!(target, AuthTarget::Proxy);
+        assert_eq!(
+            challenges,
+            [AuthChallenge {
+                scheme: "Digest".into(),
+                realm: Some("staff".into()),
+            }]
+        );
+        assert!(!retried);
+    }
+
+    #[test]
+    fn an_https_upgrade_is_reported_with_both_urls_and_the_reason() {
+        let (ev, id) = forward(NetEvent::SecurityUpgraded {
+            from: url("http://example.test/"),
+            to: url("https://example.test/"),
+            reason: gosub_sonar::net::types::UpgradeReason::Hsts,
+        });
+        let ResourceEvent::SecurityUpgraded {
+            request_id,
+            from,
+            to,
+            reason,
+            ..
+        } = ev
+        else {
+            panic!("expected SecurityUpgraded, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(from, "http://example.test/");
+        assert_eq!(to, "https://example.test/");
+        assert_eq!(reason, UpgradeReason::Hsts);
+    }
+
+    #[test]
+    fn a_policy_change_to_a_request_is_reported() {
+        let (ev, id) = forward(NetEvent::RequestModified {
+            url: url("https://other.test/"),
+            change: gosub_sonar::net::types::RequestChange::CredentialsWithheld,
+        });
+        let ResourceEvent::RequestModified {
+            request_id,
+            url,
+            change,
+            ..
+        } = ev
+        else {
+            panic!("expected RequestModified, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(url, "https://other.test/");
+        assert_eq!(change, RequestChange::CredentialsWithheld);
+    }
+
+    #[test]
+    fn a_retry_is_announced_with_its_number_delay_and_reason() {
+        let (ev, id) = forward(NetEvent::Retrying {
+            url: url("https://example.test/"),
+            attempt: 2,
+            delay: std::time::Duration::from_millis(250),
+            reason: "connection refused".into(),
+        });
+        let ResourceEvent::Retrying {
+            request_id,
+            url,
+            attempt,
+            delay,
+            reason,
+            ..
+        } = ev
+        else {
+            panic!("expected Retrying, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(url, "https://example.test/");
+        assert_eq!(attempt, 2);
+        assert_eq!(delay, std::time::Duration::from_millis(250));
+        assert_eq!(reason, "connection refused");
+    }
+
+    /// A retry sits between one attempt's `Failed` and the next one's `Started`. It must not
+    /// end the request itself, nor swallow the next attempt's failure.
+    #[test]
+    fn a_retry_between_attempts_keeps_one_terminal_per_attempt() {
+        let (emitter, mut rx) = emitter();
+        let target = url("https://does-not-resolve.test/");
+        for attempt in 1..=2 {
+            emitter.on_event(NetEvent::Started { url: target.clone() });
+            emitter.on_event(NetEvent::Failed {
+                url: target.clone(),
+                error: anyhow::anyhow!("dns error: failed to lookup address information"),
+            });
+            emitter.on_event(NetEvent::Retrying {
+                url: target.clone(),
+                attempt,
+                delay: std::time::Duration::ZERO,
+                reason: "dns error".into(),
+            });
+        }
+        emitter.on_event(NetEvent::Started { url: target.clone() });
+        emitter.on_event(NetEvent::Failed {
+            url: target,
+            error: anyhow::anyhow!("dns error: failed to lookup address information"),
+        });
+
+        let events: Vec<_> = drain(&mut rx)
+            .into_iter()
+            .map(|ev| match ev {
+                ResourceEvent::Started { .. } => "started",
+                ResourceEvent::Failed { .. } => "failed",
+                ResourceEvent::Retrying { .. } => "retrying",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(
+            events,
+            ["started", "failed", "retrying", "started", "failed", "retrying", "started", "failed"]
+        );
+    }
+
+    #[test]
+    fn a_cors_preflight_is_reported_on_the_request_that_needed_it() {
+        let (ev, id) = forward(NetEvent::CorsPreflight {
+            url: url("https://api.test/data"),
+        });
+        let ResourceEvent::CorsPreflight { request_id, url, .. } = ev else {
+            panic!("expected CorsPreflight, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(url, "https://api.test/data");
+    }
+
+    #[test]
+    fn a_finished_cors_preflight_is_reported_with_its_round_trip() {
+        let (ev, id) = forward(NetEvent::CorsPreflightDone {
+            url: url("https://api.test/data"),
+            elapsed: std::time::Duration::from_millis(42),
+        });
+        let ResourceEvent::CorsPreflightDone {
+            request_id,
+            url,
+            elapsed,
+            ..
+        } = ev
+        else {
+            panic!("expected CorsPreflightDone, got {ev:?}");
+        };
+        assert_eq!(request_id, id);
+        assert_eq!(url, "https://api.test/data");
+        assert_eq!(elapsed, std::time::Duration::from_millis(42));
+    }
+
+    /// The URLs inside these events go wherever the embedder puts them, like every other URL
+    /// it is given, so credentials are dropped from them too. A referrer is easy to miss: it
+    /// sits inside the change, not on the event.
+    ///
+    /// Relies on the sensitive switch being at its default (off), and does not flip it.
+    #[test]
+    fn urls_inside_upgrades_and_referrer_changes_carry_no_credentials() {
+        let (ev, _) = forward(NetEvent::SecurityUpgraded {
+            from: url("http://alice:hunter2@example.test/"),
+            to: url("https://alice:hunter2@example.test/"),
+            reason: gosub_sonar::net::types::UpgradeReason::MixedContent,
+        });
+        let ResourceEvent::SecurityUpgraded { from, to, .. } = ev else {
+            panic!("expected SecurityUpgraded, got {ev:?}");
+        };
+        assert_eq!(from, "http://example.test/");
+        assert_eq!(to, "https://example.test/");
+
+        let (ev, _) = forward(NetEvent::RequestModified {
+            url: url("https://bob:pw@other.test/"),
+            change: gosub_sonar::net::types::RequestChange::ReferrerReduced {
+                from: url("https://alice:hunter2@example.test/page?q=1"),
+                to: Some(url("https://alice:hunter2@example.test/")),
+                policy: gosub_sonar::net::referrer::ReferrerPolicy::StrictOriginWhenCrossOrigin,
+            },
+        });
+        let ResourceEvent::RequestModified { url, change, .. } = ev else {
+            panic!("expected RequestModified, got {ev:?}");
+        };
+        assert_eq!(url, "https://other.test/");
+        let RequestChange::ReferrerReduced { from, to, .. } = change else {
+            panic!("expected ReferrerReduced, got {change:?}");
+        };
+        assert_eq!(from, "https://example.test/page?q=1");
+        assert_eq!(to.as_deref(), Some("https://example.test/"));
+    }
+
+    /// A TLS failure stays typed on its way out: an embedder offering "continue anyway" needs
+    /// the kind to know whether it can, and the host and fingerprint to remember the answer.
+    #[test]
+    fn a_tls_failure_keeps_its_kind_host_and_fingerprint() {
+        let (emitter, mut rx) = emitter();
+        emitter.on_event(NetEvent::TlsFailed {
+            url: url("https://self-signed.test/"),
+            error: gosub_sonar::net::tls::TlsError {
+                kind: gosub_sonar::net::tls::TlsErrorKind::UnknownIssuer,
+                host: "self-signed.test".into(),
+                message: "invalid peer certificate: UnknownIssuer".into(),
+                certificate: Some(vec![1, 2, 3]),
+                fingerprint: Some([7; 32]),
+            },
+        });
+
+        let seen = failures(&mut rx);
+        assert_eq!(seen.len(), 1, "expected exactly one failure, got {seen:?}");
+        let LoadError::Tls {
+            kind,
+            host,
+            fingerprint,
+            message,
+        } = &seen[0].0
+        else {
+            panic!("expected LoadError::Tls, got {:?}", seen[0].0);
+        };
+        assert_eq!(*kind, crate::net::TlsFailureKind::UnknownIssuer);
+        assert_eq!(host, "self-signed.test");
+        assert_eq!(*fingerprint, Some([7; 32]));
+        assert_eq!(message, "invalid peer certificate: UnknownIssuer");
     }
 
     /// The case that made this worth doing: a host nothing is listening on and a body that

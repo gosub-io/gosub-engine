@@ -436,6 +436,45 @@ pub enum NetEventWire {
         url: String,
         reason: String,
     },
+    /// The attempt before this one has ended with its own terminal event, and
+    /// another follows after `delay_us`.
+    Retrying {
+        url: String,
+        attempt: u32,
+        delay_us: u64,
+        reason: String,
+    },
+    SecurityUpgraded {
+        from: String,
+        to: String,
+        reason: crate::net::detail::UpgradeReason,
+    },
+    /// URLs in `change` travel whole: the broker's emitter strips credentials
+    /// from them as it does from every other URL it reports, and doing it here
+    /// as well would lose them when sensitive values are switched on.
+    RequestModified {
+        url: String,
+        change: crate::net::detail::RequestChange,
+    },
+    CorsPreflight {
+        url: String,
+    },
+    CorsPreflightDone {
+        url: String,
+        elapsed_us: u64,
+    },
+    /// Only the scheme and realm of each challenge: the rest is protocol state
+    /// for answering it, which stays in the network process.
+    AuthRequired {
+        url: String,
+        target: crate::net::detail::AuthTarget,
+        challenges: Vec<crate::net::detail::AuthChallenge>,
+        retried: bool,
+    },
+    Cache {
+        url: String,
+        outcome: crate::net::detail::CacheOutcome,
+    },
 }
 
 /// What the broker says a request cancelled in the network process was cancelled for.
@@ -446,6 +485,7 @@ impl NetEventWire {
     /// for the ones it only logs.
     pub fn from_net(event: &crate::net::events::NetEvent) -> Option<Self> {
         use crate::engine::LoadError;
+        use crate::net::detail;
         use crate::net::events::NetEvent;
         let us = |d: &std::time::Duration| d.as_micros() as u64;
         Some(match event {
@@ -514,16 +554,51 @@ impl NetEventWire {
             },
             NetEvent::TlsFailed { url, error } => Self::Failed {
                 url: url.to_string(),
-                error: LoadError::Tls {
-                    message: format!(
-                        "TLS handshake with {} failed: {:?} ({})",
-                        error.host, error.kind, error.message
-                    ),
-                },
+                error: LoadError::from_tls(error),
             },
             NetEvent::Cancelled { url, reason } => Self::Cancelled {
                 url: url.to_string(),
                 reason: (*reason).to_string(),
+            },
+            NetEvent::Retrying {
+                url,
+                attempt,
+                delay,
+                reason,
+            } => Self::Retrying {
+                url: url.to_string(),
+                attempt: *attempt,
+                delay_us: us(delay),
+                reason: reason.clone(),
+            },
+            NetEvent::SecurityUpgraded { from, to, reason } => Self::SecurityUpgraded {
+                from: from.to_string(),
+                to: to.to_string(),
+                reason: detail::UpgradeReason::from_net(*reason),
+            },
+            NetEvent::RequestModified { url, change } => Self::RequestModified {
+                url: url.to_string(),
+                change: detail::RequestChange::from_net(change, url::Url::to_string),
+            },
+            NetEvent::CorsPreflight { url } => Self::CorsPreflight { url: url.to_string() },
+            NetEvent::CorsPreflightDone { url, elapsed } => Self::CorsPreflightDone {
+                url: url.to_string(),
+                elapsed_us: us(elapsed),
+            },
+            NetEvent::AuthRequired {
+                url,
+                target,
+                challenges,
+                retried,
+            } => Self::AuthRequired {
+                url: url.to_string(),
+                target: detail::AuthTarget::from_net(*target),
+                challenges: challenges.iter().map(detail::AuthChallenge::from_net).collect(),
+                retried: *retried,
+            },
+            NetEvent::Cache { url, outcome } => Self::Cache {
+                url: url.to_string(),
+                outcome: detail::CacheOutcome::from_net(*outcome),
             },
             _ => return None,
         })
@@ -539,10 +614,15 @@ impl NetEventWire {
 
     /// Back into a network event, for the broker's own observer of the
     /// request. Everything here came from a child: strings are cut to
-    /// [`MAX_EVENT_STRING`], headers to [`MAX_EVENT_HEADERS`], a body preview
-    /// to `preview_cap` bytes, and an event whose URL does not parse is dropped.
+    /// [`MAX_EVENT_STRING`], headers, auth challenges and stripped header
+    /// names to [`MAX_EVENT_HEADERS`], a body preview to `preview_cap` bytes,
+    /// and an event that names something sonar cannot hold - a URL that does
+    /// not parse, an unknown referrer policy, a change this build has no case
+    /// for - is dropped.
     pub fn into_net(self, preview_cap: usize) -> Option<crate::net::events::NetEvent> {
+        use crate::net::detail;
         use crate::net::events::NetEvent;
+        use gosub_sonar::net::{auth, cache, types};
         use std::time::Duration;
         let cut = |s: String| cut_string(s, MAX_EVENT_STRING);
         let url = |s: String| url::Url::parse(&cut(s)).ok();
@@ -629,8 +709,132 @@ impl NetEventWire {
                 url: url(u)?,
                 reason: CANCELLED_IN_NET,
             },
+            Self::Retrying {
+                url: u,
+                attempt,
+                delay_us,
+                reason,
+            } => NetEvent::Retrying {
+                url: url(u)?,
+                attempt,
+                delay: Duration::from_micros(delay_us),
+                reason: cut(reason),
+            },
+            Self::SecurityUpgraded { from, to, reason } => NetEvent::SecurityUpgraded {
+                from: url(from)?,
+                to: url(to)?,
+                reason: match reason {
+                    detail::UpgradeReason::Hsts => types::UpgradeReason::Hsts,
+                    detail::UpgradeReason::MixedContent => types::UpgradeReason::MixedContent,
+                    // Only a child built against another sonar sends a reason
+                    // this build has no name for.
+                    detail::UpgradeReason::Other => return None,
+                },
+            },
+            Self::RequestModified { url: u, change } => NetEvent::RequestModified {
+                url: url(u)?,
+                change: request_change(change, &cut)?,
+            },
+            Self::CorsPreflight { url: u } => NetEvent::CorsPreflight { url: url(u)? },
+            Self::CorsPreflightDone { url: u, elapsed_us } => NetEvent::CorsPreflightDone {
+                url: url(u)?,
+                elapsed: Duration::from_micros(elapsed_us),
+            },
+            Self::AuthRequired {
+                url: u,
+                target,
+                mut challenges,
+                retried,
+            } => {
+                let url = url(u)?;
+                let target = match target {
+                    detail::AuthTarget::Server => auth::AuthTarget::Server,
+                    detail::AuthTarget::Proxy => auth::AuthTarget::Proxy,
+                };
+                challenges.truncate(MAX_EVENT_HEADERS);
+                // What did not travel is left empty: the broker reports a
+                // challenge and never answers one, so the parameters, the
+                // attempt count and the proxy are nobody's business here.
+                let challenges = challenges
+                    .into_iter()
+                    .map(|c| auth::AuthChallenge {
+                        url: url.clone(),
+                        target,
+                        scheme: auth::AuthScheme::parse(&cut(c.scheme)),
+                        realm: c.realm.map(cut),
+                        params: Vec::new(),
+                        token68: None,
+                        attempt: 0,
+                        proxy: None,
+                    })
+                    .collect();
+                NetEvent::AuthRequired {
+                    url,
+                    target,
+                    challenges,
+                    retried,
+                }
+            }
+            Self::Cache { url: u, outcome } => NetEvent::Cache {
+                url: url(u)?,
+                outcome: match outcome {
+                    detail::CacheOutcome::Hit => cache::CacheOutcome::Hit,
+                    detail::CacheOutcome::Validated => cache::CacheOutcome::Validated,
+                    detail::CacheOutcome::Stored => cache::CacheOutcome::Stored,
+                    detail::CacheOutcome::Invalidated => cache::CacheOutcome::Invalidated,
+                },
+            },
         })
     }
+}
+
+/// The sonar change a wire change stands for; `None` when it names something
+/// sonar cannot hold. Strings are cut with `cut` before they are parsed, and the
+/// list of stripped headers is capped like any header list from a child.
+fn request_change(
+    change: crate::net::detail::RequestChange,
+    cut: &impl Fn(String) -> String,
+) -> Option<gosub_sonar::net::types::RequestChange> {
+    use crate::net::detail::RequestChange as W;
+    use gosub_sonar::net::types::RequestChange as C;
+    use gosub_sonar::ReferrerPolicy;
+    let url = |s: String| url::Url::parse(&cut(s)).ok();
+    let policy = |s: String| ReferrerPolicy::parse_token(&cut(s));
+    let method = |s: String| http::Method::from_bytes(cut(s).as_bytes()).ok();
+    Some(match change {
+        W::UrlCredentialsRemoved => C::UrlCredentialsRemoved,
+        W::ReferrerReduced { from, to, policy: p } => C::ReferrerReduced {
+            from: url(from)?,
+            // A referrer that was sent but cannot be read is not the same as
+            // none sent, so it drops the event rather than becoming `None`.
+            to: match to {
+                Some(to) => Some(url(to)?),
+                None => None,
+            },
+            policy: policy(p)?,
+        },
+        W::OriginTainted => C::OriginTainted,
+        W::OriginHidden { policy: p } => C::OriginHidden { policy: policy(p)? },
+        W::CredentialsWithheld => C::CredentialsWithheld,
+        // A name that is not a header name is skipped, as `rebuild_headers`
+        // skips one: the rest of the list is still true.
+        W::SensitiveHeadersStripped { mut headers } => {
+            headers.truncate(MAX_EVENT_HEADERS);
+            C::SensitiveHeadersStripped {
+                headers: headers
+                    .into_iter()
+                    .filter_map(|h| http::header::HeaderName::from_bytes(cut(h).as_bytes()).ok())
+                    .collect(),
+            }
+        }
+        W::MethodDowngraded { from, to } => C::MethodDowngraded {
+            from: method(from)?,
+            to: method(to)?,
+        },
+        // Only text describing a change this build has no case for: nothing
+        // sonar can hold.
+        W::Other { .. } => return None,
+    })
 }
 
 /// What became of a request.
@@ -874,6 +1078,325 @@ mod tests {
                 other => panic!("not a connect error: {other:?}"),
             },
             other => panic!("not a failure: {other:?}"),
+        }
+    }
+
+    /// `event` as the broker's observer gets it: through the child's
+    /// conversion, serde and back.
+    fn across(event: &crate::net::events::NetEvent) -> Option<crate::net::events::NetEvent> {
+        let wire = NetEventWire::from_net(event).expect("the event crosses the link");
+        assert!(!wire.is_terminal(), "{wire:?} is not the end of a request");
+        let back: NetEventWire = serde_json::from_slice(&serde_json::to_vec(&wire).unwrap()).unwrap();
+        back.into_net(0)
+    }
+
+    /// What the network stack did to a request on the way - a retry, an upgrade,
+    /// a policy's change, a preflight, a challenge, the cache - reaches the
+    /// broker's observer as it happened.
+    #[test]
+    fn request_detail_survives_the_link() {
+        use crate::net::events::NetEvent;
+        use gosub_sonar::net::{auth, cache, types};
+        use std::time::Duration;
+        let site = url::Url::parse("https://user:pw@site.test/a?q=1").unwrap();
+        let plain = url::Url::parse("http://site.test/a").unwrap();
+
+        match across(&NetEvent::Retrying {
+            url: site.clone(),
+            attempt: 2,
+            delay: Duration::from_millis(250),
+            reason: "status 503".into(),
+        }) {
+            Some(NetEvent::Retrying {
+                url,
+                attempt,
+                delay,
+                reason,
+            }) => {
+                assert_eq!((url, attempt, delay), (site.clone(), 2, Duration::from_millis(250)));
+                assert_eq!(reason, "status 503");
+            }
+            other => panic!("not a retry: {other:?}"),
+        }
+
+        for reason in [types::UpgradeReason::Hsts, types::UpgradeReason::MixedContent] {
+            match across(&NetEvent::SecurityUpgraded {
+                from: plain.clone(),
+                to: site.clone(),
+                reason,
+            }) {
+                Some(NetEvent::SecurityUpgraded { from, to, reason: back }) => {
+                    assert_eq!((from, to, back), (plain.clone(), site.clone(), reason))
+                }
+                other => panic!("not an upgrade: {other:?}"),
+            }
+        }
+
+        let referrer = url::Url::parse("https://user:pw@doc.test/page?secret=1").unwrap();
+        let changes = [
+            types::RequestChange::UrlCredentialsRemoved,
+            // The referrer travels whole: the broker strips it when it reports it.
+            types::RequestChange::ReferrerReduced {
+                from: referrer.clone(),
+                to: Some(url::Url::parse("https://doc.test/").unwrap()),
+                policy: gosub_sonar::ReferrerPolicy::StrictOriginWhenCrossOrigin,
+            },
+            types::RequestChange::ReferrerReduced {
+                from: referrer,
+                to: None,
+                policy: gosub_sonar::ReferrerPolicy::NoReferrer,
+            },
+            types::RequestChange::OriginTainted,
+            types::RequestChange::OriginHidden {
+                policy: gosub_sonar::ReferrerPolicy::SameOrigin,
+            },
+            types::RequestChange::CredentialsWithheld,
+            types::RequestChange::SensitiveHeadersStripped {
+                headers: vec![
+                    http::header::AUTHORIZATION,
+                    http::header::HeaderName::from_static("x-api-key"),
+                ],
+            },
+            types::RequestChange::MethodDowngraded {
+                from: http::Method::POST,
+                to: http::Method::GET,
+            },
+        ];
+        for change in changes {
+            match across(&NetEvent::RequestModified {
+                url: site.clone(),
+                change: change.clone(),
+            }) {
+                Some(NetEvent::RequestModified { url, change: back }) => {
+                    assert_eq!((url, back), (site.clone(), change))
+                }
+                other => panic!("not a change: {other:?}"),
+            }
+        }
+
+        match across(&NetEvent::CorsPreflight { url: site.clone() }) {
+            Some(NetEvent::CorsPreflight { url }) => assert_eq!(url, site),
+            other => panic!("not a preflight: {other:?}"),
+        }
+        match across(&NetEvent::CorsPreflightDone {
+            url: site.clone(),
+            elapsed: Duration::from_micros(1234),
+        }) {
+            Some(NetEvent::CorsPreflightDone { url, elapsed }) => {
+                assert_eq!((url, elapsed), (site.clone(), Duration::from_micros(1234)))
+            }
+            other => panic!("not a finished preflight: {other:?}"),
+        }
+
+        let challenge = |scheme: auth::AuthScheme, realm: Option<&str>| auth::AuthChallenge {
+            url: site.clone(),
+            target: auth::AuthTarget::Proxy,
+            scheme,
+            realm: realm.map(str::to_string),
+            params: vec![("nonce".into(), "abc".into())],
+            token68: Some("dG9rZW4=".into()),
+            attempt: 3,
+            proxy: Some(url::Url::parse("http://proxy.test:3128/").unwrap()),
+        };
+        match across(&NetEvent::AuthRequired {
+            url: site.clone(),
+            target: auth::AuthTarget::Proxy,
+            challenges: vec![
+                challenge(auth::AuthScheme::Digest, Some("staff")),
+                challenge(auth::AuthScheme::Other("Custom".into()), None),
+            ],
+            retried: true,
+        }) {
+            Some(NetEvent::AuthRequired {
+                url,
+                target,
+                challenges,
+                retried,
+            }) => {
+                assert_eq!((url, target, retried), (site.clone(), auth::AuthTarget::Proxy, true));
+                let shown: Vec<_> = challenges
+                    .iter()
+                    .map(|c| (c.scheme.clone(), c.realm.clone(), c.target, c.url.clone()))
+                    .collect();
+                assert_eq!(
+                    shown,
+                    vec![
+                        (
+                            auth::AuthScheme::Digest,
+                            Some("staff".to_string()),
+                            auth::AuthTarget::Proxy,
+                            site.clone()
+                        ),
+                        (
+                            auth::AuthScheme::Other("Custom".into()),
+                            None,
+                            auth::AuthTarget::Proxy,
+                            site.clone()
+                        ),
+                    ]
+                );
+                // The protocol state for answering stays in the network process.
+                assert!(challenges
+                    .iter()
+                    .all(|c| c.params.is_empty() && c.token68.is_none() && c.attempt == 0 && c.proxy.is_none()));
+            }
+            other => panic!("not a challenge: {other:?}"),
+        }
+
+        for outcome in [
+            cache::CacheOutcome::Hit,
+            cache::CacheOutcome::Validated,
+            cache::CacheOutcome::Stored,
+            cache::CacheOutcome::Invalidated,
+        ] {
+            match across(&NetEvent::Cache {
+                url: site.clone(),
+                outcome,
+            }) {
+                Some(NetEvent::Cache { url, outcome: back }) => assert_eq!((url, back), (site.clone(), outcome)),
+                other => panic!("not a cache event: {other:?}"),
+            }
+        }
+    }
+
+    /// The child decides how long the strings and lists in its detail events
+    /// are; the broker holds them to the same bounds as everything else.
+    #[test]
+    fn request_detail_is_bounded_on_receipt() {
+        use crate::net::detail;
+        use crate::net::events::NetEvent;
+        let url = "https://site.test/".to_string();
+        let long = "x".repeat(MAX_EVENT_STRING * 2);
+
+        match (NetEventWire::Retrying {
+            url: url.clone(),
+            attempt: 1,
+            delay_us: 1,
+            reason: long.clone(),
+        })
+        .into_net(0)
+        {
+            Some(NetEvent::Retrying { reason, .. }) => assert_eq!(reason.len(), MAX_EVENT_STRING),
+            other => panic!("not a retry: {other:?}"),
+        }
+
+        let challenges = (0..10_000)
+            .map(|_| detail::AuthChallenge {
+                scheme: long.clone(),
+                realm: Some(long.clone()),
+            })
+            .collect();
+        match (NetEventWire::AuthRequired {
+            url: url.clone(),
+            target: detail::AuthTarget::Server,
+            challenges,
+            retried: false,
+        })
+        .into_net(0)
+        {
+            Some(NetEvent::AuthRequired { challenges, .. }) => {
+                assert_eq!(challenges.len(), MAX_EVENT_HEADERS);
+                assert!(challenges.iter().all(|c| c.scheme.as_str().len() == MAX_EVENT_STRING
+                    && c.realm.as_ref().is_some_and(|r| r.len() == MAX_EVENT_STRING)));
+            }
+            other => panic!("not a challenge: {other:?}"),
+        }
+
+        // Header names are cut and capped too; one that is not a name is skipped.
+        let mut headers: Vec<String> = vec!["not a header".into()];
+        headers.extend((0..10_000).map(|i| format!("x-{i}")));
+        match (NetEventWire::RequestModified {
+            url,
+            change: detail::RequestChange::SensitiveHeadersStripped { headers },
+        })
+        .into_net(0)
+        {
+            Some(NetEvent::RequestModified {
+                change: gosub_sonar::net::types::RequestChange::SensitiveHeadersStripped { headers },
+                ..
+            }) => {
+                assert_eq!(headers.len(), MAX_EVENT_HEADERS - 1);
+                assert_eq!(headers[0].as_str(), "x-0");
+            }
+            other => panic!("not a change: {other:?}"),
+        }
+    }
+
+    /// A detail event naming something sonar cannot hold is dropped, not
+    /// guessed at and not a panic in the broker's reader.
+    #[test]
+    fn unreadable_request_detail_is_dropped() {
+        use crate::net::detail;
+        let url = || "https://site.test/".to_string();
+        let modified = |change| NetEventWire::RequestModified { url: url(), change };
+        let unreadable = [
+            modified(detail::RequestChange::OriginHidden {
+                policy: "no-such-policy".into(),
+            }),
+            modified(detail::RequestChange::ReferrerReduced {
+                from: url(),
+                to: None,
+                policy: "bogus".into(),
+            }),
+            modified(detail::RequestChange::ReferrerReduced {
+                from: "not a url".into(),
+                to: None,
+                policy: "no-referrer".into(),
+            }),
+            // A referrer that was sent but cannot be read is not "none sent".
+            modified(detail::RequestChange::ReferrerReduced {
+                from: url(),
+                to: Some("not a url".into()),
+                policy: "origin".into(),
+            }),
+            modified(detail::RequestChange::MethodDowngraded {
+                from: "PO ST".into(),
+                to: "GET".into(),
+            }),
+            modified(detail::RequestChange::Other {
+                description: "something new".into(),
+            }),
+            NetEventWire::RequestModified {
+                url: "not a url".into(),
+                change: detail::RequestChange::OriginTainted,
+            },
+            NetEventWire::SecurityUpgraded {
+                from: "http://site.test/".into(),
+                to: url(),
+                reason: detail::UpgradeReason::Other,
+            },
+            NetEventWire::SecurityUpgraded {
+                from: "not a url".into(),
+                to: url(),
+                reason: detail::UpgradeReason::Hsts,
+            },
+            NetEventWire::Retrying {
+                url: "not a url".into(),
+                attempt: 1,
+                delay_us: 1,
+                reason: String::new(),
+            },
+            NetEventWire::CorsPreflight {
+                url: "not a url".into(),
+            },
+            NetEventWire::CorsPreflightDone {
+                url: "not a url".into(),
+                elapsed_us: 1,
+            },
+            NetEventWire::AuthRequired {
+                url: "not a url".into(),
+                target: detail::AuthTarget::Server,
+                challenges: Vec::new(),
+                retried: false,
+            },
+            NetEventWire::Cache {
+                url: "not a url".into(),
+                outcome: detail::CacheOutcome::Hit,
+            },
+        ];
+        for event in unreadable {
+            let shown = format!("{event:?}");
+            assert!(event.into_net(0).is_none(), "{shown} was rebuilt");
         }
     }
 
