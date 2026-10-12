@@ -1,5 +1,5 @@
 use crate::net::types::NetError;
-use crate::net::BlockReason;
+use crate::net::{BlockReason, TlsFailureKind};
 use gosub_sonar::TransportErrorKind;
 /// Public engine errors available for the outside world
 #[derive(Debug, thiserror::Error)]
@@ -116,8 +116,15 @@ pub enum LoadError {
         /// The underlying failure, as reported.
         message: String,
     },
-    /// The TLS handshake failed: an expired, untrusted or mismatched certificate.
+    /// The TLS handshake failed: an expired, untrusted or mismatched certificate, or a
+    /// handshake the two sides could not agree on. `kind` says which.
     Tls {
+        /// What went wrong, classified.
+        kind: TlsFailureKind,
+        /// The host the handshake was with.
+        host: String,
+        /// The SHA-256 of the certificate the server presented, when it presented one.
+        fingerprint: Option<[u8; 32]>,
         /// The underlying failure, as reported.
         message: String,
     },
@@ -164,7 +171,11 @@ impl std::fmt::Display for LoadError {
             LoadError::Blocked { reason } => write!(f, "{reason}"),
             LoadError::InvalidUrl { message } => write!(f, "invalid URL: {message}"),
             LoadError::Connect { message } => write!(f, "could not connect: {message}"),
-            LoadError::Tls { message } => write!(f, "TLS error: {message}"),
+            LoadError::Tls {
+                kind, host, message, ..
+            } => {
+                write!(f, "TLS handshake with {host} failed: {kind} ({message})")
+            }
             LoadError::Timeout { message } => write!(f, "timed out: {message}"),
             LoadError::Transfer { message } => write!(f, "transfer failed: {message}"),
             LoadError::Redirect { message } => write!(f, "bad redirect: {message}"),
@@ -186,7 +197,17 @@ impl LoadError {
             Blocked { reason } => Blocked { reason },
             InvalidUrl { message } => InvalidUrl { message: f(message) },
             Connect { message } => Connect { message: f(message) },
-            Tls { message } => Tls { message: f(message) },
+            Tls {
+                kind,
+                host,
+                fingerprint,
+                message,
+            } => Tls {
+                kind,
+                host,
+                fingerprint,
+                message: f(message),
+            },
             Timeout { message } => Timeout { message: f(message) },
             Transfer { message } => Transfer { message: f(message) },
             Redirect { message } => Redirect { message: f(message) },
@@ -194,6 +215,19 @@ impl LoadError {
             Cancelled { message } => Cancelled { message: f(message) },
             Content { message } => Content { message: f(message) },
             Other { message } => Other { message: f(message) },
+        }
+    }
+}
+
+impl LoadError {
+    /// A failed TLS handshake, kept typed: the kind, the host and the certificate's
+    /// fingerprint, not one sentence made of them.
+    pub fn from_tls(tls: &gosub_sonar::net::tls::TlsError) -> Self {
+        LoadError::Tls {
+            kind: TlsFailureKind::from_net(tls.kind),
+            host: tls.host.clone(),
+            fingerprint: tls.fingerprint,
+            message: tls.message.clone(),
         }
     }
 }
@@ -224,9 +258,7 @@ impl From<&NetError> for LoadError {
             NetError::Timeout(message) => LoadError::Timeout {
                 message: message.clone(),
             },
-            NetError::Tls(tls) => LoadError::Tls {
-                message: tls.to_string(),
-            },
+            NetError::Tls(tls) => LoadError::from_tls(tls),
             NetError::Redirect(err) => LoadError::Redirect {
                 message: format!("{err:#}"),
             },

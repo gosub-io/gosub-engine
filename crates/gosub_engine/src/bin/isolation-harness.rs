@@ -8087,6 +8087,13 @@ fn net_events() -> i32 {
                 NetEvent::Blocked { .. } => "Blocked",
                 NetEvent::TlsFailed { .. } => "TlsFailed",
                 NetEvent::BodyPreview { .. } => "BodyPreview",
+                NetEvent::Retrying { .. } => "Retrying",
+                NetEvent::SecurityUpgraded { .. } => "SecurityUpgraded",
+                NetEvent::RequestModified { .. } => "RequestModified",
+                NetEvent::CorsPreflight { .. } => "CorsPreflight",
+                NetEvent::CorsPreflightDone { .. } => "CorsPreflightDone",
+                NetEvent::AuthRequired { .. } => "AuthRequired",
+                NetEvent::Cache { .. } => "Cache",
                 _ => "Other",
             };
             self.0.lock().push(name.to_string());

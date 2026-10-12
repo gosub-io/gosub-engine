@@ -154,6 +154,19 @@ Events for everything else the page loads, delivered as `ResourceUpdate { tab_id
 
 `Started`, `Redirected`, `Headers`, `Progress`, `Finished`, `Failed` and `Cancelled` are live, as are the devtools detail events `RequestSent` (the request line and headers as sent), `DnsResolved` and `Connected` (connection timings) and `BodyPreview` (the first bytes of the body, when capture is on). `Queued` · gated ·: requests currently go straight to `Started`.
 
+What the network stack did to a request on the way arrives as its own events, per hop, with or without a network process. Their types are in `gosub_engine::events`.
+
+| Variant | Notes |
+|---|---|
+| `Cache { outcome }` | `CacheOutcome`: `Hit` (no request went out, so no `RequestSent` or `Headers` for that hop), `Validated` (a `304`), `Stored`, `Invalidated`. |
+| `AuthRequired { target, challenges, retried }` | A `401` (`AuthTarget::Server`) or `407` (`Proxy`), once per challenged response. Each `AuthChallenge` has the `scheme` and `realm` only; nonces and tokens stay in the network stack. `retried: false` means the `401`/`407` is the response. |
+| `SecurityUpgraded { from, to, reason }` | An `http` hop sent as `https`. `UpgradeReason`: `Hsts`, `MixedContent`. |
+| `RequestModified { url, change }` | A policy changed the hop instead of refusing it, one event per change, before its `RequestSent`. `RequestChange`: credentials removed from the URL, `Referer` reduced, `Origin` sent as `null`, credentials withheld, headers stripped on a cross-origin redirect, method downgraded. Most are invisible in the response. |
+| `Retrying { url, attempt, delay, reason }` | The attempt that just ended with `Failed` will be made again after `delay`; a new `Started` follows. |
+| `CorsPreflight { url }` / `CorsPreflightDone { url, elapsed }` | A preflight `OPTIONS` was sent, and its response arrived. A refusal follows as `Failed` with `BlockReason::Cors`. A hop covered by a cached grant sends neither. |
+
+URLs in these events are reported like every other URL: without `user:password@` unless sensitive values are switched on.
+
 ------------------------------------------------------------------------
 
 ## Two streams
@@ -179,10 +192,10 @@ Failures arrive as a typed [`LoadError`](https://docs.rs/gosub_engine), not an o
 
 | Variant | Means | Retry? |
 |---|---|---|
-| `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`, `Cors`, `NotCached`. | No |
+| `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`, `Cors`, `NotCached`, `BadPort`. | No |
 | `InvalidUrl { message }` | The URL string did not parse. | No |
 | `Connect { message }` | No connection was established: the name did not resolve, or nothing accepted it. The client does not separate the two. | Maybe |
-| `Tls { message }` | The TLS handshake failed: an expired, untrusted or mismatched certificate. | No |
+| `Tls { kind, host, fingerprint, message }` | The TLS handshake with `host` failed. `kind` is a `TlsFailureKind`: `Expired`, `NotYetValid`, `UnknownIssuer`, `HostnameMismatch`, `Revoked`, `InvalidCertificate` (all `is_certificate_error()`), `Handshake`, `Other`. `fingerprint` is the SHA-256 of the certificate the server presented, when it presented one. | No |
 | `Timeout { message }` | The request did not finish within the time limit. | Maybe |
 | `Transfer { message }` | The connection worked and then broke part way through. | Maybe |
 | `Redirect { message }` | A redirect could not be followed: too many hops, or an invalid target. | No |

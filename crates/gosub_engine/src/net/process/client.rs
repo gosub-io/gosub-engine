@@ -11,7 +11,7 @@ use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -64,7 +64,10 @@ pub struct ReportedRequest {
     inner: Arc<dyn NetObserver + Send + Sync>,
     url: String,
     started: std::time::Instant,
-    done: AtomicBool,
+    /// [`OPEN`], [`ATTEMPT_ENDED`], [`REPLIED`] or [`CLOSED`]. Whether the
+    /// reply is in is part of the same value, so the reader's terminal event
+    /// and the reply cannot each act on a stale view of the other.
+    state: AtomicU8,
     /// Longest body preview accepted from the child, in bytes.
     preview_cap: usize,
     /// Non-terminal events other than progress passed on so far; see
@@ -79,6 +82,20 @@ pub struct ReportedRequest {
     /// flood of other events must not push a real redirect out.
     redirects: Mutex<Vec<String>>,
 }
+
+/// The request is under way: nothing has ended it yet.
+const OPEN: u8 = 0;
+/// The child ended an attempt before the reply came. The network stack
+/// retries a connect failure or a `503` as a new attempt under the same
+/// request, announced by `Retrying`, so this end is final only once the reply
+/// arrives without one.
+const ATTEMPT_ENDED: u8 = 1;
+/// The reply is in and nothing has ended the request yet: a streamed body is
+/// still arriving. No attempt follows a reply, so the child's terminal event
+/// from here closes the request.
+const REPLIED: u8 = 2;
+/// Over for good: ended after the reply, or by the broker. Nothing reopens it.
+const CLOSED: u8 = 3;
 
 /// Redirects kept per request for the vault's check: well past any chain a
 /// ticket's claims can cover.
@@ -104,7 +121,7 @@ impl ReportedRequest {
             inner,
             url,
             started: std::time::Instant::now(),
-            done: AtomicBool::new(false),
+            state: AtomicU8::new(OPEN),
             preview_cap,
             events: std::sync::atomic::AtomicUsize::new(0),
             last_progress: Mutex::new(None),
@@ -118,9 +135,40 @@ impl ReportedRequest {
         self.redirects.lock().clone()
     }
 
-    /// Whether the request has had its last event.
+    /// Whether the request has had an end reported, for now: an attempt the
+    /// child ended can still be followed by a retry until the reply is in.
     pub fn is_done(&self) -> bool {
-        self.done.load(Ordering::Relaxed)
+        matches!(self.state.load(Ordering::Relaxed), ATTEMPT_ENDED | CLOSED)
+    }
+
+    /// Whether the request is over for good, and its observer can be let go.
+    fn is_closed(&self) -> bool {
+        self.state.load(Ordering::Relaxed) == CLOSED
+    }
+
+    /// Claim the end for the broker; `true` when nothing had ended the
+    /// request, so the broker reports the end. Either way the request is then
+    /// closed, so a retry the child announces afterwards cannot reopen it.
+    fn claim_end(&self) -> bool {
+        matches!(self.state.swap(CLOSED, Ordering::Relaxed), OPEN | REPLIED)
+    }
+
+    /// Move to the state `next` gives for the current one, in one step;
+    /// `false` when it gives none and nothing changed.
+    fn transition(&self, next: impl Fn(u8) -> Option<u8>) -> bool {
+        let mut current = self.state.load(Ordering::Relaxed);
+        loop {
+            let Some(to) = next(current) else {
+                return false;
+            };
+            match self
+                .state
+                .compare_exchange_weak(current, to, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return true,
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     /// An event the child reported. A terminal one claims the end first, so
@@ -130,6 +178,11 @@ impl ReportedRequest {
     /// request produces: progress at most every [`PROGRESS_INTERVAL`] (and the
     /// completing one once), at most [`MAX_EVENTS_PER_REQUEST`] others, and a
     /// terminal event that cannot be read still ends the request, as failed.
+    ///
+    /// A `Retrying` after the child ended an attempt reopens the request, the
+    /// way the in-process emitter takes the next attempt's events, unless the
+    /// broker has ended it meanwhile. It is admitted first: each reopening
+    /// costs the budget, so a child cannot end a request without limit.
     fn on_wire(&self, event: NetEventWire) {
         if let NetEventWire::Redirected { to, .. } = &event {
             let mut redirects = self.redirects.lock();
@@ -139,8 +192,26 @@ impl ReportedRequest {
         }
         let terminal = event.is_terminal();
         if terminal {
-            if self.done.swap(true, Ordering::Relaxed) {
+            let ended = self.transition(|state| match state {
+                OPEN => Some(ATTEMPT_ENDED),
+                REPLIED => Some(CLOSED),
+                _ => None,
+            });
+            if !ended {
                 return;
+            }
+        } else if matches!(event, NetEventWire::Retrying { .. }) {
+            if self.is_closed() || !self.admit(&event) {
+                return;
+            }
+            match self
+                .state
+                .compare_exchange(ATTEMPT_ENDED, OPEN, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                // The next attempt reads its body from the start again.
+                Ok(_) => self.completed.store(false, Ordering::Relaxed),
+                Err(CLOSED) => return,
+                Err(_) => {}
             }
         } else if self.is_done() || !self.admit(&event) {
             return;
@@ -186,7 +257,7 @@ impl ReportedRequest {
         }
         match end {
             BodyEnd::Complete(received_bytes) => {
-                if self.done.swap(true, Ordering::Relaxed) {
+                if !self.claim_end() {
                     return;
                 }
                 let Ok(url) = url::Url::parse(&self.url) else {
@@ -207,13 +278,20 @@ impl ReportedRequest {
     /// streamed head is not the end - the body is still arriving, and the
     /// child's `Finished` follows it over the link.
     fn finish(&self, outcome: &FetchOutcome) {
+        // No attempt follows the reply, so an attempt the child ended is the
+        // request's end.
+        self.transition(|state| match state {
+            OPEN => Some(REPLIED),
+            ATTEMPT_ENDED => Some(CLOSED),
+            _ => None,
+        });
         let Ok(url) = url::Url::parse(&self.url) else {
             return;
         };
         match outcome {
             FetchOutcome::Streaming { .. } => {}
             FetchOutcome::Ok { body, .. } => {
-                if !self.done.swap(true, Ordering::Relaxed) {
+                if self.claim_end() {
                     self.inner.on_event(crate::net::events::NetEvent::Finished {
                         received_bytes: body.len() as u64,
                         elapsed: self.started.elapsed(),
@@ -227,7 +305,7 @@ impl ReportedRequest {
 
     /// End the request as failed, unless it has ended.
     fn fail(&self, message: &str) {
-        if self.done.swap(true, Ordering::Relaxed) {
+        if !self.claim_end() {
             return;
         }
         self.emit_failed(message);
@@ -248,7 +326,7 @@ impl ReportedRequest {
 
     /// End the request as cancelled, unless it has ended.
     fn cancel(&self) {
-        if self.done.swap(true, Ordering::Relaxed) {
+        if !self.claim_end() {
             return;
         }
         let Ok(url) = url::Url::parse(&self.url) else {
@@ -269,6 +347,41 @@ enum BodyEnd {
     Failed(String),
     /// Nothing read the body to its end.
     Abandoned,
+}
+
+/// Ends a request whose `fetch` was dropped before its reply, as a cancel
+/// would: the embedder sees it end, nothing waits for its reply, and the child
+/// is told to stop working on it.
+struct Registration {
+    tag: RequestTag,
+    request: Option<Arc<ReportedRequest>>,
+    reported: Reported,
+    pending: Pending,
+    tx: Arc<Mutex<EndpointTx>>,
+    /// Cleared once the reply is in, after which `fetch` decides itself.
+    armed: bool,
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.pending.lock().remove(&self.tag);
+        self.reported.lock().remove(&self.tag);
+        if let Some(request) = &self.request {
+            request.cancel();
+        }
+        // Best-effort, like `send_cancel`: the pipe write may block, so it
+        // goes to a blocking thread, and with no runtime left to run one the
+        // child is about to lose its link anyway.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (tx, tag) = (Arc::clone(&self.tx), self.tag);
+            runtime.spawn_blocking(move || {
+                let _ = tx.lock().send(&ToNet::Cancel(tag));
+            });
+        }
+    }
 }
 
 /// A streamed request still open when its reply arrived: what ends it once
@@ -536,7 +649,9 @@ fn start_reader(
                         let observer = observers.lock().get(&tag).cloned();
                         if let Some(observer) = observer {
                             observer.on_wire(event);
-                            if observer.is_done() {
+                            // An attempt the child ended stays registered:
+                            // a retry may follow it.
+                            if observer.is_closed() {
                                 observers.lock().remove(&tag);
                             }
                         }
@@ -853,7 +968,20 @@ impl NetProcess {
         if let Some(reported) = &reported {
             self.reported.lock().insert(tag, Arc::clone(reported));
         }
+        // A caller that drops this future before the reply gets what a cancel
+        // gives: the request ends, and the child stops. Nothing else would end
+        // it, and the reader keeps an attempt the child ended registered,
+        // since a retry may follow it.
+        let mut registration = Registration {
+            tag,
+            request: reported.clone(),
+            reported: Arc::clone(&self.reported),
+            pending: Arc::clone(&self.pending),
+            tx: Arc::clone(&self.tx),
+            armed: true,
+        };
         let mut reply = self.fetch_tagged(tag, out, cancel).await;
+        registration.armed = false;
         if let Some(reported) = reported {
             if let Some(redirects) = reply.redirects.as_mut() {
                 *redirects = reported.redirects();
@@ -1321,6 +1449,8 @@ mod tests {
                 NetEvent::Cancelled { .. } => "cancelled",
                 NetEvent::Progress { .. } => "progress",
                 NetEvent::DnsResolved { .. } => "dns",
+                NetEvent::Started { .. } => "started",
+                NetEvent::Retrying { .. } => "retrying",
                 _ => "other",
             });
         }
@@ -1344,6 +1474,157 @@ mod tests {
         });
         assert!(request.is_done());
         assert_eq!(*seen.0.lock(), vec!["failed"]);
+    }
+
+    /// A fetch dropped before its reply ends its request as a cancel would:
+    /// the embedder sees it cancelled, and neither the reply slot nor the
+    /// request stays registered. One that got its reply leaves that to `fetch`.
+    #[test]
+    fn a_dropped_fetch_ends_its_request() {
+        let registration = |request: &Arc<ReportedRequest>, armed: bool| {
+            let reported: Reported = Arc::new(Mutex::new(HashMap::new()));
+            let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+            reported.lock().insert(7, Arc::clone(request));
+            pending.lock().insert(7, tokio::sync::oneshot::channel().0);
+            let guard = Registration {
+                tag: 7,
+                request: Some(Arc::clone(request)),
+                reported: Arc::clone(&reported),
+                pending: Arc::clone(&pending),
+                tx: Arc::new(Mutex::new(EndpointTx::Broken)),
+                armed,
+            };
+            (guard, reported, pending)
+        };
+
+        let (seen, request) = reported();
+        let request = Arc::new(request);
+        request.on_wire(NetEventWire::Started {
+            url: "https://site.test/".into(),
+        });
+        let (guard, reported_map, pending) = registration(&request, true);
+        drop(guard);
+        assert!(reported_map.lock().is_empty() && pending.lock().is_empty());
+        assert_eq!(*seen.0.lock(), vec!["started", "cancelled"]);
+
+        let (seen, request) = reported();
+        let request = Arc::new(request);
+        let (guard, reported_map, pending) = registration(&request, false);
+        drop(guard);
+        assert_eq!((reported_map.lock().len(), pending.lock().len()), (1, 1));
+        assert!(seen.0.lock().is_empty());
+    }
+
+    /// The reply and the child's terminal event can arrive in either order,
+    /// from two threads; either way the request closes, so the reader lets go
+    /// of it. Both orders go through the one state, which is what keeps a
+    /// reply that lands between the two halves of the other from being lost.
+    #[test]
+    fn a_reply_and_a_terminal_event_close_the_request_in_either_order() {
+        let failed = || NetEventWire::Failed {
+            url: "https://site.test/".into(),
+            error: crate::engine::LoadError::Connect {
+                message: "refused".into(),
+            },
+        };
+        let streaming = || FetchOutcome::Streaming {
+            status: 200,
+            status_text: "OK".into(),
+            final_url: "https://site.test/".into(),
+            headers: Vec::new(),
+            peek: Vec::new(),
+            peer_addr: None,
+        };
+
+        let (_, request) = reported();
+        request.on_wire(failed());
+        request.finish(&streaming());
+        assert!(request.is_closed());
+
+        let (_, request) = reported();
+        request.finish(&streaming());
+        assert!(!request.is_done(), "a streamed body is still arriving");
+        request.on_wire(failed());
+        assert!(request.is_closed());
+    }
+
+    /// A retried request is reported attempt by attempt, as the in-process
+    /// fetcher reports it: the first attempt's failure does not swallow the
+    /// retry and the attempt that follows it.
+    #[test]
+    fn a_retry_after_a_failed_attempt_is_reported() {
+        let url = || "https://site.test/".to_string();
+        let started = || NetEventWire::Started { url: url() };
+        let failed = || NetEventWire::Failed {
+            url: url(),
+            error: crate::engine::LoadError::Connect {
+                message: "refused".into(),
+            },
+        };
+        let retrying = || NetEventWire::Retrying {
+            url: url(),
+            attempt: 1,
+            delay_us: 1,
+            reason: "refused".into(),
+        };
+        let finished = || NetEventWire::Finished {
+            received_bytes: 1,
+            elapsed_us: 1,
+            url: url(),
+        };
+
+        let (seen, request) = reported();
+        request.on_wire(started());
+        request.on_wire(failed());
+        assert!(request.is_done() && !request.is_closed(), "a retry may still follow");
+        request.on_wire(retrying());
+        assert!(!request.is_done());
+        request.on_wire(started());
+        request.on_wire(finished());
+        request.finish(&FetchOutcome::Ok {
+            status: 200,
+            status_text: "OK".into(),
+            final_url: url(),
+            headers: Vec::new(),
+            body: vec![1],
+            peer_addr: None,
+        });
+        assert!(request.is_closed());
+        assert_eq!(
+            *seen.0.lock(),
+            vec!["started", "failed", "retrying", "started", "finished"]
+        );
+
+        // An end the broker claimed is final: a retry announced after it
+        // reports nothing more.
+        let (seen, request) = reported();
+        request.on_wire(started());
+        request.on_wire(failed());
+        request.cancel();
+        request.on_wire(retrying());
+        request.on_wire(started());
+        request.on_wire(finished());
+        assert_eq!(*seen.0.lock(), vec!["started", "failed"]);
+
+        // So is an attempt the child ended once the reply is in: no attempt
+        // follows a reply.
+        let (seen, request) = reported();
+        request.on_wire(failed());
+        request.finish(&FetchOutcome::Error("refused".into()));
+        request.on_wire(retrying());
+        request.on_wire(failed());
+        assert!(request.is_closed());
+        assert_eq!(*seen.0.lock(), vec!["failed"]);
+
+        // Ending and reopening costs the budget, so a child repeating it does
+        // not end a request without limit.
+        let (seen, request) = reported();
+        for _ in 0..10_000 {
+            request.on_wire(failed());
+            request.on_wire(retrying());
+        }
+        let count = seen.0.lock().iter().filter(|k| **k == "failed").count();
+        assert_eq!(count, MAX_EVENTS_PER_REQUEST + 1);
     }
 
     /// A streamed body that ends without the child saying so is ended by the
