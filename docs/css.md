@@ -287,11 +287,15 @@ and the clause that makes the new value right.
 
 ## Known gaps
 
--   A pseudo-class with an argument is stored as its text and never matches: `:has()` and
-    `:lang()`. `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`) and
-    `:where()` are evaluated; the specificity of `:has()` errs low because it is not.
+-   A pseudo-class with an argument is stored as its text and never matches: `:lang()`.
+    `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`), `:where()` and
+    `:has()` are evaluated.
 -   `:nth-*()` counts siblings on every match, so a rule like `tr:nth-child(odd)` over a very
     long table costs time quadratic in its rows; there is no per-parent index cache.
+-   `:has()` searches the element's subtree or later siblings on every match, with no cache, so
+    `body:has(dialog[open])` costs a walk of the page each time `body` is styled. Its result is
+    only as fresh as the anchor's style: a change below the anchor does not restyle it, except
+    that a `:hover` inside `:has()` makes every element hover-sensitive.
 -   `:is()` and `:where()` take a forgiving selector list, but an argument the parser rejects
     (an unknown functional pseudo-class) still drops the whole rule instead of just itself.
     `:active` is hardcoded false; `:visited` deliberately so.

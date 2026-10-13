@@ -207,6 +207,36 @@ fn convert_nth(kind: NthKind, arguments: Vec<CssNode>) -> CssResult<NthSelector>
     Ok(NthSelector { kind, a, b, of })
 }
 
+/// Normalises the arguments of `:has()` into relative selectors that each open with exactly one
+/// combinator. The parser hands over the space after `(` or a comma as a descendant combinator,
+/// so `( > img)` arrives as two; the written one wins, and a selector with none gets the
+/// descendant combinator the grammar implies (Selectors L4 §3.4). A combinator left dangling at
+/// the end is dropped.
+fn relative_selectors(list: Vec<Vec<CssSelectorPart>>) -> Vec<Vec<CssSelectorPart>> {
+    list.into_iter()
+        .map(|mut parts| {
+            while matches!(parts.last(), Some(CssSelectorPart::Combinator(_))) {
+                parts.pop();
+            }
+            let leading = parts
+                .iter()
+                .take_while(|p| matches!(p, CssSelectorPart::Combinator(_)))
+                .count();
+            let combinator = parts[..leading]
+                .iter()
+                .rev()
+                .find_map(|p| match p {
+                    CssSelectorPart::Combinator(c) if *c != Combinator::Descendant => Some(c.clone()),
+                    _ => None,
+                })
+                .unwrap_or(Combinator::Descendant);
+            parts.splice(..leading, [CssSelectorPart::Combinator(combinator)]);
+            parts
+        })
+        .filter(|parts| parts.len() > 1)
+        .collect()
+}
+
 /// Convert the children of one `Selector` AST node into selector parts, appending to the compound
 /// currently being built in `out`. A comma starts a new compound.
 fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
@@ -254,6 +284,8 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                         CssSelectorPart::Is(convert_selector_list(arguments)?)
                     } else if name.eq_ignore_ascii_case("where") {
                         CssSelectorPart::Where(convert_selector_list(arguments)?)
+                    } else if name.eq_ignore_ascii_case("has") {
+                        CssSelectorPart::Has(relative_selectors(convert_selector_list(arguments)?))
                     } else if name.eq_ignore_ascii_case("host") {
                         // `:host(<selector>)` - the condition is matched against the host
                         // element itself, so it has to stay structured like `:not()`'s.
@@ -1546,6 +1578,51 @@ mod tests {
             ":is() takes its most specific argument"
         );
         assert_eq!(spec(1), Specificity::new(0, 0, 1), ":where() adds nothing");
+    }
+
+    #[test]
+    fn has_keeps_relative_selectors() {
+        let stylesheet = Css3::parse_str(
+            "a:has(> img) { color: red } a:has( + p, ~ .q) { color: red } a:has(.x .y) { color: red } \
+             a:has(#i, .c) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let has = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+            Some(CssSelectorPart::Has(list)) => list.clone(),
+            other => panic!("expected a Has part, got {other:?}"),
+        };
+        let comb = CssSelectorPart::Combinator;
+        assert_eq!(
+            has(0),
+            vec![vec![comb(Combinator::Child), CssSelectorPart::Type("img".into())]]
+        );
+        assert_eq!(
+            has(1),
+            vec![
+                vec![comb(Combinator::NextSibling), CssSelectorPart::Type("p".into())],
+                vec![comb(Combinator::SubsequentSibling), CssSelectorPart::Class("q".into())],
+            ],
+            "one combinator each, the space before it gone"
+        );
+        assert_eq!(
+            has(2),
+            vec![vec![
+                comb(Combinator::Descendant),
+                CssSelectorPart::Class("x".into()),
+                comb(Combinator::Descendant),
+                CssSelectorPart::Class("y".into()),
+            ]],
+            "no written combinator means descendant"
+        );
+        assert_eq!(
+            Specificity::from(stylesheet.rules[3].selectors[0].complex_at(0)),
+            Specificity::new(1, 0, 1),
+            ":has() counts its most specific argument"
+        );
     }
 
     #[test]
