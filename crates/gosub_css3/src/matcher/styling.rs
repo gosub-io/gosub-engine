@@ -232,10 +232,12 @@ fn match_nth<C: HasDocument>(doc: &C::Document, node: NodeId, nth: &NthSelector)
     let Some(parent) = doc.parent(node) else {
         return false;
     };
-    let tag = doc.tag_name(node);
+    // An element's type is its local name and its namespace (Selectors L4 §5.1).
+    let element_type = |id: NodeId| (doc.tag_name(id), doc.namespace(id));
+    let own_type = element_type(node);
     let counts = |id: NodeId| {
         doc.node_type(id) == NodeType::ElementNode
-            && (!nth.kind.of_type() || doc.tag_name(id) == tag)
+            && (!nth.kind.of_type() || element_type(id) == own_type)
             && nth.of.as_ref().is_none_or(|of| {
                 of.iter()
                     .any(|complex| match_selector_parts::<C>(doc, id, complex, None, ScopeContext::plain()))

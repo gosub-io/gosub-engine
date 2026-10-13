@@ -331,6 +331,34 @@ mod rendertree_from_engine {
         assert_ne!(size("l2").min_height, px(40.0), "first of the .x items");
     }
 
+    /// `-of-type` counts siblings of the same local name and namespace, so an SVG `<a>` ahead of
+    /// an HTML `<a>` does not make the HTML one the second of its type.
+    #[test]
+    fn nth_of_type_compares_namespaces() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_html5::node::SVG_NAMESPACE;
+        use gosub_interface::style::LengthPercentageAuto;
+        use gosub_shared::byte_stream::Location;
+
+        let html = r#"<html><head><style>
+          a:nth-of-type(1) { width: 100px }
+        </style></head><body><div id="d"><a id="html-a">x</a></div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let root = doc.root();
+        let div = find_node_by_id_attr(&doc, root, "d").expect("d");
+        let svg_a = doc.create_element("a", Some(SVG_NAMESPACE), Default::default(), Location::default());
+        doc.attach(svg_a, div, Some(0));
+
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let node = find_node_by_id_attr(&adapter.doc, root, "html-a").expect("html-a");
+        assert_eq!(
+            adapter.computed_style(node).size.width,
+            LengthPercentageAuto::Px(100.0),
+            "the first HTML a, after an SVG a"
+        );
+    }
+
     /// `:is()` and `:where()` match when any argument does, complex arguments included, and
     /// differ only in specificity: `:where(#list) li` loses to a later plain `li`, while
     /// `:is(#list) li` keeps its id and wins.
