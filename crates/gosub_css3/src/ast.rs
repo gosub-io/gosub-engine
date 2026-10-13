@@ -1546,6 +1546,22 @@ mod tests {
         assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
     }
 
+    /// After `An+B` only `of` may follow; another word makes the rule invalid.
+    #[test]
+    fn nth_rejects_a_trailing_word() {
+        let stylesheet = Css3::parse_str(
+            "li:nth-child(2 foo) { color: red } b { color: red }",
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+        assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
+    }
+
     #[test]
     fn is_where_and_matches_keep_their_selector_lists() {
         let stylesheet = Css3::parse_str(

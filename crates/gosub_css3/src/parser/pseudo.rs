@@ -91,15 +91,13 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
 
         let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value.eq_ignore_ascii_case("of"));
-        if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
+        // Any other identifier is left for the caller's `)` check to reject.
+        if is_of {
             self.consume_any()?;
-
-            if is_of {
-                // The space after `of` separates it from the list; left in, it would parse as a
-                // leading descendant combinator.
-                self.consume_whitespace_comments();
-                selector = Some(self.parse_selector_list()?);
-            }
+            // The space after `of` separates it from the list; left in, it would parse as a
+            // leading descendant combinator.
+            self.consume_whitespace_comments();
+            selector = Some(self.parse_selector_list()?);
         }
 
         Ok(Node::new(
