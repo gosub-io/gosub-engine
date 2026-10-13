@@ -1496,7 +1496,7 @@ mod tests {
         let stylesheet = Css3::parse_str(
             "li:nth-child(2n+1) { color: red } li:nth-child(EVEN) { color: red } \
              li:nth-last-child(3) { color: red } p:nth-of-type(-n+3) { color: red } \
-             li:nth-child(odd of .x, #y) { color: red }",
+             li:nth-child(odd of .x, #y) { color: red } li:nth-child(2 OF .x) { color: red }",
             ParserConfig::default(),
             CssOrigin::Author,
             "test.css",
@@ -1518,6 +1518,11 @@ mod tests {
                 vec![CssSelectorPart::Id("y".into())]
             ]),
             "`of S` keeps its list, without the space after `of`"
+        );
+        assert_eq!(
+            nth(5).of,
+            Some(vec![vec![CssSelectorPart::Class("x".into())]]),
+            "`of`, case-insensitively"
         );
 
         let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));

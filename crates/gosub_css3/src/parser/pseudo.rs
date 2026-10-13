@@ -90,7 +90,7 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value == "of");
+        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value.eq_ignore_ascii_case("of"));
         if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
             self.consume_any()?;
 
