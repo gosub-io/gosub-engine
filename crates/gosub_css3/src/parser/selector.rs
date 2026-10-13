@@ -277,7 +277,18 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::PseudoClassSelector { value: Box::new(value) }, loc))
     }
 
+    /// Parses a selector, commas included: `a, b` comes back as one node with a comma in it.
     pub fn parse_selector(&mut self) -> CssResult<Node> {
+        self.parse_selector_until(false)
+    }
+
+    /// Parses one complex selector, stopping before a comma, for lists that take their
+    /// arguments one at a time.
+    pub(crate) fn parse_complex_selector(&mut self) -> CssResult<Node> {
+        self.parse_selector_until(true)
+    }
+
+    fn parse_selector_until(&mut self, stop_at_comma: bool) -> CssResult<Node> {
         log::trace!("parse_selector");
 
         let loc = self.tokenizer.current_location();
@@ -357,6 +368,10 @@ impl Css3<'_> {
                 TokenType::Delim('&') => {
                     self.tokenizer.reconsume(t);
                     self.parse_nesting_selector()?
+                }
+                TokenType::Comma if stop_at_comma => {
+                    self.tokenizer.reconsume(t);
+                    break;
                 }
                 TokenType::Comma => {
                     skip_space = true;

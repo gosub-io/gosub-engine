@@ -77,6 +77,122 @@ fn is_legacy_pseudo_element(name: &str) -> bool {
         || name.eq_ignore_ascii_case("first-letter")
 }
 
+/// Pseudo-classes a stylesheet may name: Selectors L4, the HTML standard and the newer drafts,
+/// plus the prefixed names browsers still take. A name outside this list makes its selector
+/// invalid. Most are not matched yet, but they are valid, so they still count toward
+/// specificity; this list is about validity, not support.
+const KNOWN_PSEUDO_CLASSES: &[&str] = &[
+    "active",
+    "active-view-transition",
+    "any-link",
+    "autofill",
+    "blank",
+    "buffering",
+    "checked",
+    "closed",
+    "current",
+    "default",
+    "defined",
+    "disabled",
+    "empty",
+    "enabled",
+    "first-child",
+    "first-of-type",
+    "focus",
+    "focus-visible",
+    "focus-within",
+    "fullscreen",
+    "future",
+    "has-slotted",
+    "host",
+    "hover",
+    "in-range",
+    "indeterminate",
+    "invalid",
+    "last-child",
+    "last-of-type",
+    "link",
+    "local-link",
+    "modal",
+    "muted",
+    "only-child",
+    "only-of-type",
+    "open",
+    "optional",
+    "out-of-range",
+    "past",
+    "paused",
+    "picture-in-picture",
+    "placeholder-shown",
+    "playing",
+    "popover-open",
+    "read-only",
+    "read-write",
+    "required",
+    "root",
+    "scope",
+    "seeking",
+    "stalled",
+    "target",
+    "target-within",
+    "user-invalid",
+    "user-valid",
+    "valid",
+    "visited",
+    "volume-locked",
+    "-moz-any-link",
+    "-moz-focusring",
+    "-webkit-any-link",
+    "-webkit-autofill",
+];
+
+/// Whether `parts` is a valid argument of a forgiving selector list. An unknown pseudo-class
+/// invalidates it, and so does a pseudo-element, which `:is()` cannot represent (Selectors L4
+/// §4.2). The lists of `:not()`, `:has()` and `of S` are not forgiving, so one invalid member
+/// there invalidates the argument that holds them. Nested `:is()` and `:where()` lists were
+/// filtered when they were converted.
+fn is_valid_forgiving_argument(parts: &[CssSelectorPart]) -> bool {
+    parts.iter().all(|part| match part {
+        // A functional pseudo-class only gets here if the parser knew its name.
+        CssSelectorPart::PseudoClass(name) => {
+            name.contains('(') || KNOWN_PSEUDO_CLASSES.iter().any(|k| k.eq_ignore_ascii_case(name))
+        }
+        CssSelectorPart::PseudoElement(_) | CssSelectorPart::Slotted(_) => false,
+        CssSelectorPart::Not(list) | CssSelectorPart::Has(list) => {
+            list.iter().all(|complex| is_valid_forgiving_argument(complex))
+        }
+        CssSelectorPart::Nth(nth) => nth
+            .of
+            .iter()
+            .flatten()
+            .all(|complex| is_valid_forgiving_argument(complex)),
+        _ => true,
+    })
+}
+
+/// Converts the arguments of `:is()` or `:where()`, leaving out the invalid ones: the list is
+/// forgiving, so they drop alone, and they count toward neither matching nor specificity. Each
+/// member converts on its own, so one that fails here (`:nth-of-type(1 of .x)`) drops alone too.
+fn convert_forgiving_selector_list(arguments: Vec<CssNode>) -> Vec<Vec<CssSelectorPart>> {
+    let mut list = vec![];
+    for argument in arguments {
+        let members = match argument.node_type {
+            NodeType::SelectorList { selectors } => selectors,
+            other => vec![CssNode::new(other, argument.location)],
+        };
+        for member in members {
+            if let Ok(converted) = convert_selector_list(vec![member]) {
+                list.extend(
+                    converted
+                        .into_iter()
+                        .filter(|complex| is_valid_forgiving_argument(complex)),
+                );
+            }
+        }
+    }
+    list
+}
+
 /// Whether the `[`/`]` in `nodes` pair up into line-name lists whose every entry is an
 /// identifier css-grid allows (css-grid-2 §7.2: any `<custom-ident>` except `span` and `auto`;
 /// a `<custom-ident>` itself excludes the CSS-wide keywords and `default`). Function arguments
@@ -167,8 +283,10 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
             }
             _ => continue,
         };
+        // Each selector of the list is a complex selector of its own.
         for selector in selectors {
             if let NodeType::Selector { children } = selector.node_type {
+                out.push(vec![]);
                 convert_selector_children(children, &mut out)?;
             }
         }
@@ -303,9 +421,9 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                     } else if name.eq_ignore_ascii_case("lang") {
                         CssSelectorPart::Lang(convert_lang_ranges(arguments)?)
                     } else if name.eq_ignore_ascii_case("is") || name.eq_ignore_ascii_case("matches") {
-                        CssSelectorPart::Is(convert_selector_list(arguments)?)
+                        CssSelectorPart::Is(convert_forgiving_selector_list(arguments))
                     } else if name.eq_ignore_ascii_case("where") {
-                        CssSelectorPart::Where(convert_selector_list(arguments)?)
+                        CssSelectorPart::Where(convert_forgiving_selector_list(arguments))
                     } else if name.eq_ignore_ascii_case("has") {
                         CssSelectorPart::Has(relative_selectors(convert_selector_list(arguments)?))
                     } else if name.eq_ignore_ascii_case("host") {
@@ -1592,6 +1710,93 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
+    }
+
+    /// `:is()` and `:where()` take a forgiving selector list: an argument that does not parse is
+    /// dropped on its own, and the rule keeps the others.
+    #[test]
+    fn is_where_drop_arguments_that_do_not_parse() {
+        let stylesheet = Css3::parse_str(
+            "a:is(.ok, :bogus(1)) { color: red } a:is(.ok, .a!) { color: red } \
+             a:is(.ok, [x]]) { color: red } a:where(:bogus(1), .x > .y) { color: red } \
+             a:is(.a , .b ) { color: red } a:is(., .ok) { color: red } a:is(.ok, .) { color: red } \
+             a:is(#, .ok) { color: red } a:is(.a:, .ok) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+            Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
+            other => panic!("expected an Is or Where part, got {other:?}"),
+        };
+        let ok = vec![vec![CssSelectorPart::Class("ok".into())]];
+        assert_eq!(list(0), ok, "an unknown functional pseudo-class");
+        assert_eq!(list(1), ok, "a stray delimiter");
+        assert_eq!(list(2), ok, "an unbalanced bracket");
+        assert_eq!(
+            list(3),
+            vec![vec![
+                CssSelectorPart::Class("x".into()),
+                CssSelectorPart::Combinator(Combinator::Child),
+                CssSelectorPart::Class("y".into()),
+            ]],
+            "the argument after a dropped one, without the space after the comma"
+        );
+        assert_eq!(
+            list(4),
+            vec![
+                vec![CssSelectorPart::Class("a".into())],
+                vec![CssSelectorPart::Class("b".into())]
+            ],
+            "space around the comma separates, it does not combine"
+        );
+        for i in 5..9 {
+            assert_eq!(
+                list(i),
+                ok,
+                "a failed argument that took the `,` or `)` after it, rule {i}"
+            );
+        }
+    }
+
+    /// An argument that parses but is invalid - an unknown pseudo-class or a pseudo-element, also
+    /// inside `:not()` or `of S` - drops alone and counts toward nothing. A valid pseudo-class
+    /// this engine does not match yet still counts.
+    #[test]
+    fn is_where_drop_invalid_arguments() {
+        let stylesheet = Css3::parse_str(
+            "a:is(.ok, #fake:unsupported) { color: red } a:is(.ok, ::before) { color: red } \
+             a:is(.ok, :after) { color: red } a:is(.ok, :not(#x:bogus)) { color: red } \
+             a:is(.ok, :nth-child(2 of #x:bogus)) { color: red } a:where(:bogus) { color: red } \
+             a:is(.ok, #x:required) { color: red } a:is(.ok, :nth-of-type(1 of .x)) { color: red } \
+             a:where(:nth-of-type(1 of .x), .ok) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+            Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
+            other => panic!("expected an Is or Where part, got {other:?}"),
+        };
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        let ok = vec![vec![CssSelectorPart::Class("ok".into())]];
+
+        assert_eq!(list(0), ok, "an unknown pseudo-class");
+        assert_eq!(spec(0), Specificity::new(0, 1, 1), "and its id does not count");
+        assert_eq!(list(1), ok, "a pseudo-element");
+        assert_eq!(list(2), ok, "a legacy single-colon pseudo-element");
+        assert_eq!(list(3), ok, "an unknown pseudo-class inside :not()");
+        assert_eq!(list(4), ok, "an unknown pseudo-class inside of S");
+        assert_eq!(list(5), Vec::<Vec<CssSelectorPart>>::new(), "nothing left");
+        assert_eq!(spec(5), Specificity::new(0, 0, 1), "which counts as nothing");
+        assert_eq!(list(6).len(), 2, "a valid pseudo-class, matched or not, stays");
+        assert_eq!(spec(6), Specificity::new(1, 1, 1), "and counts");
+        assert_eq!(list(7), ok, "a member that fails to convert");
+        assert_eq!(list(8), ok, "in either position");
     }
 
     #[test]

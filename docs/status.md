@@ -102,9 +102,9 @@ process totals.
 **Not yet.** `:dir()`, `:host-context()` and the legacy `:-webkit-any()`/`:-moz-any()` parse but
 are stored as their text and fall to the matcher's catch-all
 (`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()`,
-`:where()`, `:has()`, `:lang()` and `:host()` are matched. The
-selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
-drops the rule.
+`:where()`, `:has()`, `:lang()` and `:host()` are matched, and the lists of `:is()` and
+`:where()` are forgiving. Outside them, an unknown pseudo-class without an argument keeps its
+rule, which never matches, where the spec drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
 the one selector form the AST converter has no arm for, so a nested rule is dropped. An

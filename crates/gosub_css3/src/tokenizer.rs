@@ -255,6 +255,9 @@ pub struct Tokenizer<'stream> {
     pending: VecDeque<Token>,
     /// Whether a leading UTF-8 BOM has been checked for (and stripped) yet.
     bom_checked: bool,
+    /// Tokens consumed so far, net of the ones handed back, so a parser can tell how far an
+    /// attempt got.
+    consumed: usize,
 }
 
 impl<'stream> Tokenizer<'stream> {
@@ -266,6 +269,7 @@ impl<'stream> Tokenizer<'stream> {
             stream,
             pending: VecDeque::new(),
             bom_checked: false,
+            consumed: 0,
         }
     }
 
@@ -313,12 +317,19 @@ impl<'stream> Tokenizer<'stream> {
 
         log::trace!("{token:?}");
 
+        self.consumed += 1;
         token
     }
 
     /// Pushes the token back so the next `consume()` returns it again
     pub fn reconsume(&mut self, token: Token) {
+        self.consumed = self.consumed.saturating_sub(1);
         self.pending.push_front(token);
+    }
+
+    /// Tokens consumed so far, net of the ones handed back with `reconsume`.
+    pub(crate) fn consumed(&self) -> usize {
+        self.consumed
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)

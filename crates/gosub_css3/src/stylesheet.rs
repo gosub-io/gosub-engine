@@ -1117,10 +1117,6 @@ impl From<&[CssSelectorPart]> for Specificity {
                     class_count += 1;
                 }
                 // Every pseudo-class kept by name counts as a class.
-                //
-                // Known gap: `:has()` should take the specificity of its most specific argument,
-                // but it is still stored as serialized text, so it counts as one class - the
-                // pre-Selectors-4 behaviour, which errs low rather than high.
                 CssSelectorPart::PseudoClass(_) | CssSelectorPart::Lang(_) => {
                     class_count += 1;
                 }

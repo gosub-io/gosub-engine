@@ -359,6 +359,25 @@ mod rendertree_from_engine {
         );
     }
 
+    /// An invalid argument of `:is()` drops out of its specificity: `li:is(.x, #fake:nope)` is
+    /// (0,1,1), so the earlier `#list li` (1,0,1) wins.
+    #[test]
+    fn is_ignores_invalid_arguments_in_the_cascade() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          #list li { width: 200px }
+          li:is(.x, #fake:nope) { width: 100px }
+        </style></head><body><ul id="list"><li id="item" class="x">1</li></ul></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "item").expect("item");
+        assert_eq!(adapter.computed_style(node).size.width, LengthPercentageAuto::Px(200.0));
+    }
+
     /// `:is()` and `:where()` match when any argument does, complex arguments included, and
     /// differ only in specificity: `:where(#list) li` loses to a later plain `li`, while
     /// `:is(#list) li` keeps its id and wins.
