@@ -1013,15 +1013,18 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         })
     });
 
-    read!(map, style, Visibility, inherited_mut, visibility, |value| {
-        keyword(value).map(|keyword| match keyword {
-            VisibilityKeyword::Visible => Visibility::Visible,
-            // `force-hidden` (css-display-4) hides the way `hidden` does; it differs only in
-            // what assistive technology is told.
-            VisibilityKeyword::Hidden | VisibilityKeyword::ForceHidden => Visibility::Hidden,
-            VisibilityKeyword::Collapse => Visibility::Collapse,
-        })
-    });
+    // Inside a `force-hidden` box nothing a descendant declares makes it visible again, so the
+    // inherited value stands.
+    if style.inherited.visibility != Visibility::ForceHidden {
+        read!(map, style, Visibility, inherited_mut, visibility, |value| {
+            keyword(value).map(|keyword| match keyword {
+                VisibilityKeyword::Visible => Visibility::Visible,
+                VisibilityKeyword::Hidden => Visibility::Hidden,
+                VisibilityKeyword::ForceHidden => Visibility::ForceHidden,
+                VisibilityKeyword::Collapse => Visibility::Collapse,
+            })
+        });
+    }
 
     resolve_border_spacing(map, style, font_size);
 }

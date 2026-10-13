@@ -376,7 +376,8 @@ mod rendertree_from_engine {
     }
 
     /// `visibility: hidden` paints nothing of the box or what inherits it, keeps the box's place
-    /// in layout, and lets a descendant that says `visible` paint.
+    /// in layout, and lets a descendant that says `visible` paint. `force-hidden` lets nothing
+    /// inside it paint.
     #[test]
     fn hidden_boxes_keep_their_place_and_paint_nothing() {
         use crate::common::browser_state::{BrowserState, WireframeState};
@@ -391,6 +392,9 @@ mod rendertree_from_engine {
           <p>shown</p>
           <div style="visibility: hidden; background: red; height: 50px">gone
             <span style="visibility: visible">back</span>
+          </div>
+          <div style="visibility: force-hidden">forced
+            <span style="visibility: visible">still forced</span>
           </div>
           <p id="after">after</p>
         </body></html>"#;
@@ -455,6 +459,10 @@ mod rendertree_from_engine {
         assert!(
             !texts.contains(&"gone"),
             "text in a hidden box does not paint: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&"forced") && !texts.contains(&"still forced"),
+            "nothing inside a force-hidden box paints, whatever it declares: {texts:?}"
         );
         let red = commands.iter().any(|command| {
             matches!(command, PaintCommand::Rectangle(rect) if format!("{rect:?}").contains("r: 1.0, g: 0.0, b: 0.0"))

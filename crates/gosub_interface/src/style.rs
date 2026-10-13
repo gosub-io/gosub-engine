@@ -308,6 +308,9 @@ pub enum CaptionSide {
 pub enum Visibility {
     Visible,
     Hidden,
+    /// Hides the box and everything inside it: a descendant's `visible` does not bring it back
+    /// (css-display-4 §5).
+    ForceHidden,
     /// Hides like `hidden`. On table rows and columns it should also drop the track from layout;
     /// tables here do not do that yet.
     Collapse,

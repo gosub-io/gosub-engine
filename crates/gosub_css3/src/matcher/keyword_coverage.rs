@@ -221,9 +221,6 @@ const ALIASES: &[(&str, &str, Gap)] = &[
     ("clear", "both-inline", Gap::Merged),
     // `justify-all` justifies the last line as well; the line boxes know one justification.
     ("text-align", "justify-all", Gap::Merged),
-    // `force-hidden` renders as `hidden`; it also hides the element from the accessibility tree
-    // (css-display-4 §4.1), which nothing here builds.
-    ("visibility", "force-hidden", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar
