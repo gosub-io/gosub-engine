@@ -79,6 +79,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("border-collapse", Prop::BorderCollapse, |s| {
         format!("{:?}", s.inherited.border_collapse)
     }),
+    ("visibility", Prop::Visibility, |s| {
+        format!("{:?}", s.inherited.visibility)
+    }),
     ("border-top-style", Prop::BorderTopStyle, |s| {
         format!("{:?}", s.border.top_style)
     }),
@@ -218,6 +221,9 @@ const ALIASES: &[(&str, &str, Gap)] = &[
     ("clear", "both-inline", Gap::Merged),
     // `justify-all` justifies the last line as well; the line boxes know one justification.
     ("text-align", "justify-all", Gap::Merged),
+    // `force-hidden` renders as `hidden`; it also hides the element from the accessibility tree
+    // (css-display-4 §4.1), which nothing here builds.
+    ("visibility", "force-hidden", Gap::Merged),
 ];
 
 /// The single keywords `name`'s grammar accepts, whether written in the property's own grammar

@@ -302,6 +302,24 @@ pub enum CaptionSide {
     Bottom,
 }
 
+/// `visibility`: whether the box paints. A hidden box still takes its place in layout, and a
+/// descendant that says `visible` paints inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visibility {
+    Visible,
+    Hidden,
+    /// Hides like `hidden`. On table rows and columns it should also drop the track from layout;
+    /// tables here do not do that yet.
+    Collapse,
+}
+
+impl Visibility {
+    #[must_use]
+    pub fn is_visible(self) -> bool {
+        matches!(self, Visibility::Visible)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BorderCollapse {
     Separate,
@@ -466,6 +484,7 @@ declare_props! {
     BorderSpacingX,
     BorderSpacingY,
     BorderCollapse,
+    Visibility,
 
     Display,
     Position,
@@ -628,6 +647,7 @@ pub struct InheritedGroup {
     /// Vertical component of `border-spacing`, in px.
     pub border_spacing_y: f32,
     pub border_collapse: BorderCollapse,
+    pub visibility: Visibility,
     /// Whether this element or any ancestor declared a `font-size` at all.
     ///
     /// Only the monospace default-size quirk reads it: the 13px default applies when nothing
@@ -1004,6 +1024,7 @@ impl ComputedStyle {
                 border_spacing_x: 0.0,
                 border_spacing_y: 0.0,
                 border_collapse: BorderCollapse::Separate,
+                visibility: Visibility::Visible,
                 font_size_declared_in_chain: false,
             }),
             box_group: Arc::new(BoxGroup {

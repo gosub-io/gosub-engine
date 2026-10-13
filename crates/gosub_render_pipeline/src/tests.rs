@@ -375,6 +375,93 @@ mod rendertree_from_engine {
         assert_ne!(size("no-chain").width, px(200.0), "a .b without the .a");
     }
 
+    /// `visibility: hidden` paints nothing of the box or what inherits it, keeps the box's place
+    /// in layout, and lets a descendant that says `visible` paint.
+    #[test]
+    fn hidden_boxes_keep_their_place_and_paint_nothing() {
+        use crate::common::browser_state::{BrowserState, WireframeState};
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::painter::commands::PaintCommand;
+        use crate::painter::Painter;
+
+        let html = r#"<html><body>
+          <p>shown</p>
+          <div style="visibility: hidden; background: red; height: 50px">gone
+            <span style="visibility: visible">back</span>
+          </div>
+          <p id="after">after</p>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let hidden_div = layout_tree
+            .arena
+            .values()
+            .find(|el| layout_tree.render_tree.doc.tag_name(el.dom_node_id).as_deref() == Some("div"))
+            .expect("the hidden div is laid out");
+        let div_box = hidden_div.box_model.border_box;
+        let div_node = hidden_div.dom_node_id;
+        assert!(div_box.height >= 50.0, "it keeps its height");
+        let ids: Vec<_> = layout_tree.arena.values().map(|el| el.id).collect();
+
+        let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
+        // Low in the box and at its far right: below the text, clear of the visible span.
+        let hit = layer_list
+            .find_element_at(
+                div_box.x + div_box.width - 2.0,
+                div_box.y + div_box.height - 2.0,
+                0.0,
+                0.0,
+            )
+            .and_then(|id| layer_list.layout_tree.get_node_by_id(id))
+            .map(|el| el.dom_node_id);
+        assert!(hit.is_some(), "the point falls through to the body");
+        assert_ne!(hit, Some(div_node), "a hidden box is not a hit target");
+
+        let painter = Painter::new(layer_list, None);
+        let state = BrowserState {
+            visible_layer_list: vec![true; 8],
+            wireframed: WireframeState::None,
+            debug_hover: false,
+            current_hovered_element: None,
+            show_tilegrid: false,
+            debug_table_cells: false,
+            viewport: Rect::new(0.0, 0.0, 800.0, 600.0),
+            tile_list: None,
+            dpi_scale_factor: 1.0,
+        };
+        let commands: Vec<_> = ids
+            .into_iter()
+            .flat_map(|id| painter.paint_element(id, &state))
+            .collect();
+        let texts: Vec<&str> = commands
+            .iter()
+            .filter_map(|command| match command {
+                PaintCommand::Text(text) => Some(text.text.trim()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"shown") && texts.contains(&"after"), "{texts:?}");
+        assert!(
+            texts.contains(&"back"),
+            "a visible child of a hidden box paints: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&"gone"),
+            "text in a hidden box does not paint: {texts:?}"
+        );
+        let red = commands.iter().any(|command| {
+            matches!(command, PaintCommand::Rectangle(rect) if format!("{rect:?}").contains("r: 1.0, g: 0.0, b: 0.0"))
+        });
+        assert!(!red, "a hidden box paints no background");
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
