@@ -2227,6 +2227,78 @@ mod rendertree_from_engine {
         near(below2.y - r2.y, 410.0, "the row keeps the height of its taller column");
     }
 
+    /// `order` moves flex and grid items: lowest value first, document order between equal
+    /// values, negative values allowed. Grid auto-placement fills cells in the same order. The
+    /// container's children come out sorted too, which is the order they paint in.
+    #[test]
+    fn order_rearranges_flex_and_grid_items() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                #flex { display: flex; }
+                #flex > div { width: 10px; height: 10px; }
+                #grid { display: grid; grid-template-columns: 10px 10px 10px; }
+                #grid > div { height: 10px; }
+            </style></head>
+            <body>
+                <div id="flex">
+                    <div id="f1" style="order: 2"></div>
+                    <div id="f2"></div>
+                    <div id="f3" style="order: -1"></div>
+                    <div id="f4" style="order: 2"></div>
+                    <div id="f5"></div>
+                </div>
+                <div id="grid">
+                    <div id="g1" style="order: 1"></div>
+                    <div id="g2"></div>
+                    <div id="g3"></div>
+                </div>
+            </body></html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = ["flex", "f1", "f2", "f3", "f4", "f5", "g1", "g2", "g3"]
+            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let element = |dom| {
+            layout_tree
+                .arena
+                .values()
+                .find(|el| el.dom_node_id == dom)
+                .expect("element in the layout tree")
+        };
+        let x = |dom| element(dom).box_model.border_box.x;
+        let [flex, f1, f2, f3, f4, f5, g1, g2, g3] = ids;
+
+        // -1, then the 0s, then the 2s, each run in document order.
+        let flex_order = [f3, f2, f5, f1, f4];
+        for (slot, dom) in flex_order.iter().enumerate() {
+            assert_eq!(x(*dom), 10.0 * slot as f64, "flex item {slot}");
+        }
+        for (slot, dom) in [g2, g3, g1].iter().enumerate() {
+            assert_eq!(x(*dom), 10.0 * slot as f64, "grid item {slot}");
+        }
+
+        let painted: Vec<_> = element(flex)
+            .children
+            .iter()
+            .map(|child| layout_tree.arena[child].dom_node_id)
+            .filter(|dom| flex_order.contains(dom))
+            .collect();
+        assert_eq!(painted, flex_order, "the container paints its items in order");
+    }
+
     /// A table holding a nested table changes height in both table passes: once when it is laid
     /// out parents-first, and again when the second pass re-lays it after the nested table has
     /// grown. The block after it has to take both shifts and still start at its bottom.
