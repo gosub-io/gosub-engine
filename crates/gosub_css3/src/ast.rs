@@ -13,6 +13,7 @@ use crate::tokenizer::NumberKind;
 use crate::value_pool::ValuePool;
 use gosub_interface::css3::{CssDropped, CssDroppedKind, CssOrigin};
 use gosub_shared::errors::{CssError, CssResult};
+use std::num::IntErrorKind;
 use std::sync::Arc;
 
 /*
@@ -184,16 +185,21 @@ fn convert_nth(kind: NthKind, arguments: Vec<CssNode>) -> CssResult<NthSelector>
         return Err(CssError::new(&format!(":{}() without an argument", kind.name())));
     };
 
-    let integer = |text: &str| {
-        text.parse::<i32>()
-            .map_err(|_| CssError::new(&format!("An+B coefficient {text:?} is not an integer")))
+    // An integer outside the supported range is clamped, not invalid (css-values-4 §5.2). No
+    // sibling index comes near i32::MAX, so a clamped coefficient matches what the exact one would.
+    let integer = |text: &str| match text.parse::<i32>() {
+        Ok(value) => Ok(value),
+        Err(e) if *e.kind() == IntErrorKind::PosOverflow => Ok(i32::MAX),
+        Err(e) if *e.kind() == IntErrorKind::NegOverflow => Ok(i32::MIN),
+        Err(_) => Err(CssError::new(&format!("An+B coefficient {text:?} is not an integer"))),
     };
     let (a, b) = match nth.node_type {
         NodeType::AnPlusB { a, b } => (integer(&a)?, integer(&b)?),
+        // `as` saturates, which is the clamp.
         NodeType::Number {
             value,
             kind: NumberKind::Integer,
-        } if value.abs() <= f64::from(i32::MAX) => (0, value as i32),
+        } => (0, value as i32),
         _ => return Err(CssError::new(&format!("invalid argument to :{}()", kind.name()))),
     };
 
@@ -1497,7 +1503,8 @@ mod tests {
             "li:nth-child(2n+1) { color: red } li:nth-child(EVEN) { color: red } \
              li:nth-last-child(3) { color: red } p:nth-of-type(-n+3) { color: red } \
              li:nth-child(odd of .x, #y) { color: red } li:nth-child(2 OF .x) { color: red } \
-             li:nth-child(-n of .x) { color: red } li:nth-child(2n of .x) { color: red }",
+             li:nth-child(-n of .x) { color: red } li:nth-child(2n of .x) { color: red } \
+             li:nth-child(2147483648n+1) { color: red } li:nth-child(-99999999999) { color: red }",
             ParserConfig::default(),
             CssOrigin::Author,
             "test.css",
@@ -1531,6 +1538,8 @@ mod tests {
             "`of` straight after the n, with no B"
         );
         assert_eq!((nth(7).a, nth(7).b, nth(7).of.is_some()), (2, 0, true));
+        assert_eq!((nth(8).a, nth(8).b), (i32::MAX, 1), "a coefficient past i32 clamps");
+        assert_eq!((nth(9).a, nth(9).b), (0, i32::MIN), "and so does a bare integer");
 
         let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
         assert_eq!(spec(0), Specificity::new(0, 1, 1), "a pseudo-class");
