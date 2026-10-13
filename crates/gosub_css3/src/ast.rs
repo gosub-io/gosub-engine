@@ -171,11 +171,26 @@ fn is_valid_forgiving_argument(parts: &[CssSelectorPart]) -> bool {
 }
 
 /// Converts the arguments of `:is()` or `:where()`, leaving out the invalid ones: the list is
-/// forgiving, so they drop alone, and they count toward neither matching nor specificity.
-fn convert_forgiving_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelectorPart>>> {
-    let mut list = convert_selector_list(arguments)?;
-    list.retain(|complex| is_valid_forgiving_argument(complex));
-    Ok(list)
+/// forgiving, so they drop alone, and they count toward neither matching nor specificity. Each
+/// member converts on its own, so one that fails here (`:nth-of-type(1 of .x)`) drops alone too.
+fn convert_forgiving_selector_list(arguments: Vec<CssNode>) -> Vec<Vec<CssSelectorPart>> {
+    let mut list = vec![];
+    for argument in arguments {
+        let members = match argument.node_type {
+            NodeType::SelectorList { selectors } => selectors,
+            other => vec![CssNode::new(other, argument.location)],
+        };
+        for member in members {
+            if let Ok(converted) = convert_selector_list(vec![member]) {
+                list.extend(
+                    converted
+                        .into_iter()
+                        .filter(|complex| is_valid_forgiving_argument(complex)),
+                );
+            }
+        }
+    }
+    list
 }
 
 /// Whether the `[`/`]` in `nodes` pair up into line-name lists whose every entry is an
@@ -406,9 +421,9 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                     } else if name.eq_ignore_ascii_case("lang") {
                         CssSelectorPart::Lang(convert_lang_ranges(arguments)?)
                     } else if name.eq_ignore_ascii_case("is") || name.eq_ignore_ascii_case("matches") {
-                        CssSelectorPart::Is(convert_forgiving_selector_list(arguments)?)
+                        CssSelectorPart::Is(convert_forgiving_selector_list(arguments))
                     } else if name.eq_ignore_ascii_case("where") {
-                        CssSelectorPart::Where(convert_forgiving_selector_list(arguments)?)
+                        CssSelectorPart::Where(convert_forgiving_selector_list(arguments))
                     } else if name.eq_ignore_ascii_case("has") {
                         CssSelectorPart::Has(relative_selectors(convert_selector_list(arguments)?))
                     } else if name.eq_ignore_ascii_case("host") {
@@ -1755,7 +1770,8 @@ mod tests {
             "a:is(.ok, #fake:unsupported) { color: red } a:is(.ok, ::before) { color: red } \
              a:is(.ok, :after) { color: red } a:is(.ok, :not(#x:bogus)) { color: red } \
              a:is(.ok, :nth-child(2 of #x:bogus)) { color: red } a:where(:bogus) { color: red } \
-             a:is(.ok, #x:required) { color: red }",
+             a:is(.ok, #x:required) { color: red } a:is(.ok, :nth-of-type(1 of .x)) { color: red } \
+             a:where(:nth-of-type(1 of .x), .ok) { color: red }",
             ParserConfig::default(),
             CssOrigin::Author,
             "test.css",
@@ -1779,6 +1795,8 @@ mod tests {
         assert_eq!(spec(5), Specificity::new(0, 0, 1), "which counts as nothing");
         assert_eq!(list(6).len(), 2, "a valid pseudo-class, matched or not, stays");
         assert_eq!(spec(6), Specificity::new(1, 1, 1), "and counts");
+        assert_eq!(list(7), ok, "a member that fails to convert");
+        assert_eq!(list(8), ok, "in either position");
     }
 
     #[test]
