@@ -460,6 +460,7 @@ mod rendertree_from_engine {
         use crate::layering::layer::LayerList;
         use crate::layouter::taffy::TaffyLayouter;
         use crate::layouter::CanLayout;
+        use crate::painter::commands::brush::Brush;
         use crate::painter::commands::PaintCommand;
         use crate::painter::Painter;
 
@@ -543,7 +544,10 @@ mod rendertree_from_engine {
             "nothing inside a force-hidden box paints, whatever it declares: {texts:?}"
         );
         let red = commands.iter().any(|command| {
-            matches!(command, PaintCommand::Rectangle(rect) if format!("{rect:?}").contains("r: 1.0, g: 0.0, b: 0.0"))
+            matches!(command, PaintCommand::Rectangle(rect) if matches!(
+                rect.background(),
+                Some(Brush::Solid(color)) if (color.r(), color.g(), color.b(), color.a()) == (1.0, 0.0, 0.0, 1.0)
+            ))
         });
         assert!(!red, "a hidden box paints no background");
     }
