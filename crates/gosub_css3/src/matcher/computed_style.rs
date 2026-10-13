@@ -64,6 +64,26 @@ fn value_or_inherited(map: &CssProperties, id: PropertyId) -> Option<&CssValue> 
     value(map, id).or_else(|| map.inherited_value(id))
 }
 
+/// The value of one physical side, settled together with the logical longhand that names the
+/// same side.
+///
+/// css-logical-1 §4: `margin-left` and `margin-inline-start` are two spellings of one box side,
+/// so the stronger of the two declarations wins wherever it was written - `.mx-auto
+/// { margin-inline: auto }` and a later `.ml-4 { margin-left: 1rem }` end with the 1rem. The
+/// pairing is fixed in the horizontal-tb, ltr writing mode this engine assumes.
+fn side_value(map: &CssProperties, physical: LonghandId, logical: LonghandId) -> Option<&CssValue> {
+    let strongest = |id| {
+        map.get_id(longhand(id))
+            .and_then(|property| property.declared.iter().max())
+    };
+    let (first, second) = match (strongest(physical), strongest(logical)) {
+        (Some(physical_wins), Some(logical_wins)) if logical_wins > physical_wins => (logical, physical),
+        (None, Some(_)) => (logical, physical),
+        _ => (physical, logical),
+    };
+    value(map, longhand(first)).or_else(|| value(map, longhand(second)))
+}
+
 // ── Value readers, one per shape the cascade produces ────────────────────────
 
 fn as_string(value: &CssValue) -> Option<&str> {
@@ -563,6 +583,15 @@ macro_rules! read {
             }
         }
     }};
+    // A physical side and the logical longhand for the same side; see [`side_value`].
+    ($map:expr, $style:expr, $id:ident | $logical:ident, $group:ident, $field:ident, $read:expr) => {{
+        if let Some(read_value) = side_value($map, LonghandId::$id, LonghandId::$logical).and_then($read) {
+            $style.$group().$field = read_value;
+            if let Some(prop) = prop_of(LonghandId::$id) {
+                $style.declared.set(prop);
+            }
+        }
+    }};
 }
 
 // ── Which field group each property belongs to ───────────────────────────────
@@ -636,11 +665,19 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::MarginRight, Prop::MarginRight, G_MARGIN),
     (LonghandId::MarginBottom, Prop::MarginBottom, G_MARGIN),
     (LonghandId::MarginLeft, Prop::MarginLeft, G_MARGIN),
+    (LonghandId::MarginBlockStart, Prop::MarginTop, G_MARGIN),
+    (LonghandId::MarginInlineEnd, Prop::MarginRight, G_MARGIN),
+    (LonghandId::MarginBlockEnd, Prop::MarginBottom, G_MARGIN),
+    (LonghandId::MarginInlineStart, Prop::MarginLeft, G_MARGIN),
     // padding
     (LonghandId::PaddingTop, Prop::PaddingTop, G_PADDING),
     (LonghandId::PaddingRight, Prop::PaddingRight, G_PADDING),
     (LonghandId::PaddingBottom, Prop::PaddingBottom, G_PADDING),
     (LonghandId::PaddingLeft, Prop::PaddingLeft, G_PADDING),
+    (LonghandId::PaddingBlockStart, Prop::PaddingTop, G_PADDING),
+    (LonghandId::PaddingInlineEnd, Prop::PaddingRight, G_PADDING),
+    (LonghandId::PaddingBlockEnd, Prop::PaddingBottom, G_PADDING),
+    (LonghandId::PaddingInlineStart, Prop::PaddingLeft, G_PADDING),
     // border
     (LonghandId::BorderTopStyle, Prop::BorderTopStyle, G_BORDER),
     (LonghandId::BorderRightStyle, Prop::BorderRightStyle, G_BORDER),
@@ -666,6 +703,22 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
         Prop::BorderBottomRightRadius,
         G_BORDER,
     ),
+    (LonghandId::BorderBlockStartStyle, Prop::BorderTopStyle, G_BORDER),
+    (LonghandId::BorderInlineEndStyle, Prop::BorderRightStyle, G_BORDER),
+    (LonghandId::BorderBlockEndStyle, Prop::BorderBottomStyle, G_BORDER),
+    (LonghandId::BorderInlineStartStyle, Prop::BorderLeftStyle, G_BORDER),
+    (LonghandId::BorderBlockStartWidth, Prop::BorderTopWidth, G_BORDER),
+    (LonghandId::BorderInlineEndWidth, Prop::BorderRightWidth, G_BORDER),
+    (LonghandId::BorderBlockEndWidth, Prop::BorderBottomWidth, G_BORDER),
+    (LonghandId::BorderInlineStartWidth, Prop::BorderLeftWidth, G_BORDER),
+    (LonghandId::BorderBlockStartColor, Prop::BorderTopColor, G_BORDER),
+    (LonghandId::BorderInlineEndColor, Prop::BorderRightColor, G_BORDER),
+    (LonghandId::BorderBlockEndColor, Prop::BorderBottomColor, G_BORDER),
+    (LonghandId::BorderInlineStartColor, Prop::BorderLeftColor, G_BORDER),
+    (LonghandId::BorderStartStartRadius, Prop::BorderTopLeftRadius, G_BORDER),
+    (LonghandId::BorderStartEndRadius, Prop::BorderTopRightRadius, G_BORDER),
+    (LonghandId::BorderEndStartRadius, Prop::BorderBottomLeftRadius, G_BORDER),
+    (LonghandId::BorderEndEndRadius, Prop::BorderBottomRightRadius, G_BORDER),
     // outline
     (LonghandId::OutlineStyle, Prop::OutlineStyle, G_OUTLINE),
     (LonghandId::OutlineWidth, Prop::OutlineWidth, G_OUTLINE),
@@ -1208,54 +1261,96 @@ fn resolve_sizes(map: &CssProperties, style: &mut ComputedStyle, font_size: f32)
 fn resolve_margin(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lpa = |value: &CssValue| Some(length_percentage_auto(value, font_size));
 
-    read!(map, style, MarginTop, margin_mut, top, lpa);
-    read!(map, style, MarginRight, margin_mut, right, lpa);
-    read!(map, style, MarginBottom, margin_mut, bottom, lpa);
-    read!(map, style, MarginLeft, margin_mut, left, lpa);
+    read!(map, style, MarginTop | MarginBlockStart, margin_mut, top, lpa);
+    read!(map, style, MarginRight | MarginInlineEnd, margin_mut, right, lpa);
+    read!(map, style, MarginBottom | MarginBlockEnd, margin_mut, bottom, lpa);
+    read!(map, style, MarginLeft | MarginInlineStart, margin_mut, left, lpa);
 }
 
 fn resolve_padding(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let lp = |value: &CssValue| length_percentage(value, font_size);
 
-    read!(map, style, PaddingTop, padding_mut, top, lp);
-    read!(map, style, PaddingRight, padding_mut, right, lp);
-    read!(map, style, PaddingBottom, padding_mut, bottom, lp);
-    read!(map, style, PaddingLeft, padding_mut, left, lp);
+    read!(map, style, PaddingTop | PaddingBlockStart, padding_mut, top, lp);
+    read!(map, style, PaddingRight | PaddingInlineEnd, padding_mut, right, lp);
+    read!(map, style, PaddingBottom | PaddingBlockEnd, padding_mut, bottom, lp);
+    read!(map, style, PaddingLeft | PaddingInlineStart, padding_mut, left, lp);
 }
 
 fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let bstyle = |value: &CssValue| keyword(value).map(border_style_of);
-    read!(map, style, BorderTopStyle, border_mut, top_style, bstyle);
-    read!(map, style, BorderRightStyle, border_mut, right_style, bstyle);
-    read!(map, style, BorderBottomStyle, border_mut, bottom_style, bstyle);
-    read!(map, style, BorderLeftStyle, border_mut, left_style, bstyle);
+    read!(
+        map,
+        style,
+        BorderTopStyle | BorderBlockStartStyle,
+        border_mut,
+        top_style,
+        bstyle
+    );
+    read!(
+        map,
+        style,
+        BorderRightStyle | BorderInlineEndStyle,
+        border_mut,
+        right_style,
+        bstyle
+    );
+    read!(
+        map,
+        style,
+        BorderBottomStyle | BorderBlockEndStyle,
+        border_mut,
+        bottom_style,
+        bstyle
+    );
+    read!(
+        map,
+        style,
+        BorderLeftStyle | BorderInlineStartStyle,
+        border_mut,
+        left_style,
+        bstyle
+    );
 
     // The declared width, before the style has its say. `medium` is the initial value, and it
     // is what an element with a style but no width of its own gets.
-    let width_of = |id: LonghandId| {
-        value(map, longhand(id))
-            .and_then(|value| length_px(value, font_size))
-            .unwrap_or(MEDIUM_BORDER_WIDTH)
-    };
-    let sides = [
-        (LonghandId::BorderTopWidth, Prop::BorderTopWidth),
-        (LonghandId::BorderRightWidth, Prop::BorderRightWidth),
-        (LonghandId::BorderBottomWidth, Prop::BorderBottomWidth),
-        (LonghandId::BorderLeftWidth, Prop::BorderLeftWidth),
-    ];
-    for (id, prop) in sides {
-        if value(map, longhand(id)).is_some() {
+    let [top, right, bottom, left] = [
+        (
+            LonghandId::BorderTopWidth,
+            LonghandId::BorderBlockStartWidth,
+            Prop::BorderTopWidth,
+        ),
+        (
+            LonghandId::BorderRightWidth,
+            LonghandId::BorderInlineEndWidth,
+            Prop::BorderRightWidth,
+        ),
+        (
+            LonghandId::BorderBottomWidth,
+            LonghandId::BorderBlockEndWidth,
+            Prop::BorderBottomWidth,
+        ),
+        (
+            LonghandId::BorderLeftWidth,
+            LonghandId::BorderInlineStartWidth,
+            Prop::BorderLeftWidth,
+        ),
+    ]
+    .map(|(physical, logical, prop)| {
+        let declared = side_value(map, physical, logical);
+        if declared.is_some() {
             style.declared.set(prop);
         }
-    }
+        declared
+            .and_then(|value| length_px(value, font_size))
+            .unwrap_or(MEDIUM_BORDER_WIDTH)
+    });
     // A border whose style is `none` or `hidden` is zero wide whatever was declared
     // (css-backgrounds-3 §4.3), so layout and paint cannot disagree about the box.
-    let width_or_zero = |visible: bool, id: LonghandId| if visible { width_of(id) } else { 0.0 };
-    style.border_mut().top_width = width_or_zero(style.border.top_style.is_visible(), LonghandId::BorderTopWidth);
-    style.border_mut().right_width = width_or_zero(style.border.right_style.is_visible(), LonghandId::BorderRightWidth);
-    style.border_mut().bottom_width =
-        width_or_zero(style.border.bottom_style.is_visible(), LonghandId::BorderBottomWidth);
-    style.border_mut().left_width = width_or_zero(style.border.left_style.is_visible(), LonghandId::BorderLeftWidth);
+    let width_or_zero = |visible: bool, width: f32| if visible { width } else { 0.0 };
+    style.border_mut().top_width = width_or_zero(style.border.top_style.is_visible(), top);
+    style.border_mut().right_width = width_or_zero(style.border.right_style.is_visible(), right);
+    style.border_mut().bottom_width = width_or_zero(style.border.bottom_style.is_visible(), bottom);
+    style.border_mut().left_width = width_or_zero(style.border.left_style.is_visible(), left);
 
     // `currentColor` is the initial value of every border colour, so an undeclared one renders
     // in the element's own text colour: `td { border: solid; color: blue }` draws blue borders.
@@ -1265,16 +1360,72 @@ fn resolve_borders(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     style.border_mut().bottom_color = current;
     style.border_mut().left_color = current;
     let border_color = move |value: &CssValue| used_color(value, current);
-    read!(map, style, BorderTopColor, border_mut, top_color, border_color);
-    read!(map, style, BorderRightColor, border_mut, right_color, border_color);
-    read!(map, style, BorderBottomColor, border_mut, bottom_color, border_color);
-    read!(map, style, BorderLeftColor, border_mut, left_color, border_color);
+    read!(
+        map,
+        style,
+        BorderTopColor | BorderBlockStartColor,
+        border_mut,
+        top_color,
+        border_color
+    );
+    read!(
+        map,
+        style,
+        BorderRightColor | BorderInlineEndColor,
+        border_mut,
+        right_color,
+        border_color
+    );
+    read!(
+        map,
+        style,
+        BorderBottomColor | BorderBlockEndColor,
+        border_mut,
+        bottom_color,
+        border_color
+    );
+    read!(
+        map,
+        style,
+        BorderLeftColor | BorderInlineStartColor,
+        border_mut,
+        left_color,
+        border_color
+    );
 
     let lp = |value: &CssValue| length_percentage(value, font_size);
-    read!(map, style, BorderTopLeftRadius, border_mut, top_left_radius, lp);
-    read!(map, style, BorderTopRightRadius, border_mut, top_right_radius, lp);
-    read!(map, style, BorderBottomLeftRadius, border_mut, bottom_left_radius, lp);
-    read!(map, style, BorderBottomRightRadius, border_mut, bottom_right_radius, lp);
+    read!(
+        map,
+        style,
+        BorderTopLeftRadius | BorderStartStartRadius,
+        border_mut,
+        top_left_radius,
+        lp
+    );
+    read!(
+        map,
+        style,
+        BorderTopRightRadius | BorderStartEndRadius,
+        border_mut,
+        top_right_radius,
+        lp
+    );
+    read!(
+        map,
+        style,
+        BorderBottomLeftRadius | BorderEndStartRadius,
+        border_mut,
+        bottom_left_radius,
+        lp
+    );
+    read!(
+        map,
+        style,
+        BorderBottomRightRadius | BorderEndEndRadius,
+        border_mut,
+        bottom_right_radius,
+        lp
+    );
 }
 
 fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
@@ -1333,7 +1484,7 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
     }
 }
 
-/// The insets, read from the logical name first and then the physical one.
+/// The insets, from whichever of the logical and the physical name won the cascade.
 ///
 /// Pages write `top`/`right`/`bottom`/`left`; the pipeline models the insets logically. The
 /// aliasing is exact in the horizontal-tb, ltr writing mode this engine assumes.
@@ -1355,7 +1506,7 @@ fn resolve_insets(map: &CssProperties, style: &mut ComputedStyle, font_size: f32
         (LonghandId::InsetInlineEnd, LonghandId::Right, Prop::InsetInlineEnd, 3),
     ];
     for (logical, physical, prop, slot) in sides {
-        let Some(declared) = value(map, longhand(logical)).or_else(|| value(map, longhand(physical))) else {
+        let Some(declared) = side_value(map, physical, logical) else {
             continue;
         };
         let resolved = length_percentage_auto(declared, font_size);
@@ -2176,6 +2327,50 @@ mod tests {
         assert!(style.has(Prop::InsetBlockStart));
         assert!(style.has(Prop::InsetInlineStart));
         assert_eq!(style.inset.block_end, LengthPercentageAuto::Auto);
+    }
+
+    /// The logical margin, padding and border longhands land on the physical side they name in
+    /// horizontal-tb, ltr.
+    #[test]
+    fn logical_sides_land_on_physical_ones() {
+        let style = style_of(
+            "margin-inline: auto; margin-block: 4px 6px; padding-inline-start: 8px; \
+             padding-block-end: 10%; border-inline-end: 2px solid red; \
+             border-start-start-radius: 3px",
+        );
+        assert_eq!(style.margin.left, LengthPercentageAuto::Auto);
+        assert_eq!(style.margin.right, LengthPercentageAuto::Auto);
+        assert_eq!(style.margin.top, LengthPercentageAuto::Px(4.0));
+        assert_eq!(style.margin.bottom, LengthPercentageAuto::Px(6.0));
+        assert_eq!(style.padding.left, LengthPercentage::Px(8.0));
+        assert_eq!(style.padding.bottom, LengthPercentage::Percent(10.0));
+        assert_eq!(style.border.right_style, BorderStyle::Solid);
+        assert_eq!(style.border.right_width, 2.0);
+        assert_eq!(style.border.right_color, Color::rgba(255, 0, 0, 255));
+        assert_eq!(style.border.left_width, 0.0);
+        assert_eq!(style.border.top_left_radius, LengthPercentage::Px(3.0));
+        assert!(style.has(Prop::MarginLeft));
+        assert!(style.has(Prop::PaddingBottom));
+        assert!(style.has(Prop::BorderRightWidth));
+    }
+
+    /// A logical longhand and the physical one for the same side cascade as one property: the
+    /// later declaration wins, whichever spelling it has.
+    #[test]
+    fn logical_and_physical_sides_cascade_together() {
+        let style = style_of("margin-inline: auto; margin-left: 16px");
+        assert_eq!(style.margin.left, LengthPercentageAuto::Px(16.0));
+        assert_eq!(style.margin.right, LengthPercentageAuto::Auto);
+
+        let style = style_of("margin-left: 16px; margin-inline: auto");
+        assert_eq!(style.margin.left, LengthPercentageAuto::Auto);
+
+        let style = style_of("padding: 1px; padding-inline-end: 9px");
+        assert_eq!(style.padding.right, LengthPercentage::Px(9.0));
+        assert_eq!(style.padding.left, LengthPercentage::Px(1.0));
+
+        let style = style_of("inset-inline-start: 5px; left: 7px");
+        assert_eq!(style.inset.inline_start, LengthPercentageAuto::Px(7.0));
     }
 
     /// A percentage `line-height` is a fraction of the element's own font-size; a unitless
