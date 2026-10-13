@@ -288,9 +288,11 @@ and the clause that makes the new value right.
 
 ## Known gaps
 
--   `:active` is hardcoded false; `:visited` deliberately so. Every pseudo-class with an
-    argument is matched: `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and
-    `:matches()`), `:where()`, `:has()` and `:lang()`.
+-   `:active` is hardcoded false; `:visited` deliberately so. Of the pseudo-classes with an
+    argument, `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`),
+    `:where()`, `:has()`, `:lang()` and `:host()` are matched. `:dir()`, `:host-context()` and
+    the legacy `:-webkit-any()`/`:-moz-any()` parse, but are stored as their text and never
+    match.
 -   `:nth-*()` counts siblings on every match, so a rule like `tr:nth-child(odd)` over a very
     long table costs time quadratic in its rows; there is no per-parent index cache.
 -   `:has()` searches the element's subtree or later siblings on every match, with no cache, so
