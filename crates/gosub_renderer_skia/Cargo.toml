@@ -16,6 +16,11 @@ resvg = { workspace = true }
 
 skia-safe = { workspace = true, features = ["textlayout"] }
 
+# Not on Windows: the prebuilt key covers target and features, and no Windows bundle has
+# wayland or x11, so asking for them there builds Skia from source, which needs Visual
+# Studio. Linux and macOS keep the union they always had.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+skia-safe = { workspace = true, features = ["wayland", "x11"] }
 
 [lints]
 workspace = true
