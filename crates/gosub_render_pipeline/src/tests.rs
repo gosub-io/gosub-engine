@@ -390,7 +390,7 @@ mod rendertree_from_engine {
 
         let html = r#"<html><body>
           <p>shown</p>
-          <div style="visibility: hidden; background: red; height: 50px">gone
+          <div id="hidden" style="visibility: hidden; background: red; height: 50px">gone
             <span style="visibility: visible">back</span>
           </div>
           <div style="visibility: force-hidden">forced
@@ -400,14 +400,17 @@ mod rendertree_from_engine {
         </body></html>"#;
         let mut doc = html_compile::<Config>(html);
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-        let mut render_tree = RenderTree::new(Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc))));
+        let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
+        let hidden_node = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "hidden").expect("hidden");
+        let mut render_tree = RenderTree::new(adapter);
         render_tree.parse().expect("render tree");
         let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
 
+        // By id: the arena is a map, and the force-hidden div is a div too.
         let hidden_div = layout_tree
             .arena
             .values()
-            .find(|el| layout_tree.render_tree.doc.tag_name(el.dom_node_id).as_deref() == Some("div"))
+            .find(|el| el.dom_node_id == hidden_node)
             .expect("the hidden div is laid out");
         let div_box = hidden_div.box_model.border_box;
         let div_node = hidden_div.dom_node_id;
