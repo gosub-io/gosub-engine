@@ -103,6 +103,17 @@ fn as_number(value: &CssValue) -> Option<f32> {
     }
 }
 
+/// An `<integer>`. The grammar has already turned away anything fractional; the cast saturates
+/// one too big for `i32`.
+#[expect(clippy::cast_possible_truncation, reason = "an <integer>, saturated to i32")]
+fn as_integer(value: &CssValue) -> Option<i32> {
+    match value {
+        CssValue::Number(number, _) => Some(*number as i32),
+        CssValue::Zero => Some(0),
+        _ => None,
+    }
+}
+
 #[expect(clippy::cast_possible_truncation, reason = "style values are carried at f32")]
 fn as_percentage(value: &CssValue) -> Option<f32> {
     match value {
@@ -742,6 +753,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::FlexGrow, Prop::FlexGrow, G_FLEX),
     (LonghandId::FlexShrink, Prop::FlexShrink, G_FLEX),
     (LonghandId::FlexWrap, Prop::FlexWrap, G_FLEX),
+    (LonghandId::Order, Prop::Order, G_FLEX),
     (LonghandId::RowGap, Prop::RowGap, G_FLEX),
     (LonghandId::ColumnGap, Prop::ColumnGap, G_FLEX),
     (LonghandId::AlignItems, Prop::AlignItems, G_FLEX),
@@ -1535,6 +1547,7 @@ fn resolve_flex(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) 
 
     read!(map, style, FlexGrow, flex_mut, grow, as_number);
     read!(map, style, FlexShrink, flex_mut, shrink, as_number);
+    read!(map, style, Order, flex_mut, order, as_integer);
 
     read!(map, style, FlexWrap, flex_mut, wrap, |value| as_string(value).map(
         |keyword| match keyword {

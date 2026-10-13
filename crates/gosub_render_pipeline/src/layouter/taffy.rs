@@ -2352,7 +2352,7 @@ impl TaffyLayouter {
         // both duplicate them and stop taffy seeing the `<svg>` as a leaf - and a non-leaf never
         // has its measure function called, which is the only thing that gives the element its
         // intrinsic size. Without this the graphic collapses to nothing unless CSS sizes it.
-        let render_node_children = if matches!(element_node.context, ElementContext::Svg(_)) {
+        let mut render_node_children = if matches!(element_node.context, ElementContext::Svg(_)) {
             Vec::new()
         } else if depth >= MAX_LAYOUT_DEPTH {
             // Same treatment as an inline `<svg>`: keep the element, make it a leaf.
@@ -2361,6 +2361,25 @@ impl TaffyLayouter {
         } else {
             render_node.children.clone()
         };
+        // Flex and grid items are laid out and painted in order-modified document order
+        // (css-flexbox-1 §5.4, css-grid-2 §9.1). Taffy has no `order`, so the children go to it
+        // already sorted; the sort is stable, so equal values keep document order. Out-of-flow
+        // children count as `order: 0`, which is where the spec paints them.
+        if parent_is_flex_or_grid {
+            render_node_children.sort_by_cached_key(|child_id| {
+                let Some(child) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
+                    return 0;
+                };
+                if !matches!(child.node_type, NodeType::Element(_)) {
+                    return 0;
+                }
+                let style = layout_tree.render_tree.doc.computed_style(child.node_id);
+                if matches!(style.box_group.position, CssPosition::Absolute | CssPosition::Fixed) {
+                    return 0;
+                }
+                style.flex.order
+            });
+        }
 
         // A "mixed" inline run - a (non-flex/grid) element with at least one inline-level *element*
         // child, not just text - needs its text nodes split into per-word boxes so text flows and

@@ -536,6 +536,7 @@ declare_props! {
     FlexGrow,
     FlexShrink,
     FlexWrap,
+    Order,
     RowGap,
     ColumnGap,
     AlignItems,
@@ -740,6 +741,9 @@ pub struct FlexGroup {
     pub grow: f32,
     pub shrink: f32,
     pub wrap: FlexWrap,
+    /// `order`: where the box goes among its flex or grid siblings. Equal values keep document
+    /// order.
+    pub order: i32,
     pub row_gap: LengthPercentage,
     pub column_gap: LengthPercentage,
     pub align_items: AlignValue,
@@ -1088,6 +1092,7 @@ impl ComputedStyle {
                 grow: 0.0,
                 shrink: 1.0,
                 wrap: FlexWrap::NoWrap,
+                order: 0,
                 row_gap: LengthPercentage::ZERO,
                 column_gap: LengthPercentage::ZERO,
                 align_items: AlignValue::Normal,
