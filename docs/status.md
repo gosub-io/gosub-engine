@@ -135,9 +135,11 @@ After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
 **Not yet.** No CSS transforms beyond `translate` - the rest of the `transform` list is parsed
 and then ignored. No transitions or animations; nothing in the pipeline reads either property.
-No writing modes, so vertical text and RTL block flow are absent (the logical `inset-*`
-properties exist, but only because physical `top`/`left`/`right`/`bottom` are mapped onto them -
-see `resolve_insets` in `crates/gosub_css3/src/matcher/computed_style.rs`).
+No writing modes, so vertical text and RTL block flow are absent. The logical box properties
+(`margin-inline-*`, `padding-block-*`, `border-inline-*`, `border-start-start-radius`, the
+`inset-*` pair) are mapped onto the physical sides as horizontal-tb, ltr would place them, with
+the logical and physical spellings of one side cascading as one property - see `side_value` in
+`crates/gosub_css3/src/matcher/computed_style.rs`. `direction: rtl` does not flip them.
 
 
 ## Render backends

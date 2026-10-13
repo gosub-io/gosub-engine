@@ -213,8 +213,9 @@ used stage settles them.
 
 Two things this conversion does belong in the computed stage above and are listed under the
 gaps: the `font-size` keyword scale (with the 13px default for a bare `monospace`), and the
-physical-to-logical inset mapping. Settling `currentcolor` and `outline-color: auto` on the
-colour fields is the used stage, as described there.
+fixed mapping between logical and physical box sides (insets, margin, padding, border).
+Settling `currentcolor` and `outline-color: auto` on the colour fields is the used stage, as
+described there.
 
 ## Hover fingerprints (`system.rs`)
 
