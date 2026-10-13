@@ -484,6 +484,30 @@ mod rendertree_from_engine {
         assert_ne!(size("unknown").width, px(100.0), "lang=\"\" is an unknown language");
     }
 
+    /// With no `lang` up the tree the language is unknown: `:lang("")` matches it, `*` does not.
+    #[test]
+    fn lang_empty_range_matches_an_unknown_language() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          p:lang("") { width: 100px }
+          p:lang("*") { height: 30px }
+        </style></head><body><p id="untagged">x</p></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "untagged").expect("untagged");
+        let size = adapter.computed_style(node).size.clone();
+        assert_eq!(size.width, LengthPercentageAuto::Px(100.0), "the empty range");
+        assert_ne!(
+            size.height,
+            LengthPercentageAuto::Px(30.0),
+            "the wildcard needs a language"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).
