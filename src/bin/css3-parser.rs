@@ -205,6 +205,8 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                         CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
                         CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
                         CssSelectorPart::Nth(nth) => println!("        [Nth] {nth}"),
+                        CssSelectorPart::Is(inner) => println!("        [Is] :is({inner:?})"),
+                        CssSelectorPart::Where(inner) => println!("        [Where] :where({inner:?})"),
                         CssSelectorPart::Host(None) => println!("        [Host] :host"),
                         CssSelectorPart::Host(Some(inner)) => println!("        [Host] :host({inner:?})"),
                         CssSelectorPart::Slotted(inner) => println!("        [Slotted] ::slotted({inner:?})"),

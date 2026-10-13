@@ -287,11 +287,13 @@ and the clause that makes the new value right.
 
 ## Known gaps
 
--   A pseudo-class with an argument is stored as its text and never matches: `:is()`,
-    `:where()`, `:has()`, `:lang()`. `:not()` and the `:nth-*()` family (with `of S`) are
-    evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
+-   A pseudo-class with an argument is stored as its text and never matches: `:has()` and
+    `:lang()`. `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`) and
+    `:where()` are evaluated; the specificity of `:has()` errs low because it is not.
 -   `:nth-*()` counts siblings on every match, so a rule like `tr:nth-child(odd)` over a very
     long table costs time quadratic in its rows; there is no per-parent index cache.
+-   `:is()` and `:where()` take a forgiving selector list, but an argument the parser rejects
+    (an unknown functional pseudo-class) still drops the whole rule instead of just itself.
     `:active` is hardcoded false; `:visited` deliberately so.
 -   Four selector node types have no conversion arm, so a rule using one is dropped: a bare
     number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and

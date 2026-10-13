@@ -303,6 +303,13 @@ fn match_selector_part<C: HasDocument>(
             .iter()
             .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo, ScopeContext::plain())),
         CssSelectorPart::Nth(nth) => match_nth::<C>(doc, current_id, nth),
+        // `:is()` and `:where()` match when any argument does. Unlike `:not()`'s compounds, an
+        // argument may be a complex selector (`:is(nav a)`); its rightmost compound is matched
+        // against this element and its combinators walk the document from here, as the
+        // argument would on its own (Selectors L4 §4.2).
+        CssSelectorPart::Is(inner) | CssSelectorPart::Where(inner) => inner
+            .iter()
+            .any(|complex| match_selector_parts::<C>(doc, current_id, complex, pseudo, ScopeContext::plain())),
         // `:host` is only meaningful as the leftmost part, where `match_compound` handles it.
         CssSelectorPart::Host(_) => false,
         CssSelectorPart::Slotted(inner) => {

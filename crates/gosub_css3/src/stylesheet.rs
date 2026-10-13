@@ -804,6 +804,12 @@ pub enum CssSelectorPart {
     Not(Vec<Vec<CssSelectorPart>>),
     /// `:nth-child()`, `:nth-last-child()`, `:nth-of-type()` or `:nth-last-of-type()`.
     Nth(Box<NthSelector>),
+    /// `:is(...)` (and its older name `:matches()`), holding its selector list. Matches when any
+    /// of the inner selectors matches the element, and is as specific as the most specific one.
+    Is(Vec<Vec<CssSelectorPart>>),
+    /// `:where(...)`: matches like `:is()`, but contributes no specificity at all - which is why
+    /// resets wrap themselves in it, so that any author rule beats them.
+    Where(Vec<Vec<CssSelectorPart>>),
     /// `:host` (as `None`) or `:host(<selector>)` (as `Some`). Matches the element a shadow
     /// tree hangs off, and only from that tree's own stylesheets - the host itself lives in
     /// the outer tree, so this is one of the two ways a shadow sheet reaches outwards.
@@ -973,6 +979,16 @@ impl Debug for CssSelectorPart {
                 write!(f, ")")
             }
             CssSelectorPart::Nth(nth) => write!(f, "{nth}"),
+            CssSelectorPart::Is(inner) => {
+                write!(f, ":is(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Where(inner) => {
+                write!(f, ":where(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
             CssSelectorPart::Host(None) => write!(f, ":host"),
             CssSelectorPart::Host(Some(inner)) => {
                 write!(f, ":host(")?;
@@ -1055,16 +1071,6 @@ impl Specificity {
     }
 }
 
-/// Whether a serialized pseudo-class contributes no specificity at all - `:where()`, and only
-/// `:where()` (Selectors L4 §17).
-///
-/// Compares bytes rather than lowercasing: this runs inside `match_selector`, once per element
-/// per candidate rule, so it must not allocate.
-fn is_zero_specificity_pseudo(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    bytes.len() > 6 && bytes[..6].eq_ignore_ascii_case(b"where(")
-}
-
 impl From<&[CssSelectorPart]> for Specificity {
     fn from(parts: &[CssSelectorPart]) -> Self {
         let mut id_count = 0;
@@ -1085,18 +1091,13 @@ impl From<&[CssSelectorPart]> for Specificity {
                 CssSelectorPart::Attribute(_) => {
                     class_count += 1;
                 }
-                CssSelectorPart::PseudoClass(name) => {
-                    // `:where()` contributes nothing whatever it contains - that is the entire
-                    // point of it - while every other pseudo-class counts as a class.
-                    //
-                    // Known gap: `:is()` and `:has()` should take the specificity of their most
-                    // specific argument. Unlike `:not`, which has its own structured variant,
-                    // they are stored here as serialized text, so that is not computable without
-                    // giving them the same treatment. Counting them as one class is the
-                    // pre-Selectors-4 behaviour and errs low rather than high.
-                    if !is_zero_specificity_pseudo(name) {
-                        class_count += 1;
-                    }
+                // Every pseudo-class kept by name counts as a class.
+                //
+                // Known gap: `:has()` should take the specificity of its most specific argument,
+                // but it is still stored as serialized text, so it counts as one class - the
+                // pre-Selectors-4 behaviour, which errs low rather than high.
+                CssSelectorPart::PseudoClass(_) => {
+                    class_count += 1;
                 }
                 // Legacy single-colon `:before`/`:after` are re-classified as pseudo-elements
                 // during AST conversion, so they land here and count as elements too.
@@ -1121,7 +1122,7 @@ impl From<&[CssSelectorPart]> for Specificity {
                 }
                 // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
                 // argument counts as if it were written in place of the `:not()`.
-                CssSelectorPart::Not(inner) => {
+                CssSelectorPart::Not(inner) | CssSelectorPart::Is(inner) => {
                     if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
                         id_count += most.id_count();
                         class_count += most.class_count();
@@ -1229,7 +1230,10 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
             | CssSelectorPart::PseudoClass(name)
             | CssSelectorPart::PseudoElement(name)
             | CssSelectorPart::Type(name) => name.heap_size(walk),
-            CssSelectorPart::Not(list) | CssSelectorPart::Slotted(list) => parts_list(list, walk),
+            CssSelectorPart::Not(list)
+            | CssSelectorPart::Is(list)
+            | CssSelectorPart::Where(list)
+            | CssSelectorPart::Slotted(list) => parts_list(list, walk),
             CssSelectorPart::Host(Some(list)) => parts_list(list, walk),
             CssSelectorPart::Nth(nth) => {
                 walk.bytes(size_of::<NthSelector>());
@@ -2400,19 +2404,33 @@ mod test {
     /// `:where()` exists precisely so that it adds nothing, however specific its argument.
     #[test]
     fn where_pseudo_class_adds_no_specificity() {
+        let id_and_class = vec![vec![
+            CssSelectorPart::Id("id".into()),
+            CssSelectorPart::Combinator(Combinator::Descendant),
+            CssSelectorPart::Class("cls".into()),
+        ]];
         assert_eq!(
-            Specificity::from([CssSelectorPart::PseudoClass("where(#id .cls)".into())].as_slice()),
+            Specificity::from([CssSelectorPart::Where(id_and_class)].as_slice()),
             Specificity::new(0, 0, 0)
         );
-        // Case-insensitively, and without mistaking a differently-named pseudo-class for it.
-        assert_eq!(
-            Specificity::from([CssSelectorPart::PseudoClass("WHERE(.a)".into())].as_slice()),
-            Specificity::new(0, 0, 0)
-        );
+        // A pseudo-class kept by name still counts as one class.
         assert_eq!(
             Specificity::from([CssSelectorPart::PseudoClass("wherever".into())].as_slice()),
             Specificity::new(0, 1, 0)
         );
+    }
+
+    /// `:is()` counts as its most specific argument, not as one class.
+    #[test]
+    fn is_pseudo_class_takes_its_most_specific_argument() {
+        let selector = vec![
+            CssSelectorPart::Type("a".into()),
+            CssSelectorPart::Is(vec![
+                vec![CssSelectorPart::Class("x".into())],
+                vec![CssSelectorPart::Id("y".into())],
+            ]),
+        ];
+        assert_eq!(Specificity::from(selector.as_slice()), Specificity::new(1, 0, 1));
     }
 
     #[test]

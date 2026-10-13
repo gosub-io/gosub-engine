@@ -331,6 +331,57 @@ mod rendertree_from_engine {
         assert_ne!(size("l2").min_height, px(40.0), "first of the .x items");
     }
 
+    /// `:is()` and `:where()` match when any argument does, complex arguments included, and
+    /// differ only in specificity: `:where(#list) li` loses to a later plain `li`, while
+    /// `:is(#list) li` keeps its id and wins.
+    #[test]
+    fn is_and_where_match_and_differ_in_specificity() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          :where(#list) li { width: 100px }
+          :is(#list) li { height: 50px }
+          li { width: 200px; height: 10px }
+          :is(nav a, .nope) { min-width: 30px }
+          :where(.nope, footer) a { min-width: 40px }
+        </style></head><body>
+          <ul id="list"><li id="item">x</li></ul>
+          <nav><a id="in-nav" href="/">n</a></nav>
+          <a id="outside" href="/">o</a>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let style = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node)
+        };
+
+        let item = style("item");
+        assert_eq!(
+            item.size.width,
+            LengthPercentageAuto::Px(200.0),
+            ":where() adds no specificity"
+        );
+        assert_eq!(
+            item.size.height,
+            LengthPercentageAuto::Px(50.0),
+            ":is() keeps its argument's id"
+        );
+        assert_eq!(
+            style("in-nav").size.min_width,
+            LengthPercentageAuto::Px(30.0),
+            "a complex argument walks up from the element"
+        );
+        let outside = style("outside").size.min_width;
+        assert!(
+            outside != LengthPercentageAuto::Px(30.0) && outside != LengthPercentageAuto::Px(40.0),
+            "no argument matches, got {outside:?}"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

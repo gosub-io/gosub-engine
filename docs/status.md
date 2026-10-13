@@ -100,9 +100,11 @@ would need its memory-infra tracing, which reports per-component allocator dumps
 process totals.
 
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:is()`, `:where()`, `:has()` and `:lang()` all fall to the matcher's catch-all
-(`crates/gosub_css3/src/matcher/styling.rs`); `:not()` and the `:nth-*()` family are
-evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
+`:has()` and `:lang()` fall to the matcher's catch-all
+(`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()` and
+`:where()` are evaluated, and the specificity of `:has()` errs low because it is not. The
+selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
+drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
 the one selector form the AST converter has no arm for, so a nested rule is dropped. An
