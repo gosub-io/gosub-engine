@@ -53,6 +53,10 @@ pub fn handles(req: &FetchRequest) -> bool {
 /// one can do is fail to decode.
 pub async fn serve(req: &FetchRequest, observer: Arc<dyn NetObserver + Send + Sync>) -> FetchResult {
     let url = req.url.clone();
+    observer.on_event(NetEvent::Accepted {
+        url: url.clone(),
+        joined: false,
+    });
     observer.on_event(NetEvent::Started { url: url.clone() });
     let started = std::time::Instant::now();
 

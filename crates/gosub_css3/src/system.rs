@@ -371,6 +371,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // allocated: the list is read and forgotten inside the loop, so nothing but its capacity
     // needs to outlive an element.
     let mut candidates = CANDIDATES.take();
+    let _lang_memo = crate::matcher::styling::LangMemoScope::enter();
     for sheet in sheets {
         // A sheet from another tree contributes nothing, except through the two selectors
         // that are defined to reach across (`:host`, `::slotted()`).

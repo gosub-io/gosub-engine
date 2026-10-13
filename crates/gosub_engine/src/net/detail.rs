@@ -20,6 +20,9 @@ use std::fmt::{Display, Formatter};
 pub enum CacheOutcome {
     /// A stored response was used without contacting the server.
     Hit,
+    /// A stale stored response was used without contacting the server, as its
+    /// `stale-while-revalidate` allows, and is being revalidated in the background.
+    Stale,
     /// A stored response was revalidated: the server answered `304`, the stored body was used.
     Validated,
     /// The response from the network was written to the cache.
@@ -33,6 +36,7 @@ impl CacheOutcome {
     pub fn from_net(outcome: sonar_cache::CacheOutcome) -> Self {
         match outcome {
             sonar_cache::CacheOutcome::Hit => Self::Hit,
+            sonar_cache::CacheOutcome::Stale => Self::Stale,
             sonar_cache::CacheOutcome::Validated => Self::Validated,
             sonar_cache::CacheOutcome::Stored => Self::Stored,
             sonar_cache::CacheOutcome::Invalidated => Self::Invalidated,
@@ -44,6 +48,7 @@ impl Display for CacheOutcome {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Hit => "served from cache",
+            Self::Stale => "served stale from cache, revalidating",
             Self::Validated => "revalidated (304)",
             Self::Stored => "stored in cache",
             Self::Invalidated => "cache entries dropped",

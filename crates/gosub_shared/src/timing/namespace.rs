@@ -50,6 +50,7 @@ pub enum Kind {
 /// ever fired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Timing {
+    NetQueue,
     NetDns,
     NetConnect,
     NetTtfb,
@@ -104,6 +105,7 @@ impl Timing {
     #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {
+            Timing::NetQueue => "net.queue",
             Timing::NetDns => "net.dns",
             Timing::NetConnect => "net.connect",
             Timing::NetTtfb => "net.ttfb",
@@ -151,6 +153,7 @@ impl Timing {
     #[must_use]
     pub const fn describes(&self) -> &'static str {
         match self {
+            Timing::NetQueue => "From the fetcher taking a request to the request going out: the wait in its queue and for a connection slot. Not part of the fetch, which starts once it has its slot.",
             Timing::NetDns => "Resolving a host name to an address. Only for a request that opened a connection: one served by a pooled connection resolves nothing.",
             Timing::NetConnect => "Opening the connection, TLS handshake included. Encloses the name resolution rather than following it.",
             Timing::NetTtfb => "From sending the request to the first byte of the response: how long the server took to start answering.",
@@ -198,7 +201,8 @@ impl Timing {
     #[must_use]
     pub const fn group(&self) -> Group {
         match self {
-            Timing::NetDns
+            Timing::NetQueue
+            | Timing::NetDns
             | Timing::NetConnect
             | Timing::NetTtfb
             | Timing::NetFetch
@@ -275,6 +279,7 @@ impl Timing {
     #[must_use]
     pub const fn all() -> &'static [Timing] {
         &[
+            Timing::NetQueue,
             Timing::NetDns,
             Timing::NetConnect,
             Timing::NetTtfb,

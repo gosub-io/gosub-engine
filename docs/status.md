@@ -99,12 +99,12 @@ sits inside the noise - one run of the page measured below a run of the blank. A
 would need its memory-infra tracing, which reports per-component allocator dumps rather than
 process totals.
 
-**Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:lang()` falls to the matcher's catch-all
+**Not yet.** `:dir()`, `:host-context()` and the legacy `:-webkit-any()`/`:-moz-any()` parse but
+are stored as their text and fall to the matcher's catch-all
 (`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()`,
-`:where()` and `:has()` are evaluated, and the lists of `:is()` and `:where()` are forgiving.
-Outside them, an unknown pseudo-class without an argument keeps its rule, which never matches,
-where the spec drops the rule.
+`:where()`, `:has()`, `:lang()` and `:host()` are matched, and the lists of `:is()` and
+`:where()` are forgiving. Outside them, an unknown pseudo-class without an argument keeps its
+rule, which never matches, where the spec drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
 the one selector form the AST converter has no arm for, so a nested rule is dropped. An

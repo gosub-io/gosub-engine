@@ -13,6 +13,7 @@ pub(crate) mod focus;
 mod form;
 pub(crate) mod input;
 pub mod internal_pages;
+mod locale;
 mod media_source;
 pub mod places;
 

@@ -469,6 +469,64 @@ mod rendertree_from_engine {
         assert_ne!(size("no-chain").width, px(200.0), "a .b without the .a");
     }
 
+    /// `:lang()` reads the nearest `lang` attribute up the tree, so a language declared on
+    /// `<html>` reaches every element and a nested one overrides it.
+    #[test]
+    fn lang_matches_the_inherited_content_language() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html lang="en-GB"><head><style>
+          p:lang(en) { width: 100px }
+          :lang(ar, "fa") { width: 200px }
+          p:lang(de) { height: 30px }
+        </style></head><body>
+          <p id="inherits">x</p>
+          <div lang="ar"><p id="nested">y</p></div>
+          <p id="german" lang="de-CH">z</p>
+          <div lang=""><p id="unknown">u</p></div>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let size = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node).size.clone()
+        };
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(size("inherits").width, px(100.0), "lang on <html> reaches the p");
+        assert_eq!(size("nested").width, px(200.0), "the nearest lang wins");
+        assert_eq!(size("german").height, px(30.0), "de matches de-CH");
+        assert_ne!(size("german").width, px(100.0), "and en no longer does");
+        assert_ne!(size("unknown").width, px(100.0), "lang=\"\" is an unknown language");
+    }
+
+    /// With no `lang` up the tree the language is unknown: `:lang("")` matches it, `*` does not.
+    #[test]
+    fn lang_empty_range_matches_an_unknown_language() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          p:lang("") { width: 100px }
+          p:lang("*") { height: 30px }
+        </style></head><body><p id="untagged">x</p></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = find_node_by_id_attr(&adapter.doc, root, "untagged").expect("untagged");
+        let size = adapter.computed_style(node).size.clone();
+        assert_eq!(size.width, LengthPercentageAuto::Px(100.0), "the empty range");
+        assert_ne!(
+            size.height,
+            LengthPercentageAuto::Px(30.0),
+            "the wildcard needs a language"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

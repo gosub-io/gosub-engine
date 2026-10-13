@@ -316,6 +316,113 @@ fn match_relative<C: HasDocument>(doc: &C::Document, anchor: NodeId, relative: &
     }
 }
 
+thread_local! {
+    /// Within one element's cascade: the node last asked about and its content language (`None`
+    /// when it has none). A page sheet can hold a `.x:lang(..)` rule per language, and bare
+    /// `:lang(..)` rules are tried on every element; without this each walks the ancestor chain
+    /// and looks the attribute up again.
+    static LANG_MEMO: std::cell::RefCell<Option<(usize, NodeId, Option<String>)>> =
+        const { std::cell::RefCell::new(None) };
+    static LANG_MEMO_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Turns the `:lang()` memo on for one element's cascade, starting empty; dropping it turns the
+/// memo off and forgets it, so nothing remembered outlives a change to the document.
+pub(crate) struct LangMemoScope(());
+
+impl LangMemoScope {
+    pub(crate) fn enter() -> Self {
+        LANG_MEMO.with_borrow_mut(|memo| *memo = None);
+        LANG_MEMO_ON.set(true);
+        Self(())
+    }
+}
+
+impl Drop for LangMemoScope {
+    fn drop(&mut self) {
+        LANG_MEMO_ON.set(false);
+        LANG_MEMO.with_borrow_mut(|memo| *memo = None);
+    }
+}
+
+/// Whether the element's content language matches any of `ranges`. The content language is
+/// the `lang` attribute of the element or its nearest ancestor that has one (HTML §3.2.6.2);
+/// with none it is unknown, which only the empty range `:lang("")` matches (Selectors L4 §7.2) -
+/// the document-level fallbacks (`Content-Language`, `<meta http-equiv>`) are not consulted.
+fn matches_lang<C: HasDocument>(doc: &C::Document, node: NodeId, ranges: &[String]) -> bool {
+    let test = |lang: Option<&str>| {
+        let lang = lang.unwrap_or("");
+        ranges.iter().any(|r| language_range_matches(r, lang))
+    };
+    if !LANG_MEMO_ON.get() {
+        return test(content_language::<C>(doc, node));
+    }
+
+    let doc_key = std::ptr::from_ref(doc).cast::<()>() as usize;
+    LANG_MEMO.with_borrow_mut(|memo| {
+        if !matches!(memo, Some((key, id, _)) if *key == doc_key && *id == node) {
+            *memo = Some((doc_key, node, content_language::<C>(doc, node).map(str::to_owned)));
+        }
+        test(memo.as_ref().and_then(|(_, _, lang)| lang.as_deref()))
+    })
+}
+
+fn content_language<C: HasDocument>(doc: &C::Document, node: NodeId) -> Option<&str> {
+    lang_holder::<C>(doc, node)
+        .and_then(|id| doc.attribute(id, "lang"))
+        .map(str::trim)
+}
+
+/// The element itself or its nearest ancestor that carries a `lang` attribute. A shadow tree
+/// takes its language from its host, so the walk goes on from a shadow root to the host.
+fn lang_holder<C: HasDocument>(doc: &C::Document, node: NodeId) -> Option<NodeId> {
+    let mut current = Some(node);
+    while let Some(id) = current {
+        if doc.node_type(id) == NodeType::ElementNode && doc.attribute(id, "lang").is_some() {
+            return Some(id);
+        }
+        current = doc.parent(id).or_else(|| doc.shadow_host(id));
+    }
+    None
+}
+
+/// RFC 4647 §3.3.2 extended filtering, the matching `:lang()` uses (Selectors L4 §7.2): subtags
+/// compare case-insensitively, `*` matches any one, a range subtag may skip over tag subtags
+/// but never past a singleton (`x`, `u`, ...), and `en` therefore matches `en-US`. An empty
+/// range matches only an element whose language is the empty string.
+fn language_range_matches(range: &str, tag: &str) -> bool {
+    if range.is_empty() || tag.is_empty() {
+        return range.is_empty() && tag.is_empty();
+    }
+
+    let mut range = range.split('-');
+    let mut tag = tag.split('-');
+    let (Some(first_range), Some(first_tag)) = (range.next(), tag.next()) else {
+        return false;
+    };
+    if first_range != "*" && !first_range.eq_ignore_ascii_case(first_tag) {
+        return false;
+    }
+
+    for subtag in range {
+        if subtag == "*" {
+            continue;
+        }
+        loop {
+            let Some(candidate) = tag.next() else {
+                return false;
+            };
+            if candidate.eq_ignore_ascii_case(subtag) {
+                break;
+            }
+            if candidate.len() == 1 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Returns true when the given node matches the part(s)
 fn match_selector_parts<C: HasDocument>(
     doc: &C::Document,
@@ -392,6 +499,7 @@ fn match_selector_part<C: HasDocument>(
                 .iter()
                 .any(|relative| match_relative::<C>(doc, current_id, relative))
         }
+        CssSelectorPart::Lang(ranges) => matches_lang::<C>(doc, current_id, ranges),
         // `:host` is only meaningful as the leftmost part, where `match_compound` handles it.
         CssSelectorPart::Host(_) => false,
         CssSelectorPart::Slotted(inner) => {
@@ -1955,6 +2063,28 @@ mod tests {
     /// The id of a property the tests name, which they do name by name.
     fn id(name: &str) -> PropertyId {
         PropertyId::from_name(name).expect("a property the tests name")
+    }
+
+    /// RFC 4647 extended filtering, as `:lang()` uses it.
+    #[test]
+    fn language_ranges_use_extended_filtering() {
+        assert!(language_range_matches("en", "en"));
+        assert!(language_range_matches("en", "en-US"), "a prefix range");
+        assert!(language_range_matches("EN-us", "en-US"), "case-insensitive");
+        assert!(!language_range_matches("en", "eng"), "whole subtags only");
+        assert!(!language_range_matches("en-US", "en"), "a longer range");
+        assert!(
+            language_range_matches("de-DE", "de-Latn-DE"),
+            "a range subtag may skip one"
+        );
+        assert!(language_range_matches("*-CH", "fr-CH"), "a wildcard primary subtag");
+        assert!(language_range_matches("de-*-DE", "de-Latn-DE"));
+        assert!(!language_range_matches("en-US", "en-x-US"), "never past a singleton");
+        assert!(
+            !language_range_matches("en", ""),
+            "an unknown language matches no range"
+        );
+        assert!(language_range_matches("", ""), "except the empty one");
     }
 
     #[test]

@@ -96,6 +96,38 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Ident { value }, loc))
     }
 
+    /// Reads the language ranges of `:lang()`: a comma-separated list of idents or strings
+    /// (Selectors L4 §7.2), e.g. `:lang(en, "de-*")`.
+    fn parse_pseudo_function_lang_ranges(&mut self) -> CssResult<Node> {
+        log::trace!("parse_pseudo_function_lang_ranges");
+
+        let loc = self.tokenizer.current_location();
+
+        let mut children = Vec::new();
+        loop {
+            self.consume_whitespace_comments();
+            let t = self.tokenizer.consume();
+            match t.token_type {
+                TokenType::Ident(value) => children.push(Node::new(NodeType::Ident { value }, t.location)),
+                TokenType::QuotedString(value) => children.push(Node::new(NodeType::String { value }, t.location)),
+                _ => {
+                    return Err(CssError::with_location(
+                        format!("Expected a language range, got {t:?}").as_str(),
+                        t.location,
+                    ));
+                }
+            }
+            self.consume_whitespace_comments();
+            if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Comma) {
+                self.tokenizer.consume();
+            } else {
+                break;
+            }
+        }
+
+        Ok(Node::new(NodeType::Value { children }, loc))
+    }
+
     /// Reads a whitespace-separated sequence of idents, e.g. the part name list of `::part(a b)`.
     fn parse_pseudo_function_ident_sequence(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_function_ident_sequence");
@@ -190,7 +222,7 @@ impl Css3<'_> {
         match name {
             "dir" => self.parse_pseudo_function_ident_list(),
             "has" => self.parse_pseudo_function_selector_list(),
-            "lang" => self.parse_pseudo_function_ident_list(),
+            "lang" => self.parse_pseudo_function_lang_ranges(),
             "matches" => self.parse_forgiving_selector_list(),
             "is" => self.parse_forgiving_selector_list(),
             "-moz-any" => self.parse_pseudo_function_selector_list(),

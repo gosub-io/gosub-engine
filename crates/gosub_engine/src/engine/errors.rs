@@ -128,6 +128,12 @@ pub enum LoadError {
         /// The underlying failure, as reported.
         message: String,
     },
+    /// The proxy the request goes through asked for credentials (`407`) that it was not given.
+    /// Retrying will not help until the proxy configuration carries them.
+    ProxyAuthRequired {
+        /// The proxy that refused, without credentials.
+        proxy: String,
+    },
     /// The request did not complete within the configured time limit.
     Timeout {
         /// What timed out.
@@ -176,6 +182,7 @@ impl std::fmt::Display for LoadError {
             } => {
                 write!(f, "TLS handshake with {host} failed: {kind} ({message})")
             }
+            LoadError::ProxyAuthRequired { proxy } => write!(f, "the proxy {proxy} requires authentication"),
             LoadError::Timeout { message } => write!(f, "timed out: {message}"),
             LoadError::Transfer { message } => write!(f, "transfer failed: {message}"),
             LoadError::Redirect { message } => write!(f, "bad redirect: {message}"),
@@ -190,7 +197,8 @@ impl std::fmt::Display for LoadError {
 impl std::error::Error for LoadError {}
 
 impl LoadError {
-    /// The same error with `f` applied to its message. `Blocked` carries none.
+    /// The same error with `f` applied to its message. `Blocked` and `ProxyAuthRequired`
+    /// carry none.
     pub(crate) fn map_message(self, f: impl FnOnce(String) -> String) -> Self {
         use LoadError::*;
         match self {
@@ -208,6 +216,7 @@ impl LoadError {
                 fingerprint,
                 message: f(message),
             },
+            ProxyAuthRequired { proxy } => ProxyAuthRequired { proxy },
             Timeout { message } => Timeout { message: f(message) },
             Transfer { message } => Transfer { message: f(message) },
             Redirect { message } => Redirect { message: f(message) },
@@ -255,6 +264,9 @@ impl From<&NetError> for LoadError {
                     _ => LoadError::Other { message },
                 }
             }
+            NetError::ProxyAuthRequired { proxy, .. } => LoadError::ProxyAuthRequired {
+                proxy: proxy.to_string(),
+            },
             NetError::Timeout(message) => LoadError::Timeout {
                 message: message.clone(),
             },
@@ -319,6 +331,27 @@ impl From<NavigationError> for LoadError {
 mod tests {
     use super::*;
     use gosub_sonar::TransportError;
+
+    /// A proxy that wants credentials is told apart from a connection that failed, and named:
+    /// retrying will not help until the proxy configuration carries them.
+    #[test]
+    fn a_proxy_that_wants_credentials_is_named() {
+        let proxy = url::Url::parse("http://proxy.test:3128/").unwrap();
+        let error = LoadError::from(&NetError::ProxyAuthRequired {
+            proxy: std::sync::Arc::new(proxy),
+            url: url::Url::parse("https://site.test/").unwrap(),
+        });
+        assert_eq!(
+            error,
+            LoadError::ProxyAuthRequired {
+                proxy: "http://proxy.test:3128/".into()
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "the proxy http://proxy.test:3128/ requires authentication"
+        );
+    }
 
     /// A policy refusal and a transport failure must be distinguishable without matching
     /// on error strings.
