@@ -373,14 +373,15 @@ fn content_language<C: HasDocument>(doc: &C::Document, node: NodeId) -> Option<&
         .map(str::trim)
 }
 
-/// The element itself or its nearest ancestor that carries a `lang` attribute.
+/// The element itself or its nearest ancestor that carries a `lang` attribute. A shadow tree
+/// takes its language from its host, so the walk goes on from a shadow root to the host.
 fn lang_holder<C: HasDocument>(doc: &C::Document, node: NodeId) -> Option<NodeId> {
     let mut current = Some(node);
     while let Some(id) = current {
         if doc.node_type(id) == NodeType::ElementNode && doc.attribute(id, "lang").is_some() {
             return Some(id);
         }
-        current = doc.parent(id);
+        current = doc.parent(id).or_else(|| doc.shadow_host(id));
     }
     None
 }
