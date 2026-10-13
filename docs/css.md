@@ -290,8 +290,7 @@ and the clause that makes the new value right.
 -   A pseudo-class with an argument is stored as its text and never matches: `:nth-child()` and
     the rest of the nth family, `:is()`, `:where()`, `:has()`, `:lang()`. Only `:not()` is
     evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
-    `:first-child` and `:last-child` count text nodes as siblings. `:active` is hardcoded false;
-    `:visited` deliberately so.
+    `:active` is hardcoded false; `:visited` deliberately so.
 -   Four selector node types have no conversion arm, so a rule using one is dropped: a bare
     number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and
     all three are invalid selectors anyway) and the nesting selector `&`. CSS Nesting parses but
