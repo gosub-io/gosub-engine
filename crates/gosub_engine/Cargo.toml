@@ -10,6 +10,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 gosub-sonar = "0.14.0"
+sys-locale = "0.3"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_config = { version = "0.1.1", path = "../gosub_config" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }

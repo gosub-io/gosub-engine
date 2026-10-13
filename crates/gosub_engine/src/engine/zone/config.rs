@@ -35,7 +35,8 @@ pub struct ZoneConfig {
     pub max_tabs: usize,
     /// Optional User-Agent string to send with requests.
     pub user_agent: Option<String>,
-    /// Optional Accept-Language header value.
+    /// Accept-Language header value. `None` sends the languages the user set for the
+    /// operating system, and none at all when it names none.
     pub accept_languages: Option<String>,
     /// Send DNT: 1 header if true.
     pub do_not_track: bool,
