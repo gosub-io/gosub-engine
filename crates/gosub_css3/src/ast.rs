@@ -243,6 +243,20 @@ fn relative_selectors(list: Vec<Vec<CssSelectorPart>>) -> Vec<Vec<CssSelectorPar
         .collect()
 }
 
+/// The language ranges of a `:lang()`, each as written (ident or string).
+fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
+    let Some(NodeType::Value { children }) = arguments.into_iter().next().map(|node| node.node_type) else {
+        return Err(CssError::new(":lang() without language ranges"));
+    };
+    children
+        .into_iter()
+        .map(|child| match child.node_type {
+            NodeType::Ident { value } | NodeType::String { value } => Ok(value),
+            _ => Err(CssError::new("invalid language range in :lang()")),
+        })
+        .collect()
+}
+
 /// Convert the children of one `Selector` AST node into selector parts, appending to the compound
 /// currently being built in `out`. A comma starts a new compound.
 fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelectorPart>>) -> CssResult<()> {
@@ -286,6 +300,8 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                         CssSelectorPart::Not(convert_selector_list(arguments)?)
                     } else if let Some(kind) = NthKind::from_name(&name) {
                         CssSelectorPart::Nth(Box::new(convert_nth(kind, arguments)?))
+                    } else if name.eq_ignore_ascii_case("lang") {
+                        CssSelectorPart::Lang(convert_lang_ranges(arguments)?)
                     } else if name.eq_ignore_ascii_case("is") || name.eq_ignore_ascii_case("matches") {
                         CssSelectorPart::Is(convert_selector_list(arguments)?)
                     } else if name.eq_ignore_ascii_case("where") {
@@ -1659,6 +1675,30 @@ mod tests {
             Specificity::from(stylesheet.rules[3].selectors[0].complex_at(0)),
             Specificity::new(1, 0, 1),
             ":has() counts its most specific argument"
+        );
+    }
+
+    #[test]
+    fn lang_keeps_its_language_ranges() {
+        let stylesheet = Css3::parse_str(
+            "p:lang(en) { color: red } p:lang(de, \"fr-*\") { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        assert_eq!(last(0), Some(CssSelectorPart::Lang(vec!["en".into()])));
+        assert_eq!(
+            last(1),
+            Some(CssSelectorPart::Lang(vec!["de".into(), "fr-*".into()])),
+            "a comma-separated list, idents and strings"
+        );
+        assert_eq!(
+            Specificity::from(stylesheet.rules[0].selectors[0].complex_at(0)),
+            Specificity::new(0, 1, 1),
+            "a pseudo-class"
         );
     }
 

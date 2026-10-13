@@ -804,6 +804,8 @@ pub enum CssSelectorPart {
     Not(Vec<Vec<CssSelectorPart>>),
     /// `:nth-child()`, `:nth-last-child()`, `:nth-of-type()` or `:nth-last-of-type()`.
     Nth(Box<NthSelector>),
+    /// `:lang(...)`, holding its language ranges as written.
+    Lang(Vec<String>),
     /// `:is(...)` (and its older name `:matches()`), holding its selector list. Matches when any
     /// of the inner selectors matches the element, and is as specific as the most specific one.
     Is(Vec<Vec<CssSelectorPart>>),
@@ -998,6 +1000,20 @@ impl Debug for CssSelectorPart {
                 write_selector_list(f, inner)?;
                 write!(f, ")")
             }
+            CssSelectorPart::Lang(ranges) => {
+                write!(f, ":lang(")?;
+                for (i, range) in ranges.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    if !range.is_empty() && range.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                        write!(f, "{range}")?;
+                    } else {
+                        write!(f, "{range:?}")?;
+                    }
+                }
+                write!(f, ")")
+            }
             CssSelectorPart::Host(None) => write!(f, ":host"),
             CssSelectorPart::Host(Some(inner)) => {
                 write!(f, ":host(")?;
@@ -1105,7 +1121,7 @@ impl From<&[CssSelectorPart]> for Specificity {
                 // Known gap: `:has()` should take the specificity of its most specific argument,
                 // but it is still stored as serialized text, so it counts as one class - the
                 // pre-Selectors-4 behaviour, which errs low rather than high.
-                CssSelectorPart::PseudoClass(_) => {
+                CssSelectorPart::PseudoClass(_) | CssSelectorPart::Lang(_) => {
                     class_count += 1;
                 }
                 // Legacy single-colon `:before`/`:after` are re-classified as pseudo-elements
@@ -1250,6 +1266,12 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
                 walk.bytes(size_of::<NthSelector>());
                 if let Some(list) = &nth.of {
                     parts_list(list, walk);
+                }
+            }
+            CssSelectorPart::Lang(ranges) => {
+                walk.bytes(ranges.capacity() * size_of::<String>());
+                for range in ranges {
+                    range.heap_size(walk);
                 }
             }
             CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}

@@ -99,10 +99,8 @@ sits inside the noise - one run of the page measured below a run of the blank. A
 would need its memory-infra tracing, which reports per-component allocator dumps rather than
 process totals.
 
-**Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:lang()` falls to the matcher's catch-all
-(`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()`,
-`:where()` and `:has()` are evaluated. The
+**Not yet.** Every pseudo-class with an argument is matched (`:not()`, the `:nth-*()` family,
+`:is()`, `:where()`, `:has()` and `:lang()`, in `crates/gosub_css3/src/matcher/styling.rs`), but the
 selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
 drops the rule.
 `:active` is hardcoded false.
