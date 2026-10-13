@@ -346,19 +346,25 @@ fn match_selector_part<C: HasDocument>(
                     && doc.attribute(current_id, "href").is_some()
             }
             "visited" => false,
-            // Structural pseudo-classes
+            // Structural pseudo-classes count element siblings only (selectors-4 §14): the
+            // whitespace text before the first tag of a pretty-printed list is not a child that
+            // `:first-child` should lose to.
             "first-child" => {
                 if let Some(parent_id) = doc.parent(current_id) {
-                    let siblings = doc.children(parent_id);
-                    siblings.first().is_some_and(|&id| id == current_id)
+                    doc.children(parent_id)
+                        .iter()
+                        .find(|&&id| doc.node_type(id) == NodeType::ElementNode)
+                        .is_some_and(|&id| id == current_id)
                 } else {
                     false
                 }
             }
             "last-child" => {
                 if let Some(parent_id) = doc.parent(current_id) {
-                    let siblings = doc.children(parent_id);
-                    siblings.last().is_some_and(|&id| id == current_id)
+                    doc.children(parent_id)
+                        .iter()
+                        .rfind(|&&id| doc.node_type(id) == NodeType::ElementNode)
+                        .is_some_and(|&id| id == current_id)
                 } else {
                     false
                 }

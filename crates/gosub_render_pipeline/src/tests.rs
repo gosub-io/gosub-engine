@@ -251,6 +251,39 @@ mod rendertree_from_engine {
         );
     }
 
+    /// `:first-child` and `:last-child` count element siblings only: the whitespace around a
+    /// pretty-printed list, and running text before an inline element, do not take the place.
+    #[test]
+    fn first_and_last_child_skip_non_element_siblings() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = "<html><head><style>\
+                      li:first-child, b:first-child { width: 100px }\
+                      li:last-child, b:last-child { width: 300px }\
+                    </style></head><body>\
+                    <ul>\n  <li id=\"a\">a</li>\n  <li id=\"m\">m</li>\n  <li id=\"z\">z</li>\n</ul>\
+                    <p>some text <b id=\"b\">bold</b> after</p></body></html>";
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let width = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node).size.width
+        };
+
+        assert_eq!(width("a"), LengthPercentageAuto::Px(100.0), "first li after whitespace");
+        assert_eq!(width("m"), LengthPercentageAuto::Auto, "middle li is neither");
+        assert_eq!(width("z"), LengthPercentageAuto::Px(300.0), "last li before whitespace");
+        // The only element child is both first and last; the later rule wins.
+        assert_eq!(
+            width("b"),
+            LengthPercentageAuto::Px(300.0),
+            "text siblings do not count"
+        );
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

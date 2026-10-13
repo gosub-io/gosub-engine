@@ -103,7 +103,7 @@ process totals.
 `:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all
 fall to the matcher's catch-all (`crates/gosub_css3/src/matcher/styling.rs`); only `:not()` is
 evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
-`:first-child` and `:last-child` count text nodes as siblings. `:active` is hardcoded false.
+`:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
 the one selector form the AST converter has no arm for, so a nested rule is dropped. An
 unresolvable `var()` drops its declaration where css-variables-1 says the property should compute
