@@ -32,9 +32,12 @@ pub struct EngineEventEmitter {
     /// Whether the progress event that completes the body has been forwarded:
     /// it passes the step once, not every time it is repeated.
     completion_reported: std::sync::atomic::AtomicBool,
-    /// Whether the current attempt has already been reported as failed. See
-    /// [`Self::report_failure`]. A retry is a new attempt and clears it.
+    /// Whether the request has already been reported as failed. See
+    /// [`Self::report_failure`].
     failure_reported: std::sync::atomic::AtomicBool,
+    /// Whether the request's row has been opened (`ResourceEvent::Started`). See
+    /// [`Self::open`].
+    opened: std::sync::atomic::AtomicBool,
 }
 
 impl EngineEventEmitter {
@@ -61,22 +64,34 @@ impl EngineEventEmitter {
             last_progress: std::sync::atomic::AtomicU64::new(0),
             completion_reported: std::sync::atomic::AtomicBool::new(false),
             failure_reported: std::sync::atomic::AtomicBool::new(false),
+            opened: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    /// Report an attempt's failure once, keeping the first cause that arrives.
+    /// Open the request's row, once. The fetcher opens every request it takes with
+    /// `Accepted`, before any check or wait: a request refused before it was sent, or
+    /// cancelled while it waited, never gets a `Started`, and still has its row and its
+    /// end. `Started` comes once per attempt, so it opens the row only for a request
+    /// reported by something other than the fetcher that sent no `Accepted`.
+    fn open(&self, url: &url::Url) {
+        if self.opened.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        self.emit(ResourceEvent::Started {
+            request_id: self.req_id,
+            reference: self.reference,
+            url: report_url(url).to_string(),
+            kind: self.kind,
+            initiator: self.initiator,
+        });
+    }
+
+    /// Report the request's failure once, keeping the first cause that arrives.
     ///
     /// The network stack names a specific cause first (`Blocked`, `TlsFailed`) and follows
-    /// it with a terminal `Failed` -- except when it does not: a request rejected by policy
-    /// *before it is sent* never reaches the code that emits the terminal event, so `Blocked`
-    /// is all there is. Reporting on both events would emit two failures for one request;
-    /// reporting only on the terminal one drops every pre-flight rejection on the floor.
-    /// First one wins settles both, and the first is always the more specific.
-    ///
-    /// Once per attempt, not per request: the network stack retries a connect failure (a
-    /// name that does not resolve, a refused connection), and each retry is a new attempt
-    /// that starts and ends again under the same request id. Swallowing the later
-    /// attempts' failures left the request started and never ended in the embedder's log.
+    /// it with the terminal `Failed`. Reporting on both would emit two failures for one
+    /// request; first one wins, and the first is always the more specific. A retried request
+    /// ends once, after its last attempt: the attempts before it end in `Retrying`.
     fn report_failure(&self, url: String, error: LoadError) {
         use std::sync::atomic::Ordering;
         if self.failure_reported.swap(true, Ordering::Relaxed) {
@@ -172,17 +187,8 @@ impl NetObserver for EngineEventEmitter {
                     truncated,
                 });
             }
-            NetEvent::Started { url } => {
-                // A new attempt: its failure is reported in its own right.
-                self.failure_reported.store(false, std::sync::atomic::Ordering::Relaxed);
-                self.emit(ResourceEvent::Started {
-                    request_id: self.req_id,
-                    reference: self.reference,
-                    url: report_url(&url).to_string(),
-                    kind: self.kind,
-                    initiator: self.initiator,
-                });
-            }
+            // The request's row opens on the first of these; see `open`.
+            NetEvent::Accepted { url, .. } | NetEvent::Started { url } => self.open(&url),
             NetEvent::Redirected { from, to, status } => {
                 self.emit(ResourceEvent::Redirected {
                     request_id: self.req_id,
@@ -343,9 +349,8 @@ impl NetObserver for EngineEventEmitter {
                     change: RequestChange::from_net(&change, |u| report_url(u).to_string()),
                 });
             }
-            // Only announces the next attempt. The attempt before it has already ended with its
-            // own `Failed`, and the `Started` that follows resets the failure bookkeeping, so
-            // there is nothing to settle here and the request is not finished either.
+            // Only announces the next attempt: the attempt before it ended here, and the
+            // request goes on.
             NetEvent::Retrying {
                 url,
                 attempt,
@@ -506,30 +511,108 @@ mod tests {
         assert!(matches!(seen[0].0, LoadError::Blocked { .. }));
     }
 
-    /// A connect failure is retried, and every attempt starts again under the same request
-    /// id. Each attempt has to end too, or the last one leaves the request running for good
-    /// in the embedder's log: a name that did not resolve showed "Resolving" for minutes.
-    #[test]
-    fn every_retried_attempt_ends() {
-        let (emitter, mut rx) = emitter();
-        let url = url::Url::parse("https://does-not-resolve.test/").unwrap();
-        for _ in 0..3 {
-            emitter.on_event(NetEvent::Started { url: url.clone() });
-            emitter.on_event(NetEvent::Failed {
-                url: url.clone(),
-                error: anyhow::anyhow!("dns error: failed to lookup address information"),
-            });
-        }
-
-        let mut events = Vec::new();
-        while let Ok(ResourceUpdate { event, .. }) = rx.try_recv() {
-            events.push(match event {
+    /// The names of the events the receiver saw, in order.
+    fn names(rx: &mut tokio::sync::broadcast::Receiver<ResourceUpdate>) -> Vec<&'static str> {
+        drain(rx)
+            .into_iter()
+            .map(|ev| match ev {
                 ResourceEvent::Started { .. } => "started",
                 ResourceEvent::Failed { .. } => "failed",
+                ResourceEvent::Finished { .. } => "finished",
+                ResourceEvent::Retrying { .. } => "retrying",
                 _ => "other",
+            })
+            .collect()
+    }
+
+    /// A retried request has one row and one end: every attempt reports its `Started`,
+    /// `Retrying` comes between them, and only the last attempt ends the request.
+    #[test]
+    fn a_retried_request_has_one_row_and_one_end() {
+        let (emitter, mut rx) = emitter();
+        let target = url("https://does-not-resolve.test/");
+        emitter.on_event(NetEvent::Accepted {
+            url: target.clone(),
+            joined: false,
+        });
+        for attempt in 1..=2 {
+            emitter.on_event(NetEvent::Started { url: target.clone() });
+            emitter.on_event(NetEvent::Retrying {
+                url: target.clone(),
+                attempt,
+                delay: std::time::Duration::ZERO,
+                reason: "dns error".into(),
             });
         }
-        assert_eq!(events, ["started", "failed", "started", "failed", "started", "failed"]);
+        emitter.on_event(NetEvent::Started { url: target.clone() });
+        emitter.on_event(NetEvent::Failed {
+            url: target,
+            error: anyhow::anyhow!("dns error: failed to lookup address information"),
+        });
+        assert_eq!(names(&mut rx), ["started", "retrying", "retrying", "failed"]);
+    }
+
+    /// A request refused before it was sent never gets a `Started`, and still has its row
+    /// and its end, with the cause the refusal named.
+    #[test]
+    fn a_request_refused_before_it_was_sent_has_its_row() {
+        let (emitter, mut rx) = emitter();
+        let target = url("http://insecure.test/a.css");
+        emitter.on_event(NetEvent::Accepted {
+            url: target.clone(),
+            joined: false,
+        });
+        emitter.on_event(NetEvent::Blocked {
+            url: target.clone(),
+            reason: BlockReason::MixedContent,
+        });
+        emitter.on_event(NetEvent::Failed {
+            url: target.clone(),
+            error: anyhow::anyhow!(crate::net::types::NetError::Blocked {
+                reason: BlockReason::MixedContent,
+                url: target,
+            }),
+        });
+        let events = drain(&mut rx);
+        assert!(matches!(events[0], ResourceEvent::Started { .. }), "{events:?}");
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(
+            matches!(
+                &events[1],
+                ResourceEvent::Failed {
+                    error: LoadError::Blocked { .. },
+                    ..
+                }
+            ),
+            "{events:?}"
+        );
+    }
+
+    /// A request that joined another's fetch opens its row on `Accepted`: it has no
+    /// `Started` of its own. A loader that reports no `Accepted` opens it on `Started`.
+    #[test]
+    fn the_row_opens_on_accepted_or_else_on_started() {
+        let target = url("https://example.test/a.css");
+        let (joined, mut rx) = emitter();
+        joined.on_event(NetEvent::Accepted {
+            url: target.clone(),
+            joined: true,
+        });
+        joined.on_event(NetEvent::Finished {
+            url: target.clone(),
+            received_bytes: 1,
+            elapsed: std::time::Duration::ZERO,
+        });
+        assert_eq!(names(&mut rx), ["started", "finished"]);
+
+        let (loaded, mut rx) = emitter();
+        loaded.on_event(NetEvent::Started { url: target.clone() });
+        loaded.on_event(NetEvent::Finished {
+            url: target,
+            received_bytes: 1,
+            elapsed: std::time::Duration::ZERO,
+        });
+        assert_eq!(names(&mut rx), ["started", "finished"]);
     }
 
     /// Every event the receiver saw, in order.
@@ -688,46 +771,6 @@ mod tests {
         assert_eq!(attempt, 2);
         assert_eq!(delay, std::time::Duration::from_millis(250));
         assert_eq!(reason, "connection refused");
-    }
-
-    /// A retry sits between one attempt's `Failed` and the next one's `Started`. It must not
-    /// end the request itself, nor swallow the next attempt's failure.
-    #[test]
-    fn a_retry_between_attempts_keeps_one_terminal_per_attempt() {
-        let (emitter, mut rx) = emitter();
-        let target = url("https://does-not-resolve.test/");
-        for attempt in 1..=2 {
-            emitter.on_event(NetEvent::Started { url: target.clone() });
-            emitter.on_event(NetEvent::Failed {
-                url: target.clone(),
-                error: anyhow::anyhow!("dns error: failed to lookup address information"),
-            });
-            emitter.on_event(NetEvent::Retrying {
-                url: target.clone(),
-                attempt,
-                delay: std::time::Duration::ZERO,
-                reason: "dns error".into(),
-            });
-        }
-        emitter.on_event(NetEvent::Started { url: target.clone() });
-        emitter.on_event(NetEvent::Failed {
-            url: target,
-            error: anyhow::anyhow!("dns error: failed to lookup address information"),
-        });
-
-        let events: Vec<_> = drain(&mut rx)
-            .into_iter()
-            .map(|ev| match ev {
-                ResourceEvent::Started { .. } => "started",
-                ResourceEvent::Failed { .. } => "failed",
-                ResourceEvent::Retrying { .. } => "retrying",
-                _ => "other",
-            })
-            .collect();
-        assert_eq!(
-            events,
-            ["started", "failed", "retrying", "started", "failed", "retrying", "started", "failed"]
-        );
     }
 
     #[test]

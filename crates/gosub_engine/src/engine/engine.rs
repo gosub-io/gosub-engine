@@ -2147,8 +2147,9 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
-    #[tokio::test]
-    async fn accept_language_is_sent_with_navigation_requests() {
+    /// The request a navigation in a zone with `zone_cfg` sends, as the server read it,
+    /// lowercased.
+    async fn navigation_request(zone_cfg: ZoneConfig) -> String {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         // Tiny one-shot HTTP server that captures the request it receives.
@@ -2175,10 +2176,6 @@ mod tests {
         let _event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
 
-        let zone_cfg = ZoneConfig::builder()
-            .accept_languages("fr-CH, fr;q=0.9")
-            .build()
-            .unwrap();
         let mut zone = engine
             .zone_builder()
             .config(zone_cfg)
@@ -2200,16 +2197,38 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        use cow_utils::CowUtils;
-        assert!(
-            request
-                .cow_to_ascii_lowercase()
-                .contains("accept-language: fr-ch, fr;q=0.9"),
-            "expected Accept-Language header in request, got:\n{request}"
-        );
-
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
+        use cow_utils::CowUtils;
+        request.cow_to_ascii_lowercase().into_owned()
+    }
+
+    #[tokio::test]
+    async fn accept_language_is_sent_with_navigation_requests() {
+        let zone_cfg = ZoneConfig::builder()
+            .accept_languages("fr-CH, fr;q=0.9")
+            .build()
+            .unwrap();
+        let request = navigation_request(zone_cfg).await;
+        assert!(
+            request.contains("accept-language: fr-ch, fr;q=0.9"),
+            "expected Accept-Language header in request, got:\n{request}"
+        );
+    }
+
+    /// A zone that names no languages sends the user's, from the system, and none when the
+    /// system names none either.
+    #[tokio::test]
+    async fn accept_language_defaults_to_the_system_languages() {
+        let request = navigation_request(ZoneConfig::builder().build().unwrap()).await;
+        match crate::engine::locale::os_accept_language() {
+            Some(languages) => {
+                use cow_utils::CowUtils;
+                let expected = format!("accept-language: {}", languages.cow_to_ascii_lowercase());
+                assert!(request.contains(&expected), "expected {expected}, got:\n{request}");
+            }
+            None => assert!(!request.contains("accept-language:"), "{request}"),
+        }
     }
 
     /// A page served from the private network may load its neighbours, also when its host is

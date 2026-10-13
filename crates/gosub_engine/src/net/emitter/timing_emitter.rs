@@ -2,8 +2,9 @@
 //!
 //! Fetching happens in `gosub-sonar`, so the engine has no clock on it. What it does
 //! have is sonar's observer hook, and the events already carry the numbers we want:
-//! `Finished` reports its own `elapsed`, and the arrival of `ResponseHeaders` is time
-//! to first byte. This wraps whatever observer the engine would otherwise have used,
+//! `Finished` reports its own `elapsed`, the arrival of `ResponseHeaders` is time to
+//! first byte, and the time from `Accepted` to the first `Started` is the wait for a
+//! connection slot. This wraps whatever observer the engine would otherwise have used,
 //! reads those two events in passing, and hands the event on untouched.
 //!
 //! It is a decorator rather than a fan-out on purpose. [`NetObserver::on_event`] takes
@@ -34,6 +35,9 @@ pub struct TimingEmitter {
     /// duration. `Started` normally sets it; requests served from cache may never emit
     /// `Started`, in which case TTFB is skipped rather than guessed.
     started: parking_lot::Mutex<Option<Instant>>,
+    /// When the fetcher took this request (`Accepted`), until its first attempt goes out:
+    /// the time between the two is `net.queue`.
+    accepted: parking_lot::Mutex<Option<Instant>>,
     /// Duration of this request's DNS lookup, if one happened.
     ///
     /// sonar resolves *inside* the connector, so `Connected` encloses `DnsResolved`
@@ -59,6 +63,7 @@ impl TimingEmitter {
             kind,
             scope,
             started: parking_lot::Mutex::new(None),
+            accepted: parking_lot::Mutex::new(None),
             last_dns: parking_lot::Mutex::new(None),
         }
     }
@@ -103,8 +108,17 @@ impl NetObserver for TimingEmitter {
     fn on_event(&self, ev: NetEvent) {
         // Read what we need by reference; ownership of `ev` still moves on below.
         match &ev {
-            NetEvent::Started { .. } => {
-                *self.started.lock() = Some(Instant::now());
+            NetEvent::Accepted { .. } => {
+                *self.accepted.lock() = Some(Instant::now());
+            }
+            NetEvent::Started { url } => {
+                let now = Instant::now();
+                *self.started.lock() = Some(now);
+                // The first attempt only: a retry's wait is its backoff, which `Retrying`
+                // reports.
+                if let Some(accepted) = self.accepted.lock().take() {
+                    self.record(Timing::NetQueue, now - accepted, url);
+                }
             }
             NetEvent::ResponseHeaders { url, .. } => {
                 if let Some(started) = *self.started.lock() {
@@ -209,6 +223,37 @@ mod test {
             .expect("recorded in the navigation scope");
         assert_eq!(fetch.count, 1);
         assert_eq!(fetch.total_us, 25_000);
+    }
+
+    /// `net.queue` is the wait from `Accepted` to the first `Started`, once per request: a
+    /// retry's later `Started` is backoff, not queueing.
+    #[test]
+    fn records_the_queue_wait_once() {
+        let scope = gosub_shared::timing::ScopeId(uuid::Uuid::new_v4());
+        let inner = Arc::new(CountingObserver(AtomicUsize::new(0)));
+        let em = TimingEmitter::wrap(inner, ResourceKind::Stylesheet, Some(scope));
+
+        em.on_event(NetEvent::Accepted {
+            url: url(),
+            joined: false,
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        em.on_event(NetEvent::Started { url: url() });
+        em.on_event(NetEvent::Retrying {
+            url: url(),
+            attempt: 1,
+            delay: Duration::ZERO,
+            reason: "503".into(),
+        });
+        em.on_event(NetEvent::Started { url: url() });
+
+        let scoped = gosub_shared::timing::snapshot_stats_for(scope);
+        let queue = scoped
+            .iter()
+            .find(|s| s.namespace == "net.queue")
+            .expect("net.queue recorded");
+        assert_eq!(queue.count, 1);
+        assert!(queue.total_us >= 20_000, "{}us", queue.total_us);
     }
 
     #[test]

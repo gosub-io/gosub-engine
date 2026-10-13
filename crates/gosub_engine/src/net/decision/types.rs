@@ -75,6 +75,9 @@ pub enum BlockReason {
     /// The port is one the Fetch standard blocks (SMTP, IRC and the rest), so
     /// nothing was sent ([Fetch] §2.9).
     BadPort,
+    /// The method is one web content may not use (`CONNECT`, `TRACE`, `TRACK`), so nothing
+    /// was sent ([Fetch] §2.2.1).
+    ForbiddenMethod,
 }
 
 impl BlockReason {
@@ -87,6 +90,7 @@ impl BlockReason {
             gosub_sonar::net::types::BlockReason::Cors(error) => BlockReason::Cors(CorsFailure::from_net(error)),
             gosub_sonar::net::types::BlockReason::NotCached => BlockReason::NotCached,
             gosub_sonar::net::types::BlockReason::BadPort => BlockReason::BadPort,
+            gosub_sonar::net::types::BlockReason::ForbiddenMethod => BlockReason::ForbiddenMethod,
         }
     }
 }
@@ -101,6 +105,7 @@ impl std::fmt::Display for BlockReason {
             BlockReason::Cors(failure) => return write!(f, "blocked by CORS: {failure}"),
             BlockReason::NotCached => "not in the cache",
             BlockReason::BadPort => "blocked port",
+            BlockReason::ForbiddenMethod => "forbidden method",
         };
         f.write_str(s)
     }

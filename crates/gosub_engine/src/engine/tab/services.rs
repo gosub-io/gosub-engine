@@ -58,10 +58,12 @@ pub fn resolve_tab_services(
         TabCookieJar::Ephemeral => DefaultCookieJar::new().into(),
     };
 
+    // The tab's own, else the zone's, else the user's languages from the system.
     let accept_language = ov
         .accept_language
         .clone()
-        .or_else(|| zone_config.accept_languages.clone());
+        .or_else(|| zone_config.accept_languages.clone())
+        .or_else(crate::engine::locale::os_accept_language);
 
     let places = services.places.clone();
 
