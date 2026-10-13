@@ -8,7 +8,7 @@ the command is next to it. Anything without a command is a reading of the code a
 
 1,547 tests pass, none fail (`cargo test --workspace`).
 
-The CSS parser validates 666 properties against generated grammars. Only 92 reach layout and
+The CSS parser validates 666 properties against generated grammars. Only 93 reach layout and
 paint. Accepting a declaration and acting on it are different things, so the sections below say
 which of the two they mean.
 
@@ -124,13 +124,13 @@ document; the CSS WPT component stands at 3,349 of 5,759 subtests
 
 ## Layout and paint - `gosub_render_pipeline`
 
-**Works.** 93 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
+**Works.** 94 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
 in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
-covers the box model, flex, grid (including `grid-template-areas`), floats with document-order
-band resolution, absolute and fixed positioning, `position: sticky`, overflow and scrolling,
-borders and radii, backgrounds and gradients, outlines, opacity and `mix-blend-mode`,
-`visibility` (paint and hit testing; `collapse` does not drop table tracks), and the text
-properties. Block layout, flex and grid come from Taffy; inline content is emulated with
+covers the box model, flex, grid (including `grid-template-areas`), `order` for both, floats
+with document-order band resolution, absolute and fixed positioning, `position: sticky`, overflow
+and scrolling, borders and radii, backgrounds and gradients, outlines, opacity and
+`mix-blend-mode`, `visibility` (paint and hit testing; `collapse` does not drop table tracks), and
+the text properties. Block layout, flex and grid come from Taffy; inline content is emulated with
 anonymous flex containers; CSS tables go to `gosub_lattice` through the `TableTree` adapter.
 After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
