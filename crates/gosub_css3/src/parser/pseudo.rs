@@ -10,6 +10,72 @@ impl Css3<'_> {
         self.parse_selector_list()
     }
 
+    /// `:is()` and `:where()` take a forgiving selector list (Selectors L4): an argument that
+    /// does not parse is dropped on its own, and the others still count. The extent of each
+    /// argument is found first, up to the next top-level `,` or `)`, so a failed attempt can skip
+    /// what it left of it. An attempt that ran past that point is an error, as before.
+    fn parse_forgiving_selector_list(&mut self) -> CssResult<Node> {
+        log::trace!("parse_forgiving_selector_list");
+
+        let loc = self.tokenizer.current_location();
+        let mut selectors = vec![];
+
+        loop {
+            // A space after `(` or `,` is not a descendant combinator.
+            self.consume_whitespace_comments();
+            let extent = self.argument_extent();
+            let start = self.tokenizer.consumed();
+            let parsed = self.parse_complex_selector();
+            if parsed.is_ok() {
+                self.consume_whitespace_comments();
+            }
+            let used = self.tokenizer.consumed() - start;
+            let at_end = matches!(
+                self.tokenizer.lookahead(0).token_type,
+                TokenType::Comma | TokenType::RParen | TokenType::Eof
+            );
+
+            match parsed {
+                Ok(selector) if at_end => selectors.push(selector),
+                Err(err) if used > extent => return Err(err),
+                _ if used > extent => {
+                    return Err(CssError::with_location(
+                        "selector argument ran past its end",
+                        self.tokenizer.current_location(),
+                    ))
+                }
+                _ => {
+                    for _ in used..extent {
+                        self.tokenizer.consume();
+                    }
+                }
+            }
+
+            if !matches!(self.tokenizer.lookahead(0).token_type, TokenType::Comma) {
+                break;
+            }
+            self.tokenizer.consume();
+        }
+
+        Ok(Node::new(NodeType::SelectorList { selectors }, loc))
+    }
+
+    /// The number of tokens up to the next `,` or `)` outside any bracket, without consuming them.
+    fn argument_extent(&mut self) -> usize {
+        let mut depth: usize = 0;
+        let mut i = 0;
+        loop {
+            match self.tokenizer.lookahead(i).token_type {
+                TokenType::Eof => return i,
+                TokenType::Comma | TokenType::RParen | TokenType::RCurly if depth == 0 => return i,
+                TokenType::LParen | TokenType::LBracket | TokenType::LCurly | TokenType::Function(_) => depth += 1,
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+
     fn parse_pseudo_function_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_function_selector");
 
@@ -121,11 +187,11 @@ impl Css3<'_> {
             "dir" => self.parse_pseudo_function_ident_list(),
             "has" => self.parse_pseudo_function_selector_list(),
             "lang" => self.parse_pseudo_function_ident_list(),
-            "matches" => self.parse_pseudo_function_selector_list(),
-            "is" => self.parse_pseudo_function_selector_list(),
+            "matches" => self.parse_forgiving_selector_list(),
+            "is" => self.parse_forgiving_selector_list(),
             "-moz-any" => self.parse_pseudo_function_selector_list(),
             "-webkit-any" => self.parse_pseudo_function_selector_list(),
-            "where" => self.parse_pseudo_function_selector_list(),
+            "where" => self.parse_forgiving_selector_list(),
             "not" => self.parse_pseudo_function_selector_list(),
             "nth-child" => self.parse_pseudo_function_nth(),
             "nth-last-child" => self.parse_pseudo_function_nth(),

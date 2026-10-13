@@ -167,8 +167,10 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
             }
             _ => continue,
         };
+        // Each selector of the list is a complex selector of its own.
         for selector in selectors {
             if let NodeType::Selector { children } = selector.node_type {
+                out.push(vec![]);
                 convert_selector_children(children, &mut out)?;
             }
         }
@@ -1576,6 +1578,47 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
+    }
+
+    /// `:is()` and `:where()` take a forgiving selector list: an argument that does not parse is
+    /// dropped on its own, and the rule keeps the others.
+    #[test]
+    fn is_where_drop_arguments_that_do_not_parse() {
+        let stylesheet = Css3::parse_str(
+            "a:is(.ok, :bogus(1)) { color: red } a:is(.ok, .a!) { color: red } \
+             a:is(.ok, [x]]) { color: red } a:where(:bogus(1), .x > .y) { color: red } \
+             a:is(.a , .b ) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let list = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+            Some(CssSelectorPart::Is(list) | CssSelectorPart::Where(list)) => list.clone(),
+            other => panic!("expected an Is or Where part, got {other:?}"),
+        };
+        let ok = vec![vec![CssSelectorPart::Class("ok".into())]];
+        assert_eq!(list(0), ok, "an unknown functional pseudo-class");
+        assert_eq!(list(1), ok, "a stray delimiter");
+        assert_eq!(list(2), ok, "an unbalanced bracket");
+        assert_eq!(
+            list(3),
+            vec![vec![
+                CssSelectorPart::Class("x".into()),
+                CssSelectorPart::Combinator(Combinator::Child),
+                CssSelectorPart::Class("y".into()),
+            ]],
+            "the argument after a dropped one, without the space after the comma"
+        );
+        assert_eq!(
+            list(4),
+            vec![
+                vec![CssSelectorPart::Class("a".into())],
+                vec![CssSelectorPart::Class("b".into())]
+            ],
+            "space around the comma separates, it does not combine"
+        );
     }
 
     #[test]
