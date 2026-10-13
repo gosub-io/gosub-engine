@@ -335,6 +335,46 @@ mod rendertree_from_engine {
         );
     }
 
+    /// `:has()` looks forward from the element: into its subtree (descendant or child) or along
+    /// its later siblings (next or any), and a relative selector may chain further compounds.
+    #[test]
+    fn has_matches_relative_to_the_element() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"<html><head><style>
+          div:has(> img) { width: 100px }
+          div:has(+ p) { height: 30px }
+          div:has(~ span.z) { min-height: 40px }
+          section:has(.a .b) { width: 200px }
+        </style></head><body>
+          <div id="child"><img src=""></div>
+          <div id="deep"><span><img src=""></span></div>
+          <div id="next"></div>
+          <p>p</p>
+          <span class="z">z</span>
+          <section id="chain"><div class="a"><i class="b">b</i></div></section>
+          <section id="no-chain"><i class="b">b</i></section>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let size = |id: &str| {
+            let node = find_node_by_id_attr(&adapter.doc, root, id).expect(id);
+            adapter.computed_style(node).size.clone()
+        };
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(size("child").width, px(100.0), "an img child");
+        assert_ne!(size("deep").width, px(100.0), "an img grandchild is not a child");
+        assert_eq!(size("next").height, px(30.0), "a p right after");
+        assert_ne!(size("child").height, px(30.0), "a p two siblings on is not next");
+        assert_eq!(size("child").min_height, px(40.0), "a later span.z sibling");
+        assert_eq!(size("chain").width, px(200.0), "an .a with a .b inside");
+        assert_ne!(size("no-chain").width, px(200.0), "a .b without the .a");
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

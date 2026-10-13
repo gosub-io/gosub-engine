@@ -808,6 +808,10 @@ pub enum CssSelectorPart {
     /// `:where(...)`: matches like `:is()`, but contributes no specificity at all - which is why
     /// resets wrap themselves in it, so that any author rule beats them.
     Where(Vec<Vec<CssSelectorPart>>),
+    /// `:has(...)`, holding its relative selectors. Each one starts with the combinator that
+    /// relates it to the element being matched (a descendant combinator where none was written):
+    /// `:has(> img)` is `[Child, img]`, `:has(.x)` is `[Descendant, .x]`.
+    Has(Vec<Vec<CssSelectorPart>>),
     /// `:host` (as `None`) or `:host(<selector>)` (as `Some`). Matches the element a shadow
     /// tree hangs off, and only from that tree's own stylesheets - the host itself lives in
     /// the outer tree, so this is one of the two ways a shadow sheet reaches outwards.
@@ -904,6 +908,11 @@ impl Debug for CssSelectorPart {
             }
             CssSelectorPart::Where(inner) => {
                 write!(f, ":where(")?;
+                write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Has(inner) => {
+                write!(f, ":has(")?;
                 write_selector_list(f, inner)?;
                 write!(f, ")")
             }
@@ -1024,7 +1033,8 @@ impl From<&[CssSelectorPart]> for Specificity {
                 }
                 // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
                 // argument counts as if it were written in place of the `:not()`.
-                CssSelectorPart::Not(inner) | CssSelectorPart::Is(inner) => {
+                // `:has()` counts like `:is()`: its most specific argument (Selectors L4 §17).
+                CssSelectorPart::Not(inner) | CssSelectorPart::Is(inner) | CssSelectorPart::Has(inner) => {
                     if let Some(most) = inner.iter().map(|parts| Specificity::from(parts.as_slice())).max() {
                         id_count += most.id_count();
                         class_count += most.class_count();
@@ -1135,6 +1145,7 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
             CssSelectorPart::Not(list)
             | CssSelectorPart::Is(list)
             | CssSelectorPart::Where(list)
+            | CssSelectorPart::Has(list)
             | CssSelectorPart::Slotted(list) => parts_list(list, walk),
             CssSelectorPart::Host(Some(list)) => parts_list(list, walk),
             CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}

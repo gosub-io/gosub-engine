@@ -100,9 +100,9 @@ would need its memory-infra tracing, which reports per-component allocator dumps
 process totals.
 
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:nth-child()` and the rest of the nth family, `:has()` and `:lang()` all fall to the
-matcher's catch-all (`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, `:is()` and
-`:where()` are evaluated, and the specificity of `:has()` errs low because it is not. The
+`:nth-child()` and the rest of the nth family and `:lang()` fall to the matcher's catch-all
+(`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, `:is()`, `:where()` and `:has()` are
+evaluated. The
 selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
 drops the rule.
 `:active` is hardcoded false.
