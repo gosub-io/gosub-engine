@@ -13,7 +13,9 @@ impl Css3<'_> {
     /// `:is()` and `:where()` take a forgiving selector list (Selectors L4): an argument that
     /// does not parse is dropped on its own, and the others still count. The extent of each
     /// argument is found first, up to the next top-level `,` or `)`, so a failed attempt can skip
-    /// what it left of it. An attempt that ran past that point is an error, as before.
+    /// what it left of it. An attempt that took the `,` or `)` ending the argument (a parse
+    /// function that fails on the token after it) gets that token back; one that ran further is
+    /// an error, as before.
     fn parse_forgiving_selector_list(&mut self) -> CssResult<Node> {
         log::trace!("parse_forgiving_selector_list");
 
@@ -24,6 +26,7 @@ impl Css3<'_> {
             // A space after `(` or `,` is not a descendant combinator.
             self.consume_whitespace_comments();
             let extent = self.argument_extent();
+            let boundary = self.tokenizer.lookahead(extent).clone();
             let start = self.tokenizer.consumed();
             let parsed = self.parse_complex_selector();
             if parsed.is_ok() {
@@ -37,17 +40,18 @@ impl Css3<'_> {
 
             match parsed {
                 Ok(selector) if at_end => selectors.push(selector),
-                Err(err) if used > extent => return Err(err),
-                _ if used > extent => {
+                _ if used <= extent => {
+                    for _ in used..extent {
+                        self.tokenizer.consume();
+                    }
+                }
+                _ if used == extent + 1 => self.tokenizer.reconsume(boundary),
+                Err(err) => return Err(err),
+                Ok(_) => {
                     return Err(CssError::with_location(
                         "selector argument ran past its end",
                         self.tokenizer.current_location(),
                     ))
-                }
-                _ => {
-                    for _ in used..extent {
-                        self.tokenizer.consume();
-                    }
                 }
             }
 

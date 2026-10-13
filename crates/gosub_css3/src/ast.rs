@@ -1688,7 +1688,8 @@ mod tests {
         let stylesheet = Css3::parse_str(
             "a:is(.ok, :bogus(1)) { color: red } a:is(.ok, .a!) { color: red } \
              a:is(.ok, [x]]) { color: red } a:where(:bogus(1), .x > .y) { color: red } \
-             a:is(.a , .b ) { color: red }",
+             a:is(.a , .b ) { color: red } a:is(., .ok) { color: red } a:is(.ok, .) { color: red } \
+             a:is(#, .ok) { color: red } a:is(.a:, .ok) { color: red }",
             ParserConfig::default(),
             CssOrigin::Author,
             "test.css",
@@ -1720,6 +1721,13 @@ mod tests {
             ],
             "space around the comma separates, it does not combine"
         );
+        for i in 5..9 {
+            assert_eq!(
+                list(i),
+                ok,
+                "a failed argument that took the `,` or `)` after it, rule {i}"
+            );
+        }
     }
 
     /// An argument that parses but is invalid - an unknown pseudo-class or a pseudo-element, also
