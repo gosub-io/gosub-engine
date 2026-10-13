@@ -867,6 +867,9 @@ fn fingerprint_complex(parts: &[CssSelectorPart], outer: &[&CssSelectorPart], fp
                 CssSelectorPart::Is(list) | CssSelectorPart::Where(list) | CssSelectorPart::Not(list) => {
                     list.iter().all(|inner| fingerprint_complex(inner, &context, fp))
                 }
+                // A `:hover` inside `:has()` restyles the *anchor*, an element the hovered one
+                // only relates to - which no name of the hovered element can narrow.
+                CssSelectorPart::Has(list) => !list.iter().flatten().any(mentions_hover),
                 _ => true,
             };
             if !narrowed {
@@ -875,6 +878,18 @@ fn fingerprint_complex(parts: &[CssSelectorPart], outer: &[&CssSelectorPart], fp
         }
     }
     true
+}
+
+/// Whether `part` is `:hover` or holds one in a selector-list argument, however deep.
+fn mentions_hover(part: &CssSelectorPart) -> bool {
+    match part {
+        CssSelectorPart::PseudoClass(name) => name == "hover",
+        CssSelectorPart::Is(list)
+        | CssSelectorPart::Where(list)
+        | CssSelectorPart::Not(list)
+        | CssSelectorPart::Has(list) => list.iter().flatten().any(mentions_hover),
+        _ => false,
+    }
 }
 
 /// Adds the Type/Class/Id parts of one `:hover` compound to the fingerprint; false if it has
@@ -1451,5 +1466,8 @@ mod tests {
     fn an_unnarrowed_nested_hover_is_universal() {
         assert!(fingerprints(":is(:hover) { color: red }").has_universal);
         assert!(fingerprints(".item:is(:hover .x) { color: red }").has_universal);
+        // `:has()` restyles the anchor when something inside it is hovered.
+        assert!(fingerprints(".card:has(.btn:hover) { color: red }").has_universal);
+        assert!(!fingerprints(".card:has(.btn) { color: red }").has_universal);
     }
 }

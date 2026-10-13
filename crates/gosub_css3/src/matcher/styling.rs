@@ -225,6 +225,63 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
     Some(last)
 }
 
+/// Whether a relative selector (`[combinator, compound, combinator, compound, ...]`) is satisfied
+/// starting from `anchor`. Walked left to right, the way it reads: the combinator names the
+/// candidates, each candidate matching the compound continues with the rest from there.
+fn match_relative<C: HasDocument>(doc: &C::Document, anchor: NodeId, relative: &[CssSelectorPart]) -> bool {
+    let Some((CssSelectorPart::Combinator(combinator), rest)) = relative.split_first() else {
+        return false;
+    };
+    let end = rest
+        .iter()
+        .position(|p| matches!(p, CssSelectorPart::Combinator(_)))
+        .unwrap_or(rest.len());
+    let (compound, tail) = rest.split_at(end);
+    if compound.is_empty() {
+        return false;
+    }
+
+    let try_candidate = |candidate: NodeId| {
+        doc.node_type(candidate) == NodeType::ElementNode
+            && match_selector_parts::<C>(doc, candidate, compound, None, ScopeContext::plain())
+            && (tail.is_empty() || match_relative::<C>(doc, candidate, tail))
+    };
+
+    match combinator {
+        Combinator::Child => doc.children(anchor).iter().any(|&c| try_candidate(c)),
+        Combinator::NextSibling | Combinator::SubsequentSibling => {
+            let Some(parent) = doc.parent(anchor) else {
+                return false;
+            };
+            let siblings = doc.children(parent);
+            let Some(position) = siblings.iter().position(|&s| s == anchor) else {
+                return false;
+            };
+            let mut later = siblings[position + 1..]
+                .iter()
+                .copied()
+                .filter(|&s| doc.node_type(s) == NodeType::ElementNode);
+            if matches!(combinator, Combinator::NextSibling) {
+                later.next().is_some_and(try_candidate)
+            } else {
+                later.any(try_candidate)
+            }
+        }
+        // Descendant, and the namespace and column combinators this engine has no tree for:
+        // search the subtree, depth first.
+        _ => {
+            let mut stack: Vec<NodeId> = doc.children(anchor).iter().rev().copied().collect();
+            while let Some(node) = stack.pop() {
+                if try_candidate(node) {
+                    return true;
+                }
+                stack.extend(doc.children(node).iter().rev().copied());
+            }
+            false
+        }
+    }
+}
+
 /// Returns true when the given node matches the part(s)
 fn match_selector_parts<C: HasDocument>(
     doc: &C::Document,
@@ -277,6 +334,29 @@ fn match_selector_part<C: HasDocument>(
         CssSelectorPart::Is(inner) | CssSelectorPart::Where(inner) => inner
             .iter()
             .any(|complex| match_selector_parts::<C>(doc, current_id, complex, pseudo, ScopeContext::plain())),
+        // `:has()` matches when some element, related to this one as its relative selector says,
+        // matches it - a descendant, a child, the next sibling or a later one.
+        //
+        // The search is the expensive part of any selector, and a compound is matched right to
+        // left, so in `.zone:has(.x)` it would run before `.zone` on every element tried. The
+        // rest of this compound goes first instead: it is a conjunction, so asking it early
+        // changes nothing but the cost.
+        CssSelectorPart::Has(inner) => {
+            let start = parts
+                .iter()
+                .rposition(|p| matches!(p, CssSelectorPart::Combinator(_)))
+                .map_or(0, |i| i + 1);
+            let others = &parts[start..];
+            if !others.is_empty()
+                && !others.iter().any(|p| matches!(p, CssSelectorPart::Has(_)))
+                && !match_selector_parts::<C>(doc, current_id, others, pseudo, scope)
+            {
+                return false;
+            }
+            inner
+                .iter()
+                .any(|relative| match_relative::<C>(doc, current_id, relative))
+        }
         // `:host` is only meaningful as the leftmost part, where `match_compound` handles it.
         CssSelectorPart::Host(_) => false,
         CssSelectorPart::Slotted(inner) => {
