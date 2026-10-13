@@ -91,7 +91,7 @@ metrics = []
 # Aspirational message vocabulary: variants the engine declares but does not yet emit or
 # handle. Off by default so the default surface is only what works.
 unstable-api = []
-# Records fetch timings (net.fetch.*, net.ttfb) into the shared timing table by
+# Records fetch timings (net.queue, net.fetch.*, net.ttfb) into the shared timing table by
 # wrapping the per-request net observer. Off by default: it is opt-in instrumentation,
 # and with it off no wrapper is constructed at all.
 timing = ["gosub_shared/timing"]
