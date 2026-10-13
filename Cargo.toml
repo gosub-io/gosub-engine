@@ -103,11 +103,11 @@ seccompiler = "0.4"
 serde = "1.0.228"
 serde_json = "1.0.150"
 simple_logger = "5.2.0"
-# svg/wayland/x11 make the workspace-wide feature union (with gl, egl,
-# textlayout from the renderer/examples) match a published skia-binaries
-# bundle exactly; any other union silently rebuilds Skia's C++ from source
-# (~14 min per cold CI job).
-skia-safe = { version = "0.99.0", features = ["svg", "wayland", "x11"] }
+# svg here, plus wayland/x11 from gosub_renderer_skia off Windows, make the
+# workspace-wide feature union (with gl, egl, textlayout from the
+# renderer/examples) match a published skia-binaries bundle exactly; any other
+# union silently rebuilds Skia's C++ from source (~14 min per cold CI job).
+skia-safe = { version = "0.99.0", features = ["svg"] }
 softbuffer = "0.4"
 stacker = "0.1.25"
 taffy = {version = "0.14.0", default-features = false}
