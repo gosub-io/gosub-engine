@@ -288,9 +288,11 @@ and the clause that makes the new value right.
 
 ## Known gaps
 
--   A pseudo-class with an argument is stored as its text and never matches: `:nth-child()` and
-    the rest of the nth family, `:lang()`. `:not()`, `:is()` (and `:matches()`), `:where()` and
+-   A pseudo-class with an argument is stored as its text and never matches: `:lang()`.
+    `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`), `:where()` and
     `:has()` are evaluated.
+-   `:nth-*()` counts siblings on every match, so a rule like `tr:nth-child(odd)` over a very
+    long table costs time quadratic in its rows; there is no per-parent index cache.
 -   `:has()` searches the element's subtree or later siblings on every match, with no cache, so
     `body:has(dialog[open])` costs a walk of the page each time `body` is styled. Its result is
     only as fresh as the anchor's style: a change below the anchor does not restyle it, except

@@ -18,7 +18,7 @@ use crate::functions::calc;
 use crate::matcher::bloom::AncestorFilter;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
-use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
+use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, NthSelector, Specificity};
 use crate::system::Css3System;
 use crate::tokenizer::NumberKind;
 
@@ -225,6 +225,40 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
     Some(last)
 }
 
+/// Whether `node` sits at an `An+B` position among the siblings an `:nth-*()` counts: element
+/// siblings only, of the node's own type for the `-of-type` pair, and matching `S` for `of S` -
+/// which the node itself must match too (Selectors L4 §14.4).
+fn match_nth<C: HasDocument>(doc: &C::Document, node: NodeId, nth: &NthSelector) -> bool {
+    let Some(parent) = doc.parent(node) else {
+        return false;
+    };
+    // An element's type is its local name and its namespace (Selectors L4 §5.1).
+    let element_type = |id: NodeId| (doc.tag_name(id), doc.namespace(id));
+    let own_type = element_type(node);
+    let counts = |id: NodeId| {
+        doc.node_type(id) == NodeType::ElementNode
+            && (!nth.kind.of_type() || element_type(id) == own_type)
+            && nth.of.as_ref().is_none_or(|of| {
+                of.iter()
+                    .any(|complex| match_selector_parts::<C>(doc, id, complex, None, ScopeContext::plain()))
+            })
+    };
+    if !counts(node) {
+        return false;
+    }
+
+    let siblings = doc.children(parent);
+    let Some(position) = siblings.iter().position(|&id| id == node) else {
+        return false;
+    };
+    let before = if nth.kind.from_end() {
+        siblings[position + 1..].iter().filter(|&&id| counts(id)).count()
+    } else {
+        siblings[..position].iter().filter(|&&id| counts(id)).count()
+    };
+    i32::try_from(before + 1).is_ok_and(|index| nth.matches_index(index))
+}
+
 /// Whether a relative selector (`[combinator, compound, combinator, compound, ...]`) is satisfied
 /// starting from `anchor`. Walked left to right, the way it reads: the combinator names the
 /// candidates, each candidate matching the compound continues with the rest from there.
@@ -327,6 +361,7 @@ fn match_selector_part<C: HasDocument>(
         CssSelectorPart::Not(inner) => !inner
             .iter()
             .any(|compound| match_selector_parts::<C>(doc, current_id, compound, pseudo, ScopeContext::plain())),
+        CssSelectorPart::Nth(nth) => match_nth::<C>(doc, current_id, nth),
         // `:is()` and `:where()` match when any argument does. Unlike `:not()`'s compounds, an
         // argument may be a complex selector (`:is(nav a)`); its rightmost compound is matched
         // against this element and its combinators walk the document from here, as the

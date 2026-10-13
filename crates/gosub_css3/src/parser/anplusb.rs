@@ -87,6 +87,11 @@ impl Css3<'_> {
         if let TokenType::RParen = self.tokenizer.lookahead(0).token_type {
             return Ok("0".to_string());
         }
+        // No B, and a word follows: the `of` of `:nth-child(2n of S)`, or something the caller
+        // rejects.
+        if let TokenType::Ident(_) = self.tokenizer.lookahead(0).token_type {
+            return Ok("0".to_string());
+        }
 
         let negative = match self.tokenizer.lookahead(0).token_type {
             TokenType::Delim('-') => {

@@ -57,14 +57,14 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         let nth = match t.token_type {
-            TokenType::Ident(ref value) if value == "odd" => Node::new(
+            TokenType::Ident(ref value) if value.eq_ignore_ascii_case("odd") => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "1".into(),
                 },
                 loc,
             ),
-            TokenType::Ident(ref value) if value == "even" => Node::new(
+            TokenType::Ident(ref value) if value.eq_ignore_ascii_case("even") => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "0".into(),
@@ -90,13 +90,14 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value == "of");
-        if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
+        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value.eq_ignore_ascii_case("of"));
+        // Any other identifier is left for the caller's `)` check to reject.
+        if is_of {
             self.consume_any()?;
-
-            if is_of {
-                selector = Some(self.parse_selector_list()?);
-            }
+            // The space after `of` separates it from the list; left in, it would parse as a
+            // leading descendant combinator.
+            self.consume_whitespace_comments();
+            selector = Some(self.parse_selector_list()?);
         }
 
         Ok(Node::new(
