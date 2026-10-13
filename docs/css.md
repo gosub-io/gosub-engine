@@ -297,8 +297,10 @@ and the clause that makes the new value right.
     `body:has(dialog[open])` costs a walk of the page each time `body` is styled. Its result is
     only as fresh as the anchor's style: a change below the anchor does not restyle it, except
     that a `:hover` inside `:has()` makes every element hover-sensitive.
--   `:is()` and `:where()` take a forgiving selector list, but an argument the parser rejects
-    (an unknown functional pseudo-class) still drops the whole rule instead of just itself.
+-   An unknown pseudo-class makes a selector invalid. Inside `:is()` and `:where()`, whose
+    lists are forgiving, that argument is dropped on its own. Anywhere else the rule should be
+    dropped, but an unknown name without an argument is kept and never matches; only an
+    unknown functional pseudo-class drops the rule.
     `:active` is hardcoded false; `:visited` deliberately so.
 -   Four selector node types have no conversion arm, so a rule using one is dropped: a bare
     number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and

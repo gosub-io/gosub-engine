@@ -102,9 +102,9 @@ process totals.
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
 `:lang()` falls to the matcher's catch-all
 (`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()`,
-`:where()` and `:has()` are evaluated. The
-selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
-drops the rule.
+`:where()` and `:has()` are evaluated, and the lists of `:is()` and `:where()` are forgiving.
+Outside them, an unknown pseudo-class without an argument keeps its rule, which never matches,
+where the spec drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
 the one selector form the AST converter has no arm for, so a nested rule is dropped. An
