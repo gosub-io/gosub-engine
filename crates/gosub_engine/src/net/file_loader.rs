@@ -65,6 +65,11 @@ fn refusal(req: &FetchRequest, enabled: bool) -> Option<BlockReason> {
 /// returning the buffered response (or error) for the reply channel.
 pub async fn serve(req: &FetchRequest, enabled: bool, observer: Arc<dyn NetObserver + Send + Sync>) -> FetchResult {
     let url = req.url.clone();
+    // Taken, as the fetcher takes a request, before anything decides about it.
+    observer.on_event(NetEvent::Accepted {
+        url: url.clone(),
+        joined: false,
+    });
 
     if let Some(reason) = refusal(req, enabled) {
         log::warn!(
@@ -76,7 +81,16 @@ pub async fn serve(req: &FetchRequest, enabled: bool, observer: Arc<dyn NetObser
             url: url.clone(),
             reason,
         });
-        return FetchResult::Error(NetError::Blocked { reason, url });
+        // Refused before it was sent, it ends here, as a fetch does.
+        let error = NetError::Blocked {
+            reason,
+            url: url.clone(),
+        };
+        observer.on_event(NetEvent::Failed {
+            url,
+            error: anyhow::anyhow!(error.clone()),
+        });
+        return FetchResult::Error(error);
     }
 
     observer.on_event(NetEvent::Started { url: url.clone() });
@@ -378,6 +392,37 @@ mod tests {
             .expect("the open blocked on the FIFO");
         assert_eq!(opened.unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The names of the events an observer saw.
+    #[derive(Default)]
+    struct Names(parking_lot::Mutex<Vec<&'static str>>);
+
+    impl NetObserver for Names {
+        fn on_event(&self, ev: NetEvent) {
+            self.0.lock().push(match ev {
+                NetEvent::Accepted { .. } => "accepted",
+                NetEvent::Started { .. } => "started",
+                NetEvent::Blocked { .. } => "blocked",
+                NetEvent::Failed { .. } => "failed",
+                NetEvent::Finished { .. } => "finished",
+                _ => "other",
+            });
+        }
+    }
+
+    /// A refused request is taken and ended as the fetcher's are: `Accepted`, then
+    /// `Blocked` with the cause and `Failed`, and no `Started`, since nothing was read.
+    #[tokio::test]
+    async fn a_refused_request_is_accepted_and_ends() {
+        let names = Arc::new(Names::default());
+        let url = Url::parse("file:///etc/hostname").unwrap();
+        let result = serve(&request(&url).build(), false, names.clone()).await;
+        assert!(
+            matches!(result, FetchResult::Error(NetError::Blocked { .. })),
+            "{result:?}"
+        );
+        assert_eq!(*names.0.lock(), ["accepted", "blocked", "failed"]);
     }
 
     #[tokio::test]
