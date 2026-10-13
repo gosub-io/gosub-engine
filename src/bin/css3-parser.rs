@@ -204,6 +204,8 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                         CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
                         CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
                         CssSelectorPart::Not(inner) => println!("        [Not] :not({inner:?})"),
+                        CssSelectorPart::Nth(nth) => println!("        [Nth] {nth}"),
+                        CssSelectorPart::Lang(ranges) => println!("        [Lang] :lang({ranges:?})"),
                         CssSelectorPart::Is(inner) => println!("        [Is] :is({inner:?})"),
                         CssSelectorPart::Where(inner) => println!("        [Where] :where({inner:?})"),
                         CssSelectorPart::Has(inner) => println!("        [Has] :has({inner:?})"),

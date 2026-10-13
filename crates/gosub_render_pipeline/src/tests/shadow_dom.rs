@@ -282,6 +282,19 @@ fn a_shadow_tree_inherits_through_its_host() {
     );
 }
 
+#[test]
+fn a_shadow_tree_takes_its_language_from_its_host() {
+    let a = adapter(
+        "<body><div id=host lang=nl><template shadowrootmode=open>\
+         <style>b:lang(nl){width:100px}</style><b id=in>x</b></template></div>",
+    );
+
+    assert_eq!(
+        a.computed_style(by_id(&a, "in")).size.width,
+        gosub_interface::style::LengthPercentageAuto::Px(100.0)
+    );
+}
+
 // ── the render tree agrees ───────────────────────────────────────────────────
 
 #[test]

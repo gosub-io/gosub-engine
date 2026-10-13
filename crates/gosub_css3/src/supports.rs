@@ -61,7 +61,7 @@ const UNIMPLEMENTED: &[(&str, Option<&str>)] = &[
 
 /// Selectors the matcher does not implement, for `selector(...)` queries. Names are matched
 /// as substrings of the queried selector, so `:has(` catches `:has(> img)` too.
-const UNIMPLEMENTED_SELECTORS: &[&str] = &[":has(", ":nth-last-of-type(", "::backdrop", "::part("];
+const UNIMPLEMENTED_SELECTORS: &[&str] = &[":has(", "::backdrop", "::part("];
 
 /// A parsed `@supports` condition.
 #[derive(Debug, Clone, PartialEq)]
@@ -521,6 +521,7 @@ mod tests {
     fn selector_queries() {
         assert!(matches("selector(a > b)"));
         assert!(matches("selector(.cls)"));
+        assert!(matches("selector(li:nth-last-of-type(1))"));
         // Not implemented by the matcher yet.
         assert!(!matches("selector(a:has(> img))"));
     }

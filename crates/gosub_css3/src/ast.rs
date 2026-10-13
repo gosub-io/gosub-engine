@@ -6,12 +6,14 @@ use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::note_dropped;
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
-    FontFace, ImportRule, MatcherType,
+    FontFace, ImportRule, MatcherType, NthKind, NthSelector,
 };
 use crate::supports::SupportsCondition;
+use crate::tokenizer::NumberKind;
 use crate::value_pool::ValuePool;
 use gosub_interface::css3::{CssDropped, CssDroppedKind, CssOrigin};
 use gosub_shared::errors::{CssError, CssResult};
+use std::num::IntErrorKind;
 use std::sync::Arc;
 
 /*
@@ -176,6 +178,41 @@ fn convert_selector_list(arguments: Vec<CssNode>) -> CssResult<Vec<Vec<CssSelect
     Ok(out)
 }
 
+/// Converts the argument of an `:nth-*()` pseudo-class: `An+B` (or a bare integer), and for
+/// `:nth-child()` and `:nth-last-child()` an optional `of S`.
+fn convert_nth(kind: NthKind, arguments: Vec<CssNode>) -> CssResult<NthSelector> {
+    let Some(NodeType::Nth { nth, selector }) = arguments.into_iter().next().map(|node| node.node_type) else {
+        return Err(CssError::new(&format!(":{}() without an argument", kind.name())));
+    };
+
+    // An integer outside the supported range is clamped, not invalid (css-values-4 §5.2). No
+    // sibling index comes near i32::MAX, so a clamped coefficient matches what the exact one would.
+    let integer = |text: &str| match text.parse::<i32>() {
+        Ok(value) => Ok(value),
+        Err(e) if *e.kind() == IntErrorKind::PosOverflow => Ok(i32::MAX),
+        Err(e) if *e.kind() == IntErrorKind::NegOverflow => Ok(i32::MIN),
+        Err(_) => Err(CssError::new(&format!("An+B coefficient {text:?} is not an integer"))),
+    };
+    let (a, b) = match nth.node_type {
+        NodeType::AnPlusB { a, b } => (integer(&a)?, integer(&b)?),
+        // `as` saturates, which is the clamp.
+        NodeType::Number {
+            value,
+            kind: NumberKind::Integer,
+        } => (0, value as i32),
+        _ => return Err(CssError::new(&format!("invalid argument to :{}()", kind.name()))),
+    };
+
+    // `of S` is defined for the child-counting pair only (Selectors L4 §14.4).
+    let of = match selector {
+        Some(_) if kind.of_type() => return Err(CssError::new(&format!(":{}() takes no `of`", kind.name()))),
+        Some(selector) => Some(convert_selector_list(vec![*selector])?),
+        None => None,
+    };
+
+    Ok(NthSelector { kind, a, b, of })
+}
+
 /// Normalises the arguments of `:has()` into relative selectors that each open with exactly one
 /// combinator. The parser hands over the space after `(` or a comma as a descendant combinator,
 /// so `( > img)` arrives as two; the written one wins, and a selector with none gets the
@@ -203,6 +240,20 @@ fn relative_selectors(list: Vec<Vec<CssSelectorPart>>) -> Vec<Vec<CssSelectorPar
             parts
         })
         .filter(|parts| parts.len() > 1)
+        .collect()
+}
+
+/// The language ranges of a `:lang()`, each as written (ident or string).
+fn convert_lang_ranges(arguments: Vec<CssNode>) -> CssResult<Vec<String>> {
+    let Some(NodeType::Value { children }) = arguments.into_iter().next().map(|node| node.node_type) else {
+        return Err(CssError::new(":lang() without language ranges"));
+    };
+    children
+        .into_iter()
+        .map(|child| match child.node_type {
+            NodeType::Ident { value } | NodeType::String { value } => Ok(value),
+            _ => Err(CssError::new("invalid language range in :lang()")),
+        })
         .collect()
 }
 
@@ -247,6 +298,10 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 if let NodeType::Function { name, arguments } = value.node_type {
                     if name.eq_ignore_ascii_case("not") {
                         CssSelectorPart::Not(convert_selector_list(arguments)?)
+                    } else if let Some(kind) = NthKind::from_name(&name) {
+                        CssSelectorPart::Nth(Box::new(convert_nth(kind, arguments)?))
+                    } else if name.eq_ignore_ascii_case("lang") {
+                        CssSelectorPart::Lang(convert_lang_ranges(arguments)?)
                     } else if name.eq_ignore_ascii_case("is") || name.eq_ignore_ascii_case("matches") {
                         CssSelectorPart::Is(convert_selector_list(arguments)?)
                     } else if name.eq_ignore_ascii_case("where") {
@@ -1052,7 +1107,7 @@ mod tests {
     }
     use super::*;
     use crate::media_query::MediaEnvironment;
-    use crate::stylesheet::Specificity;
+    use crate::stylesheet::{NthKind, Specificity};
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
 
@@ -1459,6 +1514,87 @@ mod tests {
     }
 
     #[test]
+    fn nth_pseudo_classes_keep_their_arguments() {
+        let stylesheet = Css3::parse_str(
+            "li:nth-child(2n+1) { color: red } li:nth-child(EVEN) { color: red } \
+             li:nth-last-child(3) { color: red } p:nth-of-type(-n+3) { color: red } \
+             li:nth-child(odd of .x, #y) { color: red } li:nth-child(2 OF .x) { color: red } \
+             li:nth-child(-n of .x) { color: red } li:nth-child(2n of .x) { color: red } \
+             li:nth-child(2147483648n+1) { color: red } li:nth-child(-99999999999) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let nth = |i: usize| match stylesheet.rules[i].selectors[0].complex_at(0).last() {
+            Some(CssSelectorPart::Nth(nth)) => (**nth).clone(),
+            other => panic!("expected an Nth part, got {other:?}"),
+        };
+        assert_eq!((nth(0).kind, nth(0).a, nth(0).b), (NthKind::Child, 2, 1));
+        assert_eq!((nth(1).a, nth(1).b), (2, 0), "even, case-insensitively");
+        assert_eq!((nth(2).kind, nth(2).a, nth(2).b), (NthKind::LastChild, 0, 3));
+        assert_eq!((nth(3).kind, nth(3).a, nth(3).b), (NthKind::OfType, -1, 3));
+        assert_eq!(
+            nth(4).of,
+            Some(vec![
+                vec![CssSelectorPart::Class("x".into())],
+                vec![CssSelectorPart::Id("y".into())]
+            ]),
+            "`of S` keeps its list, without the space after `of`"
+        );
+        assert_eq!(
+            nth(5).of,
+            Some(vec![vec![CssSelectorPart::Class("x".into())]]),
+            "`of`, case-insensitively"
+        );
+        assert_eq!(
+            (nth(6).a, nth(6).b, nth(6).of.is_some()),
+            (-1, 0, true),
+            "`of` straight after the n, with no B"
+        );
+        assert_eq!((nth(7).a, nth(7).b, nth(7).of.is_some()), (2, 0, true));
+        assert_eq!((nth(8).a, nth(8).b), (i32::MAX, 1), "a coefficient past i32 clamps");
+        assert_eq!((nth(9).a, nth(9).b), (0, i32::MIN), "and so does a bare integer");
+
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        assert_eq!(spec(0), Specificity::new(0, 1, 1), "a pseudo-class");
+        assert_eq!(spec(4), Specificity::new(1, 1, 1), "plus the most specific of S");
+    }
+
+    /// `of S` belongs to the child-counting pair; on `:nth-of-type()` it makes the rule invalid.
+    #[test]
+    fn nth_of_type_rejects_of() {
+        let stylesheet = Css3::parse_str(
+            "p:nth-of-type(1 of .x) { color: red } b { color: red }",
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+        assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
+    }
+
+    /// After `An+B` only `of` may follow; another word makes the rule invalid.
+    #[test]
+    fn nth_rejects_a_trailing_word() {
+        let stylesheet = Css3::parse_str(
+            "li:nth-child(2 foo) { color: red } b { color: red }",
+            ParserConfig {
+                ignore_errors: true,
+                ..Default::default()
+            },
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+        assert_eq!(stylesheet.rules.len(), 1, "only `b` survives");
+    }
+
+    #[test]
     fn is_where_and_matches_keep_their_selector_lists() {
         let stylesheet = Css3::parse_str(
             "a:is(.x, nav b) { color: red } a:where(#y) { color: red } a:matches(.z) { color: red }",
@@ -1539,6 +1675,30 @@ mod tests {
             Specificity::from(stylesheet.rules[3].selectors[0].complex_at(0)),
             Specificity::new(1, 0, 1),
             ":has() counts its most specific argument"
+        );
+    }
+
+    #[test]
+    fn lang_keeps_its_language_ranges() {
+        let stylesheet = Css3::parse_str(
+            "p:lang(en) { color: red } p:lang(de, \"fr-*\") { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        assert_eq!(last(0), Some(CssSelectorPart::Lang(vec!["en".into()])));
+        assert_eq!(
+            last(1),
+            Some(CssSelectorPart::Lang(vec!["de".into(), "fr-*".into()])),
+            "a comma-separated list, idents and strings"
+        );
+        assert_eq!(
+            Specificity::from(stylesheet.rules[0].selectors[0].complex_at(0)),
+            Specificity::new(0, 1, 1),
+            "a pseudo-class"
         );
     }
 

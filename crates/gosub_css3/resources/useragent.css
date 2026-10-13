@@ -1336,8 +1336,8 @@ dd {
 }
 /* ===== Gosub additions: form control metrics =============================
    Chromium's html.css leaves these to its native theme code (LayoutTheme);
-   we have none, so pin them here. Physical properties only: the pipeline
-   doesn't do padding-inline / inline-size yet. */
+   we have none, so pin them here. Physical sizes only: the pipeline
+   doesn't do inline-size / block-size yet. */
 input, textarea, select, button {
     font-size: 13.3333px;
 }

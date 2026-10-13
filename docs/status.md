@@ -99,10 +99,10 @@ sits inside the noise - one run of the page measured below a run of the blank. A
 would need its memory-infra tracing, which reports per-component allocator dumps rather than
 process totals.
 
-**Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:nth-child()` and the rest of the nth family and `:lang()` fall to the matcher's catch-all
-(`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, `:is()`, `:where()` and `:has()` are
-evaluated. The
+**Not yet.** `:dir()`, `:host-context()` and the legacy `:-webkit-any()`/`:-moz-any()` parse but
+are stored as their text and fall to the matcher's catch-all
+(`crates/gosub_css3/src/matcher/styling.rs`); `:not()`, the `:nth-*()` family, `:is()`,
+`:where()`, `:has()`, `:lang()` and `:host()` are matched. The
 selector lists of `:is()` and `:where()` are not yet forgiving: one argument the parser rejects
 drops the rule.
 `:active` is hardcoded false.
@@ -136,9 +136,11 @@ After layout: paint, layer promotion, tiling, rasterization, and compositing.
 
 **Not yet.** No CSS transforms beyond `translate` - the rest of the `transform` list is parsed
 and then ignored. No transitions or animations; nothing in the pipeline reads either property.
-No writing modes, so vertical text and RTL block flow are absent (the logical `inset-*`
-properties exist, but only because physical `top`/`left`/`right`/`bottom` are mapped onto them -
-see `resolve_insets` in `crates/gosub_css3/src/matcher/computed_style.rs`).
+No writing modes, so vertical text and RTL block flow are absent. The logical box properties
+(`margin-inline-*`, `padding-block-*`, `border-inline-*`, `border-start-start-radius`, the
+`inset-*` pair) are mapped onto the physical sides as horizontal-tb, ltr would place them, with
+the logical and physical spellings of one side cascading as one property - see `side_value` in
+`crates/gosub_css3/src/matcher/computed_style.rs`. `direction: rtl` does not flip them.
 
 
 ## Render backends

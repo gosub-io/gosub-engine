@@ -26,6 +26,38 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Ident { value }, loc))
     }
 
+    /// Reads the language ranges of `:lang()`: a comma-separated list of idents or strings
+    /// (Selectors L4 §7.2), e.g. `:lang(en, "de-*")`.
+    fn parse_pseudo_function_lang_ranges(&mut self) -> CssResult<Node> {
+        log::trace!("parse_pseudo_function_lang_ranges");
+
+        let loc = self.tokenizer.current_location();
+
+        let mut children = Vec::new();
+        loop {
+            self.consume_whitespace_comments();
+            let t = self.tokenizer.consume();
+            match t.token_type {
+                TokenType::Ident(value) => children.push(Node::new(NodeType::Ident { value }, t.location)),
+                TokenType::QuotedString(value) => children.push(Node::new(NodeType::String { value }, t.location)),
+                _ => {
+                    return Err(CssError::with_location(
+                        format!("Expected a language range, got {t:?}").as_str(),
+                        t.location,
+                    ));
+                }
+            }
+            self.consume_whitespace_comments();
+            if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Comma) {
+                self.tokenizer.consume();
+            } else {
+                break;
+            }
+        }
+
+        Ok(Node::new(NodeType::Value { children }, loc))
+    }
+
     /// Reads a whitespace-separated sequence of idents, e.g. the part name list of `::part(a b)`.
     fn parse_pseudo_function_ident_sequence(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_function_ident_sequence");
@@ -57,14 +89,14 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         let nth = match t.token_type {
-            TokenType::Ident(ref value) if value == "odd" => Node::new(
+            TokenType::Ident(ref value) if value.eq_ignore_ascii_case("odd") => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "1".into(),
                 },
                 loc,
             ),
-            TokenType::Ident(ref value) if value == "even" => Node::new(
+            TokenType::Ident(ref value) if value.eq_ignore_ascii_case("even") => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "0".into(),
@@ -90,13 +122,14 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value == "of");
-        if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
+        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value.eq_ignore_ascii_case("of"));
+        // Any other identifier is left for the caller's `)` check to reject.
+        if is_of {
             self.consume_any()?;
-
-            if is_of {
-                selector = Some(self.parse_selector_list()?);
-            }
+            // The space after `of` separates it from the list; left in, it would parse as a
+            // leading descendant combinator.
+            self.consume_whitespace_comments();
+            selector = Some(self.parse_selector_list()?);
         }
 
         Ok(Node::new(
@@ -119,7 +152,7 @@ impl Css3<'_> {
         match name {
             "dir" => self.parse_pseudo_function_ident_list(),
             "has" => self.parse_pseudo_function_selector_list(),
-            "lang" => self.parse_pseudo_function_ident_list(),
+            "lang" => self.parse_pseudo_function_lang_ranges(),
             "matches" => self.parse_pseudo_function_selector_list(),
             "is" => self.parse_pseudo_function_selector_list(),
             "-moz-any" => self.parse_pseudo_function_selector_list(),

@@ -179,13 +179,16 @@ impl RequestContext {
                 MixedContentPolicy::Upgrade => MixedContent::Upgrade,
                 MixedContentPolicy::Block => MixedContent::Block,
             }),
-            mode: Some(match req.mode {
-                RequestMode::NoCors => Mode::NoCors,
-                RequestMode::Cors => Mode::Cors,
-                RequestMode::SameOrigin => Mode::SameOrigin,
-                RequestMode::Navigate => Mode::Navigate,
-                RequestMode::Websocket => Mode::Websocket,
-            }),
+            // A mode this build does not know is left off, as any field that does not carry
+            // over is.
+            mode: match req.mode {
+                RequestMode::NoCors => Some(Mode::NoCors),
+                RequestMode::Cors => Some(Mode::Cors),
+                RequestMode::SameOrigin => Some(Mode::SameOrigin),
+                RequestMode::Navigate => Some(Mode::Navigate),
+                RequestMode::Websocket => Some(Mode::Websocket),
+                _ => None,
+            },
             destination: Some(req.destination.as_str().to_string()),
         }
     }
@@ -405,6 +408,12 @@ pub enum NetEventWire {
         body: Vec<u8>,
         truncated: bool,
     },
+    /// The fetcher took the request; `joined` when it shares another
+    /// request's fetch.
+    Accepted {
+        url: String,
+        joined: bool,
+    },
     Started {
         url: String,
     },
@@ -510,6 +519,10 @@ impl NetEventWire {
                 url: url.to_string(),
                 body: body.clone(),
                 truncated: *truncated,
+            },
+            NetEvent::Accepted { url, joined } => Self::Accepted {
+                url: url.to_string(),
+                joined: *joined,
             },
             NetEvent::Started { url } => Self::Started { url: url.to_string() },
             NetEvent::Redirected { from, to, status } => Self::Redirected {
@@ -666,6 +679,7 @@ impl NetEventWire {
                     truncated: truncated || clipped,
                 }
             }
+            Self::Accepted { url: u, joined } => NetEvent::Accepted { url: url(u)?, joined },
             Self::Started { url: u } => NetEvent::Started { url: url(u)? },
             Self::Redirected { from, to, status } => NetEvent::Redirected {
                 from: url(from)?,
@@ -779,6 +793,7 @@ impl NetEventWire {
                 url: url(u)?,
                 outcome: match outcome {
                     detail::CacheOutcome::Hit => cache::CacheOutcome::Hit,
+                    detail::CacheOutcome::Stale => cache::CacheOutcome::Stale,
                     detail::CacheOutcome::Validated => cache::CacheOutcome::Validated,
                     detail::CacheOutcome::Stored => cache::CacheOutcome::Stored,
                     detail::CacheOutcome::Invalidated => cache::CacheOutcome::Invalidated,
@@ -1090,6 +1105,23 @@ mod tests {
         back.into_net(0)
     }
 
+    /// `Accepted` opens a request in the broker as it does in process, and says
+    /// whether it joined another's fetch.
+    #[test]
+    fn accepted_crosses_the_link() {
+        use crate::net::events::NetEvent;
+        let site = url::Url::parse("https://site.test/a.css").unwrap();
+        for joined in [false, true] {
+            match across(&NetEvent::Accepted {
+                url: site.clone(),
+                joined,
+            }) {
+                Some(NetEvent::Accepted { url, joined: back }) => assert_eq!((url, back), (site.clone(), joined)),
+                other => panic!("not an accepted event: {other:?}"),
+            }
+        }
+    }
+
     /// What the network stack did to a request on the way - a retry, an upgrade,
     /// a policy's change, a preflight, a challenge, the cache - reaches the
     /// broker's observer as it happened.
@@ -1245,6 +1277,7 @@ mod tests {
 
         for outcome in [
             cache::CacheOutcome::Hit,
+            cache::CacheOutcome::Stale,
             cache::CacheOutcome::Validated,
             cache::CacheOutcome::Stored,
             cache::CacheOutcome::Invalidated,

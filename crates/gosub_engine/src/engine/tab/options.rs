@@ -52,7 +52,8 @@ pub struct TabOverrides {
 
     // --- Identity ---
     /// Per-tab `Accept-Language` header override. `None` = inherit the zone's
-    /// [`ZoneConfig::accept_languages`](crate::zone::ZoneConfig::accept_languages).
+    /// [`ZoneConfig::accept_languages`](crate::zone::ZoneConfig::accept_languages), which
+    /// falls back to the user's languages from the operating system.
     pub accept_language: Option<String>,
 }
 

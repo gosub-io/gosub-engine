@@ -802,6 +802,10 @@ pub enum CssSelectorPart {
     /// `:not(...)`, holding the selector list it negates. Matches when *none* of the inner
     /// selectors match the element.
     Not(Vec<Vec<CssSelectorPart>>),
+    /// `:nth-child()`, `:nth-last-child()`, `:nth-of-type()` or `:nth-last-of-type()`.
+    Nth(Box<NthSelector>),
+    /// `:lang(...)`, holding its language ranges as written.
+    Lang(Vec<String>),
     /// `:is(...)` (and its older name `:matches()`), holding its selector list. Matches when any
     /// of the inner selectors matches the element, and is as specific as the most specific one.
     Is(Vec<Vec<CssSelectorPart>>),
@@ -819,6 +823,85 @@ pub enum CssSelectorPart {
     /// `::slotted(<selector>)`. Matches a light-DOM node projected into one of this shadow
     /// tree's slots, and only the directly assigned node - never its descendants.
     Slotted(Vec<Vec<CssSelectorPart>>),
+}
+
+/// Which siblings an `:nth-*()` pseudo-class counts, and from which end.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum NthKind {
+    Child,
+    LastChild,
+    OfType,
+    LastOfType,
+}
+
+impl NthKind {
+    /// The kind a lowercased pseudo-class function name stands for.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "nth-child" => Some(Self::Child),
+            "nth-last-child" => Some(Self::LastChild),
+            "nth-of-type" => Some(Self::OfType),
+            "nth-last-of-type" => Some(Self::LastOfType),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Child => "nth-child",
+            Self::LastChild => "nth-last-child",
+            Self::OfType => "nth-of-type",
+            Self::LastOfType => "nth-last-of-type",
+        }
+    }
+
+    /// Whether the count runs from the last sibling backwards.
+    pub fn from_end(self) -> bool {
+        matches!(self, Self::LastChild | Self::LastOfType)
+    }
+
+    /// Whether only siblings with the element's own type are counted.
+    pub fn of_type(self) -> bool {
+        matches!(self, Self::OfType | Self::LastOfType)
+    }
+}
+
+/// An `:nth-*()` pseudo-class: `An+B`, and for `:nth-child()` / `:nth-last-child()` an optional
+/// `of S` that narrows which siblings are counted (Selectors L4 §14.4).
+#[derive(PartialEq, Clone, Debug)]
+pub struct NthSelector {
+    pub kind: NthKind,
+    pub a: i32,
+    pub b: i32,
+    pub of: Option<Vec<Vec<CssSelectorPart>>>,
+}
+
+impl NthSelector {
+    /// Whether a 1-based sibling `index` is `A*n + B` for some integer `n >= 0`.
+    pub fn matches_index(&self, index: i32) -> bool {
+        let (a, b) = (i64::from(self.a), i64::from(self.b));
+        let offset = i64::from(index) - b;
+        if a == 0 {
+            return offset == 0;
+        }
+        offset % a == 0 && offset / a >= 0
+    }
+}
+
+impl Display for NthSelector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, ":{}(", self.kind.name())?;
+        match (self.a, self.b) {
+            (0, b) => write!(f, "{b}")?,
+            (a, 0) => write!(f, "{a}n")?,
+            (a, b) => write!(f, "{a}n{b:+}")?,
+        }
+        if let Some(of) = &self.of {
+            write!(f, " of ")?;
+            write_selector_list(f, of)?;
+        }
+        write!(f, ")")
+    }
 }
 
 #[derive(PartialEq, Clone, Default, Debug)]
@@ -901,6 +984,7 @@ impl Debug for CssSelectorPart {
                 write_selector_list(f, inner)?;
                 write!(f, ")")
             }
+            CssSelectorPart::Nth(nth) => write!(f, "{nth}"),
             CssSelectorPart::Is(inner) => {
                 write!(f, ":is(")?;
                 write_selector_list(f, inner)?;
@@ -914,6 +998,20 @@ impl Debug for CssSelectorPart {
             CssSelectorPart::Has(inner) => {
                 write!(f, ":has(")?;
                 write_selector_list(f, inner)?;
+                write!(f, ")")
+            }
+            CssSelectorPart::Lang(ranges) => {
+                write!(f, ":lang(")?;
+                for (i, range) in ranges.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    if !range.is_empty() && range.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                        write!(f, "{range}")?;
+                    } else {
+                        write!(f, "{range:?}")?;
+                    }
+                }
                 write!(f, ")")
             }
             CssSelectorPart::Host(None) => write!(f, ":host"),
@@ -1023,13 +1121,29 @@ impl From<&[CssSelectorPart]> for Specificity {
                 // Known gap: `:has()` should take the specificity of its most specific argument,
                 // but it is still stored as serialized text, so it counts as one class - the
                 // pre-Selectors-4 behaviour, which errs low rather than high.
-                CssSelectorPart::PseudoClass(_) => {
+                CssSelectorPart::PseudoClass(_) | CssSelectorPart::Lang(_) => {
                     class_count += 1;
                 }
                 // Legacy single-colon `:before`/`:after` are re-classified as pseudo-elements
                 // during AST conversion, so they land here and count as elements too.
                 CssSelectorPart::PseudoElement(_) => {
                     element_count += 1;
+                }
+                // An `:nth-*()` is a pseudo-class, plus the most specific selector of its
+                // `of S` (Selectors L4 §17).
+                CssSelectorPart::Nth(nth) => {
+                    class_count += 1;
+                    if let Some(most) = nth
+                        .of
+                        .iter()
+                        .flatten()
+                        .map(|parts| Specificity::from(parts.as_slice()))
+                        .max()
+                    {
+                        id_count += most.id_count();
+                        class_count += most.class_count();
+                        element_count += most.element_count();
+                    }
                 }
                 // Selectors L4 §17: `:not()` contributes nothing itself, but its most specific
                 // argument counts as if it were written in place of the `:not()`.
@@ -1148,6 +1262,18 @@ impl gosub_shared::memory::HeapSize for CssSelectorPart {
             | CssSelectorPart::Has(list)
             | CssSelectorPart::Slotted(list) => parts_list(list, walk),
             CssSelectorPart::Host(Some(list)) => parts_list(list, walk),
+            CssSelectorPart::Nth(nth) => {
+                walk.bytes(size_of::<NthSelector>());
+                if let Some(list) = &nth.of {
+                    parts_list(list, walk);
+                }
+            }
+            CssSelectorPart::Lang(ranges) => {
+                walk.bytes(ranges.capacity() * size_of::<String>());
+                for range in ranges {
+                    range.heap_size(walk);
+                }
+            }
             CssSelectorPart::Universal | CssSelectorPart::Combinator(_) | CssSelectorPart::Host(None) => {}
         }
     }
@@ -2287,6 +2413,25 @@ mod test {
             CssSelectorPart::Not(vec![vec![CssSelectorPart::PseudoClass("hover".into())]]),
         ];
         assert_eq!(Specificity::from(selector.as_slice()), Specificity::new(0, 1, 1));
+    }
+
+    /// `An+B` holds for an index when some `n >= 0` reaches it, counting from 1.
+    #[test]
+    fn nth_index_arithmetic() {
+        let nth = |a, b| NthSelector {
+            kind: NthKind::Child,
+            a,
+            b,
+            of: None,
+        };
+        let hits = |s: NthSelector| (1..=10).filter(|&i| s.matches_index(i)).collect::<Vec<_>>();
+        assert_eq!(hits(nth(2, 1)), vec![1, 3, 5, 7, 9], "odd");
+        assert_eq!(hits(nth(2, 0)), vec![2, 4, 6, 8, 10], "even");
+        assert_eq!(hits(nth(0, 3)), vec![3], "a bare integer");
+        assert_eq!(hits(nth(-1, 3)), vec![1, 2, 3], "the first three");
+        assert_eq!(hits(nth(3, -2)), vec![1, 4, 7, 10], "a negative B wraps forward");
+        assert_eq!(hits(nth(1, 4)), vec![4, 5, 6, 7, 8, 9, 10], "from the fourth on");
+        assert_eq!(hits(nth(0, 0)), Vec::<i32>::new(), "nothing is at index 0");
     }
 
     /// `:where()` exists precisely so that it adds nothing, however specific its argument.
