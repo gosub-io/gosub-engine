@@ -100,8 +100,8 @@ would need its memory-infra tracing, which reports per-component allocator dumps
 process totals.
 
 **Not yet.** A pseudo-class with an argument is stored as its text and never matches:
-`:nth-child()` and the rest of the nth family, `:is()`, `:where()`, `:has()` and `:lang()` all
-fall to the matcher's catch-all (`crates/gosub_css3/src/matcher/styling.rs`); only `:not()` is
+`:is()`, `:where()`, `:has()` and `:lang()` all fall to the matcher's catch-all
+(`crates/gosub_css3/src/matcher/styling.rs`); `:not()` and the `:nth-*()` family are
 evaluated, and the specificity of `:is()` and `:has()` errs low for the same reason.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
