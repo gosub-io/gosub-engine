@@ -1496,7 +1496,8 @@ mod tests {
         let stylesheet = Css3::parse_str(
             "li:nth-child(2n+1) { color: red } li:nth-child(EVEN) { color: red } \
              li:nth-last-child(3) { color: red } p:nth-of-type(-n+3) { color: red } \
-             li:nth-child(odd of .x, #y) { color: red } li:nth-child(2 OF .x) { color: red }",
+             li:nth-child(odd of .x, #y) { color: red } li:nth-child(2 OF .x) { color: red } \
+             li:nth-child(-n of .x) { color: red } li:nth-child(2n of .x) { color: red }",
             ParserConfig::default(),
             CssOrigin::Author,
             "test.css",
@@ -1524,6 +1525,12 @@ mod tests {
             Some(vec![vec![CssSelectorPart::Class("x".into())]]),
             "`of`, case-insensitively"
         );
+        assert_eq!(
+            (nth(6).a, nth(6).b, nth(6).of.is_some()),
+            (-1, 0, true),
+            "`of` straight after the n, with no B"
+        );
+        assert_eq!((nth(7).a, nth(7).b, nth(7).of.is_some()), (2, 0, true));
 
         let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
         assert_eq!(spec(0), Specificity::new(0, 1, 1), "a pseudo-class");
