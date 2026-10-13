@@ -288,9 +288,11 @@ and the clause that makes the new value right.
 
 ## Known gaps
 
--   A pseudo-class with an argument is stored as its text and never matches: `:lang()`.
-    `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`), `:where()` and
-    `:has()` are evaluated.
+-   `:active` is hardcoded false; `:visited` deliberately so. Of the pseudo-classes with an
+    argument, `:not()`, the `:nth-*()` family (with `of S`), `:is()` (and `:matches()`),
+    `:where()`, `:has()`, `:lang()` and `:host()` are matched. `:dir()`, `:host-context()` and
+    the legacy `:-webkit-any()`/`:-moz-any()` parse, but are stored as their text and never
+    match.
 -   `:nth-*()` counts siblings on every match, so a rule like `tr:nth-child(odd)` over a very
     long table costs time quadratic in its rows; there is no per-parent index cache.
 -   `:has()` searches the element's subtree or later siblings on every match, with no cache, so
@@ -299,7 +301,8 @@ and the clause that makes the new value right.
     that a `:hover` inside `:has()` makes every element hover-sensitive.
 -   `:is()` and `:where()` take a forgiving selector list, but an argument the parser rejects
     (an unknown functional pseudo-class) still drops the whole rule instead of just itself.
-    `:active` is hardcoded false; `:visited` deliberately so.
+-   `:lang()` reads the nearest `lang` attribute only; a document without one has no language,
+    since the `Content-Language` header and `<meta http-equiv>` fallbacks are not consulted.
 -   Four selector node types have no conversion arm, so a rule using one is dropped: a bare
     number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and
     all three are invalid selectors anyway) and the nesting selector `&`. CSS Nesting parses but
