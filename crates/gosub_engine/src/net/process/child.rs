@@ -87,6 +87,9 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
     // The vault ticket of each request in flight that has one, by tag; what
     // the fetcher's cookie hooks ask the vault under, hop by hop.
     let tickets: Tickets = Arc::new(Mutex::new(HashMap::new()));
+    // The cookies the broker attached to each request in flight without a
+    // ticket, by tag; what the fetcher's cookie hooks answer with instead.
+    let attached: Attached = Arc::new(Mutex::new(HashMap::new()));
 
     // In-process, `EngineNetContext` turns the fetcher's events into engine
     // events and resolves request references against engine state. This
@@ -103,6 +106,7 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 previews: Arc::clone(&previews),
                 vault: Arc::clone(&vault),
                 tickets: Arc::clone(&tickets),
+                attached: Arc::clone(&attached),
             }),
         )
         .map(Arc::new)
@@ -185,8 +189,9 @@ pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
                 let tickets = tickets.clone();
+                let attached = attached.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token, &tickets, &previews).await;
+                    let performed = perform(&fetcher, fetch, token, &tickets, &attached, &previews).await;
                     cancels.lock().remove(&tag);
                     match performed {
                         Performed::Done(outcome) => {
@@ -324,6 +329,7 @@ struct NetProcessContext {
     previews: Arc<Mutex<HashMap<RequestTag, usize>>>,
     vault: Arc<Mutex<Option<VaultLink>>>,
     tickets: Tickets,
+    attached: Attached,
 }
 
 /// A request's vault ticket, and how the last `Set-Cookie` it handed the
@@ -335,6 +341,12 @@ struct TicketState {
 }
 
 type Tickets = Arc<Mutex<HashMap<RequestTag, TicketState>>>;
+
+/// The `Cookie` the broker attached to a request that has no ticket, and the
+/// origin it was attached for. It reaches the fetcher through its cookie hook,
+/// not as a header: a request with an initiating origin may not set `Cookie`
+/// itself (Fetch §2.2.2), and the fetcher removes it.
+type Attached = Arc<Mutex<HashMap<RequestTag, (url::Origin, String)>>>;
 
 impl NetProcessContext {
     /// The ticket of the request `reference` names, if it has one.
@@ -425,7 +437,17 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
         reference: gosub_sonar::RequestReference,
         hop: &gosub_sonar::CookieHop<'_>,
     ) -> Option<String> {
-        let (_, scope) = self.scope_of(reference)?;
+        let Some((_, scope)) = self.scope_of(reference) else {
+            // Without a ticket the broker attached the cookies for the URL
+            // it asked for: they ride on every hop to that origin, as they
+            // did as a header, and on no other.
+            let gosub_sonar::RequestReference::Tagged(tag) = reference else {
+                return None;
+            };
+            let attached = self.attached.lock();
+            let (origin, cookie) = attached.get(&tag)?;
+            return (hop.url.origin() == *origin).then(|| cookie.clone());
+        };
         tokio::task::block_in_place(|| {
             platform::vault_cookies(&self.vault, &scope, hop.url.as_str(), hop.method.is_safe())
         })
@@ -445,7 +467,17 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
                 scope.navigation,
                 scope.url
             ),
-            None => String::new(),
+            // The broker's cookies are the request's own: two requests share a
+            // fetch only when they carry the same.
+            None => match reference {
+                gosub_sonar::RequestReference::Tagged(tag) => self
+                    .attached
+                    .lock()
+                    .get(&tag)
+                    .map(|(_, cookie)| format!("attached {cookie}"))
+                    .unwrap_or_default(),
+                _ => String::new(),
+            },
         }
     }
 
@@ -488,6 +520,7 @@ async fn perform(
     fetch: NetFetch,
     cancel: CancellationToken,
     tickets: &Tickets,
+    attached: &Attached,
     previews: &Mutex<HashMap<RequestTag, usize>>,
 ) -> Performed {
     let streaming = fetch.streaming && platform::STREAMING;
@@ -506,9 +539,10 @@ async fn perform(
             },
         );
     }
-    let performed = perform_inner(fetcher, fetch, cancel, tickets, streaming).await;
+    let performed = perform_inner(fetcher, fetch, cancel, tickets, attached, streaming).await;
     previews.lock().remove(&tag);
     tickets.lock().remove(&tag);
+    attached.lock().remove(&tag);
     performed
 }
 
@@ -519,6 +553,7 @@ async fn perform_inner(
     fetch: NetFetch,
     cancel: CancellationToken,
     tickets: &Tickets,
+    attached: &Attached,
     streaming: bool,
 ) -> Performed {
     let done = Performed::Done;
@@ -539,8 +574,19 @@ async fn perform_inner(
     let mut headers = rebuild_headers(&fetch.headers);
     // Under a vault scope the broker's `Cookie` never counts: the vault's
     // answer for each hop does, or none at all. Without one, the broker
-    // attached the cookies itself and they go as sent.
+    // attached the cookies itself, and they go through the cookie hook (see
+    // [`Attached`]).
     if scope.is_some() {
+        headers.remove(http::header::COOKIE);
+    } else {
+        let cookie: Vec<&str> = headers
+            .get_all(http::header::COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect();
+        if !cookie.is_empty() {
+            attached.lock().insert(fetch_tag, (url.origin(), cookie.join("; ")));
+        }
         headers.remove(http::header::COOKIE);
     }
 

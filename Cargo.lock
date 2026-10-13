@@ -3144,11 +3144,12 @@ dependencies = [
 
 [[package]]
 name = "gosub-sonar"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6228e9c4f6c09df52b7e962708710655c835125073844863c3d35691550bca1"
+checksum = "f36d61954017cb65f2a58cfac5e22c3db40cbf8b82776830f88bccc5633b531a"
 dependencies = [
  "anyhow",
+ "async-compression",
  "bytes",
  "chrono",
  "cookie",
@@ -7786,17 +7787,12 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
- "async-compression",
  "bitflags 2.13.1",
  "bytes",
- "futures-core",
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",

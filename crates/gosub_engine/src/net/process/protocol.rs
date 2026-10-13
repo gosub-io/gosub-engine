@@ -179,13 +179,16 @@ impl RequestContext {
                 MixedContentPolicy::Upgrade => MixedContent::Upgrade,
                 MixedContentPolicy::Block => MixedContent::Block,
             }),
-            mode: Some(match req.mode {
-                RequestMode::NoCors => Mode::NoCors,
-                RequestMode::Cors => Mode::Cors,
-                RequestMode::SameOrigin => Mode::SameOrigin,
-                RequestMode::Navigate => Mode::Navigate,
-                RequestMode::Websocket => Mode::Websocket,
-            }),
+            // A mode this build does not know is left off, as any field that does not carry
+            // over is.
+            mode: match req.mode {
+                RequestMode::NoCors => Some(Mode::NoCors),
+                RequestMode::Cors => Some(Mode::Cors),
+                RequestMode::SameOrigin => Some(Mode::SameOrigin),
+                RequestMode::Navigate => Some(Mode::Navigate),
+                RequestMode::Websocket => Some(Mode::Websocket),
+                _ => None,
+            },
             destination: Some(req.destination.as_str().to_string()),
         }
     }
@@ -779,6 +782,7 @@ impl NetEventWire {
                 url: url(u)?,
                 outcome: match outcome {
                     detail::CacheOutcome::Hit => cache::CacheOutcome::Hit,
+                    detail::CacheOutcome::Stale => cache::CacheOutcome::Stale,
                     detail::CacheOutcome::Validated => cache::CacheOutcome::Validated,
                     detail::CacheOutcome::Stored => cache::CacheOutcome::Stored,
                     detail::CacheOutcome::Invalidated => cache::CacheOutcome::Invalidated,
@@ -1245,6 +1249,7 @@ mod tests {
 
         for outcome in [
             cache::CacheOutcome::Hit,
+            cache::CacheOutcome::Stale,
             cache::CacheOutcome::Validated,
             cache::CacheOutcome::Stored,
             cache::CacheOutcome::Invalidated,
