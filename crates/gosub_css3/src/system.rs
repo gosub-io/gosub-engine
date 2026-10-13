@@ -11,7 +11,7 @@ use crate::matcher::styling::{
     cascade_rank, css_wide_keyword, match_selector, CssProperties, CssProperty, CssWide, DeclarationProperty,
     InheritedLineHeight, ScopeContext, ScopeMatch, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT_PX,
 };
-use crate::stylesheet::{reduce_function, CssDeclaration, CssStylesheet, CssValue, Specificity};
+use crate::stylesheet::{reduce_function, CssDeclaration, CssSelectorPart, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
@@ -822,51 +822,16 @@ fn resolve_line_height_basis(map: &mut CssProperties, inherited: Option<&CssProp
 }
 
 fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
-    use crate::stylesheet::CssSelectorPart;
-
     let mut fp = HoverFingerprints::default();
 
     for sheet in sheets {
         for rule in &sheet.rules {
             for selector in &rule.selectors {
                 for part_list in selector.complexes() {
-                    // Split the part list into compounds (groups between Combinators).
-                    // :hover belongs to the compound it appears in; that compound's
-                    // Type/Class/Id parts are the hover-subject fingerprint.
-                    let mut compound: Vec<&CssSelectorPart> = Vec::new();
-                    for part in part_list {
-                        if matches!(part, CssSelectorPart::Combinator(_)) {
-                            compound.clear();
-                            continue;
-                        }
-                        compound.push(part);
-                        if !matches!(part, CssSelectorPart::PseudoClass(n) if n == "hover") {
-                            continue;
-                        }
-                        // Found :hover - classify this compound.
-                        let mut specific = false;
-                        for p in &compound {
-                            match p {
-                                CssSelectorPart::Type(t) => {
-                                    fp.types.insert(t.clone());
-                                    specific = true;
-                                }
-                                CssSelectorPart::Class(c) => {
-                                    fp.classes.insert(c.clone());
-                                    specific = true;
-                                }
-                                CssSelectorPart::Id(id) => {
-                                    fp.ids.insert(id.clone());
-                                    specific = true;
-                                }
-                                _ => {}
-                            }
-                        }
-                        if !specific {
-                            // Bare :hover or *:hover - everything is sensitive.
-                            fp.has_universal = true;
-                            return fp;
-                        }
+                    if !fingerprint_complex(part_list, &[], &mut fp) {
+                        // A `:hover` with nothing to narrow it - every node is sensitive.
+                        fp.has_universal = true;
+                        return fp;
                     }
                 }
             }
@@ -874,6 +839,69 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
     }
 
     fp
+}
+
+/// Records the hover-subject fingerprint of every `:hover` in one complex selector: the
+/// Type/Class/Id parts of the compound it appears in. Returns false when some `:hover` has none,
+/// so that any element at all may be the one hovered.
+///
+/// `outer` is the compound a selector-list argument (`:is()`, `:where()`, `:not()`) is written
+/// in. The argument's rightmost compound is matched against that same element, so a bare
+/// `:is(:hover)` borrows the outer compound's names; a compound further left in the argument
+/// sits on another element and cannot.
+fn fingerprint_complex(parts: &[CssSelectorPart], outer: &[&CssSelectorPart], fp: &mut HoverFingerprints) -> bool {
+    let mut compounds = parts.split(|p| matches!(p, CssSelectorPart::Combinator(_))).peekable();
+    while let Some(compound) = compounds.next() {
+        let rightmost = compounds.peek().is_none();
+        let mut context: Vec<&CssSelectorPart> = compound.iter().collect();
+        if rightmost {
+            context.extend_from_slice(outer);
+        }
+
+        for part in compound {
+            let narrowed = match part {
+                CssSelectorPart::PseudoClass(name) if name == "hover" => {
+                    record_hover_compound(compound, fp)
+                        || (rightmost && record_hover_compound(outer.iter().copied(), fp))
+                }
+                CssSelectorPart::Is(list) | CssSelectorPart::Where(list) | CssSelectorPart::Not(list) => {
+                    list.iter().all(|inner| fingerprint_complex(inner, &context, fp))
+                }
+                _ => true,
+            };
+            if !narrowed {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Adds the Type/Class/Id parts of one `:hover` compound to the fingerprint; false if it has
+/// none.
+fn record_hover_compound<'a>(
+    compound: impl IntoIterator<Item = &'a CssSelectorPart>,
+    fp: &mut HoverFingerprints,
+) -> bool {
+    let mut specific = false;
+    for part in compound {
+        match part {
+            CssSelectorPart::Type(t) => {
+                fp.types.insert(t.clone());
+                specific = true;
+            }
+            CssSelectorPart::Class(c) => {
+                fp.classes.insert(c.clone());
+                specific = true;
+            }
+            CssSelectorPart::Id(id) => {
+                fp.ids.insert(id.clone());
+                specific = true;
+            }
+            _ => {}
+        }
+    }
+    specific
 }
 
 /// `font-size` is the one property every other property's `em` resolves against.
@@ -1391,5 +1419,37 @@ mod tests {
 
     fn unit(value: f64, unit: &str) -> CssValue {
         CssValue::Unit(value, unit.to_string())
+    }
+
+    fn fingerprints(css: &str) -> HoverFingerprints {
+        let sheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").expect("parses");
+        hover_fingerprints_impl(&[sheet])
+    }
+
+    /// A `:hover` inside `:is()`, `:where()` or `:not()` is still found, and narrowed by the
+    /// compound it sits in - or, for a bare argument, by the compound the list is written in.
+    #[test]
+    fn hover_inside_a_selector_list_is_fingerprinted() {
+        let fp = fingerprints(".menu:is(:hover, :focus) .item { color: red }");
+        assert!(!fp.has_universal);
+        assert!(
+            fp.classes.contains("menu"),
+            "a bare argument borrows the outer compound"
+        );
+
+        let fp = fingerprints(":where(nav a:hover) { color: red }");
+        assert!(!fp.has_universal);
+        assert!(fp.types.contains("a"), "the argument's own compound narrows it");
+
+        let fp = fingerprints("li:not(.x:hover) { color: red }");
+        assert!(fp.classes.contains("x") && !fp.has_universal);
+    }
+
+    /// With nothing to narrow it, a nested `:hover` makes every node sensitive - including one
+    /// on an ancestor inside the argument, which the outer compound says nothing about.
+    #[test]
+    fn an_unnarrowed_nested_hover_is_universal() {
+        assert!(fingerprints(":is(:hover) { color: red }").has_universal);
+        assert!(fingerprints(".item:is(:hover .x) { color: red }").has_universal);
     }
 }

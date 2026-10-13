@@ -217,6 +217,10 @@ fn convert_selector_children(children: Vec<CssNode>, out: &mut Vec<Vec<CssSelect
                 if let NodeType::Function { name, arguments } = value.node_type {
                     if name.eq_ignore_ascii_case("not") {
                         CssSelectorPart::Not(convert_selector_list(arguments)?)
+                    } else if name.eq_ignore_ascii_case("is") || name.eq_ignore_ascii_case("matches") {
+                        CssSelectorPart::Is(convert_selector_list(arguments)?)
+                    } else if name.eq_ignore_ascii_case("where") {
+                        CssSelectorPart::Where(convert_selector_list(arguments)?)
                     } else if name.eq_ignore_ascii_case("host") {
                         // `:host(<selector>)` - the condition is matched against the host
                         // element itself, so it has to stay structured like `:not()`'s.
@@ -1420,6 +1424,45 @@ mod tests {
         assert_eq!(spec(0), Specificity::new(1, 0, 1), "an id argument counts as an id");
         assert_eq!(spec(1), Specificity::new(0, 1, 1), "a class argument counts as a class");
         assert_eq!(spec(2), Specificity::new(0, 0, 2), "a type argument counts as a type");
+    }
+
+    #[test]
+    fn is_where_and_matches_keep_their_selector_lists() {
+        let stylesheet = Css3::parse_str(
+            "a:is(.x, nav b) { color: red } a:where(#y) { color: red } a:matches(.z) { color: red }",
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let last = |i: usize| stylesheet.rules[i].selectors[0].complex_at(0).last().cloned();
+        let Some(CssSelectorPart::Is(inner)) = last(0) else {
+            panic!("expected an Is part, got {:?}", last(0));
+        };
+        assert_eq!(inner.len(), 2, "one complex selector per comma-separated argument");
+        assert_eq!(
+            inner[1],
+            vec![
+                CssSelectorPart::Type("nav".into()),
+                CssSelectorPart::Combinator(Combinator::Descendant),
+                CssSelectorPart::Type("b".into()),
+            ],
+            "an argument may be a complex selector"
+        );
+        assert!(matches!(last(1), Some(CssSelectorPart::Where(_))));
+        assert!(
+            matches!(last(2), Some(CssSelectorPart::Is(_))),
+            ":matches() is the old name of :is()"
+        );
+
+        let spec = |i: usize| Specificity::from(stylesheet.rules[i].selectors[0].complex_at(0));
+        assert_eq!(
+            spec(0),
+            Specificity::new(0, 1, 1),
+            ":is() takes its most specific argument"
+        );
+        assert_eq!(spec(1), Specificity::new(0, 0, 1), ":where() adds nothing");
     }
 
     #[test]
