@@ -27,7 +27,8 @@ rather than a name, and its product is one typed `ComputedStyle` that layout, pa
 The tokenizer and hand-written recursive-descent parser (one module per construct under
 `parser/`: selectors, declarations, at-rules, `calc`, `an+b`, ...) produce a `CssNode` AST, which
 is converted into the `CssStylesheet` the rest of the engine uses: a list of `CssRule`s
-(selectors + declarations), the `@font-face` entries, the `@import` rules and the `@layer` names.
+(selectors + declarations), the `@font-face` entries, the `@import` rules, the `@layer` names and
+the `@property` registrations.
 
 The conversion happens a rule at a time. `parse_stylesheet_streaming` hands each top-level node
 to the converter as soon as it is complete and the node's subtree is dropped before the next
@@ -44,14 +45,18 @@ pool's key is the value's exact representation rather than `CssValue`'s own `Par
 for colours compares converted sRGB with a tolerance: pooling on that would replace one colour
 with another a fraction of a channel away, and the survivor is what gets serialised back.
 
-Five at-rules survive the conversion. `@media` conditions are attached to each rule inside them
+Six at-rules survive the conversion. `@media` conditions are attached to each rule inside them
 and evaluated at match time against the current `MediaEnvironment` (`media_query.rs`), so a
 viewport change is a restyle and never a re-parse. `@supports` asks about the engine, whose
 answer cannot change while it runs, so it is settled here and a false block contributes no rules
 (`supports.rs`). `@import` is recorded and resolved through a fetch callback the host supplies
 (`imports.rs`), with imported rules spliced ahead of the importing sheet's. `@layer` names are
 registered on the sheet and each rule carries its layer index; the order across sheets is built
-per origin when the cascade needs it (`layers.rs`). Everything else is parsed and dropped.
+per origin when the cascade needs it (`layers.rs`). A valid `@property` rule is kept on the sheet,
+and the root element merges every sheet's into one registry that its map hands down
+(`property_registry.rs`): a registered property reads as its `initial-value` wherever nothing in
+scope declares it, and one registered with `inherits: false` is held on the element that declares
+it rather than in the scope its children inherit. Everything else is parsed and dropped.
 
 Nothing about one rule can cost the sheet another. A selector part the converter has no arm for
 invalidates that style rule and only it, a value component that does not convert invalidates its
@@ -309,7 +314,10 @@ and the clause that makes the new value right.
     number, dimension or percentage in a compound (`.p-0.5` tokenizes as `.p-0` and `.5`, and
     all three are invalid selectors anyway) and the nesting selector `&`. CSS Nesting parses but
     its nested style rules are discarded by `collect_rule`.
--   At-rule coverage stops at the five above.
+-   At-rule coverage stops at the six above.
+-   A registered property's `syntax` is recorded but not checked: a declared value that does not
+    match it is used anyway, where it should be invalid at computed-value time, and a typed value
+    is not computed (`1em` is inherited as `1em`, not as pixels).
 -   An unresolvable `var()` drops its declaration; css-variables-1 §3.1 says the property should
     then compute to `inherit` or `initial`.
 -   The two computed-value questions still answered in the typed-style conversion (listed above).

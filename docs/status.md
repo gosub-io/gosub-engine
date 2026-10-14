@@ -35,7 +35,8 @@ definitions generated from webref merged with MDN - 666 properties, plus selecto
 (`crates/gosub_css3/resources/definitions/`). Selector matching is right-to-left and backtracks
 through descendant and sibling combinators. The cascade handles origins, specificity,
 `!important`, and the shadow-tree tiebreak. Custom properties and `var()` resolve, including
-fallbacks and nesting. Shorthands expand and reset the longhands they do not mention. The math
+fallbacks and nesting, and `@property` registers a custom property's initial value and whether
+it inherits (its `syntax` is not checked). Shorthands expand and reset the longhands they do not mention. The math
 functions are essentially complete: `calc()`, `min`/`max`/`clamp`, `round`/`mod`/`rem`, the trig
 family, `abs`/`sign`, `pow`/`sqrt`/`hypot`, `exp`/`log`, evaluated with correct type rules and
 range clamping at computed-value time. `@media` conditions evaluate, `calc()` included.

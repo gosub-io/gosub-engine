@@ -1,3 +1,4 @@
+use crate::property_registry::PropertyRegistry;
 use crate::stylesheet::CssValue;
 use std::collections::HashMap;
 
@@ -5,6 +6,43 @@ use std::collections::HashMap;
 /// (`--a: var(--b); --b: var(--c); …`). Cyclic references are already caught by the
 /// visited-name stack; this only bounds pathological but acyclic chains.
 pub(crate) const MAX_VAR_DEPTH: usize = 32;
+
+/// The custom properties a `var()` can see on one element.
+///
+/// Most live in the map the element inherits and hands down. The two kinds `@property` adds do
+/// not, so that a page registering a hundred of them does not copy a map that size on every
+/// element that changes one: a registered property's initial value is looked up in the registry
+/// whenever nothing in scope holds the name, and a value of one that does not inherit is kept
+/// on the element that declared it, where its children never see it.
+#[derive(Clone, Copy)]
+pub struct CustomScope<'a> {
+    pub inherited: &'a HashMap<String, CssValue>,
+    /// This element's values for registered properties that do not inherit.
+    pub local: &'a [(String, CssValue)],
+    pub registry: Option<&'a PropertyRegistry>,
+}
+
+impl<'a> CustomScope<'a> {
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&'a CssValue> {
+        self.local
+            .iter()
+            .find(|(local, _)| local == name)
+            .map(|(_, value)| value)
+            .or_else(|| self.inherited.get(name))
+            .or_else(|| self.registry?.get(name)?.initial.as_ref())
+    }
+}
+
+impl<'a> From<&'a HashMap<String, CssValue>> for CustomScope<'a> {
+    fn from(inherited: &'a HashMap<String, CssValue>) -> Self {
+        Self {
+            inherited,
+            local: &[],
+            registry: None,
+        }
+    }
+}
 
 /// Resolves a single `var(--name[, <fallback>])` against the custom properties in scope.
 ///
@@ -15,8 +53,8 @@ pub(crate) const MAX_VAR_DEPTH: usize = 32;
 ///
 /// No tokens at all is a substitution like any other: an empty fallback (`var(--nope,)`) and an
 /// empty custom property (`--x:;`) both splice in nothing and leave the rest of the declaration.
-pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>) -> Option<Vec<CssValue>> {
-    resolve_var_inner(values, custom_props, &mut Vec::new()).ok()
+pub fn resolve_var<'a>(values: &[CssValue], custom_props: impl Into<CustomScope<'a>>) -> Option<Vec<CssValue>> {
+    resolve_var_inner(values, &custom_props.into(), &mut Vec::new()).ok()
 }
 
 /// Why a reference did not substitute.
@@ -35,7 +73,7 @@ enum Unresolved {
 
 fn resolve_var_inner(
     values: &[CssValue],
-    custom_props: &HashMap<String, CssValue>,
+    custom_props: &CustomScope<'_>,
     seen: &mut Vec<String>,
 ) -> Result<Vec<CssValue>, Unresolved> {
     let name = values.first().map(ToString::to_string).ok_or(Unresolved::Invalid)?;
@@ -100,7 +138,7 @@ fn resolve_var_inner(
 /// the declaration.
 fn substitute(
     values: &[CssValue],
-    custom_props: &HashMap<String, CssValue>,
+    custom_props: &CustomScope<'_>,
     seen: &mut Vec<String>,
 ) -> Result<Vec<CssValue>, Unresolved> {
     let mut out = Vec::with_capacity(values.len());

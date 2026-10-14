@@ -1,6 +1,6 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::env::resolve_env;
-use crate::functions::var::{resolve_var, MAX_VAR_DEPTH};
+use crate::functions::var::{resolve_var, CustomScope, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
@@ -11,6 +11,7 @@ use crate::matcher::styling::{
     cascade_rank, css_wide_keyword, match_selector, CssProperties, CssProperty, CssWide, DeclarationProperty,
     InheritedLineHeight, ScopeContext, ScopeMatch, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT_PX,
 };
+use crate::property_registry::PropertyRegistry;
 use crate::stylesheet::{reduce_function, CssDeclaration, CssSelectorPart, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, load_quirks_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
@@ -251,8 +252,10 @@ fn style_environment_fingerprint_impl(sheets: &[CssStylesheet]) -> u64 {
 
     for sheet in sheets {
         uses_viewport_units |= sheet.uses_viewport_units;
-        for rule in &sheet.rules {
-            let Some(conditions) = &rule.media else {
+        // An `@property` under `@media` registers or not by the same conditions.
+        let registrations = sheet.property_rules.iter().map(|rule| &rule.media);
+        for media in sheet.rules.iter().map(|rule| &rule.media).chain(registrations) {
+            let Some(conditions) = media else {
                 continue;
             };
             for list in conditions {
@@ -455,7 +458,17 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // top (origin/importance rank, then specificity, later wins ties), resolved before any
     // `var()` is read. The map is only copied when the node actually changes something;
     // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
+    //
+    // The `@property` registrations are merged at the root, the one element nothing is handed
+    // down to, and travel down with the maps from there. They stay out of the scope map; see
+    // [`CustomScope`] for where a registered property's values live instead.
+    let registry = match inherited {
+        Some(map) => map.registry.clone(),
+        None => PropertyRegistry::build(sheets).map(Arc::new),
+    };
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
+    css_map_entry.registry = registry.clone();
+    let registration = |name: &str| registry.as_deref().and_then(|registry| registry.get(name));
     let mut own_custom: HashMap<&str, (CustomRank, &CssValue)> = HashMap::new();
     for matched_rule in &matched {
         let MatchedRule {
@@ -498,19 +511,42 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // polyfill depends on exactly that. Custom properties inherit, so `inherit`, `unset` and
     // `revert` all keep the parent's value (no user or user-agent sheet declares one to revert
     // to). `revert-layer` does the same, which is only right when no earlier layer set it.
-    let own_values: Vec<(&str, Option<&CssValue>)> = own_custom
-        .into_iter()
-        .map(|(name, (_, value))| {
-            let value = match css_wide_keyword(value) {
-                Some(CssWide::Initial) => None,
-                Some(CssWide::Inherit | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => {
-                    inherited_custom.get(name)
-                }
+    //
+    // A registered property's initial value is its `initial-value`, which is what a name
+    // missing from the scope reads as, so `initial` takes it out of the scope just the same.
+    // One registered with `inherits: false` is never in the scope map: what this element
+    // declares for it is kept on this element alone, `inherit` copies the parent's, and
+    // `unset` and `revert` leave it at its initial value.
+    let mut own_values: Vec<(&str, Option<&CssValue>)> = Vec::with_capacity(own_custom.len());
+    let mut custom_local: Vec<(String, CssValue)> = Vec::new();
+    for (name, (_, value)) in own_custom {
+        let keyword = css_wide_keyword(value);
+        if registration(name).is_some_and(|registration| !registration.inherits) {
+            let value = match keyword {
                 None => Some(value),
+                Some(CssWide::Inherit) => inherited.and_then(|parent| {
+                    parent
+                        .custom_local
+                        .iter()
+                        .find(|(local, _)| local == name)
+                        .map(|(_, value)| value)
+                }),
+                Some(CssWide::Initial | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => None,
             };
-            (name, value)
-        })
-        .collect();
+            if let Some(value) = value {
+                custom_local.push((name.to_string(), value.clone()));
+            }
+            continue;
+        }
+        let value = match keyword {
+            Some(CssWide::Initial) => None,
+            Some(CssWide::Inherit | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => {
+                inherited_custom.get(name)
+            }
+            None => Some(value),
+        };
+        own_values.push((name, value));
+    }
     let changes_scope = own_values
         .iter()
         .any(|(name, value)| inherited_custom.get(*name) != *value);
@@ -531,6 +567,11 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         inherited_custom
     };
     css_map_entry.custom = Arc::clone(&custom_props);
+    let scope = CustomScope {
+        inherited: &custom_props,
+        local: &custom_local,
+        registry: registry.as_deref(),
+    };
 
     let mut fix_list = FixList::new();
 
@@ -583,7 +624,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                 // here. It takes the per-element path below.
                 ExpandedDeclaration::Pending => {}
             }
-            let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
+            let value = resolve_functions::<C>(&declaration.value, doc, id, &scope);
 
             // `content` used to be passed through here without validation, because its
             // grammar could not be matched against the tokens the parser produced - the empty
@@ -677,6 +718,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
         }
     }
 
+    css_map_entry.custom_local = custom_local;
     fix_list.resolve_nested(definitions);
 
     fix_list.apply(&mut css_map_entry);
@@ -1106,7 +1148,7 @@ pub fn resolve_functions<C: HasDocument>(
     value: &CssValue,
     doc: &C::Document,
     id: NodeId,
-    custom_props: &HashMap<String, CssValue>,
+    custom_props: &CustomScope<'_>,
 ) -> CssValue {
     resolve_substitutions(value, custom_props, &|args| resolve_attr::<C>(args, doc, id))
 }
@@ -1116,11 +1158,7 @@ pub fn resolve_functions<C: HasDocument>(
 /// to can be asked without building one.
 type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Vec<CssValue>;
 
-fn resolve_substitutions(
-    value: &CssValue,
-    custom_props: &HashMap<String, CssValue>,
-    attr: AttrResolver<'_>,
-) -> CssValue {
+fn resolve_substitutions(value: &CssValue, custom_props: &CustomScope<'_>, attr: AttrResolver<'_>) -> CssValue {
     match value {
         // Only a function or a list can hold a reference; a plain token substitutes to itself,
         // and is handed back in the shape it arrived in.
@@ -1145,7 +1183,7 @@ fn resolve_substitutions(
 /// custom-property references [`resolve_var`] follows.
 fn resolve_value(
     value: &CssValue,
-    custom_props: &HashMap<String, CssValue>,
+    custom_props: &CustomScope<'_>,
     attr: AttrResolver<'_>,
     depth: usize,
 ) -> Option<Vec<CssValue>> {
@@ -1159,7 +1197,7 @@ fn resolve_value(
             // nothing (`var(--nope,)`, `env(nope,)`, an empty `--x:;`), which splices no tokens and
             // keeps the rest of the declaration.
             if name.eq_ignore_ascii_case("var") {
-                return resolve_list(&resolve_var(args, custom_props)?, custom_props, attr, depth + 1);
+                return resolve_list(&resolve_var(args, *custom_props)?, custom_props, attr, depth + 1);
             }
             if name.eq_ignore_ascii_case("env") {
                 return resolve_list(&resolve_env(args)?, custom_props, attr, depth + 1);
@@ -1210,7 +1248,7 @@ fn resolve_value(
 /// Resolve every value in a sequence, splicing what each one substitutes to into one flat list.
 fn resolve_list(
     values: &[CssValue],
-    custom_props: &HashMap<String, CssValue>,
+    custom_props: &CustomScope<'_>,
     attr: AttrResolver<'_>,
     depth: usize,
 ) -> Option<Vec<CssValue>> {
@@ -1261,7 +1299,11 @@ mod tests {
     }
 
     fn resolve(declaration: &str, props: &[(&str, &str)]) -> CssValue {
-        single_value(resolve_substitutions(&declared(declaration), &custom(props), &attr))
+        single_value(resolve_substitutions(
+            &declared(declaration),
+            &(&custom(props)).into(),
+            &attr,
+        ))
     }
 
     #[test]
@@ -1310,7 +1352,7 @@ mod tests {
     #[test]
     fn a_cycle_inside_a_function_terminates() {
         let props = custom(&[("--a", "var(--b)"), ("--b", "var(--a)")]);
-        let value = resolve_substitutions(&declared("color: rgb(var(--a) 0 0)"), &props, &attr);
+        let value = resolve_substitutions(&declared("color: rgb(var(--a) 0 0)"), &(&props).into(), &attr);
         assert_eq!(value, CssValue::List(vec![]));
     }
 
@@ -1400,7 +1442,7 @@ mod tests {
                 continue;
             }
             let call = CssValue::Function((*name).to_string(), vec![CssValue::String("x".to_string())]);
-            let substituted = single_value(resolve_substitutions(&call, &HashMap::new(), &attr));
+            let substituted = single_value(resolve_substitutions(&call, &(&HashMap::new()).into(), &attr));
             assert_ne!(substituted, call, "{name}() was not substituted");
         }
     }

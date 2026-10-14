@@ -239,7 +239,9 @@ fn dump_element(
     }
 
     // The custom-property scope in force on this element, which is what a `var()` below it reads.
-    let mut custom: Vec<(&String, &CssValue)> = map.custom.iter().collect();
+    // A registered property that does not inherit is held on its element instead.
+    let local = map.custom_local.iter().map(|(name, value)| (name, value));
+    let mut custom: Vec<(&String, &CssValue)> = map.custom.iter().chain(local).collect();
     custom.sort_by(|a, b| a.0.cmp(b.0));
     for (name, value) in custom {
         let _ = writeln!(computed, "  custom {name} = {value:?}");

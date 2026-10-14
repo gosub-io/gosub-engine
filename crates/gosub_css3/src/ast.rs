@@ -6,7 +6,7 @@ use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::note_dropped;
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
-    FontFace, ImportRule, MatcherType, NthKind, NthSelector,
+    FontFace, ImportRule, MatcherType, NthKind, NthSelector, PropertyRule,
 };
 use crate::supports::SupportsCondition;
 use crate::tokenizer::NumberKind;
@@ -823,6 +823,7 @@ struct SheetParts<'a> {
     rules: &'a mut Vec<CssRule>,
     font_faces: &'a mut Vec<FontFace>,
     imports: &'a mut Vec<ImportRule>,
+    property_rules: &'a mut Vec<PropertyRule>,
     layers: &'a mut Vec<String>,
 }
 
@@ -942,6 +943,16 @@ fn collect_rules(
                     }
                 }
             }
+            NodeType::AtRule {
+                name,
+                prelude,
+                block: Some(block),
+            } if name.eq_ignore_ascii_case("property") => {
+                match collect_property(prelude.map(|node| *node), *block, media) {
+                    Some(rule) => sheet.property_rules.push(rule),
+                    None => drop_here(sheet.dropped, CssDroppedKind::InvalidValue, "@property", line),
+                }
+            }
             // `@charset` only ever named the encoding, which is settled before CSS is parsed.
             NodeType::AtRule { name, .. } if name.eq_ignore_ascii_case("charset") => {}
             // An at-rule this engine does not implement (`@keyframes`, `@page`, `@container`),
@@ -957,6 +968,88 @@ fn collect_rules(
             _ => {}
         }
     }
+}
+
+/// Build a [`PropertyRule`] from an `@property` rule, or `None` when the rule is invalid
+/// (css-properties-values-api-1 §3): the prelude is not one custom property name, `syntax` or
+/// `inherits` is missing or malformed, or a syntax other than `*` has no `initial-value`.
+/// Unknown descriptors are ignored, and a later descriptor replaces an earlier one.
+fn collect_property(prelude: Option<CssNode>, block: CssNode, media: &[Arc<MediaQueryList>]) -> Option<PropertyRule> {
+    let NodeType::Container { children } = prelude?.node_type else {
+        return None;
+    };
+    let [CssNode {
+        node_type: NodeType::Ident { value: name },
+        ..
+    }] = children.as_slice()
+    else {
+        return None;
+    };
+    if !name.starts_with("--") {
+        return None;
+    }
+    let NodeType::Block { children } = block.node_type else {
+        return None;
+    };
+
+    let mut syntax = None;
+    let mut inherits = None;
+    let mut initial = None;
+    for decl in children {
+        let NodeType::Declaration { property, value, .. } = decl.node_type else {
+            continue;
+        };
+        match property.cow_to_ascii_lowercase().as_ref() {
+            "syntax" => {
+                syntax = match value.as_slice() {
+                    [CssNode {
+                        node_type: NodeType::String { value },
+                        ..
+                    }] if !value.trim().is_empty() => Some(value.trim().to_string()),
+                    _ => None,
+                };
+            }
+            "inherits" => {
+                inherits = match value.as_slice() {
+                    [CssNode {
+                        node_type: NodeType::Ident { value },
+                        ..
+                    }] if value.eq_ignore_ascii_case("true") => Some(true),
+                    [CssNode {
+                        node_type: NodeType::Ident { value },
+                        ..
+                    }] if value.eq_ignore_ascii_case("false") => Some(false),
+                    _ => None,
+                };
+            }
+            "initial-value" => {
+                // The same conversion a custom property's declared value gets, so the initial
+                // value substitutes exactly as a declared one would.
+                let values: Option<Vec<CssValue>> = value
+                    .into_iter()
+                    .map(|node| CssValue::parse_ast_node(node).ok())
+                    .collect();
+                initial = values.map(|mut values| match values.len() {
+                    1 => values.remove(0),
+                    _ => CssValue::List(values),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let syntax = syntax?;
+    if syntax != "*" && initial.is_none() {
+        return None;
+    }
+    Some(PropertyRule {
+        name: name.clone(),
+        syntax,
+        inherits: inherits?,
+        initial,
+        media: (!media.is_empty()).then(|| media.to_vec()),
+        imported: false,
+    })
 }
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
@@ -1157,6 +1250,7 @@ pub(crate) fn convert_node_into(
         rules: &mut sheet.rules,
         font_faces: &mut sheet.font_faces,
         imports: &mut sheet.imports,
+        property_rules: &mut sheet.property_rules,
         layers,
     };
     collect_rules(&mut parts, vec![node], &mut Vec::new(), None);
@@ -1187,6 +1281,7 @@ pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str)
         rules: &mut sheet.rules,
         font_faces: &mut sheet.font_faces,
         imports: &mut sheet.imports,
+        property_rules: &mut sheet.property_rules,
         layers: &mut layers,
     };
     collect_rules(&mut parts, children, &mut Vec::new(), None);
@@ -1905,6 +2000,49 @@ mod tests {
             Specificity::new(0, 1, 1),
             "a pseudo-class"
         );
+    }
+
+    /// Only an `@property` rule with a custom property name, a `syntax` string and an
+    /// `inherits` keyword registers anything, and a syntax other than `*` also needs an
+    /// `initial-value`. An invalid one is reported and leaves the rules around it alone.
+    #[test]
+    fn property_rules_are_collected_when_valid() {
+        let sheet = Css3::parse_str(
+            r#"
+            @property --a { syntax: "*"; inherits: false; initial-value: 0 0 #0000; }
+            @property --b { syntax: '<length>'; inherits: TRUE; initial-value: 4px; unknown: 1; }
+            @property --c { syntax: "*"; inherits: false; }
+            @property --no-inherits { syntax: "*"; initial-value: 1px; }
+            @property --no-syntax { inherits: true; initial-value: 1px; }
+            @property --typed-no-initial { syntax: "<color>"; inherits: true; }
+            @property --bad-inherits { syntax: "*"; inherits: yes; }
+            @property no-dashes { syntax: "*"; inherits: true; }
+            @media (max-width: 1px) { @property --d { syntax: "*"; inherits: true; } }
+            h1 { color: red; }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        let names: Vec<&str> = sheet.property_rules.iter().map(|rule| rule.name.as_str()).collect();
+        assert_eq!(names, ["--a", "--b", "--c", "--d"]);
+        let [a, b, c, d] = sheet.property_rules.as_slice() else {
+            panic!("four rules, checked above");
+        };
+        assert_eq!((a.syntax.as_str(), a.inherits), ("*", false));
+        assert!(matches!(&a.initial, Some(CssValue::List(values)) if values.len() == 3));
+        assert_eq!((b.syntax.as_str(), b.inherits), ("<length>", true));
+        assert_eq!(b.initial, Some(CssValue::Unit(4.0, "px".into())));
+        assert_eq!(c.initial, None, "the universal syntax may leave initial-value out");
+        assert!(
+            a.media.is_none() && d.media.is_some(),
+            "the @media around a rule is kept"
+        );
+        assert_eq!(sheet.rules.len(), 1, "the h1 rule is still collected");
+        let dropped = sheet.dropped.iter().filter(|drop| drop.subject == "@property").count();
+        assert_eq!(dropped, 5, "{:?}", sheet.dropped);
     }
 
     #[test]
