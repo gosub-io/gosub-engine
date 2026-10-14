@@ -20,6 +20,9 @@ pub struct Bookmark {
     pub title: String,
     /// Unix seconds when the bookmark was created.
     pub created_at: u64,
+    /// The page's icon as last fetched, encoded as served (ICO, PNG, ...). `None` until
+    /// the embedder stores one with [`Places::set_bookmark_favicon`].
+    pub favicon: Option<Vec<u8>>,
 }
 
 /// A visited page, aggregated over all its visits.
@@ -40,6 +43,12 @@ pub trait Places: Send + Sync + std::fmt::Debug {
     fn is_bookmarked(&self, url: &str) -> bool;
     /// All bookmarks, oldest first.
     fn bookmarks(&self) -> Vec<Bookmark>;
+    /// Store the icon of the bookmark for `url`, and answer whether it changed anything:
+    /// `false` when `url` is not bookmarked or already has these bytes. The default stores
+    /// nothing, so a store without it keeps its bookmarks iconless.
+    fn set_bookmark_favicon(&self, _url: &str, _favicon: &[u8]) -> bool {
+        false
+    }
 
     /// Record one visit of `url` (called by the engine on committed navigations).
     fn record_visit(&self, url: &str, title: &str);
@@ -94,6 +103,7 @@ impl Places for MemoryPlaces {
             url: url.to_string(),
             title: title.to_string(),
             created_at: now_secs(),
+            favicon: None,
         });
     }
 
@@ -107,6 +117,17 @@ impl Places for MemoryPlaces {
 
     fn bookmarks(&self) -> Vec<Bookmark> {
         self.inner.lock().bookmarks.clone()
+    }
+
+    fn set_bookmark_favicon(&self, url: &str, favicon: &[u8]) -> bool {
+        let mut inner = self.inner.lock();
+        match inner.bookmarks.iter_mut().find(|b| b.url == url) {
+            Some(bookmark) if bookmark.favicon.as_deref() != Some(favicon) => {
+                bookmark.favicon = Some(favicon.to_vec());
+                true
+            }
+            _ => false,
+        }
     }
 
     fn record_visit(&self, url: &str, title: &str) {
@@ -199,7 +220,8 @@ mod sqlite {
                     "CREATE TABLE IF NOT EXISTS bookmarks (
                          url        TEXT PRIMARY KEY,
                          title      TEXT NOT NULL,
-                         created_at INTEGER NOT NULL
+                         created_at INTEGER NOT NULL,
+                         favicon    BLOB
                      );
                      CREATE TABLE IF NOT EXISTS visits (
                          url         TEXT PRIMARY KEY,
@@ -209,6 +231,16 @@ mod sqlite {
                      );",
                 )
                 .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
+                // Stores made before bookmarks had icons lack the column, and `CREATE TABLE
+                // IF NOT EXISTS` leaves an existing table as it is.
+                let has_favicon = conn
+                    .prepare("SELECT 1 FROM pragma_table_info('bookmarks') WHERE name = 'favicon'")
+                    .and_then(|mut stmt| stmt.exists([]))
+                    .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
+                if !has_favicon {
+                    conn.execute("ALTER TABLE bookmarks ADD COLUMN favicon BLOB", [])
+                        .map_err(|e| EngineError::Internal(anyhow::anyhow!(e)))?;
+                }
             }
             Ok(Self { pool })
         }
@@ -255,7 +287,8 @@ mod sqlite {
 
         fn bookmarks(&self) -> Vec<Bookmark> {
             let Ok(conn) = self.pool.get() else { return Vec::new() };
-            let Ok(mut stmt) = conn.prepare("SELECT url, title, created_at FROM bookmarks ORDER BY created_at, url")
+            let Ok(mut stmt) =
+                conn.prepare("SELECT url, title, created_at, favicon FROM bookmarks ORDER BY created_at, url")
             else {
                 return Vec::new();
             };
@@ -264,10 +297,21 @@ mod sqlite {
                     url: row.get(0)?,
                     title: row.get(1)?,
                     created_at: row.get::<_, i64>(2)? as u64,
+                    favicon: row.get(3)?,
                 })
             })
             .map(|rows| rows.flatten().collect())
             .unwrap_or_default()
+        }
+
+        fn set_bookmark_favicon(&self, url: &str, favicon: &[u8]) -> bool {
+            let Ok(conn) = self.pool.get() else { return false };
+            conn.execute(
+                "UPDATE bookmarks SET favicon = ?2 WHERE url = ?1 AND favicon IS NOT ?2",
+                params![url, favicon],
+            )
+            .map_err(|e| log::warn!("places: set_bookmark_favicon failed: {e}"))
+            .is_ok_and(|changed| changed > 0)
         }
 
         fn record_visit(&self, url: &str, title: &str) {
@@ -360,6 +404,58 @@ mod tests {
             assert!(!store.is_bookmarked("https://a.example/"), "{name}");
             assert_eq!(store.bookmarks().len(), 1, "{name}");
         }
+    }
+
+    #[test]
+    fn a_bookmark_keeps_its_favicon() {
+        for (name, store) in stores() {
+            store.add_bookmark("https://a.example/", "A");
+            assert_eq!(store.bookmarks()[0].favicon, None, "{name}");
+            assert!(store.set_bookmark_favicon("https://a.example/", &[1, 2, 3]), "{name}");
+            assert!(
+                !store.set_bookmark_favicon("https://a.example/", &[1, 2, 3]),
+                "{name}: same bytes"
+            );
+            assert!(
+                !store.set_bookmark_favicon("https://b.example/", &[4]),
+                "{name}: not bookmarked"
+            );
+            // Re-adding renames the bookmark and leaves its icon alone.
+            store.add_bookmark("https://a.example/", "A2");
+            assert_eq!(
+                store.bookmarks()[0].favicon.as_deref(),
+                Some(&[1u8, 2, 3][..]),
+                "{name}"
+            );
+            assert!(
+                store.set_bookmark_favicon("https://a.example/", &[5]),
+                "{name}: new bytes"
+            );
+            assert_eq!(store.bookmarks()[0].favicon.as_deref(), Some(&[5u8][..]), "{name}");
+        }
+    }
+
+    /// A database from before bookmarks had icons gains the column and keeps its rows.
+    #[cfg(feature = "sqlite_places")]
+    #[test]
+    fn an_old_store_gains_the_favicon_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("places.db");
+        {
+            let conn = r2d2_sqlite::rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE bookmarks (url TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL);
+                 INSERT INTO bookmarks VALUES ('https://old.example', 'Old', 1);",
+            )
+            .unwrap();
+        }
+        let store = SqlitePlaces::new(path.clone()).unwrap();
+        assert_eq!(store.bookmarks()[0].favicon, None);
+        assert!(store.set_bookmark_favicon("https://old.example", &[9]));
+        drop(store);
+        // Opening it again finds the column already there.
+        let store = SqlitePlaces::new(path).unwrap();
+        assert_eq!(store.bookmarks()[0].favicon.as_deref(), Some(&[9u8][..]));
     }
 
     #[test]
