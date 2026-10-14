@@ -2625,6 +2625,61 @@ mod rendertree_from_engine {
         assert_eq!(style.inherited.font_style, FontStyle::Italic, "#f font-style");
     }
 
+    /// The same `unset` on the paths the test above leaves out: the `style` attribute, an
+    /// `!important` declaration (it keeps its importance, so the later 40px loses to it), a
+    /// keyword property, a `var()` cycle, and a custom property that inherits the
+    /// guaranteed-invalid value. Each would show the earlier rule if the declaration were dropped.
+    #[test]
+    fn invalid_at_computed_value_time_is_unset_on_every_path() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{Color, Display, LengthPercentageAuto};
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                div { width: 10px; display: flex; }
+                #imp { width: var(--nope) !important; }
+                #imp { width: 40px; }
+                #d { display: var(--nope); }
+                #cyc { --a: var(--b); --b: var(--a); width: var(--a); }
+                #par { --x: var(--nope); color: rgb(0, 128, 0); }
+                #kid { color: var(--x); }
+                p { color: rgb(0, 0, 255); }
+            </style></head>
+            <body><div id="s" style="width: var(--nope)"></div><div id="imp"></div><div id="d"></div>
+            <div id="cyc"></div><section id="par"><p id="kid">x</p></section></body></html>
+        "#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+        assert_eq!(
+            adapter.computed_style(node("s")).size.width,
+            LengthPercentageAuto::Auto,
+            "#s"
+        );
+        assert_eq!(
+            adapter.computed_style(node("imp")).size.width,
+            LengthPercentageAuto::Auto,
+            "#imp"
+        );
+        assert_eq!(
+            adapter.computed_style(node("d")).box_group.display,
+            Display::Inline,
+            "#d"
+        );
+        assert_eq!(
+            adapter.computed_style(node("cyc")).size.width,
+            LengthPercentageAuto::Auto,
+            "#cyc"
+        );
+        assert_eq!(
+            adapter.computed_style(node("kid")).inherited.color,
+            Color::rgba(0, 128, 0, 255),
+            "#kid"
+        );
+    }
+
     /// An empty `var()` fallback and an empty custom property both substitute to nothing and
     /// leave the rest of the declaration standing. The widths are Chromium's for the same page.
     #[test]

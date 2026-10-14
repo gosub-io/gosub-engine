@@ -35,8 +35,9 @@ definitions generated from webref merged with MDN - 666 properties, plus selecto
 (`crates/gosub_css3/resources/definitions/`). Selector matching is right-to-left and backtracks
 through descendant and sibling combinators. The cascade handles origins, specificity,
 `!important`, and the shadow-tree tiebreak. Custom properties and `var()` resolve, including
-fallbacks and nesting, and `@property` registers a custom property's initial value and whether
-it inherits (its `syntax` is not checked). Shorthands expand and reset the longhands they do not mention. The math
+fallbacks and nesting, and a declaration an unresolvable `var()` makes invalid computes as
+`unset`. `@property` registers a custom property's initial value and whether it inherits (its
+`syntax` is not checked). Shorthands expand and reset the longhands they do not mention. The math
 functions are essentially complete: `calc()`, `min`/`max`/`clamp`, `round`/`mod`/`rem`, the trig
 family, `abs`/`sign`, `pow`/`sqrt`/`hypot`, `exp`/`log`, evaluated with correct type rules and
 range clamping at computed-value time. `@media` conditions evaluate, `calc()` included.
@@ -108,9 +109,7 @@ are stored as their text and fall to the matcher's catch-all
 rule, which never matches, where the spec drops the rule.
 `:active` is hardcoded false.
 `:visited` is hardcoded false to avoid leaking browsing history. CSS Nesting's `&` selector is
-the one selector form the AST converter has no arm for, so a nested rule is dropped. An
-unresolvable `var()` drops its declaration where css-variables-1 says the property should compute
-to `inherit` or `initial`. Six computed-value questions are still answered when the typed struct
+the one selector form the AST converter has no arm for, so a nested rule is dropped. Six computed-value questions are still answered when the typed struct
 is built rather than in the crate's computed stage - system colours, the `font-size` keyword
 scale, `ch`/`ex`/`lh`/`ic`, `currentColor` on a property other than `color`, `outline-color:
 auto` and the physical-to-logical inset mapping - so `getComputedStyle` reports the unresolved

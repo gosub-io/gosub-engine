@@ -318,8 +318,12 @@ and the clause that makes the new value right.
 -   A registered property's `syntax` is recorded but not checked: a declared value that does not
     match it is used anyway, where it should be invalid at computed-value time, and a typed value
     is not computed (`1em` is inherited as `1em`, not as pixels).
--   An unresolvable `var()` drops its declaration; css-variables-1 §3.1 says the property should
-    then compute to `inherit` or `initial`.
+-   A custom property keeps its `var()` references unresolved, and they are substituted where the
+    property is read, in the scope of the element reading it. With `--x: var(--theme)` on a parent
+    and `--theme` set again on a child, `var(--x)` on the child sees the child's `--theme`, where
+    css-variables-1 §3 computes `--x` on the parent and hands that value down. This holds for every
+    custom property, registered or not; an `inherit` of a registered property that does not
+    inherit copies the parent's unresolved value the same way.
 -   The two computed-value questions still answered in the typed-style conversion (listed above).
     One consequence: a relative `font-size` keyword (`smaller`) travels down as the keyword and
     is re-applied on every descendant.
