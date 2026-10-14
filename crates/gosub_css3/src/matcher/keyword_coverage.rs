@@ -54,6 +54,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("table-layout", Prop::TableLayout, |s| {
         format!("{:?}", s.box_group.table_layout)
     }),
+    ("object-fit", Prop::ObjectFit, |s| {
+        format!("{:?}", s.box_group.object_fit)
+    }),
     ("vertical-align", Prop::VerticalAlign, |s| {
         format!("{:?}", s.box_group.vertical_align)
     }),

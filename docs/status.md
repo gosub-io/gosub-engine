@@ -8,7 +8,7 @@ the command is next to it. Anything without a command is a reading of the code a
 
 1,547 tests pass, none fail (`cargo test --workspace`).
 
-The CSS parser validates 666 properties against generated grammars. Only 95 reach layout and
+The CSS parser validates 666 properties against generated grammars. Only 96 reach layout and
 paint. Accepting a declaration and acting on it are different things, so the sections below say
 which of the two they mean.
 
@@ -124,7 +124,7 @@ document; the CSS WPT component stands at 3,349 of 5,759 subtests
 
 ## Layout and paint - `gosub_render_pipeline`
 
-**Works.** 95 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
+**Works.** 96 CSS properties reach layout and paint. The list is the fields of `ComputedStyle`
 in `crates/gosub_interface/src/style.rs` - grep that for the current set. It
 covers the box model, flex, grid (including `grid-template-areas`), `order` for both, floats
 with document-order band resolution, absolute and fixed positioning, `position: sticky`, overflow
@@ -166,7 +166,9 @@ PNG retry for files whose checksums other browsers also ignore. SVG parses to a 
 either from a standalone document or from an `<svg>` subtree of an HTML document, and the
 backends rasterize it. An `<img>` with `srcset` (density and width descriptors, `sizes`) or in a
 `<picture>` (`<source>` with `media` and `type`) shows the candidate HTML's source selection
-picks for the viewport and device pixel ratio, at that candidate's density.
+picks for the viewport and device pixel ratio, at that candidate's density. `object-fit` and
+`object-position` place a raster `<img>` in its content box; `object-position` lengths are px
+only, as `background-position`'s are, and an SVG `<img>` still fills its box.
 
 **Not yet.** Still frames only: an animated GIF renders its first frame. Lazy images
 (`loading="lazy"`, `sizes="auto"`) load like any other. There is no audio or

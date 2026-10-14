@@ -87,9 +87,18 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                     // translation is expressed in pattern units (pre-scaled by sx/sy).
                     let (sx, sy, ox, oy) = match tiling {
                         // Tiled `background-image`: repeat one `tile_size` (CSS px) cell across the
-                        // box, anchored at `background-position`. Nearest keeps tile edges crisp.
+                        // box, anchored at `background-position`. Nearest keeps tile edges crisp. A
+                        // single tile scaled to its box (`object-fit`, `background-size: cover`) has
+                        // no seam, and Nearest renders the photo jagged; one drawn at its own size
+                        // (an icon sprite) keeps Nearest and stays pixel-exact.
                         Some(t) => {
-                            pattern.set_filter(cairo::Filter::Nearest);
+                            let rescaled = (t.tile_size.0 - img.width() as f32).abs() > 1e-3
+                                || (t.tile_size.1 - img.height() as f32).abs() > 1e-3;
+                            pattern.set_filter(if !t.repeat.0 && !t.repeat.1 && rescaled {
+                                cairo::Filter::Bilinear
+                            } else {
+                                cairo::Filter::Nearest
+                            });
                             // Cairo's surface extend is 2D; honour full-repeat (default) and no-repeat.
                             let extend = if t.repeat.0 || t.repeat.1 {
                                 cairo::Extend::Repeat

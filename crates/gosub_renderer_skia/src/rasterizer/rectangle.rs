@@ -254,8 +254,17 @@ fn draw_image_brush(
         let tile_modes = (mode(t.repeat.0), mode(t.repeat.1));
         let mut local = Matrix::translate((x + t.position.0, y + t.position.1));
         local.pre_scale((sx, sy), None);
-        // Nearest keeps tile edges crisp and avoids bleeding across the repeat seam.
-        let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
+        // Nearest keeps tile edges crisp and avoids bleeding across the repeat seam. A single
+        // tile scaled to its box (`object-fit`, `background-size: cover`) has no seam, and
+        // Nearest renders the photo jagged; one drawn at its own size (an icon sprite) keeps
+        // Nearest and stays pixel-exact.
+        let rescaled = (sx - 1.0).abs() > 1e-3 || (sy - 1.0).abs() > 1e-3;
+        let filter = if !t.repeat.0 && !t.repeat.1 && rescaled {
+            FilterMode::Linear
+        } else {
+            FilterMode::Nearest
+        };
+        let sampling = SamplingOptions::new(filter, MipmapMode::None);
         if let Some(shader) = image.to_shader(tile_modes, sampling, Some(&local)) {
             paint.set_shader(shader);
         }
