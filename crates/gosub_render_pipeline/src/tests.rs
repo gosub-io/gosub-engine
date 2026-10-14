@@ -579,6 +579,118 @@ mod rendertree_from_engine {
         assert!(!red, "a hidden box paints no background");
     }
 
+    /// `box-shadow` paints as two shadow-only rectangles around the box's own: the outer shadows
+    /// before it, the inset ones after its background. A shadow that reaches into the next tile
+    /// down puts the box on that tile too, or the tile would cut the shadow off.
+    #[test]
+    fn box_shadows_paint_around_the_box_and_reach_their_tiles() {
+        use crate::common::browser_state::{BrowserState, WireframeState};
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::painter::commands::brush::Brush;
+        use crate::painter::commands::PaintCommand;
+        use crate::painter::Painter;
+        use crate::tiler::TileList;
+
+        let html = r#"<html><body style="margin: 0">
+          <div id="card" style="width: 200px; height: 200px; background: white; border: 4px solid black;
+            border-radius: 10px; box-shadow: inset 0 0 0 2px red, 0 40px 20px rgb(0 0 0 / 0.5)"></div>
+          <input id="field" value="typed" style="box-shadow: inset 0 1px 2px black">
+          <div style="height: 400px"></div>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
+        let card_node = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "card").expect("card");
+        let field_node = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "field").expect("field");
+        let mut render_tree = RenderTree::new(adapter);
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+        let card = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == card_node)
+            .map(|el| el.id)
+            .expect("the card is laid out");
+        let field = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == field_node)
+            .map(|el| el.id)
+            .expect("the field is laid out");
+
+        let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
+        let painter = Painter::new(Arc::clone(&layer_list), None);
+        let state = BrowserState {
+            visible_layer_list: vec![true; 8],
+            wireframed: WireframeState::None,
+            debug_hover: false,
+            current_hovered_element: None,
+            show_tilegrid: false,
+            debug_table_cells: false,
+            viewport: Rect::new(0.0, 0.0, 800.0, 600.0),
+            tile_list: None,
+            dpi_scale_factor: 1.0,
+        };
+        let rectangles: Vec<_> = painter
+            .paint_element(card, &state)
+            .into_iter()
+            .filter_map(|command| match command {
+                PaintCommand::Rectangle(rect) => Some(rect),
+                _ => None,
+            })
+            .collect();
+        let [outer, own, inset] = rectangles.as_slice() else {
+            panic!("an outer shadow, the box and an inset shadow: {rectangles:#?}");
+        };
+
+        let [shadow] = outer.shadows() else {
+            panic!("one outer shadow: {:#?}", outer.shadows());
+        };
+        assert!(!shadow.inset && outer.background().is_none());
+        assert_eq!((shadow.shape.rect.y, shadow.sigma), (40.0, 10.0));
+        assert_eq!(shadow.shape.radii[0].x, 10.0, "the shadow keeps the box's corners");
+        assert!(matches!(own.background(), Some(Brush::Solid(_))) && own.shadows().is_empty());
+
+        let [shadow] = inset.shadows() else {
+            panic!("one inset shadow: {:#?}", inset.shadows());
+        };
+        assert!(shadow.inset);
+        let padding = shadow.clip.rect;
+        assert_eq!(
+            (padding.x, padding.y, padding.width, padding.height),
+            (4.0, 4.0, 200.0, 200.0)
+        );
+        assert_eq!(
+            shadow.clip.radii[0].x, 6.0,
+            "the padding box's corners are inside the border"
+        );
+        assert_eq!(shadow.shape.rect.width, 196.0, "the spread shrinks the hole");
+
+        // A control paints its chrome first, then the inset shadow, then its value over both.
+        let commands = painter.paint_element(field, &state);
+        let shadowed = |command: &PaintCommand| matches!(command, PaintCommand::Rectangle(rect) if rect.shadows().iter().any(|shadow| shadow.inset));
+        let shadow_at = commands.iter().position(shadowed).expect("the field's inset shadow");
+        let text_at = commands
+            .iter()
+            .position(|command| matches!(command, PaintCommand::Text(_)))
+            .expect("the field's value");
+        assert_eq!(shadow_at, 1, "right after the chrome: {commands:#?}");
+        assert!(shadow_at < text_at, "under the value: {commands:#?}");
+
+        // The box ends at 208px, inside the first 256px tile row; its shadow reaches 278px.
+        let mut tile_list = TileList::from_arc(layer_list, Dimension::new(256.0, 256.0));
+        tile_list.generate();
+        let rows: std::collections::BTreeSet<_> = tile_list
+            .get_tiles_for_element(card)
+            .into_iter()
+            .filter_map(|id| tile_list.get_tile(id).map(|tile| tile.rect.y as i64))
+            .collect();
+        assert_eq!(rows.into_iter().collect::<Vec<_>>(), vec![0, 256]);
+    }
+
     /// `:lang()` reads the nearest `lang` attribute up the tree, so a language declared on
     /// `<html>` reaches every element and a nested one overrides it.
     #[test]

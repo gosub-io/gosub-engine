@@ -18,7 +18,7 @@ use std::sync::{Arc, LazyLock};
 
 use cow_utils::CowUtils;
 use gosub_interface::style::{
-    AlignValue, BorderCollapse, BorderStyle, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
+    AlignValue, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
     LengthPercentageAuto, LetterSpacing, LineHeight, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign,
     TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign,
@@ -739,6 +739,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     // background
     (LonghandId::BackgroundColor, Prop::BackgroundColor, G_BACKGROUND),
     (LonghandId::BackgroundImage, Prop::BackgroundImage, G_BACKGROUND),
+    (LonghandId::BoxShadow, Prop::BoxShadow, G_BACKGROUND),
     // inset
     (LonghandId::InsetBlockStart, Prop::InsetBlockStart, G_INSET),
     (LonghandId::Top, Prop::InsetBlockStart, G_INSET),
@@ -874,7 +875,7 @@ pub fn computed_style(map: &CssProperties, parent: Option<&ComputedStyle>) -> Co
         resolve_outline(map, &mut style, font_size);
     }
     if touched & G_BACKGROUND != 0 {
-        resolve_background(map, &mut style);
+        resolve_background(map, &mut style, font_size);
     }
     if touched & G_INSET != 0 {
         resolve_insets(map, &mut style, font_size);
@@ -1495,7 +1496,7 @@ fn resolve_outline(map: &CssProperties, style: &mut ComputedStyle, font_size: f3
     ));
 }
 
-fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
+fn resolve_background(map: &CssProperties, style: &mut ComputedStyle, font_size: f32) {
     let current = style.inherited.color;
     read!(
         map,
@@ -1509,6 +1510,58 @@ fn resolve_background(map: &CssProperties, style: &mut ComputedStyle) {
         style.background_mut().image = Some(Arc::from(url));
         style.declared.set(Prop::BackgroundImage);
     }
+    read!(
+        map,
+        style,
+        BoxShadow,
+        background_mut,
+        shadows,
+        move |value: &CssValue| { box_shadows(value, current, font_size) }
+    );
+}
+
+/// A `box-shadow` list, or `None` when it is not one. `none` is the empty list.
+///
+/// The grammar has already checked each shadow, so this only sorts its parts: `inset`, two to
+/// four lengths in order, and at most one colour, which is `currentColor` when left out
+/// (css-backgrounds-3 §7.1). A shadow that is fully transparent is dropped: Tailwind sets
+/// `0 0 #0000` in the slots of the shadows an element does not use, on every element that uses
+/// any.
+fn box_shadows(value: &CssValue, current: Color, font_size: f32) -> Option<Arc<[BoxShadow]>> {
+    if as_string(value).is_some_and(|keyword| keyword.eq_ignore_ascii_case("none")) {
+        return Some(Arc::new([]));
+    }
+    let tokens = as_list(value)?;
+    let mut shadows = Vec::new();
+    for shadow in tokens.split(|token| matches!(token, CssValue::Comma)) {
+        let mut inset = false;
+        let mut lengths = Vec::with_capacity(4);
+        let mut color = None;
+        for token in shadow {
+            if as_string(token).is_some_and(|keyword| keyword.eq_ignore_ascii_case("inset")) {
+                inset = true;
+            } else if let Some(px) = length_px(token, font_size) {
+                lengths.push(px);
+            } else {
+                color = Some(used_color(token, current)?);
+            }
+        }
+        let [offset_x, offset_y, rest @ ..] = lengths.as_slice() else {
+            return None;
+        };
+        let shadow = BoxShadow {
+            inset,
+            offset_x: *offset_x,
+            offset_y: *offset_y,
+            blur: rest.first().copied().unwrap_or(0.0).max(0.0),
+            spread: rest.get(1).copied().unwrap_or(0.0),
+            color: color.unwrap_or(current),
+        };
+        if shadow.color.a > 0 {
+            shadows.push(shadow);
+        }
+    }
+    Some(shadows.into())
 }
 
 /// The insets, from whichever of the logical and the physical name won the cascade.
@@ -2267,6 +2320,51 @@ mod tests {
         // On `color` itself `currentcolor` is the inherited colour, initial black here.
         let style = computed_style(&map(&[("color", contrast())]), None);
         assert_eq!(style.inherited.color, Color::rgba(255, 255, 255, 255));
+    }
+
+    /// Each shadow's parts land in their slots: `inset` anywhere, the lengths in order with
+    /// `em` already px, the colour defaulting to `currentColor`. A transparent shadow is left
+    /// out, and `none` is no shadows at all.
+    #[test]
+    fn box_shadow_reads_every_shadow_in_order() {
+        let red = Color::rgba(255, 0, 0, 255);
+        let blue = Color::rgba(0, 0, 255, 255);
+        let style =
+            style_of("color: blue; box-shadow: inset 0 0 0 1px red, 0 0 #0000, 2em 3px 4px blue, 1px 2px inset");
+        assert_eq!(
+            &*style.background.shadows,
+            &[
+                BoxShadow {
+                    inset: true,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    blur: 0.0,
+                    spread: 1.0,
+                    color: red,
+                },
+                BoxShadow {
+                    inset: false,
+                    offset_x: 32.0,
+                    offset_y: 3.0,
+                    blur: 4.0,
+                    spread: 0.0,
+                    color: blue,
+                },
+                BoxShadow {
+                    inset: true,
+                    offset_x: 1.0,
+                    offset_y: 2.0,
+                    blur: 0.0,
+                    spread: 0.0,
+                    color: blue,
+                },
+            ]
+        );
+        assert!(style.has(Prop::BoxShadow));
+
+        let none = style_of("box-shadow: 1px 1px red; box-shadow: none");
+        assert!(none.background.shadows.is_empty());
+        assert!(none.has(Prop::BoxShadow));
     }
 
     /// An undeclared border colour follows the *inherited* colour when the element declares no

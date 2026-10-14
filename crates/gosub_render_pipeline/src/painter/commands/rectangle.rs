@@ -1,6 +1,7 @@
 use crate::common::geo::Rect;
 use crate::painter::commands::border::Border;
 use crate::painter::commands::brush::Brush;
+use crate::painter::commands::shadow::Shadow;
 
 /// CSS `mix-blend-mode`: how a box's pixels combine with the backdrop beneath it.
 /// `Normal` is plain source-over.
@@ -92,6 +93,9 @@ pub struct Rectangle {
     radius_bottom: Radius,
     radius_left: Radius,
     blend_mode: BlendMode,
+    /// Painted the way CSS stacks them: the outer ones under the background, the inset ones over
+    /// it, each list last to first.
+    shadows: Vec<Shadow>,
 }
 
 impl Rectangle {
@@ -114,6 +118,7 @@ impl Rectangle {
             radius_bottom: Radius::NONE,
             radius_left: Radius::NONE,
             blend_mode: BlendMode::Normal,
+            shadows: Vec::new(),
         }
     }
 
@@ -169,6 +174,26 @@ impl Rectangle {
     pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
         self.blend_mode = blend_mode;
         self
+    }
+
+    pub fn with_shadows(mut self, shadows: Vec<Shadow>) -> Self {
+        self.shadows = shadows;
+        self
+    }
+
+    pub fn shadows(&self) -> &[Shadow] {
+        &self.shadows
+    }
+
+    /// Everything this rectangle paints: the box, and its shadows where they reach past it.
+    pub fn ink_rect(&self) -> Rect {
+        self.shadows.iter().fold(self.rect, |ink, shadow| {
+            let r = shadow.ink_rect();
+            let (x, y) = (ink.x.min(r.x), ink.y.min(r.y));
+            let x2 = (ink.x + ink.width).max(r.x + r.width);
+            let y2 = (ink.y + ink.height).max(r.y + r.height);
+            Rect::new(x, y, x2 - x, y2 - y)
+        })
     }
 
     pub fn blend_mode(&self) -> BlendMode {

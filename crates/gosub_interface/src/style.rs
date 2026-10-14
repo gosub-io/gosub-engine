@@ -547,6 +547,7 @@ declare_props! {
 
     BackgroundColor,
     BackgroundImage,
+    BoxShadow,
 
     InsetBlockStart,
     InsetBlockEnd,
@@ -751,6 +752,21 @@ pub struct BackgroundGroup {
     pub color: Color,
     /// The `url()` target of the first image layer, unresolved against the document's base URL.
     pub image: Option<Arc<str>>,
+    /// `box-shadow`, in the order written: the first one paints on top. Empty for `none`, and
+    /// a shadow whose colour is fully transparent is left out, since it paints nothing.
+    pub shadows: Arc<[BoxShadow]>,
+}
+
+/// One `box-shadow`. The lengths are px.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxShadow {
+    pub inset: bool,
+    pub offset_x: f32,
+    pub offset_y: f32,
+    /// Never negative.
+    pub blur: f32,
+    pub spread: f32,
+    pub color: Color,
 }
 
 /// The insets, named logically. The physical `top`/`right`/`bottom`/`left` map onto them
@@ -1117,6 +1133,7 @@ impl ComputedStyle {
             background: Arc::new(BackgroundGroup {
                 color: Color::TRANSPARENT,
                 image: None,
+                shadows: Arc::new([]),
             }),
             inset: Arc::new(InsetGroup {
                 block_start: LengthPercentageAuto::Auto,

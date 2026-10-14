@@ -2,9 +2,10 @@ use crate::rasterizer::brush::set_brush;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
+use gosub_render_pipeline::painter::commands::shadow::{self, blur_reach, Shadow};
 use vello::kurbo;
-use vello::kurbo::{Affine, PathEl, Point, Rect, RoundedRect, Shape};
-use vello::peniko::{Fill, Mix};
+use vello::kurbo::{Affine, BezPath, PathEl, Point, Rect, RoundedRect, Shape};
+use vello::peniko::{color::AlphaColor, BlendMode as VelloBlendMode, Compose, Fill, Mix};
 
 /// CSS `mix-blend-mode` → Vello mix mode. Applied by wrapping the element's drawing in a
 /// blend layer, which composites it against the scene content painted beneath it.
@@ -52,11 +53,13 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
 }
 
 fn paint_rectangle_content(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
+    paint_shadows(scene, rect.shadows(), false, affine);
     if let Some(brush) = rect.background() {
         let vello_rect = setup_rectangle_path(rect);
         let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
         scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &vello_rect);
     }
+    paint_shadows(scene, rect.shadows(), true, affine);
 
     // Per-side borders (e.g. `border-bottom` only) are filled edge-by-edge.
     if !rect.border().is_uniform() {
@@ -83,6 +86,69 @@ fn paint_rectangle_content(scene: &mut vello::Scene, rect: &Rectangle, affine: A
 
 /// Paints a non-uniform border by filling each visible side as a solid edge rectangle.
 /// Side order is `[top, right, bottom, left]`.
+/// Paints the outer or the inset ones of `shadows`, last to first so the first listed ends up on
+/// top.
+///
+/// Vello blurs a rounded rectangle analytically, but with one radius for all four corners: a
+/// shadow takes its shape's largest.
+fn paint_shadows(scene: &mut vello::Scene, shadows: &[Shadow], inset: bool, affine: Affine) {
+    for shadow in shadows.iter().rev().filter(|shadow| shadow.inset == inset) {
+        let c = &shadow.color;
+        let color = AlphaColor::new([c.r(), c.g(), c.b(), c.a()]);
+        let reach = blur_reach(shadow.sigma) + 1.0;
+        let clip = kurbo_rounded(&shadow.clip);
+        if inset {
+            // Fill the padding box, then cut the blurred hole out of that fill: a group clipped
+            // to the padding box, and in it a destination-out group holding the hole.
+            scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, affine, &clip);
+            scene.fill(Fill::NonZero, affine, color, None, &clip.rect());
+            let erase = VelloBlendMode::new(Mix::Normal, Compose::DestOut);
+            scene.push_layer(Fill::NonZero, erase, 1.0, affine, &clip.rect());
+            draw_blurred(scene, shadow, AlphaColor::BLACK, affine);
+            scene.pop_layer();
+            scene.pop_layer();
+        } else {
+            // Everything around the border box: a frame past the blur's reach with the box as
+            // its hole.
+            let outside = shadow.shape.rect;
+            let frame = Rect::new(
+                outside.x.min(shadow.clip.rect.x) - reach,
+                outside.y.min(shadow.clip.rect.y) - reach,
+                (outside.x + outside.width).max(shadow.clip.rect.x + shadow.clip.rect.width) + reach,
+                (outside.y + outside.height).max(shadow.clip.rect.y + shadow.clip.rect.height) + reach,
+            );
+            let mut path = BezPath::new();
+            path.extend(frame.path_elements(0.1));
+            path.extend(clip.path_elements(0.1));
+            scene.push_layer(Fill::EvenOdd, Mix::Normal, 1.0, affine, &path);
+            draw_blurred(scene, shadow, color, affine);
+            scene.pop_layer();
+        }
+    }
+}
+
+fn draw_blurred(
+    scene: &mut vello::Scene,
+    shadow: &Shadow,
+    color: AlphaColor<vello::peniko::color::Srgb>,
+    affine: Affine,
+) {
+    let shape = kurbo_rounded(&shadow.shape);
+    if shadow.sigma > 0.0 {
+        let radius = shadow.shape.radii.iter().fold(0.0_f64, |max, radius| max.max(radius.x));
+        scene.draw_blurred_rounded_rect(affine, shape.rect(), color, radius, shadow.sigma);
+    } else {
+        scene.fill(Fill::NonZero, affine, color, None, &shape);
+    }
+}
+
+/// Corners by their horizontal radius, as every rounded box here is drawn.
+fn kurbo_rounded(rounded: &shadow::RoundedRect) -> RoundedRect {
+    let r = rounded.rect;
+    let [tl, tr, br, bl] = rounded.radii.map(|radius| radius.x);
+    RoundedRect::new(r.x, r.y, r.x + r.width, r.y + r.height, (tl, tr, br, bl))
+}
+
 fn paint_per_side_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     let r = rect.rect();
     let brushes = rect.border().brushes();
