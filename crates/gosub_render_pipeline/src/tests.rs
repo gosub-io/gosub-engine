@@ -2557,6 +2557,58 @@ mod rendertree_from_engine {
         assert_eq!(style.border.top_style, BorderStyle::Solid, "Tailwind's border utility");
     }
 
+    /// A custom property computes to its value with `var()` and `attr()` substituted, on the
+    /// element that declares it, and that computed value is what its children inherit
+    /// (css-variables-2 §2, css-values-5 §7.5). A child that overrides `--theme` does not change
+    /// what an inherited `--x: var(--theme)` already said. Every expectation is Chromium's.
+    #[test]
+    fn custom_properties_inherit_their_substituted_value() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::LengthPercentageAuto;
+
+        let html = r#"
+            <html><head><style>
+                @property --local { syntax: "*"; inherits: false; initial-value: 1px; }
+                body { margin: 0; }
+                #plain { --theme: 10px; --x: var(--theme); }
+                #plain > div { --theme: 30px; width: var(--x); }
+                #registered { --theme: 40px; --local: var(--theme); }
+                #registered > div { --theme: 60px; --local: inherit; width: var(--local); }
+                #attr { --w: attr(data-w px); }
+                #attr > div { width: var(--w); }
+                #same { --t: 7px; --y: var(--t); width: var(--y); }
+                #initial { --a: initial; --b: var(--a, 8px); width: var(--b); }
+                #cycle { --p: var(--q); --q: var(--p); }
+                #cycle > div { --p: 1px; --q: 2px; width: var(--r, 9px); --r: var(--p); }
+            </style></head>
+            <body>
+              <section id="plain"><div id="plain-kid"></div></section>
+              <section id="registered"><div id="registered-kid"></div></section>
+              <section id="attr" data-w="15"><div id="attr-kid" data-w="99"></div></section>
+              <div id="same"></div><div id="initial"></div>
+              <section id="cycle"><div id="cycle-kid"></div></section>
+            </body></html>
+        "#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+        let width = |id: &str| adapter.computed_style(node(id)).size.width;
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(width("plain-kid"), px(10.0), "the parent's --theme, not the child's");
+        assert_eq!(width("registered-kid"), px(40.0), "inherit copies the computed value");
+        assert_eq!(width("attr-kid"), px(15.0), "attr() reads the declaring element");
+        assert_eq!(width("same"), px(7.0), "a sibling declaration on the same element");
+        assert_eq!(width("initial"), px(8.0), "initial on the same element: the fallback");
+        assert_eq!(
+            width("cycle-kid"),
+            px(1.0),
+            "the child's own values, not the parent's cycle"
+        );
+    }
+
     /// A declaration whose substitution fails is invalid at computed-value time, not at parse
     /// time (css-variables-1 §3.1): it still wins the cascade, and then computes as `unset`. An
     /// earlier rule does not show through it. Every expectation is Chromium's for the same page.

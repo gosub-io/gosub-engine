@@ -1,6 +1,6 @@
 use crate::functions::attr::resolve_attr;
 use crate::functions::env::resolve_env;
-use crate::functions::var::{resolve_var, CustomScope, MAX_VAR_DEPTH};
+use crate::functions::var::{compute_custom_property, resolve_var, AttrResolver, CustomScope, MAX_VAR_DEPTH};
 use crate::matcher::bloom::{ancestor_filter, AncestorFilter};
 use crate::matcher::expansion::{canonical_if_changed, single_value, ExpandedDeclaration};
 use crate::matcher::index::ElementKeys;
@@ -21,6 +21,7 @@ use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
+use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::slice;
@@ -455,9 +456,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     };
 
     // Custom properties: the parent's scope with this node's own declarations cascaded on
-    // top (origin/importance rank, then specificity, later wins ties), resolved before any
-    // `var()` is read. The map is only copied when the node actually changes something;
-    // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
+    // top (origin/importance rank, then specificity, later wins ties) and computed, before any
+    // other declaration's `var()` is read. The map is only copied when the node actually changes
+    // something; re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the
+    // parent's.
     //
     // The `@property` registrations are merged at the root, the one element nothing is handed
     // down to, and travel down with the maps from there. They stay out of the scope map; see
@@ -517,45 +519,94 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     // One registered with `inherits: false` is never in the scope map: what this element
     // declares for it is kept on this element alone, `inherit` copies the parent's, and
     // `unset` and `revert` leave it at its initial value.
-    let mut own_values: Vec<(&str, Option<&CssValue>)> = Vec::with_capacity(own_custom.len());
-    let mut custom_local: Vec<(String, CssValue)> = Vec::new();
+    //
+    // What is kept is the computed value: `var()` and `attr()` substituted here, on the element
+    // that declares the property (css-variables-2 §2), so a child inherits what its parent's
+    // references meant and redefining one of them below changes nothing. Every value is
+    // computed against this element's scope as declared - its own values over what it inherits -
+    // before any is stored, since `--b: var(--a)` reads the `--a` declared next to it.
+    let mut declared: Vec<(&str, Option<&CssValue>, bool)> = Vec::with_capacity(own_custom.len());
     for (name, (_, value)) in own_custom {
         let keyword = css_wide_keyword(value);
-        if registration(name).is_some_and(|registration| !registration.inherits) {
-            let value = match keyword {
-                None => Some(value),
-                Some(CssWide::Inherit) => inherited.and_then(|parent| {
-                    parent
-                        .custom_local
-                        .iter()
-                        .find(|(local, _)| local == name)
-                        .map(|(_, value)| value)
-                }),
-                Some(CssWide::Initial | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => None,
-            };
-            if let Some(value) = value {
-                custom_local.push((name.to_string(), value.clone()));
-            }
-            continue;
-        }
+        let local = registration(name).is_some_and(|registration| !registration.inherits);
         let value = match keyword {
+            None => Some(value),
             Some(CssWide::Initial) => None,
+            Some(CssWide::Inherit) if local => inherited.and_then(|parent| {
+                parent
+                    .custom_local
+                    .iter()
+                    .find(|(name_there, _)| name_there == name)
+                    .map(|(_, value)| value)
+            }),
+            Some(CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) if local => None,
             Some(CssWide::Inherit | CssWide::Unset | CssWide::Revert | CssWide::RevertLayer) => {
                 inherited_custom.get(name)
             }
-            None => Some(value),
         };
-        own_values.push((name, value));
+        declared.push((name, value, local));
+    }
+
+    // Only a value that holds a substitution needs computing; what an element inherits never
+    // does, so the scope to compute in is built only when one does. A value with nothing to
+    // substitute stays borrowed, so an element that only re-declares what it inherits (the reset
+    // pattern) copies nothing.
+    let substitutes = declared
+        .iter()
+        .any(|(_, value, _)| value.is_some_and(holds_custom_substitution));
+    // A name this element resets reads as its initial value: the registered one, or the
+    // guaranteed-invalid value, which takes a reference's fallback.
+    let as_declared: Vec<(String, CssValue)> = if substitutes {
+        declared
+            .iter()
+            .map(|(name, value, _)| {
+                let value = value.cloned().unwrap_or_else(|| {
+                    registration(name)
+                        .and_then(|registration| registration.initial.clone())
+                        .unwrap_or(CssValue::Initial)
+                });
+                ((*name).to_string(), value)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let declared_scope = CustomScope {
+        inherited: &inherited_custom,
+        local: &as_declared,
+        registry: registry.as_deref(),
+    };
+    let attr = |args: &[CssValue]| resolve_attr::<C>(args, doc, id);
+
+    // The ones that inherit are compared with what the element inherits, computed against
+    // computed, so that re-declaring the same value shares the parent's map.
+    let mut own_values: Vec<(&str, Option<Cow<'_, CssValue>>)> = Vec::with_capacity(declared.len());
+    let mut custom_local: Vec<(String, CssValue)> = Vec::new();
+    for &(name, value, local) in &declared {
+        let value = match value {
+            Some(value) if substitutes && holds_custom_substitution(value) => {
+                compute_custom_property(name, value, &declared_scope, &attr)
+                    .map(|tokens| Cow::Owned(single_value(CssValue::List(tokens))))
+            }
+            value => value.map(Cow::Borrowed),
+        };
+        if local {
+            if let Some(value) = value {
+                custom_local.push((name.to_string(), value.into_owned()));
+            }
+        } else {
+            own_values.push((name, value));
+        }
     }
     let changes_scope = own_values
         .iter()
-        .any(|(name, value)| inherited_custom.get(*name) != *value);
+        .any(|(name, value)| inherited_custom.get(*name) != value.as_deref());
     let custom_props = if changes_scope {
         let mut merged = (*inherited_custom).clone();
         for (name, value) in own_values {
             match value {
                 Some(value) => {
-                    merged.insert(name.to_string(), value.clone());
+                    merged.insert(name.to_string(), value.into_owned());
                 }
                 None => {
                     merged.remove(name);
@@ -730,6 +781,19 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     resolve_font_size_basis(&mut css_map_entry, inherited);
 
     Some(css_map_entry)
+}
+
+/// Whether a custom property's value holds a `var()` or `attr()` its computed value replaces.
+fn holds_custom_substitution(value: &CssValue) -> bool {
+    match value {
+        CssValue::Function(name, args) => {
+            name.eq_ignore_ascii_case("var")
+                || name.eq_ignore_ascii_case("attr")
+                || args.iter().any(holds_custom_substitution)
+        }
+        CssValue::List(values) => values.iter().any(holds_custom_substitution),
+        _ => false,
+    }
 }
 
 /// A declaration's value as the token list the grammar matches: a list's items, or the one value.
@@ -1152,11 +1216,6 @@ pub fn resolve_functions<C: HasDocument>(
 ) -> CssValue {
     resolve_substitutions(value, custom_props, &|args| resolve_attr::<C>(args, doc, id))
 }
-
-/// How an `attr()` is answered: what its arguments stand for on this element. Taking it as a
-/// callback keeps the substitution walk itself free of the document, so what a value substitutes
-/// to can be asked without building one.
-type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Vec<CssValue>;
 
 fn resolve_substitutions(value: &CssValue, custom_props: &CustomScope<'_>, attr: AttrResolver<'_>) -> CssValue {
     match value {
