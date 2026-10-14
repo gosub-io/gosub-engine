@@ -2481,6 +2481,82 @@ mod rendertree_from_engine {
         );
     }
 
+    /// A custom property registered with `@property` holds its `initial-value` wherever nothing
+    /// declares it, so a `var()` of it substitutes that instead of taking the fallback, and one
+    /// registered with `inherits: false` starts over on every element. Tailwind v4 reads its
+    /// `--tw-*` properties this way, with no fallback. Every expectation is Chromium's.
+    #[test]
+    fn registered_custom_properties_take_their_initial_value() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use gosub_interface::style::{BorderStyle, Color, LengthPercentageAuto};
+
+        let html = r#"
+            <html><head><style>
+                @property --w { syntax: "<length>"; inherits: false; initial-value: 20px; }
+                @property --c { syntax: "*"; inherits: true; initial-value: rgb(0, 128, 0); }
+                @property --none { syntax: "*"; inherits: false; }
+                @property --bad { syntax: "*"; initial-value: 9px; }
+                @property --twice { syntax: "*"; inherits: false; initial-value: 1px; }
+                @property --twice { syntax: "*"; inherits: false; initial-value: 45px; }
+                @media (max-width: 1px) { @property --m { syntax: "*"; inherits: false; initial-value: 1px; } }
+                @property --tw-border-style { syntax: "*"; inherits: false; initial-value: solid; }
+                body { margin: 0; }
+                div { width: var(--w); }
+                p { color: var(--c); }
+                #parent { --w: 50px; --c: rgb(0, 0, 255); }
+                #own { --w: 5px; }
+                #inh { --w: inherit; }
+                #init { --w: initial; }
+                #unset { --w: unset; }
+                #none { width: var(--none, 33px); }
+                #bad { width: var(--bad, 11px); }
+                #twice { width: var(--twice); }
+                #media { width: var(--m, 12px); }
+                #tw { border-width: 2px; border-style: var(--tw-border-style); }
+            </style></head>
+            <body><div id="root"></div><p id="green">x</p>
+            <section id="parent"><div id="kid"></div><div id="inh"></div><div id="init"></div>
+              <div id="unset"></div><p id="blue">x</p></section>
+            <div id="own"></div><div id="none"></div><div id="bad"></div><div id="twice"></div>
+            <div id="media"></div><div id="tw"></div></body></html>
+        "#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let node = |id: &str| find_node_by_id_attr(&adapter.doc, root, id).unwrap_or_else(|| panic!("#{id}"));
+        let width = |id: &str| adapter.computed_style(node(id)).size.width;
+        let px = LengthPercentageAuto::Px;
+
+        assert_eq!(width("root"), px(20.0), "nothing declares it: the initial value");
+        assert_eq!(width("own"), px(5.0), "a declaration still wins");
+        assert_eq!(width("kid"), px(20.0), "inherits: false - not the parent's 50px");
+        assert_eq!(width("inh"), px(50.0), "inherit takes the parent's even so");
+        assert_eq!(width("init"), px(20.0), "initial is the initial-value");
+        assert_eq!(width("unset"), px(20.0), "unset on a non-inherited property is initial");
+        let color = |id: &str| adapter.computed_style(node(id)).inherited.color;
+        assert_eq!(
+            color("green"),
+            Color::rgba(0, 128, 0, 255),
+            "inherits: true, from the root"
+        );
+        assert_eq!(
+            color("blue"),
+            Color::rgba(0, 0, 255, 255),
+            "inherits: true, from the parent"
+        );
+        assert_eq!(width("none"), px(33.0), "no initial-value: the fallback");
+        assert_eq!(width("bad"), px(11.0), "a rule without inherits registers nothing");
+        assert_eq!(width("twice"), px(45.0), "the later rule wins");
+        assert_eq!(
+            width("media"),
+            px(12.0),
+            "a rule under a failing @media registers nothing"
+        );
+        let style = adapter.computed_style(node("tw"));
+        assert_eq!(style.border.top_style, BorderStyle::Solid, "Tailwind's border utility");
+    }
+
     /// A declaration whose substitution fails is invalid at computed-value time, not at parse
     /// time (css-variables-1 §3.1): it still wins the cascade, and then computes as `unset`. An
     /// earlier rule does not show through it. Every expectation is Chromium's for the same page.

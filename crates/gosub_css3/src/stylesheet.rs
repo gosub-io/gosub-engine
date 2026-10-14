@@ -152,6 +152,30 @@ pub struct FontFace {
     pub unicode_range: Option<String>,
 }
 
+/// A valid `@property` rule (css-properties-values-api-1 §3): it registers a custom property,
+/// giving it an initial value and saying whether it inherits.
+///
+/// Only the rules that pass the descriptor checks are kept. `syntax` is recorded as written,
+/// but a value is never checked against it: a registered property is matched like the
+/// universal syntax `*`, whatever its type.
+#[derive(Debug, PartialEq, Clone)]
+pub struct PropertyRule {
+    /// The custom property's name, `--` included.
+    pub name: String,
+    /// The `syntax` descriptor's string, unquoted (`*`, `<length>`, ...).
+    pub syntax: String,
+    pub inherits: bool,
+    /// The `initial-value` descriptor, absent only when the syntax is `*`. It is what the
+    /// property holds wherever nothing declares it, and what `initial` sets it to.
+    pub initial: Option<CssValue>,
+    /// The `@media` blocks around the rule, outermost first. A registration whose conditions
+    /// fail does not apply.
+    pub media: Option<Vec<Arc<MediaQueryList>>>,
+    /// Whether the rule came from an `@import`ed sheet, which keeps the imported rules ahead
+    /// of the sheet's own when several imports are spliced in.
+    pub(crate) imported: bool,
+}
+
 /// An `@import` rule: another stylesheet whose rules belong ahead of this one's own.
 ///
 /// Recorded unresolved. Fetching is the host's job (only it has a network stack and a URL
@@ -180,6 +204,9 @@ pub struct CssStylesheet {
     pub font_faces: Vec<FontFace>,
     /// `@import` rules, in source order, still unresolved.
     pub imports: Vec<ImportRule>,
+    /// Valid `@property` rules, in source order. A later one for the same name replaces an
+    /// earlier one, across sheets too.
+    pub property_rules: Vec<PropertyRule>,
     /// Whether any declaration in this sheet uses a viewport-relative unit (`vw`, `vh`,
     /// `vmin`, `vmax` and their `s`/`l`/`d` variants).
     ///
@@ -229,6 +256,7 @@ impl PartialEq for CssStylesheet {
         self.rules == other.rules
             && self.font_faces == other.font_faces
             && self.imports == other.imports
+            && self.property_rules == other.property_rules
             && self.uses_viewport_units == other.uses_viewport_units
             && self.origin == other.origin
             && self.url == other.url
@@ -250,6 +278,7 @@ impl CssStylesheet {
         self.rules.shrink_to_fit();
         self.font_faces.shrink_to_fit();
         self.imports.shrink_to_fit();
+        self.property_rules.shrink_to_fit();
         self.layers.shrink_to_fit();
         self.parse_log.shrink_to_fit();
         self.dropped.shrink_to_fit();
@@ -264,6 +293,7 @@ impl CssStylesheet {
             rules: Vec::new(),
             font_faces: Vec::new(),
             imports: Vec::new(),
+            property_rules: Vec::new(),
             uses_viewport_units: false,
             origin,
             scope: None,
@@ -282,6 +312,7 @@ impl CssStylesheet {
             rules: vec![],
             font_faces: vec![],
             imports: vec![],
+            property_rules: vec![],
             uses_viewport_units: false,
             origin,
             scope: None,
@@ -317,6 +348,7 @@ impl CssStylesheet {
         let CssStylesheet {
             rules,
             font_faces,
+            property_rules,
             uses_viewport_units,
             url,
             dropped,
@@ -348,6 +380,17 @@ impl CssStylesheet {
         });
         self.rules.splice(insert_at..insert_at, rules);
         self.font_faces.extend(font_faces);
+        // Registrations go where the rules went: after the sheets imported before this one,
+        // ahead of the importing sheet's own, and under the import's media condition.
+        let at = self.property_rules.iter().take_while(|rule| rule.imported).count();
+        let property_rules = property_rules.into_iter().map(|mut rule| {
+            rule.imported = true;
+            if let Some(media) = media {
+                rule.media.get_or_insert_with(Vec::new).insert(0, Arc::clone(media));
+            }
+            rule
+        });
+        self.property_rules.splice(at..at, property_rules);
         // The index is keyed by rule position, so it has to be rebuilt.
         self.invalidate_index();
         insert_at + count

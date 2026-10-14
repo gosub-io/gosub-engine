@@ -25,6 +25,7 @@ pub mod media_query;
 pub mod memory;
 pub mod node;
 pub mod parser;
+pub mod property_registry;
 pub mod stylesheet;
 pub mod supports;
 pub mod system;

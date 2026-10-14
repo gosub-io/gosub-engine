@@ -370,4 +370,24 @@ mod tests {
         assert_eq!(sheet.font_faces.len(), 1);
         assert_eq!(sheet.font_faces[0].family, "X");
     }
+
+    /// `@property` rules from imported sheets come along, ahead of the importing sheet's own
+    /// and in import order, so a later rule for the same name still wins.
+    #[test]
+    fn imported_property_rules_are_kept_in_order() {
+        let mut sheet =
+            parse(r#"@import "a.css"; @import "b.css" print; @property --x { syntax: "*"; inherits: true; }"#);
+        let mut fetch = fetcher(HashMap::from([
+            ("a.css", "@property --a { syntax: '*'; inherits: true; }"),
+            ("b.css", "@property --b { syntax: '*'; inherits: true; }"),
+        ]));
+        resolve_imports(&mut sheet, &mut fetch);
+
+        let names: Vec<&str> = sheet.property_rules.iter().map(|rule| rule.name.as_str()).collect();
+        assert_eq!(names, ["--a", "--b", "--x"]);
+        assert!(
+            sheet.property_rules[1].media.is_some(),
+            "the import's media list comes along"
+        );
+    }
 }

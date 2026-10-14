@@ -18,6 +18,7 @@ use crate::functions::calc;
 use crate::matcher::bloom::AncestorFilter;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::property_ids::{LonghandId, PropertyId, PROPERTY_COUNT};
+use crate::property_registry::PropertyRegistry;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, NthSelector, Specificity};
 use crate::system::Css3System;
 use crate::tokenizer::NumberKind;
@@ -1682,6 +1683,12 @@ pub struct CssProperties {
     /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
     /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
     pub custom: Arc<HashMap<String, CssValue>>,
+    /// The document's `@property` registrations, built once at the root and handed down, or
+    /// `None` when it has none.
+    pub(crate) registry: Option<Arc<PropertyRegistry>>,
+    /// This element's values for registered custom properties that do not inherit. They are
+    /// not in `custom`, which is handed down, so a child is back at their initial values.
+    pub custom_local: Vec<(String, CssValue)>,
     /// The node this map was computed for, so that the next element down can tell whether the
     /// map it was handed is really its parent's.
     pub(crate) node: Option<NodeId>,
@@ -1730,6 +1737,8 @@ impl CssProperties {
             slots: vec![0; PROPERTY_COUNT].into_boxed_slice(),
             dirty: true,
             custom: Arc::new(HashMap::new()),
+            registry: None,
+            custom_local: Vec::new(),
             font_size_px: DEFAULT_FONT_SIZE_PX,
             root_font_size_px: DEFAULT_FONT_SIZE_PX,
             line_height_px: DEFAULT_LINE_HEIGHT_PX,
@@ -2011,6 +2020,11 @@ impl gosub_shared::memory::HeapSize for CssProperties {
         self.props.heap_size(walk);
         walk.bytes(size_of_val(&*self.slots));
         self.custom.heap_size(walk);
+        walk.bytes(self.custom_local.capacity() * size_of::<(String, CssValue)>());
+        for (name, value) in &self.custom_local {
+            name.heap_size(walk);
+            value.heap_size(walk);
+        }
         if let Some(filter) = &self.ancestors {
             filter.heap_size(walk);
         }
