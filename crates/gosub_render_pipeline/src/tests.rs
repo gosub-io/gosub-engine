@@ -2576,6 +2576,7 @@ mod rendertree_from_engine {
                 #registered > div { --theme: 60px; --local: inherit; width: var(--local); }
                 #attr { --w: attr(data-w px); }
                 #attr > div { width: var(--w); }
+                #empty { --e: attr(data-missing px,); width: var(--e, 5px); }
                 #same { --t: 7px; --y: var(--t); width: var(--y); }
                 #initial { --a: initial; --b: var(--a, 8px); width: var(--b); }
                 #cycle { --p: var(--q); --q: var(--p); }
@@ -2585,7 +2586,7 @@ mod rendertree_from_engine {
               <section id="plain"><div id="plain-kid"></div></section>
               <section id="registered"><div id="registered-kid"></div></section>
               <section id="attr" data-w="15"><div id="attr-kid" data-w="99"></div></section>
-              <div id="same"></div><div id="initial"></div>
+              <div id="same"></div><div id="initial"></div><div id="empty"></div>
               <section id="cycle"><div id="cycle-kid"></div></section>
             </body></html>
         "#;
@@ -2601,6 +2602,13 @@ mod rendertree_from_engine {
         assert_eq!(width("registered-kid"), px(40.0), "inherit copies the computed value");
         assert_eq!(width("attr-kid"), px(15.0), "attr() reads the declaring element");
         assert_eq!(width("same"), px(7.0), "a sibling declaration on the same element");
+        // An empty fallback is a value: --e is empty, not invalid, so var() does not fall back
+        // and `width:` with nothing in it is invalid at computed-value time.
+        assert_eq!(
+            width("empty"),
+            LengthPercentageAuto::Auto,
+            "an empty attr() fallback is not the guaranteed-invalid value"
+        );
         assert_eq!(width("initial"), px(8.0), "initial on the same element: the fallback");
         assert_eq!(
             width("cycle-kid"),

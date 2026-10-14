@@ -59,8 +59,9 @@ pub fn resolve_var<'a>(values: &[CssValue], custom_props: impl Into<CustomScope<
 
 /// How an `attr()` is answered: what its arguments stand for on one element. Taking it as a
 /// callback keeps the substitution walk itself free of the document, so what a value substitutes
-/// to can be asked without building one.
-pub type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Vec<CssValue>;
+/// to can be asked without building one. `None` is the guaranteed-invalid value; an empty list is
+/// an `attr()` that substitutes to nothing, through an empty fallback.
+pub type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Option<Vec<CssValue>>;
 
 /// The computed value of custom property `name`, declared on this element as `value`: every
 /// `var()` and `attr()` in it substituted, here (css-variables-2 §2: "specified value with
@@ -180,12 +181,10 @@ fn substitute(
             }
             CssValue::Function(name, args) if name.eq_ignore_ascii_case("attr") && attr.is_some() => {
                 let resolve = attr.ok_or(Unresolved::Invalid)?;
-                // No usable value or fallback: invalid at computed-value time. A fallback may hold
-                // a `var()`, which is substituted in turn.
-                let tokens = resolve(args);
-                if tokens.is_empty() {
-                    return Err(Unresolved::Invalid);
-                }
+                // No usable value or fallback: invalid at computed-value time. An empty fallback
+                // is valid and splices in nothing. A fallback may hold a `var()`, which is
+                // substituted in turn.
+                let tokens = resolve(args).ok_or(Unresolved::Invalid)?;
                 out.extend(substitute(&tokens, custom_props, attr, seen)?);
             }
             CssValue::List(list) => out.extend(substitute(list, custom_props, attr, seen)?),
@@ -311,7 +310,7 @@ mod tests {
             local: &declared,
             registry: None,
         };
-        let attr = |_: &[CssValue]| Vec::new();
+        let attr = |_: &[CssValue]| None;
         assert_eq!(compute_custom_property("--p", &declared[0].1, &scope, &attr), None);
         assert_eq!(compute_custom_property("--q", &declared[1].1, &scope, &attr), None);
     }

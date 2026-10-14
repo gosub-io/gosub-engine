@@ -1261,8 +1261,10 @@ fn resolve_value(
             if name.eq_ignore_ascii_case("env") {
                 return resolve_list(&resolve_env(args)?, custom_props, attr, depth + 1);
             }
+            // An `attr()` with no usable value or fallback is invalid at computed-value time, which
+            // makes the declaration invalid. One with an empty fallback substitutes to nothing.
             let substituted = if name.eq_ignore_ascii_case("attr") {
-                Some(attr(args))
+                Some(attr(args)?)
             } else if name.eq_ignore_ascii_case("light-dark") || name.eq_ignore_ascii_case("-internal-light-dark") {
                 // Unresolved, the whole declaration fails validation - the UA sheet uses it on
                 // form controls.
@@ -1276,10 +1278,9 @@ fn resolve_value(
             };
 
             match substituted {
-                // Nothing to substitute: an `attr()` with no usable value or fallback, or a
-                // `light-dark()` without the branch asked for. The declaration is invalid at
+                // A `light-dark()` without the branch asked for: the declaration is invalid at
                 // computed-value time.
-                Some(tokens) if tokens.is_empty() => None,
+                Some(tokens) if tokens.is_empty() && !name.eq_ignore_ascii_case("attr") => None,
                 // What one substitution produced may itself hold another - a custom property
                 // holding `attr(data-w px)`, an `attr()` fallback holding a `var()`.
                 Some(tokens) => resolve_list(&tokens, custom_props, attr, depth + 1),
@@ -1350,10 +1351,10 @@ mod tests {
 
     /// `attr()` as a document with `data-w="4"` would answer it, which is all these tests need
     /// of one: the walk is what is under test, not the reading of an attribute.
-    fn attr(args: &[CssValue]) -> Vec<CssValue> {
+    fn attr(args: &[CssValue]) -> Option<Vec<CssValue>> {
         match args.first() {
-            Some(CssValue::String(name)) if name == "data-w" => vec![CssValue::Unit(4.0, "px".to_string())],
-            _ => vec![],
+            Some(CssValue::String(name)) if name == "data-w" => Some(vec![CssValue::Unit(4.0, "px".to_string())]),
+            _ => None,
         }
     }
 
