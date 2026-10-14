@@ -463,6 +463,7 @@ mod rendertree_from_engine {
         use crate::painter::commands::brush::Brush;
         use crate::painter::commands::PaintCommand;
         use crate::painter::Painter;
+        use gosub_interface::style::Visibility;
 
         let html = r#"<html><body>
           <p>shown</p>
@@ -470,7 +471,7 @@ mod rendertree_from_engine {
             <span style="visibility: visible">back</span>
           </div>
           <div style="visibility: force-hidden">forced
-            <span style="visibility: visible">still forced</span>
+            <span id="forced-child" style="visibility: visible">still forced</span>
           </div>
           <p id="after">after</p>
         </body></html>"#;
@@ -478,6 +479,7 @@ mod rendertree_from_engine {
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
         let hidden_node = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "hidden").expect("hidden");
+        let forced_child = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "forced-child").expect("child");
         let mut render_tree = RenderTree::new(adapter);
         render_tree.parse().expect("render tree");
         let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
@@ -492,6 +494,12 @@ mod rendertree_from_engine {
         let div_node = hidden_div.dom_node_id;
         assert!(div_box.height >= 50.0, "it keeps its height");
         let ids: Vec<_> = layout_tree.arena.values().map(|el| el.id).collect();
+
+        // The computed value is as specified: the child of a force-hidden box that says
+        // `visible` computes to `visible`, and only rendering leaves it out.
+        let child_style = layout_tree.render_tree.doc.computed_style(forced_child);
+        assert_eq!(child_style.inherited.visibility, Visibility::Visible);
+        assert!(!child_style.is_visible(), "it still does not render");
 
         let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
         // Low in the box and at its far right: below the text, clear of the visible span.

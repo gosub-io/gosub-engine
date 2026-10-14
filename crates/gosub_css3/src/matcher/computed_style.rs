@@ -1078,17 +1078,18 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
         })
     });
 
-    // Inside a `force-hidden` box nothing a descendant declares makes it visible again, so the
-    // inherited value stands.
-    if style.inherited.visibility != Visibility::ForceHidden {
-        read!(map, style, Visibility, inherited_mut, visibility, |value| {
-            keyword(value).map(|keyword| match keyword {
-                VisibilityKeyword::Visible => Visibility::Visible,
-                VisibilityKeyword::Hidden => Visibility::Hidden,
-                VisibilityKeyword::ForceHidden => Visibility::ForceHidden,
-                VisibilityKeyword::Collapse => Visibility::Collapse,
-            })
-        });
+    read!(map, style, Visibility, inherited_mut, visibility, |value| {
+        keyword(value).map(|keyword| match keyword {
+            VisibilityKeyword::Visible => Visibility::Visible,
+            VisibilityKeyword::Hidden => Visibility::Hidden,
+            VisibilityKeyword::ForceHidden => Visibility::ForceHidden,
+            VisibilityKeyword::Collapse => Visibility::Collapse,
+        })
+    });
+    // Inside a `force-hidden` box a descendant that says `visible` computes to `visible` but
+    // still does not render; the flag carries that down, since the value cannot.
+    if style.inherited.visibility == Visibility::ForceHidden && !style.inherited.force_hidden_in_chain {
+        style.inherited_mut().force_hidden_in_chain = true;
     }
 
     resolve_border_spacing(map, style, font_size);

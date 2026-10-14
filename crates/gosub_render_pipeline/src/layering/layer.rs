@@ -162,12 +162,7 @@ impl LayerList {
                     // A hidden box is not a hit target; the point falls through to whatever
                     // is under it (css-ui-4 §5.1 via `visibility`).
                     let doc = &self.layout_tree.render_tree.doc;
-                    if !doc
-                        .computed_style(layout_element.dom_node_id)
-                        .inherited
-                        .visibility
-                        .is_visible()
-                    {
+                    if !doc.computed_style(layout_element.dom_node_id).is_visible() {
                         continue;
                     }
                     return Some(*element_id);

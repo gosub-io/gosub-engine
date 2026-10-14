@@ -652,6 +652,12 @@ pub struct InheritedGroup {
     pub border_spacing_y: f32,
     pub border_collapse: BorderCollapse,
     pub visibility: Visibility,
+    /// Whether this element or any ancestor computes to `visibility: force-hidden`.
+    ///
+    /// A descendant that says `visible` under such a box still computes to `visible` (the
+    /// computed value is as specified), but it does not paint: this carries the ancestor's
+    /// effect down alongside the value.
+    pub force_hidden_in_chain: bool,
     /// Whether this element or any ancestor declared a `font-size` at all.
     ///
     /// Only the monospace default-size quirk reads it: the 13px default applies when nothing
@@ -962,6 +968,13 @@ impl ComputedStyle {
         border.left_color = color;
     }
 
+    /// Whether the box renders: its own `visibility` is `visible` and no `force-hidden` box
+    /// holds it (css-display-4 §5).
+    #[must_use]
+    pub fn is_visible(&self) -> bool {
+        self.inherited.visibility.is_visible() && !self.inherited.force_hidden_in_chain
+    }
+
     /// The element's own `display`, or `None` when the cascade assigned it none.
     ///
     /// The difference matters: an element with no `display` of its own falls back to what its
@@ -1032,6 +1045,7 @@ impl ComputedStyle {
                 border_spacing_y: 0.0,
                 border_collapse: BorderCollapse::Separate,
                 visibility: Visibility::Visible,
+                force_hidden_in_chain: false,
                 font_size_declared_in_chain: false,
             }),
             box_group: Arc::new(BoxGroup {
