@@ -191,16 +191,26 @@ impl Painter {
             commands.extend(self.generate_boxmodel_commands(layout_element));
         }
 
+        // A `visibility: hidden` box keeps its place in layout and paints nothing of its own.
+        // Its children are elements of their own: they inherit the hidden and stay unpainted,
+        // unless one says `visible` again outside any `force-hidden` box.
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let visible = doc.computed_style(dom_node_id).is_visible();
+
         match state.wireframed {
             WireframeState::Only => {
                 commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::Both => {
-                commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                if visible {
+                    commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                }
                 commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::None => {
-                commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                if visible {
+                    commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                }
             }
         }
 

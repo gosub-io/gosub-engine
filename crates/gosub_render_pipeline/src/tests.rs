@@ -469,6 +469,116 @@ mod rendertree_from_engine {
         assert_ne!(size("no-chain").width, px(200.0), "a .b without the .a");
     }
 
+    /// `visibility: hidden` paints nothing of the box or what inherits it, keeps the box's place
+    /// in layout, and lets a descendant that says `visible` paint. `force-hidden` lets nothing
+    /// inside it paint.
+    #[test]
+    fn hidden_boxes_keep_their_place_and_paint_nothing() {
+        use crate::common::browser_state::{BrowserState, WireframeState};
+        use crate::common::geo::{Dimension, Rect};
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::painter::commands::brush::Brush;
+        use crate::painter::commands::PaintCommand;
+        use crate::painter::Painter;
+        use gosub_interface::style::Visibility;
+
+        let html = r#"<html><body>
+          <p>shown</p>
+          <div id="hidden" style="visibility: hidden; background: red; height: 50px">gone
+            <span style="visibility: visible">back</span>
+          </div>
+          <div style="visibility: force-hidden">forced
+            <span id="forced-child" style="visibility: visible">still forced</span>
+          </div>
+          <p id="after">after</p>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
+        let hidden_node = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "hidden").expect("hidden");
+        let forced_child = find_node_by_id_attr(&adapter.doc, adapter.doc.root(), "forced-child").expect("child");
+        let mut render_tree = RenderTree::new(adapter);
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        // By id: the arena is a map, and the force-hidden div is a div too.
+        let hidden_div = layout_tree
+            .arena
+            .values()
+            .find(|el| el.dom_node_id == hidden_node)
+            .expect("the hidden div is laid out");
+        let div_box = hidden_div.box_model.border_box;
+        let div_node = hidden_div.dom_node_id;
+        assert!(div_box.height >= 50.0, "it keeps its height");
+        let ids: Vec<_> = layout_tree.arena.values().map(|el| el.id).collect();
+
+        // The computed value is as specified: the child of a force-hidden box that says
+        // `visible` computes to `visible`, and only rendering leaves it out.
+        let child_style = layout_tree.render_tree.doc.computed_style(forced_child);
+        assert_eq!(child_style.inherited.visibility, Visibility::Visible);
+        assert!(!child_style.is_visible(), "it still does not render");
+
+        let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
+        // Low in the box and at its far right: below the text, clear of the visible span.
+        let hit = layer_list
+            .find_element_at(
+                div_box.x + div_box.width - 2.0,
+                div_box.y + div_box.height - 2.0,
+                0.0,
+                0.0,
+            )
+            .and_then(|id| layer_list.layout_tree.get_node_by_id(id))
+            .map(|el| el.dom_node_id);
+        assert!(hit.is_some(), "the point falls through to the body");
+        assert_ne!(hit, Some(div_node), "a hidden box is not a hit target");
+
+        let painter = Painter::new(layer_list, None);
+        let state = BrowserState {
+            visible_layer_list: vec![true; 8],
+            wireframed: WireframeState::None,
+            debug_hover: false,
+            current_hovered_element: None,
+            show_tilegrid: false,
+            debug_table_cells: false,
+            viewport: Rect::new(0.0, 0.0, 800.0, 600.0),
+            tile_list: None,
+            dpi_scale_factor: 1.0,
+        };
+        let commands: Vec<_> = ids
+            .into_iter()
+            .flat_map(|id| painter.paint_element(id, &state))
+            .collect();
+        let texts: Vec<&str> = commands
+            .iter()
+            .filter_map(|command| match command {
+                PaintCommand::Text(text) => Some(text.text.trim()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"shown") && texts.contains(&"after"), "{texts:?}");
+        assert!(
+            texts.contains(&"back"),
+            "a visible child of a hidden box paints: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&"gone"),
+            "text in a hidden box does not paint: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&"forced") && !texts.contains(&"still forced"),
+            "nothing inside a force-hidden box paints, whatever it declares: {texts:?}"
+        );
+        let red = commands.iter().any(|command| {
+            matches!(command, PaintCommand::Rectangle(rect) if matches!(
+                rect.background(),
+                Some(Brush::Solid(color)) if (color.r(), color.g(), color.b(), color.a()) == (1.0, 0.0, 0.0, 1.0)
+            ))
+        });
+        assert!(!red, "a hidden box paints no background");
+    }
+
     /// `:lang()` reads the nearest `lang` attribute up the tree, so a language declared on
     /// `<html>` reaches every element and a nested one overrides it.
     #[test]

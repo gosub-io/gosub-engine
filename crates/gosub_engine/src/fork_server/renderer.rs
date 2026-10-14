@@ -1204,6 +1204,16 @@ fn collect_hit_regions<C: RenderConfiguration>(
             let Some(element) = layer_list.layout_tree.get_node_by_id(*element_id) else {
                 continue;
             };
+            // A hidden box is not a hit target, the rule `LayerList::find_element_at` keeps
+            // in-process.
+            let style = layer_list
+                .layout_tree
+                .render_tree
+                .doc
+                .computed_style(element.dom_node_id);
+            if !style.inherited.visibility.is_visible() {
+                continue;
+            }
             if regions.len() >= MAX_HIT_REGIONS {
                 log::warn!(
                     "page has more than {MAX_HIT_REGIONS} hit-testable boxes;                      hit testing covers the topmost {MAX_HIT_REGIONS}"

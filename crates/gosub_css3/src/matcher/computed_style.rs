@@ -22,7 +22,7 @@ use gosub_interface::style::{
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
     LengthPercentageAuto, LetterSpacing, LineHeight, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign,
     TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign,
-    WhiteSpace, ZIndex,
+    Visibility, WhiteSpace, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
@@ -30,7 +30,7 @@ use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
     FlexDirectionKeyword, Keyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword,
-    WhiteSpaceKeyword,
+    VisibilityKeyword, WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
@@ -643,6 +643,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::LetterSpacing, Prop::LetterSpacing, G_INHERITED),
     (LonghandId::CaptionSide, Prop::CaptionSide, G_INHERITED),
     (LonghandId::BorderCollapse, Prop::BorderCollapse, G_INHERITED),
+    (LonghandId::Visibility, Prop::Visibility, G_INHERITED),
     (LonghandId::TextDecorationLine, Prop::TextDecorationLine, G_INHERITED),
     (LonghandId::BorderSpacing, Prop::BorderSpacingX, G_INHERITED),
     (LonghandId::BorderSpacing, Prop::BorderSpacingY, G_INHERITED),
@@ -1076,6 +1077,20 @@ fn resolve_inherited(map: &CssProperties, style: &mut ComputedStyle, font_size: 
             BorderCollapseKeyword::Separate => BorderCollapse::Separate,
         })
     });
+
+    read!(map, style, Visibility, inherited_mut, visibility, |value| {
+        keyword(value).map(|keyword| match keyword {
+            VisibilityKeyword::Visible => Visibility::Visible,
+            VisibilityKeyword::Hidden => Visibility::Hidden,
+            VisibilityKeyword::ForceHidden => Visibility::ForceHidden,
+            VisibilityKeyword::Collapse => Visibility::Collapse,
+        })
+    });
+    // Inside a `force-hidden` box a descendant that says `visible` computes to `visible` but
+    // still does not render; the flag carries that down, since the value cannot.
+    if style.inherited.visibility == Visibility::ForceHidden && !style.inherited.force_hidden_in_chain {
+        style.inherited_mut().force_hidden_in_chain = true;
+    }
 
     resolve_border_spacing(map, style, font_size);
 }

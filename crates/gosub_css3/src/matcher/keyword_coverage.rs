@@ -79,6 +79,9 @@ const PROPERTIES: &[(&str, Prop, Field)] = &[
     ("border-collapse", Prop::BorderCollapse, |s| {
         format!("{:?}", s.inherited.border_collapse)
     }),
+    ("visibility", Prop::Visibility, |s| {
+        format!("{:?}", s.inherited.visibility)
+    }),
     ("border-top-style", Prop::BorderTopStyle, |s| {
         format!("{:?}", s.border.top_style)
     }),
