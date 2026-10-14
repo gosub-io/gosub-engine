@@ -339,6 +339,10 @@ and the clause that makes the new value right.
     still read by the pipeline from the untyped property map rather than the typed style.
 -   Cairo and Vello draw a corner with its horizontal radius only, so an elliptical corner (a
     percentage radius on a box that is not square) comes out circular there. Skia draws it.
+-   Vello blurs a `box-shadow` analytically but with one radius for all four corners, the
+    shadow shape's largest, so a box with mixed corner radii casts a shadow rounded alike at
+    every corner. Skia and Cairo follow each corner. Cairo has no blur of its own and blurs
+    each tile's share of a shadow on the CPU.
 -   Presentational hints are unlayered, so they beat author rules inside an `@layer`; whether that
     is what css-cascade-5 means by "as if at the start of the author style sheet" is undecided.
 -   `<svg>` is on the unrenderable list, so no selector reaches an SVG element.

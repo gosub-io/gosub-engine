@@ -1,4 +1,5 @@
 use crate::rasterizer::brush::set_brush;
+use crate::rasterizer::shadow::paint_shadows;
 use cairo::{Context, Operator};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
@@ -28,7 +29,7 @@ fn to_cairo_operator(mode: BlendMode) -> Operator {
     }
 }
 
-pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore) {
+pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore, dpr: f64) {
     _ = cr.save();
 
     // Element-level mix-blend-mode; cr.restore() at the end returns the operator to Over.
@@ -45,11 +46,13 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
     cr.translate(-tile.rect.x, -tile.rect.y);
     cr.new_path();
 
+    paint_shadows(cr, tile, rectangle.shadows(), false, dpr);
     if let Some(brush) = rectangle.background() {
         setup_rectangle_path(cr, rectangle);
         set_brush(cr, brush, rectangle.rect(), media_store);
         _ = cr.fill();
     }
+    paint_shadows(cr, tile, rectangle.shadows(), true, dpr);
 
     // Per-side borders (e.g. `border-bottom: 1px solid …`) cannot be expressed as a single
     // stroked rectangle, so draw each visible side as its own filled edge. The uniform path

@@ -3,11 +3,13 @@ use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderSt
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient, Tiling};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendMode, Rectangle};
+use gosub_render_pipeline::painter::commands::shadow::{blur_reach, RoundedRect, Shadow};
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::gradient::{shaders, Colors as GradientColors, Gradient as SkGradient, Interpolation};
 use skia_safe::{
-    images, AlphaType, BlendMode as SkBlendMode, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize, ImageInfo,
-    Matrix, MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
+    images, AlphaType, BlendMode as SkBlendMode, BlurStyle, Canvas, ClipOp, Color, Color4f, ColorType, Data,
+    FilterMode, ISize, ImageInfo, MaskFilter, Matrix, MipmapMode, Paint, PathBuilder, PathFillType, Point, RRect, Rect,
+    SamplingOptions, TileMode,
 };
 
 /// CSS `mix-blend-mode` → Skia paint blend mode. The paint blends against the canvas content
@@ -35,6 +37,7 @@ fn to_skia_blend_mode(mode: CssBlendMode) -> SkBlendMode {
 
 pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_store: &MediaStore) {
     let r = cmd.rect();
+    paint_shadows(canvas, cmd.shadows(), false);
 
     if let Some(brush) = cmd.background() {
         if let Brush::Image(media_id, tiling) = brush {
@@ -73,6 +76,8 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
         }
     }
 
+    paint_shadows(canvas, cmd.shadows(), true);
+
     let border = cmd.border();
     if !border.is_uniform() {
         paint_per_side_border(canvas, cmd);
@@ -98,6 +103,49 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
             &paint,
         );
     }
+}
+
+/// Paints the outer or the inset ones of `shadows`, last to first so the first listed ends up on
+/// top. Skia blurs in CSS pixels: the blur's sigma follows the canvas' dpr scale.
+fn paint_shadows(canvas: &Canvas, shadows: &[Shadow], inset: bool) {
+    for shadow in shadows.iter().rev().filter(|shadow| shadow.inset == inset) {
+        let c = &shadow.color;
+        let mut paint = Paint::new(Color4f::new(c.r(), c.g(), c.b(), c.a()), None);
+        paint.set_anti_alias(true);
+        if shadow.sigma > 0.0 {
+            paint.set_mask_filter(MaskFilter::blur(BlurStyle::Normal, shadow.sigma as f32, None));
+        }
+        canvas.save();
+        if inset {
+            // Fill everything around the hole, from far enough out that the clip's own edge is
+            // past where the blur fades.
+            canvas.clip_rrect(sk_rrect(&shadow.clip), ClipOp::Intersect, true);
+            let (clip, shape) = (shadow.clip.rect, shadow.shape.rect);
+            let reach = blur_reach(shadow.sigma) + 1.0;
+            let x = clip.x.min(shape.x) - reach;
+            let y = clip.y.min(shape.y) - reach;
+            let x2 = (clip.x + clip.width).max(shape.x + shape.width) + reach;
+            let y2 = (clip.y + clip.height).max(shape.y + shape.height) + reach;
+            let mut path = PathBuilder::new();
+            path.set_fill_type(PathFillType::EvenOdd);
+            path.add_rect(Rect::new(x as f32, y as f32, x2 as f32, y2 as f32), None, None);
+            path.add_rrect(sk_rrect(&shadow.shape), None, None);
+            canvas.draw_path(&path.detach(), &paint);
+        } else {
+            canvas.clip_rrect(sk_rrect(&shadow.clip), ClipOp::Difference, true);
+            canvas.draw_rrect(sk_rrect(&shadow.shape), &paint);
+        }
+        canvas.restore();
+    }
+}
+
+fn sk_rrect(rounded: &RoundedRect) -> RRect {
+    let r = rounded.rect;
+    let rect = Rect::from_xywh(r.x as f32, r.y as f32, r.width as f32, r.height as f32);
+    RRect::new_rect_radii(
+        rect,
+        &rounded.radii.map(|radius| Point::new(radius.x as f32, radius.y as f32)),
+    )
 }
 
 /// Paints a non-uniform border (e.g. `border-bottom` only) by filling each visible side as a

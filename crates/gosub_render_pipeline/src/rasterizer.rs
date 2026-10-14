@@ -272,6 +272,25 @@ pub fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                     hf64!(tr);
                     hf64!(br);
                     hf64!(bl);
+                    hu64!(r.shadows().len() as u64);
+                    for shadow in r.shadows() {
+                        hbool!(shadow.inset);
+                        for rounded in [&shadow.shape, &shadow.clip] {
+                            hf64!(rounded.rect.x);
+                            hf64!(rounded.rect.y);
+                            hf64!(rounded.rect.width);
+                            hf64!(rounded.rect.height);
+                            for radius in &rounded.radii {
+                                hf64!(radius.x);
+                                hf64!(radius.y);
+                            }
+                        }
+                        hf64!(shadow.sigma);
+                        hf32!(shadow.color.r());
+                        hf32!(shadow.color.g());
+                        hf32!(shadow.color.b());
+                        hf32!(shadow.color.a());
+                    }
                 }
                 PaintCommand::Text(t) => {
                     fnv!(&[1u8]);

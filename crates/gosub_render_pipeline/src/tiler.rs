@@ -4,6 +4,7 @@ use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
 use crate::layouter::{LayoutElementId, LayoutElementNode};
+use crate::painter::commands::shadow::blur_reach;
 use crate::painter::commands::PaintCommand;
 use crate::painter::shape_cache::ShapeCache;
 use parking_lot::RwLock;
@@ -405,10 +406,10 @@ impl TileList {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
-                // An outline paints outside the margin box; without this the ring is clipped at
-                // the edge of a tile the element isn't assigned to.
+                // An outline and an outer shadow paint outside the margin box; without this they
+                // are clipped at the edge of a tile the element isn't assigned to.
                 let mut margin_box = paint_extent(element);
-                let ext = outline_extent(&*self.layer_list.layout_tree.render_tree.doc, element.dom_node_id);
+                let ext = ink_extent(&*self.layer_list.layout_tree.render_tree.doc, element.dom_node_id);
                 if ext > 0.0 {
                     margin_box = Rect::new(
                         margin_box.x - ext,
@@ -472,15 +473,29 @@ impl TileList {
     }
 }
 
-/// How far a visible outline reaches beyond the box (width + positive offset). Must agree with
-/// the painter's ring geometry.
-fn outline_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
-    let outline = doc.computed_style(node_id).outline.clone();
+/// How far an element's paint reaches beyond its border box: a visible outline (width +
+/// positive offset) or an outer shadow (offset + spread + blur), whichever goes further. Must
+/// agree with `Painter::outline_command` and with
+/// [`Shadow::ink_rect`](crate::painter::commands::shadow::Shadow::ink_rect).
+fn ink_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
+    let style = doc.computed_style(node_id);
+    let outline = &style.outline;
     let width = f64::from(outline.width);
-    if width <= 0.0 || !outline.style.is_visible() {
-        return 0.0;
-    }
-    width + f64::from(outline.offset).max(0.0)
+    let outline_reach = if width <= 0.0 || !outline.style.is_visible() {
+        0.0
+    } else {
+        width + f64::from(outline.offset).max(0.0)
+    };
+    style
+        .background
+        .shadows
+        .iter()
+        .filter(|shadow| !shadow.inset)
+        .map(|shadow| {
+            let offset = shadow.offset_x.abs().max(shadow.offset_y.abs());
+            f64::from(offset + shadow.spread.max(0.0)) + blur_reach(f64::from(shadow.blur) / 2.0)
+        })
+        .fold(outline_reach, f64::max)
 }
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {

@@ -109,7 +109,7 @@ pub(crate) fn paint_commands_to_scene(
                 }
             }
             PaintCommand::Svg(command) if !on_surface(command.rect.rect(), cur) => {}
-            PaintCommand::Rectangle(command) if !on_surface(command.rect(), cur) => {}
+            PaintCommand::Rectangle(command) if !on_surface(command.ink_rect(), cur) => {}
             PaintCommand::Text(command) if !on_surface(text_ink_box(command), cur) => {}
             PaintCommand::Svg(command) => {
                 svg::do_paint_svg(scene, command.media_id, &command.rect, cur, media_store);

@@ -9,6 +9,7 @@ pub mod color;
 pub mod gradient;
 pub mod image;
 pub mod rectangle;
+pub mod shadow;
 pub mod text;
 
 #[derive(Clone, Debug)]

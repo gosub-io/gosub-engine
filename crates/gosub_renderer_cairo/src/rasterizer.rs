@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod brush;
 mod rectangle;
+mod shadow;
 mod svg;
 mod text;
 
@@ -80,7 +81,7 @@ impl Rasterable for CairoRasterizer {
                             svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id, media_store, dpr);
                         }
                         PaintCommand::Rectangle(command) => {
-                            rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store);
+                            rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store, f64::from(dpr));
                         }
                         PaintCommand::Text(command) => {
                             if let Err(e) = text::glyphs::do_paint_text(&cr, tile, command, media_store) {

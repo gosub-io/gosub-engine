@@ -28,6 +28,7 @@ use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
 use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
+use crate::painter::commands::shadow::{RoundedRect, Shadow};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::painter::shape_cache::ShapeCache;
@@ -438,6 +439,16 @@ impl Painter {
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
+        // A run of text has no box of its own to cast a shadow, the popup is not the select, and
+        // the table's border overlay paints its cells' borders, not the table.
+        let (outer_shadows, mut inset_shadows) = match layout_element.context {
+            ElementContext::Text(_) | ElementContext::SelectPopup(_) | ElementContext::TableBorderOverlay(_) => {
+                (None, None)
+            }
+            _ => self.shadow_commands(layout_element, dom_node_id),
+        };
+        commands.extend(outer_shadows);
+
         // CSS background-image. For plain block elements (`None` context) it is painted just
         // after the background-color in that branch below (correct CSS layering). For
         // replaced/text content we paint it first so the element's own content stays on top.
@@ -466,6 +477,7 @@ impl Painter {
             }
             ElementContext::Svg(svg_ctx) => {
                 let border_box = layout_element.box_model.border_box;
+                commands.extend(inset_shadows.take());
                 commands.push(PaintCommand::svg(svg_ctx.media_id, Rectangle::new(border_box)));
                 // The SVG painter doesn't draw the element's CSS border/radius, so emit it as a
                 // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
@@ -493,6 +505,9 @@ impl Painter {
                         bg_r,
                     )));
                 }
+
+                // An inset shadow sits over the background and under the image.
+                commands.extend(inset_shadows.take());
 
                 let brush = Brush::image(image_ctx.media_id);
                 // A broken-image placeholder is drawn at its natural icon size in the top-left of
@@ -529,7 +544,12 @@ impl Painter {
                 }
             }
             ElementContext::FormControl(fc) => {
-                commands.extend(self.form_control_commands(fc, layout_element, dom_node_id));
+                // The control's chrome - its background and border - comes first; an inset shadow
+                // goes over that and under the value, the caret and the icons.
+                let mut control = self.form_control_commands(fc, layout_element, dom_node_id).into_iter();
+                commands.extend(control.next());
+                commands.extend(inset_shadows.take());
+                commands.extend(control);
             }
             ElementContext::SelectPopup(popup) => {
                 commands.extend(self.select_popup_commands(popup, layout_element));
@@ -581,6 +601,8 @@ impl Painter {
             }
         }
 
+        commands.extend(inset_shadows);
+
         // Text runs don't carry an outline; the owning element does. The popup shares the select's
         // node but isn't the select.
         if !matches!(
@@ -593,6 +615,76 @@ impl Painter {
         }
 
         commands
+    }
+
+    /// CSS `box-shadow`, as two shadow-only rectangles: the outer shadows, painted before
+    /// anything else of the element, and the inset ones, painted over its backgrounds and under
+    /// its content. An inset shadow stays inside the padding box, so painting it after the
+    /// border does not cover the border.
+    fn shadow_commands(
+        &self,
+        layout_element: &LayoutElementNode,
+        dom_node_id: NodeId,
+    ) -> (Option<PaintCommand>, Option<PaintCommand>) {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let style = doc.computed_style(dom_node_id);
+        if style.background.shadows.is_empty() {
+            return (None, None);
+        }
+
+        let bb = layout_element.box_model.border_box;
+        let border = &style.border;
+        let radii = used::border_radii(border, bb.width, bb.height);
+        let border_box = RoundedRect::new(bb, radii.map(|(x, y)| Radius::new_double(x, y)));
+
+        // The padding box's corners are the border box's, less the border on either side of them.
+        let [top, right, bottom, left] = [
+            border.top_width,
+            border.right_width,
+            border.bottom_width,
+            border.left_width,
+        ]
+        .map(f64::from);
+        let padding_rect = Rect::new(
+            bb.x + left,
+            bb.y + top,
+            (bb.width - left - right).max(0.0),
+            (bb.height - top - bottom).max(0.0),
+        );
+        let [tl, tr, br, bl] = radii;
+        let inner = |(x, y): (f64, f64), side_x: f64, side_y: f64| {
+            Radius::new_double((x - side_x).max(0.0), (y - side_y).max(0.0))
+        };
+        let padding_box = RoundedRect::new(
+            padding_rect,
+            [
+                inner(tl, left, top),
+                inner(tr, right, top),
+                inner(br, right, bottom),
+                inner(bl, left, bottom),
+            ],
+        );
+
+        let (mut outer, mut inset) = (Vec::new(), Vec::new());
+        for shadow in style.background.shadows.iter() {
+            let c = shadow.color;
+            let Brush::Solid(color) =
+                self.apply_opacity(dom_node_id, Brush::solid(Color::from_rgba8(c.r, c.g, c.b, c.a)))
+            else {
+                continue;
+            };
+            let offset = (f64::from(shadow.offset_x), f64::from(shadow.offset_y));
+            let (blur, spread) = (f64::from(shadow.blur), f64::from(shadow.spread));
+            if shadow.inset {
+                inset.push(Shadow::inset(padding_box, offset, blur, spread, color));
+            } else if let Some(shadow) = Shadow::outer(border_box, offset, blur, spread, color) {
+                outer.push(shadow);
+            }
+        }
+        let command = |shadows: Vec<Shadow>| {
+            (!shadows.is_empty()).then(|| PaintCommand::rectangle(Rectangle::new(bb).with_shadows(shadows)))
+        };
+        (command(outer), command(inset))
     }
 
     /// CSS `outline`: a border-only rectangle around the border box, inflated by offset + width,
