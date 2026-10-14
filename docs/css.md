@@ -310,8 +310,6 @@ and the clause that makes the new value right.
     all three are invalid selectors anyway) and the nesting selector `&`. CSS Nesting parses but
     its nested style rules are discarded by `collect_rule`.
 -   At-rule coverage stops at the five above.
--   An unresolvable `var()` drops its declaration; css-variables-1 §3.1 says the property should
-    then compute to `inherit` or `initial`.
 -   The two computed-value questions still answered in the typed-style conversion (listed above).
     One consequence: a relative `font-size` keyword (`smaller`) travels down as the keyword and
     is re-applied on every descendant.
