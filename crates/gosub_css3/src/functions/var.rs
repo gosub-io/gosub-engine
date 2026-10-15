@@ -7,6 +7,24 @@ use std::collections::HashMap;
 /// visited-name stack; this only bounds pathological but acyclic chains.
 pub(crate) const MAX_VAR_DEPTH: usize = 32;
 
+/// How many tokens one substitution may write. Depth alone does not bound the output:
+/// `--b: var(--a) var(--a); --c: var(--b) var(--b); …` doubles at every step, and so does the
+/// same chain spread over nested elements, each inheriting the last one's computed value.
+/// css-values-5 §7.3 requires a limit; a value that would exceed it is invalid at computed-value
+/// time.
+pub(crate) const MAX_SUBSTITUTION_TOKENS: usize = 1 << 16;
+
+/// How many bytes of text (strings, units, function names) one substitution may copy. The token
+/// limit alone lets a few long strings through: a 64 KiB string doubled 16 times is 65,536
+/// tokens and 4 GiB.
+pub(crate) const MAX_SUBSTITUTION_BYTES: usize = 2 << 20;
+
+/// How many tokens and bytes of text the custom properties one element declares may substitute
+/// between them. Each value staying under the limits above still lets a rule declare a hundred
+/// chains that each reach them, and the element keeps every result.
+pub(crate) const MAX_ELEMENT_SUBSTITUTION_TOKENS: usize = 1 << 18;
+pub(crate) const MAX_ELEMENT_SUBSTITUTION_BYTES: usize = 8 << 20;
+
 /// The custom properties a `var()` can see on one element.
 ///
 /// Most live in the map the element inherits and hands down. The two kinds `@property` adds do
@@ -54,7 +72,96 @@ impl<'a> From<&'a HashMap<String, CssValue>> for CustomScope<'a> {
 /// No tokens at all is a substitution like any other: an empty fallback (`var(--nope,)`) and an
 /// empty custom property (`--x:;`) both splice in nothing and leave the rest of the declaration.
 pub fn resolve_var<'a>(values: &[CssValue], custom_props: impl Into<CustomScope<'a>>) -> Option<Vec<CssValue>> {
-    resolve_var_inner(values, &custom_props.into(), &mut Vec::new()).ok()
+    resolve_var_inner(values, &custom_props.into(), None, &mut Walk::new(Vec::new())).ok()
+}
+
+/// How an `attr()` is answered: what its arguments stand for on one element. Taking it as a
+/// callback keeps the substitution walk itself free of the document, so what a value substitutes
+/// to can be asked without building one. `None` is the guaranteed-invalid value; an empty list is
+/// an `attr()` that substitutes to nothing, through an empty fallback.
+pub type AttrResolver<'a> = &'a dyn Fn(&[CssValue]) -> Option<Vec<CssValue>>;
+
+/// The computed value of custom property `name`, declared on this element as `value`: every
+/// `var()` and `attr()` in it substituted, here (css-variables-2 §2: "specified value with
+/// variables substituted"). That is what the element's children inherit, so a child that
+/// redefines a property this one referenced does not change it.
+///
+/// `custom_props` is this element's scope, its own declarations over what it inherits, so
+/// `--a: 1px; --b: var(--a)` on one element sees its own `--a`. `None` is the guaranteed-invalid
+/// value: a reference that does not resolve, or a cycle `name` is part of - its own fallbacks do
+/// not rescue it. So is a value the element's `budget` cannot pay for.
+pub fn compute_custom_property(
+    name: &str,
+    value: &CssValue,
+    custom_props: &CustomScope<'_>,
+    attr: AttrResolver<'_>,
+    budget: &mut SubstitutionBudget,
+) -> Option<Vec<CssValue>> {
+    let tokens = match value {
+        CssValue::List(list) => list.as_slice(),
+        other => std::slice::from_ref(other),
+    };
+    let mut walk = Walk {
+        seen: vec![name.to_string()],
+        tokens: budget.tokens.min(MAX_SUBSTITUTION_TOKENS),
+        bytes: budget.bytes.min(MAX_SUBSTITUTION_BYTES),
+    };
+    let (tokens_before, bytes_before) = (walk.tokens, walk.bytes);
+    let computed = substitute(tokens, custom_props, Some(attr), &mut walk);
+    budget.tokens -= tokens_before - walk.tokens;
+    budget.bytes -= bytes_before - walk.bytes;
+    computed.ok()
+}
+
+/// What is left of what one element's custom properties may substitute, shared by every
+/// [`compute_custom_property`] on that element. Work on a value that turns out invalid counts too.
+pub struct SubstitutionBudget {
+    tokens: usize,
+    bytes: usize,
+}
+
+impl SubstitutionBudget {
+    #[must_use]
+    pub fn for_element() -> Self {
+        Self {
+            tokens: MAX_ELEMENT_SUBSTITUTION_TOKENS,
+            bytes: MAX_ELEMENT_SUBSTITUTION_BYTES,
+        }
+    }
+}
+
+/// What one substitution carries along: the custom properties being resolved, outermost first,
+/// and how many more tokens and bytes of text it may write.
+struct Walk {
+    seen: Vec<String>,
+    tokens: usize,
+    bytes: usize,
+}
+
+impl Walk {
+    fn new(seen: Vec<String>) -> Self {
+        Self {
+            seen,
+            tokens: MAX_SUBSTITUTION_TOKENS,
+            bytes: MAX_SUBSTITUTION_BYTES,
+        }
+    }
+
+    /// Pays for one token holding `text` bytes of text, before it is copied, or fails once either
+    /// budget is spent.
+    fn spend(&mut self, text: usize) -> Result<(), Unresolved> {
+        self.tokens = self.tokens.checked_sub(1).ok_or(Unresolved::TooLong)?;
+        self.bytes = self.bytes.checked_sub(text).ok_or(Unresolved::TooLong)?;
+        Ok(())
+    }
+}
+
+/// The text a token holds itself, not counting a function's arguments.
+fn text_len(value: &CssValue) -> usize {
+    match value {
+        CssValue::String(text) | CssValue::Unit(_, text) | CssValue::Function(text, _) => text.len(),
+        _ => 0,
+    }
 }
 
 /// Why a reference did not substitute.
@@ -69,12 +176,17 @@ enum Unresolved {
     /// becomes [`Unresolved::Invalid`] at the property it started from, whose reference is what
     /// the fallback outside the cycle is for.
     Cycle(String),
+    /// The substitution ran past [`MAX_SUBSTITUTION_TOKENS`] or [`MAX_SUBSTITUTION_BYTES`]. The
+    /// whole value is invalid, so no fallback on the way out applies either; an empty one would
+    /// otherwise rescue it.
+    TooLong,
 }
 
 fn resolve_var_inner(
     values: &[CssValue],
     custom_props: &CustomScope<'_>,
-    seen: &mut Vec<String>,
+    attr: Option<AttrResolver<'_>>,
+    walk: &mut Walk,
 ) -> Result<Vec<CssValue>, Unresolved> {
     let name = values.first().map(ToString::to_string).ok_or(Unresolved::Invalid)?;
 
@@ -89,72 +201,94 @@ fn resolve_var_inner(
 
     // A `var()` inside the fallback (or inside the substituted value below) is resolved with the
     // same scope, so `var(--a, var(--b, red))` keeps working. An empty fallback is still one.
-    let resolve_fallback = |seen: &mut Vec<String>| match fallback {
-        Some(tokens) => substitute(tokens, custom_props, seen),
+    let resolve_fallback = |walk: &mut Walk| match fallback {
+        Some(tokens) => substitute(tokens, custom_props, attr, walk),
         None => Err(Unresolved::Invalid),
     };
 
     // A reference back into the chain being resolved closes a cycle. The reference itself is part
     // of it, so its own fallback does not apply either.
-    if seen.iter().any(|n| n == &name) {
+    if walk.seen.iter().any(|n| n == &name) {
         return Err(Unresolved::Cycle(name));
     }
-    if seen.len() >= MAX_VAR_DEPTH {
+    if walk.seen.len() >= MAX_VAR_DEPTH {
         return Err(Unresolved::Invalid);
     }
 
     let Some(value) = custom_props.get(&name) else {
         // Variable not defined - use the fallback if provided.
-        return resolve_fallback(seen);
+        return resolve_fallback(walk);
     };
 
     // `--x: initial` sets the property to its initial value, and css-variables-1 defines a custom
     // property's initial value as the guaranteed-invalid value. Substituting it would splice the
     // literal token `initial` into the declaration instead of taking the fallback.
     if matches!(value, CssValue::Initial) {
-        return resolve_fallback(seen);
+        return resolve_fallback(walk);
     }
 
-    // Custom properties are stored with their `var()` references intact (they are substituted
-    // lazily, at use), so the substituted value has to be resolved in turn.
-    seen.push(name);
-    let resolved = substitute(std::slice::from_ref(value), custom_props, seen);
-    let name = seen.pop().unwrap_or_default();
+    // A custom property this element inherited is stored computed, with nothing left to
+    // substitute; one it declares itself is still as written while its own value is being
+    // computed (`--a: 1px; --b: var(--a)`), so the substituted value is resolved in turn.
+    walk.seen.push(name);
+    let resolved = substitute(std::slice::from_ref(value), custom_props, attr, walk);
+    let name = walk.seen.pop().unwrap_or_default();
 
     match resolved {
         Ok(tokens) => Ok(tokens),
         // This property is inside a cycle that started further out: it is invalid, and so is
         // this reference to it, fallback or not.
         Err(Unresolved::Cycle(start)) if start != name => Err(Unresolved::Cycle(start)),
+        Err(Unresolved::TooLong) => Err(Unresolved::TooLong),
         // The custom property computes to the guaranteed-invalid value - through a cycle that
         // started here, or otherwise - which css-variables-1 treats the same as undefined: use
         // the fallback.
-        Err(_) => resolve_fallback(seen),
+        Err(_) => resolve_fallback(walk),
     }
 }
 
 /// Replaces every `var()` in `values` with its substitution, splicing multi-token results into
 /// the surrounding list. Fails when any `var()` is unresolvable, so the invalidity propagates to
-/// the declaration.
+/// the declaration. With an `attr` resolver, `attr()` is substituted the same way; without one
+/// it is left for the caller.
 fn substitute(
     values: &[CssValue],
     custom_props: &CustomScope<'_>,
-    seen: &mut Vec<String>,
+    attr: Option<AttrResolver<'_>>,
+    walk: &mut Walk,
 ) -> Result<Vec<CssValue>, Unresolved> {
     let mut out = Vec::with_capacity(values.len());
     for value in values {
         match value {
             CssValue::Function(name, args) if name.eq_ignore_ascii_case("var") => {
-                out.extend(resolve_var_inner(args, custom_props, seen)?);
+                out.extend(resolve_var_inner(args, custom_props, attr, walk)?);
             }
-            CssValue::List(list) => out.extend(substitute(list, custom_props, seen)?),
+            CssValue::Function(name, args) if name.eq_ignore_ascii_case("attr") && attr.is_some() => {
+                let resolve = attr.ok_or(Unresolved::Invalid)?;
+                // No usable value or fallback: invalid at computed-value time. An empty fallback
+                // is valid and splices in nothing. A fallback may hold a `var()`, which is
+                // substituted in turn.
+                let tokens = resolve(args).ok_or(Unresolved::Invalid)?;
+                out.extend(substitute(&tokens, custom_props, attr, walk)?);
+            }
+            CssValue::List(list) => out.extend(substitute(list, custom_props, attr, walk)?),
             // Any other function may hold a `var()` among its arguments -
             // `linear-gradient(var(--from), white)` - so it is rebuilt around its substituted
             // arguments rather than cloned whole.
             CssValue::Function(name, args) => {
-                out.push(CssValue::Function(name.clone(), substitute(args, custom_props, seen)?));
+                walk.spend(name.len())?;
+                out.push(CssValue::Function(
+                    name.clone(),
+                    substitute(args, custom_props, attr, walk)?,
+                ));
             }
-            other => out.push(other.clone()),
+            // Every token a substitution writes is written here, once, at the deepest level that
+            // copies it; what an inner call returns is only moved up. So this counts the output,
+            // and it counts work spent on fallbacks that are then thrown away.
+            other => {
+                walk.spend(text_len(other))?;
+                out.push(other.clone());
+            }
         }
     }
     Ok(out)
@@ -247,6 +381,112 @@ mod tests {
 
         let args = vec![s("--accent"), CssValue::Comma, s("blue")];
         assert_eq!(resolve_var(&args, &props), Some(vec![s("blue")]));
+    }
+
+    /// `--p: var(--q, 5px)` with `--q: var(--p)` on one element: both are in the cycle, so `--p`
+    /// computes to the guaranteed-invalid value, and the fallback inside the cycle does not
+    /// rescue it (css-variables-1 §2.3).
+    #[test]
+    fn a_custom_property_in_a_cycle_computes_to_nothing() {
+        let inherited = HashMap::new();
+        let declared = vec![
+            (
+                "--p".to_string(),
+                CssValue::Function("var".to_string(), vec![s("--q"), CssValue::Comma, s("5px")]),
+            ),
+            ("--q".to_string(), CssValue::Function("var".to_string(), vec![s("--p")])),
+        ];
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &declared,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+        assert_eq!(
+            compute_custom_property("--p", &declared[0].1, &scope, &attr, &mut budget),
+            None
+        );
+        assert_eq!(
+            compute_custom_property("--q", &declared[1].1, &scope, &attr, &mut budget),
+            None
+        );
+    }
+
+    #[test]
+    fn a_substitution_past_the_token_limit_is_invalid() {
+        // `--p0: x; --pN: var(--pN-1) var(--pN-1)`: --pN is 2^N tokens.
+        let var = |n: u32| CssValue::Function("var".to_string(), vec![s(&format!("--p{n}"))]);
+        let mut pairs = vec![("--p0".to_string(), s("x"))];
+        pairs.extend((1..=20).map(|n| (format!("--p{n}"), CssValue::List(vec![var(n - 1), var(n - 1)]))));
+        let inherited = HashMap::new();
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &pairs,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+
+        let small = compute_custom_property("--p10", &pairs[10].1, &scope, &attr, &mut budget);
+        assert_eq!(small.map(|tokens| tokens.len()), Some(1 << 10));
+        assert_eq!(
+            compute_custom_property("--p20", &pairs[20].1, &scope, &attr, &mut budget),
+            None
+        );
+        // No fallback rescues it, not even an empty one.
+        assert_eq!(resolve_var(&[s("--p20"), CssValue::Comma], scope), None);
+    }
+
+    #[test]
+    fn a_substitution_past_the_byte_limit_is_invalid() {
+        // `--p0` is one 64 KiB string, so --pN is 2^N tokens but 2^N * 64 KiB of text.
+        let var = |n: u32| CssValue::Function("var".to_string(), vec![s(&format!("--p{n}"))]);
+        let mut pairs = vec![("--p0".to_string(), s(&"x".repeat(64 << 10)))];
+        pairs.extend((1..=6).map(|n| (format!("--p{n}"), CssValue::List(vec![var(n - 1), var(n - 1)]))));
+        let inherited = HashMap::new();
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &pairs,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+
+        let small = compute_custom_property("--p4", &pairs[4].1, &scope, &attr, &mut budget);
+        assert_eq!(small.map(|tokens| tokens.len()), Some(16));
+        assert_eq!(
+            compute_custom_property("--p6", &pairs[6].1, &scope, &attr, &mut budget),
+            None
+        );
+    }
+
+    #[test]
+    fn one_element_shares_a_substitution_budget() {
+        // --p15 is 32,768 tokens, under the limit for one value; the element pays for 8 of them.
+        let var = |n: u32| CssValue::Function("var".to_string(), vec![s(&format!("--p{n}"))]);
+        let mut pairs = vec![("--p0".to_string(), s("x"))];
+        pairs.extend((1..=15).map(|n| (format!("--p{n}"), CssValue::List(vec![var(n - 1), var(n - 1)]))));
+        let inherited = HashMap::new();
+        let scope = CustomScope {
+            inherited: &inherited,
+            local: &pairs,
+            registry: None,
+        };
+        let attr = |_: &[CssValue]| None;
+        let mut budget = SubstitutionBudget::for_element();
+
+        for _ in 0..8 {
+            let computed = compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut budget);
+            assert_eq!(computed.map(|tokens| tokens.len()), Some(1 << 15));
+        }
+        assert_eq!(
+            compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut budget),
+            None
+        );
+        // A fresh element starts over.
+        let mut next = SubstitutionBudget::for_element();
+        assert!(compute_custom_property("--p15", &pairs[15].1, &scope, &attr, &mut next).is_some());
     }
 
     #[test]
