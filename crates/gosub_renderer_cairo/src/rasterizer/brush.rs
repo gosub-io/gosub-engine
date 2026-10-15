@@ -99,11 +99,14 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                             } else {
                                 cairo::Filter::Nearest
                             });
-                            // Cairo's surface extend is 2D; honour full-repeat (default) and no-repeat.
+                            // Cairo's surface extend is 2D: repeat when either axis repeats, else pad
+                            // to the image's own edge pixels, so bilinear sampling at the border does
+                            // not fade into transparency. The caller clips to the tile's footprint
+                            // (`Tiling::footprint`), which keeps the padding from showing.
                             let extend = if t.repeat.0 || t.repeat.1 {
                                 cairo::Extend::Repeat
                             } else {
-                                cairo::Extend::None
+                                cairo::Extend::Pad
                             };
                             pattern.set_extend(extend);
                             (

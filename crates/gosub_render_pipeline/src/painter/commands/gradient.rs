@@ -1,3 +1,4 @@
+use crate::common::geo::Rect;
 use crate::common::media::{MAX_IMAGE_EDGE, MAX_KEPT_PIXELS};
 use crate::painter::commands::color::Color;
 
@@ -19,6 +20,30 @@ pub struct Tiling {
     pub position: (f32, f32),
     /// Whether the tile repeats along the x / y axis (`background-repeat`).
     pub repeat: (bool, bool),
+}
+
+impl Tiling {
+    /// The part of `rect` (the box the tiling is anchored to) that the tile covers along each
+    /// axis it does not repeat on. A backend samples such a tile with its edge pixels extended,
+    /// so smooth scaling keeps an opaque edge, and paints only this part, so nothing shows past
+    /// the tile. `None` when the tile repeats both ways and covers all of `rect`; an empty
+    /// rect when the tile lies outside it.
+    pub fn footprint(&self, rect: Rect) -> Option<Rect> {
+        if self.repeat.0 && self.repeat.1 {
+            return None;
+        }
+        let axis = |repeat: bool, start: f64, len: f64, offset: f32, size: f32| {
+            if repeat {
+                return (start, len);
+            }
+            let from = (start + f64::from(offset)).max(start);
+            let to = (start + f64::from(offset) + f64::from(size)).min(start + len);
+            (from, (to - from).max(0.0))
+        };
+        let (x, w) = axis(self.repeat.0, rect.x, rect.width, self.position.0, self.tile_size.0);
+        let (y, h) = axis(self.repeat.1, rect.y, rect.height, self.position.1, self.tile_size.1);
+        Some(Rect::new(x, y, w, h))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -300,5 +325,48 @@ mod tests {
             }
         }
         assert!(squashed.chunks(4).any(|p| p[0] == 255) && squashed.chunks(4).any(|p| p[2] == 255));
+    }
+
+    fn tile(position: (f32, f32), repeat: (bool, bool)) -> Tiling {
+        Tiling {
+            tile_size: (40.0, 20.0),
+            position,
+            repeat,
+        }
+    }
+
+    fn rect_of(r: Rect) -> (f64, f64, f64, f64) {
+        (r.x, r.y, r.width, r.height)
+    }
+
+    #[test]
+    fn footprint_of_a_single_tile_is_its_own_area() {
+        let f = tile((10.0, 5.0), (false, false)).footprint(Rect::new(100.0, 200.0, 80.0, 60.0));
+        assert_eq!(f.map(rect_of), Some((110.0, 205.0, 40.0, 20.0)));
+    }
+
+    #[test]
+    fn footprint_is_cut_to_the_box() {
+        // A tile hanging off the top-left corner covers only the part inside the box.
+        let f = tile((-30.0, -15.0), (false, false)).footprint(Rect::new(0.0, 0.0, 80.0, 60.0));
+        assert_eq!(f.map(rect_of), Some((0.0, 0.0, 10.0, 5.0)));
+    }
+
+    #[test]
+    fn footprint_spans_the_box_on_a_repeating_axis() {
+        // repeat-x: the whole width, but only the tile's own row.
+        let f = tile((10.0, 5.0), (true, false)).footprint(Rect::new(0.0, 0.0, 80.0, 60.0));
+        assert_eq!(f.map(rect_of), Some((0.0, 5.0, 80.0, 20.0)));
+        assert!(tile((10.0, 5.0), (true, true))
+            .footprint(Rect::new(0.0, 0.0, 80.0, 60.0))
+            .is_none());
+    }
+
+    #[test]
+    fn footprint_of_a_tile_outside_the_box_is_empty() {
+        let f = tile((100.0, 0.0), (false, false))
+            .footprint(Rect::new(0.0, 0.0, 80.0, 60.0))
+            .unwrap();
+        assert_eq!(f.width, 0.0);
     }
 }

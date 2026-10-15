@@ -1,3 +1,4 @@
+use gosub_render_pipeline::common::geo::Rect as GeoRect;
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::brush::Brush;
@@ -250,7 +251,10 @@ fn draw_image_brush(
     if let Some(t) = tiling {
         let sx = t.tile_size.0 / iw as f32;
         let sy = t.tile_size.1 / ih as f32;
-        let mode = |repeat: bool| if repeat { TileMode::Repeat } else { TileMode::Decal };
+        // A tile that does not repeat clamps to its own edge pixels, so linear sampling at the
+        // border blends with the image rather than with transparency; the clip to its footprint
+        // below keeps the clamped edge from painting past the tile.
+        let mode = |repeat: bool| if repeat { TileMode::Repeat } else { TileMode::Clamp };
         let tile_modes = (mode(t.repeat.0), mode(t.repeat.1));
         let mut local = Matrix::translate((x + t.position.0, y + t.position.1));
         local.pre_scale((sx, sy), None);
@@ -268,10 +272,22 @@ fn draw_image_brush(
         if let Some(shader) = image.to_shader(tile_modes, sampling, Some(&local)) {
             paint.set_shader(shader);
         }
+        let footprint = t.footprint(GeoRect::new(x as f64, y as f64, w as f64, h as f64));
+        if let Some(f) = footprint {
+            if f.width <= 0.0 || f.height <= 0.0 {
+                return;
+            }
+            canvas.save();
+            let clip = Rect::from_xywh(f.x as f32, f.y as f32, f.width as f32, f.height as f32);
+            canvas.clip_rect(clip, ClipOp::Intersect, true);
+        }
         if cmd.is_rounded() {
             canvas.draw_rrect(rounded_rect(cmd, dest, 0.0), &paint);
         } else {
             canvas.draw_rect(dest, &paint);
+        }
+        if footprint.is_some() {
+            canvas.restore();
         }
         return;
     }
@@ -349,5 +365,58 @@ fn apply_tiled_gradient(paint: &mut Paint, g: &LinearGradient, tiling: &Tiling, 
     let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
     if let Some(shader) = image.to_shader(tile_modes, sampling, Some(&local)) {
         paint.set_shader(shader);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_render_pipeline::common::media::MediaType;
+    use skia_safe::{surfaces, EncodedImageFormat};
+
+    /// A 2x2 opaque red PNG, stored and returned by id.
+    fn red_image(store: &MediaStore) -> MediaId {
+        let mut surface = surfaces::raster_n32_premul((2, 2)).expect("surface");
+        surface.canvas().clear(Color::RED);
+        let png = surface
+            .image_snapshot()
+            .encode(None, EncodedImageFormat::PNG, None)
+            .expect("png");
+        store
+            .load_media_from_data(MediaType::Image, png.as_bytes())
+            .expect("decodes")
+    }
+
+    #[test]
+    fn scaled_single_tile_keeps_its_edge_and_paints_nothing_past_it() {
+        let store = MediaStore::new();
+        let media_id = red_image(&store);
+        let mut surface = surfaces::raster_n32_premul((40, 40)).expect("surface");
+        surface.canvas().clear(Color::TRANSPARENT);
+        let cmd = Rectangle::new(GeoRect::new(0.0, 0.0, 40.0, 40.0));
+        // The 2x2 image scaled to 20x20 (so linear sampling) and placed once at the top-left.
+        let tiling = Tiling {
+            tile_size: (20.0, 20.0),
+            position: (0.0, 0.0),
+            repeat: (false, false),
+        };
+        draw_image_brush(
+            surface.canvas(),
+            &cmd,
+            media_id,
+            &store,
+            Some(&tiling),
+            0.0,
+            0.0,
+            40.0,
+            40.0,
+        );
+        let snapshot = surface.image_snapshot();
+        let pixmap = snapshot.peek_pixels().expect("raster pixels");
+        let alpha = |x: i32, y: i32| pixmap.get_color((x, y)).a();
+        assert_eq!(alpha(19, 10), 255, "the tile's last column is opaque, not faded");
+        assert_eq!(alpha(10, 19), 255, "the tile's last row is opaque, not faded");
+        assert_eq!(alpha(20, 10), 0, "nothing right of the tile");
+        assert_eq!(alpha(10, 20), 0, "nothing below the tile");
     }
 }
