@@ -2257,10 +2257,10 @@ mod rendertree_from_engine {
     }
 
     /// `object-fit` and `object-position` place an 80x40 image in a 100x100 box. The image is
-    /// painted over the part of the content box it covers, as one tile positioned against that
-    /// part: `contain` letterboxes it, `cover` crops it, `none` keeps its size at the chosen
-    /// corner, `scale-down` behaves as `none` when the image is the smaller one. Padding moves the
-    /// content box, and `fill` still stretches the image over the whole box.
+    /// painted over the content box as one non-repeating tile positioned in it (backends paint a
+    /// tile only where it lies): `contain` letterboxes it, `cover` crops it, `none` keeps its size
+    /// at the chosen corner, `scale-down` behaves as `none` when the image is the smaller one.
+    /// Padding moves the content box, and `fill` still stretches the image over the whole box.
     #[test]
     fn object_fit_places_the_image_in_its_content_box() {
         use crate::common::browser_state::{BrowserState, WireframeState};
@@ -2297,6 +2297,7 @@ mod rendertree_from_engine {
                 <img id="padded" src="{src}" style="object-fit: contain; object-position: left top; padding: 5px">
                 <img id="fill" src="{src}">
                 <img id="avatar" src="{src}" style="object-fit: cover; width: 100.1px; border-radius: 50%">
+                <img id="corner" src="{src}" style="object-fit: none; object-position: left top; border-radius: 50%">
             </body></html>"#
         );
 
@@ -2304,8 +2305,17 @@ mod rendertree_from_engine {
         doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let root = adapter.doc.root();
-        let ids = ["contain", "cover", "none", "scale-down", "padded", "fill", "avatar"]
-            .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+        let ids = [
+            "contain",
+            "cover",
+            "none",
+            "scale-down",
+            "padded",
+            "fill",
+            "avatar",
+            "corner",
+        ]
+        .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
 
         let mut render_tree = RenderTree::new(Arc::new(adapter));
         render_tree.parse().expect("render tree");
@@ -2366,7 +2376,7 @@ mod rendertree_from_engine {
 
         assert_eq!(
             contain,
-            ((0.0, 25.0, 100.0, 50.0), Some((100.0, 50.0, 0.0, 0.0))),
+            ((0.0, 0.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 25.0))),
             "contain: full width, centred"
         );
         assert_eq!(
@@ -2376,27 +2386,34 @@ mod rendertree_from_engine {
         );
         assert_eq!(
             none,
-            ((20.0, 60.0, 80.0, 40.0), Some((80.0, 40.0, 0.0, 0.0))),
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 20.0, 60.0))),
             "none: natural size, at the bottom-right corner"
         );
         assert_eq!(
             scale_down,
-            ((10.0, 20.0, 80.0, 40.0), Some((80.0, 40.0, 0.0, 0.0))),
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 10.0, 20.0))),
             "scale-down: never enlarged, offset from the top-left"
         );
         assert_eq!(
             padded,
-            ((5.0, 5.0, 100.0, 50.0), Some((100.0, 50.0, 0.0, 0.0))),
+            ((5.0, 5.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 0.0))),
             "the content box, inside the padding"
         );
         assert_eq!(fill, ((0.0, 0.0, 100.0, 100.0), None), "fill stretches over the box");
 
-        // A box whose width f32 cannot hold exactly still counts as covered edge to edge, so a
-        // round avatar keeps its round clip.
-        let avatar_rounded = painter.paint_element(elements[6].0, &state).into_iter().any(|cmd| {
-            matches!(&cmd, PaintCommand::Rectangle(r) if matches!(r.background(), Some(Brush::Image(..))) && r.is_rounded())
-        });
-        assert!(avatar_rounded, "a cover image is clipped to the rounded box");
+        // The image rectangle carries the content box's radii whatever part of the box the image
+        // covers: a round avatar (with a width f32 cannot hold exactly), and an image that covers
+        // only the top-left corner, which must still follow that corner's curve.
+        let image_rounded = |i: usize| {
+            painter.paint_element(elements[i].0, &state).into_iter().any(|cmd| {
+                matches!(&cmd, PaintCommand::Rectangle(r) if matches!(r.background(), Some(Brush::Image(..))) && r.is_rounded())
+            })
+        };
+        assert!(image_rounded(6), "a cover image is clipped to the rounded box");
+        assert!(
+            image_rounded(7),
+            "a partly covering image is clipped to the rounded corner"
+        );
     }
 
     /// Percentage padding on the table resolves against the containing block's width: 5% of

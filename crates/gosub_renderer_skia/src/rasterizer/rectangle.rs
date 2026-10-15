@@ -419,4 +419,40 @@ mod tests {
         assert_eq!(alpha(20, 10), 0, "nothing right of the tile");
         assert_eq!(alpha(10, 20), 0, "nothing below the tile");
     }
+
+    #[test]
+    fn a_tile_under_a_rounded_corner_follows_the_curve() {
+        use gosub_render_pipeline::painter::commands::rectangle::Radius;
+
+        let store = MediaStore::new();
+        let media_id = red_image(&store);
+        let mut surface = surfaces::raster_n32_premul((100, 100)).expect("surface");
+        surface.canvas().clear(Color::TRANSPARENT);
+        // `border-radius: 50%` on a 100x100 box, with an 80x40 image at its top-left
+        // (`object-fit: none; object-position: left top`).
+        let cmd = Rectangle::new(GeoRect::new(0.0, 0.0, 100.0, 100.0)).with_radius(Radius::new(50.0));
+        let tiling = Tiling {
+            tile_size: (80.0, 40.0),
+            position: (0.0, 0.0),
+            repeat: (false, false),
+        };
+        draw_image_brush(
+            surface.canvas(),
+            &cmd,
+            media_id,
+            &store,
+            Some(&tiling),
+            0.0,
+            0.0,
+            100.0,
+            100.0,
+        );
+        let snapshot = surface.image_snapshot();
+        let pixmap = snapshot.peek_pixels().expect("raster pixels");
+        let alpha = |x: i32, y: i32| pixmap.get_color((x, y)).a();
+        assert_eq!(alpha(3, 3), 0, "outside the top-left curve");
+        assert_eq!(alpha(77, 5), 0, "outside the top-right curve, though inside the image");
+        assert_eq!(alpha(40, 20), 255, "inside the curve and the image");
+        assert_eq!(alpha(50, 60), 0, "below the image");
+    }
 }

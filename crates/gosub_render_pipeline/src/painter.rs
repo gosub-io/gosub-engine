@@ -518,18 +518,18 @@ impl Painter {
                     let natural = (image_ctx.dimension.width as f32, image_ctx.dimension.height as f32);
                     let position = self.layer_list.layout_tree.render_tree.doc.object_position(dom_node_id);
                     let content_box = layout_element.box_model.content_box;
-                    if let Some((visible, tiling)) = object_fit_placement(natural, content_box, fit, position) {
-                        let mut r = Rectangle::new(visible)
+                    if let Some(tiling) = object_fit_placement(natural, content_box, fit, position) {
+                        // The rectangle is the whole content box, rounded by its inner radii; the
+                        // image is one non-repeating tile in it, and backends paint a tile only
+                        // where it lies. So a `contain` image leaves its letterbox empty, a `cover`
+                        // one is cropped, and any part of the image under a rounded corner follows
+                        // the curve, whether or not the image reaches the other edges.
+                        let mut r = Rectangle::new(content_box)
                             .with_background(Brush::image_tiled(image_ctx.media_id, Some(tiling)))
                             .with_blend_mode(blend);
-                        // Rounded corners clip the content box, so they only apply to an image
-                        // that reaches all four of its edges; a letterboxed one keeps square
-                        // corners.
-                        if same_rect(visible, content_box) {
-                            let [tl, tr, br, bl] = inner_radii(&style.border, border_box, content_box);
-                            if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
-                                r = r.with_radius_tlrb(tl, tr, br, bl);
-                            }
+                        let [tl, tr, br, bl] = inner_radii(&style.border, border_box, content_box);
+                        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+                            r = r.with_radius_tlrb(tl, tr, br, bl);
                         }
                         commands.push(PaintCommand::rectangle(r));
                     }
@@ -1477,17 +1477,16 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
     }
 }
 
-/// Where `object-fit` and `object-position` put an image of `natural` size in `content`: the part
-/// of the content box the image covers, and the image as one tile positioned against that part.
-/// Painting only the covered part keeps the space beside a `contain` image empty (a non-repeating
-/// tile is clamped, not transparent, in some backends) and crops a `cover` image to the box.
-/// `None` when there is nothing to paint, or no natural size to fit by.
+/// Where `object-fit` and `object-position` put an image of `natural` size in `content`: one
+/// non-repeating tile, positioned against the content box. It may hang over the box's edges
+/// (`cover`, or `none` with a large image); painting is limited to the box and to the tile.
+/// `None` when there is no box or no natural size to fit by.
 fn object_fit_placement(
     natural: (f32, f32),
     content: Rect,
     fit: ObjectFit,
     position: (BgAnchor, BgAnchor),
-) -> Option<(Rect, Tiling)> {
+) -> Option<Tiling> {
     let (nw, nh) = natural;
     let (cw, ch) = (content.width as f32, content.height as f32);
     if nw <= 0.0 || nh <= 0.0 || cw <= 0.0 || ch <= 0.0 {
@@ -1507,39 +1506,11 @@ fn object_fit_placement(
             (nw * s, nh * s)
         }
     };
-    let x = content.x + f64::from(position.0.resolve(cw, w));
-    let y = content.y + f64::from(position.1.resolve(ch, h));
-
-    // The size is worked out in f32, the box is f64: an image that fills an axis can come back a
-    // hair short of an edge, which would cost a `cover` avatar its rounded clip. Within a
-    // hundredth of a pixel, it reaches the edge.
-    let snap = |edge: f64, to: f64| if (edge - to).abs() < 0.01 { to } else { edge };
-    let left = snap(x.max(content.x), content.x);
-    let top = snap(y.max(content.y), content.y);
-    let right = snap(
-        (x + f64::from(w)).min(content.x + content.width),
-        content.x + content.width,
-    );
-    let bottom = snap(
-        (y + f64::from(h)).min(content.y + content.height),
-        content.y + content.height,
-    );
-    if right <= left || bottom <= top {
-        return None;
-    }
-    let visible = Rect::new(left, top, right - left, bottom - top);
-    Some((
-        visible,
-        Tiling {
-            tile_size: (w, h),
-            position: ((x - left) as f32, (y - top) as f32),
-            repeat: (false, false),
-        },
-    ))
-}
-
-fn same_rect(a: Rect, b: Rect) -> bool {
-    a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+    Some(Tiling {
+        tile_size: (w, h),
+        position: (position.0.resolve(cw, w), position.1.resolve(ch, h)),
+        repeat: (false, false),
+    })
 }
 
 /// The corner radii of the content box: the border box's radii less the border and padding on
