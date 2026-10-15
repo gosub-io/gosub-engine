@@ -11,6 +11,7 @@ pub mod errors;
 pub mod font;
 pub mod geo;
 pub mod memory;
+pub mod microsyntax;
 pub mod node;
 pub mod subresource;
 pub mod svg_limits;

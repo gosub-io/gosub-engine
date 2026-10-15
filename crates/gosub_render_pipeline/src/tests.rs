@@ -42,6 +42,60 @@ mod rendertree_from_engine {
         rt
     }
 
+    /// Range and meter attributes are read with HTML's rules for parsing floating-point numbers
+    /// (#1392). `NaN` used to reach `f64::clamp` as a bound and panic layout; `inf` and `1e999`
+    /// were taken as numbers. Each is an error now, and the attribute's default applies.
+    #[test]
+    fn non_numeric_range_and_meter_attributes_fall_back_to_their_defaults() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::{CanLayout, ElementContext, FormControl};
+
+        let html = r#"<html><body>
+          <input id="nan-min" type="range" min="NaN">
+          <input id="inf" type="range" max="1e999" value="inf">
+          <input id="lenient" type="range" value=" +25px">
+          <input id="huge" type="range" min="-1e308" max="1e308" value="1e308">
+          <meter id="nan-low" low="nan" value="0.5"></meter>
+          <meter id="meter-nan-min" min="NaN" value="0.25"></meter>
+        </body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = Arc::new(GosubDocumentAdapter::<Config>::new(Arc::new(doc)));
+        let ids = ["nan-min", "inf", "lenient", "huge", "nan-low", "meter-nan-min"];
+        let nodes: Vec<_> = ids
+            .iter()
+            .map(|id| find_node_by_id_attr(&adapter.doc, adapter.doc.root(), id).expect(id))
+            .collect();
+        let mut render_tree = RenderTree::new(adapter);
+        render_tree.parse().expect("render tree");
+        let layout_tree = TaffyLayouter::new().layout(render_tree, Some(Dimension::new(800.0, 600.0)), 1.0);
+
+        let fraction = |index: usize| {
+            let control = layout_tree
+                .arena
+                .values()
+                .find_map(|el| match &el.context {
+                    ElementContext::FormControl(fc) if el.dom_node_id == nodes[index] => Some(fc.control.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{} is a form control", ids[index]));
+            match control {
+                FormControl::Range { fraction, .. } | FormControl::Meter { fraction, .. } => fraction,
+                other => panic!("{}: unexpected {other:?}", ids[index]),
+            }
+        };
+        // min 0, max 100, value halfway.
+        assert_eq!(fraction(0), 0.5, "NaN min");
+        assert_eq!(fraction(1), 0.5, "1e999 max and inf value");
+        assert_eq!(fraction(2), 0.25, "leading whitespace, + and a trailing unit");
+        // max - min overflows a double; the fraction must not turn into inf / inf.
+        assert_eq!(fraction(3), 1.0, "bounds near the largest double");
+        // min 0, max 1.
+        assert_eq!(fraction(4), 0.5, "NaN low");
+        assert_eq!(fraction(5), 0.25, "NaN meter min");
+    }
+
     /// `border-top: 3px dashed red` (a per-side shorthand) must set that side's width, style
     /// and color - from a stylesheet and from an inline `style=""` alike.
     #[test]
