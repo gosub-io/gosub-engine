@@ -1,6 +1,7 @@
 use crate::rasterizer::brush::set_brush;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
+use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use gosub_render_pipeline::painter::commands::shadow::{self, blur_reach, Shadow};
 use vello::kurbo;
@@ -55,9 +56,24 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
 fn paint_rectangle_content(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     paint_shadows(scene, rect.shadows(), false, affine);
     if let Some(brush) = rect.background() {
-        let vello_rect = setup_rectangle_path(rect);
-        let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
-        scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &vello_rect);
+        // The brush pads a tile that does not repeat to its edge pixels; clip to the tile's
+        // footprint so the padding does not paint past it.
+        let footprint = match brush {
+            Brush::Image(_, Some(t)) => t.footprint(rect.rect()),
+            _ => None,
+        };
+        if footprint.is_none_or(|f| f.width > 0.0 && f.height > 0.0) {
+            if let Some(f) = footprint {
+                let clip = Rect::new(f.x, f.y, f.x + f.width, f.y + f.height);
+                scene.push_clip_layer(Fill::NonZero, affine, &clip);
+            }
+            let vello_rect = setup_rectangle_path(rect);
+            let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
+            scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &vello_rect);
+            if footprint.is_some() {
+                scene.pop_layer();
+            }
+        }
     }
     paint_shadows(scene, rect.shadows(), true, affine);
 

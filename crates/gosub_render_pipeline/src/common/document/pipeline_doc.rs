@@ -528,6 +528,12 @@ pub trait PipelineDocument: Send + Sync {
         BgImageLayout::default()
     }
 
+    /// `object-position`, one anchor per axis, resolved against the content box at paint time.
+    /// Initially `50% 50%`: the content sits centred.
+    fn object_position(&self, _id: NodeId) -> (BgAnchor, BgAnchor) {
+        (BgAnchor::Percent(50.0), BgAnchor::Percent(50.0))
+    }
+
     fn is_focused(&self, _id: NodeId) -> bool {
         false
     }
@@ -1974,6 +1980,20 @@ where
         });
 
         BgImageLayout { repeat, position, size }
+    }
+
+    fn object_position(&self, id: NodeId) -> (BgAnchor, BgAnchor) {
+        let centred = (BgAnchor::Percent(50.0), BgAnchor::Percent(50.0));
+        if is_anon_box_id(u64::from(id)) {
+            return centred;
+        }
+        let arc = self.cached_styles(id);
+        // Same `<position>` grammar as `background-position`, one value instead of a list.
+        <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "object-position")
+            .map(bg_token_groups::<C::CssSystem>)
+            .and_then(|groups| groups.into_iter().next())
+            .filter(|group| group.iter().any(is_position_token))
+            .map_or(centred, |group| resolve_bg_position(&group))
     }
 
     fn clear_style_cache(&self) {

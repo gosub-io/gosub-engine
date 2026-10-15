@@ -335,6 +335,16 @@ pub enum TableLayout {
     Fixed,
 }
 
+/// `object-fit`: how a replaced element's content is sized into its content box.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectFit {
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
+}
+
 /// `vertical-align`, keyword form. `Other` is every value this engine does not act on - a
 /// length, and the `inherit` the user-agent sheet puts on cells - which the cell-alignment
 /// walk treats as "keep looking further up".
@@ -504,6 +514,7 @@ declare_props! {
     AspectRatio,
     TextWrap,
     TableLayout,
+    ObjectFit,
     VerticalAlign,
 
     Width,
@@ -688,6 +699,7 @@ pub struct BoxGroup {
     pub aspect_ratio: Option<f32>,
     pub text_wrap: TextWrap,
     pub table_layout: TableLayout,
+    pub object_fit: ObjectFit,
     pub vertical_align: VerticalAlign,
 }
 
@@ -1080,6 +1092,7 @@ impl ComputedStyle {
                 aspect_ratio: None,
                 text_wrap: TextWrap::Wrap,
                 table_layout: TableLayout::Auto,
+                object_fit: ObjectFit::Fill,
                 vertical_align: VerticalAlign::Baseline,
             }),
             size: Arc::new(SizeGroup {

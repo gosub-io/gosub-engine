@@ -4,9 +4,9 @@ pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
+use crate::common::document::pipeline_doc::{BgAnchor, BgImageLayout, BgSize};
 use gosub_interface::style::{
-    BorderCollapse, BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display,
+    BorderCollapse, BorderStyle as CssBorderStyle, Color as CssColor, ComputedStyle, Display, ObjectFit,
 };
 
 /// Which colour of a [`ComputedStyle`] a brush is made from. A function pointer rather than a
@@ -510,35 +510,71 @@ impl Painter {
                 // An inset shadow sits over the background and under the image.
                 commands.extend(inset_shadows.take());
 
-                let brush = Brush::image(image_ctx.media_id);
-                // A broken-image placeholder is drawn at its natural icon size in the top-left of
-                // the reserved box (like Firefox) rather than stretched to fill it.
-                let draw_box = if image_ctx.placeholder {
-                    let iw = (image_ctx.dimension.width).min(border_box.width);
-                    let ih = (image_ctx.dimension.height).min(border_box.height);
-                    Rect::new(border_box.x, border_box.y, iw, ih)
-                } else {
-                    border_box
-                };
-                let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
-                // The border/radius belongs to the element box, not the shrunk icon rect.
-                let border_target = if image_ctx.placeholder { border_box } else { draw_box };
-                let border_r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_target));
-                if image_ctx.placeholder {
-                    commands.push(PaintCommand::rectangle(r));
-                    // Emit the element border separately so it frames the full reserved box.
+                // Any `object-fit` but `fill` sizes the image into the content box by its own
+                // aspect ratio and anchors it at `object-position`; `fill` stretches it to the box
+                // as below.
+                let style = self.layer_list.layout_tree.render_tree.doc.computed_style(dom_node_id);
+                let fit = style.box_group.object_fit;
+                if !image_ctx.placeholder && fit != ObjectFit::Fill {
+                    let natural = (image_ctx.dimension.width as f32, image_ctx.dimension.height as f32);
+                    let position = self.layer_list.layout_tree.render_tree.doc.object_position(dom_node_id);
+                    let content_box = layout_element.box_model.content_box;
+                    if let Some(tiling) = object_fit_placement(natural, content_box, fit, position) {
+                        // The rectangle is the whole content box, rounded by its inner radii; the
+                        // image is one non-repeating tile in it, and backends paint a tile only
+                        // where it lies. So a `contain` image leaves its letterbox empty, a `cover`
+                        // one is cropped, and any part of the image under a rounded corner follows
+                        // the curve, whether or not the image reaches the other edges.
+                        let mut r = Rectangle::new(content_box)
+                            .with_background(Brush::image_tiled(image_ctx.media_id, Some(tiling)))
+                            .with_blend_mode(blend);
+                        let [tl, tr, br, bl] = inner_radii(&style.border, border_box, content_box);
+                        if [tl, tr, br, bl].iter().any(|radius| radius.x > 0.0 || radius.y > 0.0) {
+                            r = r.with_radius_tlrb(tl, tr, br, bl);
+                        }
+                        commands.push(PaintCommand::rectangle(r));
+                    }
                     if self.has_border(dom_node_id) {
+                        let border_r =
+                            self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_box));
                         commands.push(PaintCommand::rectangle(border_r));
                     }
                 } else {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
-                    commands.push(PaintCommand::rectangle(r));
+                    let brush = Brush::image(image_ctx.media_id);
+                    // A broken-image placeholder is drawn at its natural icon size in the top-left of
+                    // the reserved box (like Firefox) rather than stretched to fill it.
+                    let draw_box = if image_ctx.placeholder {
+                        let iw = (image_ctx.dimension.width).min(border_box.width);
+                        let ih = (image_ctx.dimension.height).min(border_box.height);
+                        Rect::new(border_box.x, border_box.y, iw, ih)
+                    } else {
+                        border_box
+                    };
+                    let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
+                    // The border/radius belongs to the element box, not the shrunk icon rect.
+                    let border_target = if image_ctx.placeholder { border_box } else { draw_box };
+                    let border_r =
+                        self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_target));
+                    if image_ctx.placeholder {
+                        commands.push(PaintCommand::rectangle(r));
+                        // Emit the element border separately so it frames the full reserved box.
+                        if self.has_border(dom_node_id) {
+                            commands.push(PaintCommand::rectangle(border_r));
+                        }
+                    } else {
+                        let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
+                        commands.push(PaintCommand::rectangle(r));
+                    }
                 }
 
                 // Browsers show `alt` inside the box when the image renders nothing visible. For a
                 // placeholder it sits right of the broken-image icon, else at the box's top-left.
                 if let Some(alt) = &image_ctx.alt {
-                    let icon_w = if image_ctx.placeholder { draw_box.width } else { 0.0 };
+                    let icon_w = if image_ctx.placeholder {
+                        image_ctx.dimension.width.min(border_box.width)
+                    } else {
+                        0.0
+                    };
                     if let Some(cmd) = self.image_alt_command(dom_node_id, alt, border_box, icon_w) {
                         commands.push(cmd);
                     }
@@ -1439,6 +1475,62 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
         CssBorderStyle::Hidden => BorderStyle::Hidden,
         CssBorderStyle::None => BorderStyle::None,
     }
+}
+
+/// Where `object-fit` and `object-position` put an image of `natural` size in `content`: one
+/// non-repeating tile, positioned against the content box. It may hang over the box's edges
+/// (`cover`, or `none` with a large image); painting is limited to the box and to the tile.
+/// `None` when there is no box or no natural size to fit by.
+fn object_fit_placement(
+    natural: (f32, f32),
+    content: Rect,
+    fit: ObjectFit,
+    position: (BgAnchor, BgAnchor),
+) -> Option<Tiling> {
+    let (nw, nh) = natural;
+    let (cw, ch) = (content.width as f32, content.height as f32);
+    if nw <= 0.0 || nh <= 0.0 || cw <= 0.0 || ch <= 0.0 {
+        return None;
+    }
+    let contain = (cw / nw).min(ch / nh);
+    let (w, h) = match fit {
+        ObjectFit::Fill => (cw, ch),
+        ObjectFit::Contain => (nw * contain, nh * contain),
+        ObjectFit::Cover => {
+            let s = (cw / nw).max(ch / nh);
+            (nw * s, nh * s)
+        }
+        ObjectFit::None => (nw, nh),
+        ObjectFit::ScaleDown => {
+            let s = contain.min(1.0);
+            (nw * s, nh * s)
+        }
+    };
+    Some(Tiling {
+        tile_size: (w, h),
+        position: (position.0.resolve(cw, w), position.1.resolve(ch, h)),
+        repeat: (false, false),
+    })
+}
+
+/// The corner radii of the content box: the border box's radii less the border and padding on
+/// each side, never below zero (css-backgrounds-3 §5.2).
+fn inner_radii(border: &gosub_interface::style::BorderGroup, border_box: Rect, content: Rect) -> [Radius; 4] {
+    let left = content.x - border_box.x;
+    let top = content.y - border_box.y;
+    let right = (border_box.x + border_box.width) - (content.x + content.width);
+    let bottom = (border_box.y + border_box.height) - (content.y + content.height);
+    let [tl, tr, br, bl] = used::border_radii(border, border_box.width, border_box.height);
+    let inner = |(x, y): (f64, f64), dx: f64, dy: f64| Radius {
+        x: (x - dx).max(0.0),
+        y: (y - dy).max(0.0),
+    };
+    [
+        inner(tl, left, top),
+        inner(tr, right, top),
+        inner(br, right, bottom),
+        inner(bl, left, bottom),
+    ]
 }
 
 /// Resolves `background-size`/`-position` into a [`Tiling`], now that the border box is known.

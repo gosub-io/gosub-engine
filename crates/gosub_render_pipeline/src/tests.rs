@@ -2310,6 +2310,166 @@ mod rendertree_from_engine {
         );
     }
 
+    /// `object-fit` and `object-position` place an 80x40 image in a 100x100 box. The image is
+    /// painted over the content box as one non-repeating tile positioned in it (backends paint a
+    /// tile only where it lies): `contain` letterboxes it, `cover` crops it, `none` keeps its size
+    /// at the chosen corner, `scale-down` behaves as `none` when the image is the smaller one.
+    /// Padding moves the content box, and `fill` still stretches the image over the whole box.
+    #[test]
+    fn object_fit_places_the_image_in_its_content_box() {
+        use crate::common::browser_state::{BrowserState, WireframeState};
+        use crate::common::geo::{Dimension, Rect};
+        use crate::common::MediaStore;
+        use crate::layering::layer::LayerList;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout;
+        use crate::painter::commands::brush::Brush;
+        use crate::painter::commands::PaintCommand;
+        use crate::painter::Painter;
+        use base64::Engine;
+        use gosub_fontmanager::ParleyFontSystem;
+        use image::ImageEncoder;
+        use parking_lot::Mutex;
+
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(&[255; 80 * 40 * 4], 80, 40, image::ExtendedColorType::Rgba8)
+            .expect("encode");
+        let src = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        );
+        let html = format!(
+            r#"<html><head><style>
+                body {{ margin: 0 }}
+                img {{ display: block; width: 100px; height: 100px; }}
+            </style></head><body>
+                <img id="contain" src="{src}" style="object-fit: contain">
+                <img id="cover" src="{src}" style="object-fit: cover">
+                <img id="none" src="{src}" style="object-fit: none; object-position: right bottom">
+                <img id="scale-down" src="{src}" style="object-fit: scale-down; object-position: 10px 20px">
+                <img id="padded" src="{src}" style="object-fit: contain; object-position: left top; padding: 5px">
+                <img id="fill" src="{src}">
+                <img id="avatar" src="{src}" style="object-fit: cover; width: 100.1px; border-radius: 50%">
+                <img id="corner" src="{src}" style="object-fit: none; object-position: left top; border-radius: 50%">
+            </body></html>"#
+        );
+
+        let mut doc = html_compile::<Config>(&html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let ids = [
+            "contain",
+            "cover",
+            "none",
+            "scale-down",
+            "padded",
+            "fill",
+            "avatar",
+            "corner",
+        ]
+        .map(|id| find_node_by_id_attr(&adapter.doc, root, id).expect(id));
+
+        let mut render_tree = RenderTree::new(Arc::new(adapter));
+        render_tree.parse().expect("render tree");
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let mut layouter =
+            TaffyLayouter::with_font_system_and_media_store(Arc::new(Mutex::new(ParleyFontSystem::new())), store);
+        let layout_tree = layouter.layout(render_tree, Some(Dimension::new(800.0, 800.0)), 1.0);
+        let elements: Vec<_> = ids
+            .iter()
+            .map(|dom| {
+                let (id, el) = layout_tree
+                    .arena
+                    .iter()
+                    .find(|(_, el)| el.dom_node_id == *dom)
+                    .expect("the img is laid out");
+                (*id, el.box_model.border_box.y)
+            })
+            .collect();
+
+        let layer_list = Arc::new(LayerList::new(Arc::new(layout_tree)));
+        let state = BrowserState {
+            visible_layer_list: vec![true; layer_list.layer_ids.read().len()],
+            wireframed: WireframeState::None,
+            debug_hover: false,
+            current_hovered_element: None,
+            show_tilegrid: false,
+            debug_table_cells: false,
+            viewport: Rect::new(0.0, 0.0, 800.0, 800.0),
+            tile_list: None,
+            dpi_scale_factor: 1.0,
+        };
+        let painter = Painter::new(layer_list, None);
+
+        // The one image rectangle each element paints: its rect relative to the element's top,
+        // and its tile as (width, height, x, y), or `None` for a stretched image.
+        type Placed = ((f64, f64, f64, f64), Option<(f32, f32, f32, f32)>);
+        let image_of = |(id, top): (_, f64)| -> Placed {
+            let images: Vec<Placed> = painter
+                .paint_element(id, &state)
+                .into_iter()
+                .filter_map(|cmd| match cmd {
+                    PaintCommand::Rectangle(r) => match r.background() {
+                        Some(Brush::Image(_, tiling)) => {
+                            let rect = r.rect();
+                            let tile = tiling.map(|t| (t.tile_size.0, t.tile_size.1, t.position.0, t.position.1));
+                            Some(((rect.x, rect.y - top, rect.width, rect.height), tile))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(images.len(), 1, "one image rectangle: {images:?}");
+            images[0]
+        };
+        let [contain, cover, none, scale_down, padded, fill] = [0, 1, 2, 3, 4, 5].map(|i| image_of(elements[i]));
+
+        assert_eq!(
+            contain,
+            ((0.0, 0.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 25.0))),
+            "contain: full width, centred"
+        );
+        assert_eq!(
+            cover,
+            ((0.0, 0.0, 100.0, 100.0), Some((200.0, 100.0, -50.0, 0.0))),
+            "cover: full height, cropped either side"
+        );
+        assert_eq!(
+            none,
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 20.0, 60.0))),
+            "none: natural size, at the bottom-right corner"
+        );
+        assert_eq!(
+            scale_down,
+            ((0.0, 0.0, 100.0, 100.0), Some((80.0, 40.0, 10.0, 20.0))),
+            "scale-down: never enlarged, offset from the top-left"
+        );
+        assert_eq!(
+            padded,
+            ((5.0, 5.0, 100.0, 100.0), Some((100.0, 50.0, 0.0, 0.0))),
+            "the content box, inside the padding"
+        );
+        assert_eq!(fill, ((0.0, 0.0, 100.0, 100.0), None), "fill stretches over the box");
+
+        // The image rectangle carries the content box's radii whatever part of the box the image
+        // covers: a round avatar (with a width f32 cannot hold exactly), and an image that covers
+        // only the top-left corner, which must still follow that corner's curve.
+        let image_rounded = |i: usize| {
+            painter.paint_element(elements[i].0, &state).into_iter().any(|cmd| {
+                matches!(&cmd, PaintCommand::Rectangle(r) if matches!(r.background(), Some(Brush::Image(..))) && r.is_rounded())
+            })
+        };
+        assert!(image_rounded(6), "a cover image is clipped to the rounded box");
+        assert!(
+            image_rounded(7),
+            "a partly covering image is clipped to the rounded corner"
+        );
+    }
+
     /// Percentage padding on the table resolves against the containing block's width: 5% of
     /// 400px is 20px a side. The caption spans the table's border box, padding included, and the
     /// cell sits inside that padding. The numbers are Chromium's. The vertical padding is in

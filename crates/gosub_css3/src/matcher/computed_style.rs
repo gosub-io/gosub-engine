@@ -20,17 +20,17 @@ use cow_utils::CowUtils;
 use gosub_interface::style::{
     AlignValue, BorderCollapse, BorderStyle, BoxShadow, BoxSizing, CaptionSide, Clear, Color, ComputedStyle, Display,
     FlexDirection, FlexWrap, Float, FontStyle, FontWeight, GridAreas, GridAutoFlow, GridLine, LengthPercentage,
-    LengthPercentageAuto, LetterSpacing, LineHeight, Overflow, Position, Prop, RepeatCount, TableLayout, TextAlign,
-    TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize, VerticalAlign,
-    Visibility, WhiteSpace, ZIndex,
+    LengthPercentageAuto, LetterSpacing, LineHeight, ObjectFit, Overflow, Position, Prop, RepeatCount, TableLayout,
+    TextAlign, TextDecorationLine, TextTransform, TextWrap, TrackBreadth, TrackList, TrackListItem, TrackSize,
+    VerticalAlign, Visibility, WhiteSpace, ZIndex,
 };
 
 use crate::colors::resolve::{resolve_color, ColorContext};
 use crate::colors::{CssColor, RgbColor};
 use crate::matcher::keywords::{
     BorderCollapseKeyword, BorderTopStyleKeyword, BoxSizingKeyword, CaptionSideKeyword, ClearKeyword,
-    FlexDirectionKeyword, Keyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword, TextAlignKeyword,
-    VisibilityKeyword, WhiteSpaceKeyword,
+    FlexDirectionKeyword, Keyword, ObjectFitKeyword, OutlineStyleKeyword, OverflowXKeyword, TableLayoutKeyword,
+    TextAlignKeyword, VisibilityKeyword, WhiteSpaceKeyword,
 };
 use crate::matcher::property_ids::{LonghandId, PropertyId, LONGHAND_COUNT, PROPERTY_COUNT};
 use crate::matcher::styling::CssProperties;
@@ -664,6 +664,7 @@ static ENGINE_LONGHANDS: &[(LonghandId, Prop, u16)] = &[
     (LonghandId::TextWrapMode, Prop::TextWrap, G_BOX),
     (LonghandId::TextWrapStyle, Prop::TextWrap, G_BOX),
     (LonghandId::TableLayout, Prop::TableLayout, G_BOX),
+    (LonghandId::ObjectFit, Prop::ObjectFit, G_BOX),
     (LonghandId::VerticalAlign, Prop::VerticalAlign, G_BOX),
     // size
     (LonghandId::Width, Prop::Width, G_SIZE),
@@ -1246,6 +1247,16 @@ fn resolve_box(map: &CssProperties, style: &mut ComputedStyle) {
             TableLayoutKeyword::Fixed => TableLayout::Fixed,
             TableLayoutKeyword::Auto => TableLayout::Auto,
         }));
+
+    read!(map, style, ObjectFit, box_mut, object_fit, |value| keyword(value).map(
+        |keyword| match keyword {
+            ObjectFitKeyword::Fill => ObjectFit::Fill,
+            ObjectFitKeyword::Contain => ObjectFit::Contain,
+            ObjectFitKeyword::Cover => ObjectFit::Cover,
+            ObjectFitKeyword::None => ObjectFit::None,
+            ObjectFitKeyword::ScaleDown => ObjectFit::ScaleDown,
+        }
+    ));
 
     read!(map, style, VerticalAlign, box_mut, vertical_align, |value| as_string(
         value
